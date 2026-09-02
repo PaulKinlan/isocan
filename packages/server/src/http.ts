@@ -2277,7 +2277,16 @@ export function registerRoutes(
     if (!Array.isArray(body.entries)) {
       return { error: "adopt takes the canvas's entries", code: "bad-op" };
     }
-    return engine.adopt(id, body.entries);
+    const made = await engine.adopt(id, body.entries);
+    /**
+     * The same bootstrap `project.create` takes, for the same reason: the
+     * canvas did not exist to be admitted to a moment ago, and this badge
+     * made it. Without it a restored backup (`isocan import`) was a canvas
+     * nobody could enter — no grants travel, and the only other root is
+     * "somebody let me in", which nobody at a fresh home could do.
+     */
+    await admit(req, id, true);
+    return made;
   });
 
   app.post("/api/projects/:id/gc", async (req) => {

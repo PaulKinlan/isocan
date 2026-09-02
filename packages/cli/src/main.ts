@@ -56,6 +56,9 @@ import {
   workbenchUrl,
   canvasUrlWithPass,
   parseCanvasAddress,
+  parseExportTarget,
+  describeExportedCanvas,
+  EXPORT_LAYOUT,
   setupCommand,
   actorsAnswerTo,
   cancelledSince,
@@ -274,6 +277,8 @@ import { DEFAULT_MODE, DIRECT_VAR, refuseDaemonVerb, resolveDeclared } from "@is
 import { CanvasHandle, activityRows, buildComment } from "@isocan/api";
 import { defaultCloneDir, gitRemote } from "./gitrepo.ts";
 import { ApiError, DaemonClient, type Health } from "@isocan/api";
+import { DaemonRoutes, exportCanvases, exportItem, importExport, type ExportReport } from "@isocan/api";
+import { gitBackup, type GitBackupReport } from "./backup-git.ts";
 import {
   adoptIdentity,
   readIdentity,
@@ -5023,6 +5028,218 @@ program
   );
 
 program
+  .command("export [target]")
+  .description(
+    "Back a canvas up — its whole history and every blob it names — to a directory, and to git",
+  )
+  .option("--to <dir>", "the directory to write into (default: ./isocan-backup)")
+  .option("--item <ref>", "one item of the canvas rather than the whole canvas")
+  .option("--all", "every canvas this daemon lists")
+  .option("--dry-run", "say what would be written, and write nothing")
+  .option("--commit", "commit the export into the git repository at --to (made if there is none)")
+  .option("--git <remote>", "commit, set origin to this remote if there is none, and push")
+  .option(
+    "--jsoncanvas <file>",
+    "write the canvas as a JSON Canvas file (jsoncanvas.org) instead — a format other tools read, NOT a backup",
+  )
+  .action(
+    run(
+      async (
+        target: string | undefined,
+        opts: {
+          to?: string;
+          item?: string;
+          all?: boolean;
+          dryRun?: boolean;
+          commit?: boolean;
+          git?: string;
+          jsoncanvas?: string;
+        },
+        cmd: Command,
+      ) => {
+        const ctx = await ctxOf(cmd);
+        const out = path.resolve(process.cwd(), opts.to ?? "isocan-backup");
+        const say = ctx.json ? () => {} : (line: string) => console.log(line);
+        /**
+         * The manifest names who ran it when somebody did. Reads never demand
+         * an actor — `ctx.actor` is a getter that refuses when nobody has an
+         * identity here — and a backup must not either.
+         */
+        let by: Actor | undefined;
+        try {
+          by = ctx.actor;
+        } catch {
+          by = undefined;
+        }
+        const common = { out, dryRun: opts.dryRun === true, ...(by ? { by } : {}), say };
+
+        /**
+         * **Three shapes of target, one verb.** A URL is read at the home it
+         * names — a canvas, one item, or the home itself — on the badge the
+         * door hands this machine, so a canvas you may see is a canvas you
+         * may back up, replicated here or not. Anything else is a ref for
+         * the ordinary resolution: this directory's canvas, an id, a title.
+         */
+        const parsed = target === undefined ? null : parseExportTarget(target);
+        let report: ExportReport;
+        if (parsed) {
+          if (opts.all) {
+            throw new Error("--all means every canvas at THIS daemon; a home address already means every canvas there");
+          }
+          const client: DaemonRoutes =
+            parsed.origin === ctx.client.base ? ctx.client : new DaemonRoutes(parsed.origin, ctx.home);
+          if (parsed.kind === "home") {
+            const canvases = await client.listCanvases();
+            if (canvases.length === 0) {
+              throw new Error(
+                `${parsed.origin} lists no canvases for this machine's badge — a home shows you the ` +
+                  "canvases you have been admitted to; open one there first, or name it by address",
+              );
+            }
+            report = await exportCanvases(client, canvases, common);
+          } else {
+            const snapshot = await client.snapshot(parsed.canvasId);
+            const canvas = snapshot.project;
+            if (opts.jsoncanvas) return writeJsonCanvas(ctx, client, canvas.id, snapshot, opts.jsoncanvas);
+            const itemRef = parsed.kind === "item" ? parsed.itemId : opts.item;
+            report = itemRef
+              ? await exportItem(client, canvas, resolveItem(snapshot, itemRef), common)
+              : await exportCanvases(client, [canvas], common);
+          }
+        } else if (opts.all) {
+          if (opts.jsoncanvas) throw new Error("--jsoncanvas writes ONE canvas to one file; name the canvas");
+          const canvases = await ctx.client.listCanvases();
+          if (canvases.length === 0) throw new Error("this daemon lists no canvases — nothing to back up");
+          report = await exportCanvases(ctx.client, canvases, common);
+        } else {
+          if (target !== undefined) ctx.canvasRef = target;
+          const { canvas, snapshot } = await canvasAndSnapshot(ctx);
+          if (opts.jsoncanvas) return writeJsonCanvas(ctx, ctx.client, canvas.id, snapshot, opts.jsoncanvas);
+          report = opts.item
+            ? await exportItem(ctx.client, canvas, resolveItem(snapshot, opts.item), common)
+            : await exportCanvases(ctx.client, [canvas], common);
+        }
+
+        /**
+         * What gets staged is the export's own directories, not just the
+         * files this run wrote: a blob skipped because it was already on disk
+         * from a run that was never committed still belongs in the commit.
+         * Still never `-A` — `--to .` inside somebody's project must not
+         * sweep their work into a commit about a backup.
+         */
+        let git: GitBackupReport | undefined;
+        if ((opts.commit || opts.git) && !report.dryRun) {
+          const candidates = [
+            EXPORT_LAYOUT.manifest,
+            EXPORT_LAYOUT.names,
+            ...report.canvases.map((row) => path.join(EXPORT_LAYOUT.canvases, row.id)),
+            ...report.items.map((row) => path.join(EXPORT_LAYOUT.items, row.canvasId, row.itemId)),
+          ];
+          const present: string[] = [];
+          for (const rel of candidates) {
+            try {
+              await fs.access(path.join(out, rel));
+              present.push(rel);
+            } catch {
+              /* not written this time — an item export has no names.json */
+            }
+          }
+          const what = [...report.canvases.map((r) => r.title), ...report.items.map((r) => r.title)].join(", ");
+          git = gitBackup({
+            dir: out,
+            paths: present,
+            message: `isocan export: ${what}`,
+            ...(opts.git ? { remote: opts.git } : {}),
+            push: Boolean(opts.git),
+          });
+        }
+
+        if (ctx.json) return printJson({ ...report, ...(git ? { git } : {}) });
+        printKeyValues({ from: report.from, to: out });
+        for (const row of report.canvases) {
+          console.log(`  ${describeExportedCanvas(row)}`);
+          for (const hash of row.missing) console.log(`    missing at the home: ${hash}`);
+        }
+        for (const row of report.items) {
+          console.log(
+            `  ${row.title} (${row.itemId}) — ${row.versions} version${row.versions === 1 ? "" : "s"}, ${row.ops} op${row.ops === 1 ? "" : "s"}`,
+          );
+          for (const hash of row.missing) console.log(`    missing at the home: ${hash}`);
+        }
+        if (report.dryRun) {
+          console.log("");
+          console.log("nothing written — this was a dry run. Run it again without --dry-run to write it.");
+          return;
+        }
+        const missing = [...report.canvases, ...report.items].reduce((n, r) => n + r.missing.length, 0);
+        if (missing > 0) {
+          console.log("");
+          console.log(
+            `the home no longer has ${missing} blob${missing === 1 ? "" : "s"} the history names — ` +
+              `listed under "missing" in ${EXPORT_LAYOUT.manifest}, so this backup says where its holes are`,
+          );
+        }
+        if (git) {
+          console.log("");
+          if (git.initialized) console.log(`made a git repository at ${git.repo}`);
+          console.log(
+            git.committed
+              ? `committed ${git.commit} in ${git.repo}`
+              : "nothing to commit — the backup has not changed since the last one",
+          );
+          if (git.pushed) console.log(`pushed to ${git.pushed}`);
+        }
+        console.log("");
+        console.log(`restore with: isocan import ${opts.to ?? "isocan-backup"}`);
+      },
+    ),
+  );
+
+program
+  .command("import <dir>")
+  .description("Restore a backup made by `isocan export` — its whole history, seqs and timestamps intact")
+  .option("--to <home>", "restore to this home instead of this machine's daemon")
+  .option("--only <canvasId>", "just this canvas from the export")
+  .option("--dry-run", "say what would be restored, and restore nothing")
+  .action(
+    run(async (dir: string, opts: { to?: string; only?: string; dryRun?: boolean }, cmd: Command) => {
+      const ctx = await ctxOf(cmd);
+      const client: DaemonRoutes = opts.to
+        ? new DaemonRoutes(normalizeHomeUrl(opts.to), ctx.home)
+        : ctx.client;
+      const say = ctx.json ? () => {} : (line: string) => console.log(line);
+      const report = await importExport(client, path.resolve(process.cwd(), dir), {
+        dryRun: opts.dryRun === true,
+        ...(opts.only ? { only: opts.only } : {}),
+        say,
+      });
+      // A refusal is per canvas so the others still land, and it is still a
+      // failure this command must not exit 0 from.
+      if (report.refused.length > 0) process.exitCode = 1;
+      if (ctx.json) return printJson(report);
+      if (report.dryRun) {
+        console.log("");
+        console.log("nothing restored — this was a dry run. Run it again without --dry-run to restore it.");
+        return;
+      }
+      const failed = report.restored.reduce((n, r) => n + r.failed.length, 0);
+      if (failed > 0) {
+        console.log("");
+        console.log(`${failed} blob${failed === 1 ? "" : "s"} did not land — the bytes are still in ${report.dir}:`);
+        for (const row of report.restored) {
+          for (const f of row.failed) console.log(`  ${row.id} ${f.hash}: ${f.error}`);
+        }
+      }
+      if (report.restored.length > 0) {
+        console.log("");
+        console.log("what does NOT come back with a canvas:");
+        console.log("  who may enter — `isocan share` at the restored canvas sets its link and invites people");
+        console.log("  names, colours and face marks — people appear under whatever name was stamped on their ops");
+      }
+    }),
+  );
+
+program
   .command("tree")
   .description("The directory bound to this canvas, as its home daemon lists it")
   .action(
@@ -6156,45 +6373,45 @@ doc
  * in would mint a canvas whose history begins at import. Pretending a round
  * trip exists is how somebody loses work.
  */
-program
-  .command("export <file>")
-  .description("Write this canvas as JSON Canvas (jsoncanvas.org)")
-  .option("--canvas <canvas>", "which canvas")
-  .action(
-    run(async (file: string, opts: { canvas?: string }, cmd: Command) => {
-      const ctx = await ctxOf(cmd);
-      if (opts.canvas) ctx.canvasRef = opts.canvas;
-      const { canvas: p, snapshot } = await canvasAndSnapshot(ctx);
-      /**
-       * A site item's URL lives in its BYTES, not in the version record, so
-       * core cannot reach it — the resolver is what turns those items into
-       * real `link` nodes instead of files. Fetched only for the handful of
-       * `text/uri-list` items rather than for the whole canvas: an export that
-       * downloads every blob to read four of them is a slow export.
-       */
-      const bodies = new Map<string, string>();
-      for (const item of Object.values(snapshot.canvas.items)) {
-        const v = item.versions.find((x) => x.id === item.currentVersionId);
-        if (v?.mimeType !== BROWSER_MIME) continue;
-        const bytes = await ctx.client.downloadBlob(p.id, v.blobHash).catch(() => null);
-        if (bytes) bodies.set(item.id, bytes.toString("utf8"));
-      }
-      const { file: out, lost } = toJsonCanvas(snapshot.canvas, {
-        bodyOf: (item) => bodies.get(item.id) ?? null,
-      });
-      await fs.writeFile(path.resolve(process.cwd(), file), JSON.stringify(out, null, 2) + "\n");
-      if (ctx.json) return printJson({ file, nodes: out.nodes.length, edges: out.edges.length, lost });
-      console.log(`${file} — ${out.nodes.length} nodes, ${out.edges.length} edges`);
-      /**
-       * **What did not cross, said out loud.** An export that quietly drops
-       * half a canvas is the worst kind of success: it looks like a backup.
-       */
-      const losses = describeLosses(lost);
-      if (losses.length) {
-        console.log(`the format has no room for ${losses.join(", ")} — this is not a backup`);
-      }
-    }),
-  );
+/**
+ * **JSON Canvas is a format, not a backup** — and it used to be the whole of
+ * `isocan export <file>`. It lives on as `isocan export --jsoncanvas <file>`,
+ * beside the backup the verb now means, so a canvas can still be handed to
+ * Obsidian and the like; what its output says about itself ("this is not a
+ * backup") is exactly why the bare verb stopped being it.
+ *
+ * A site item's URL lives in its BYTES, not in the version record, so core
+ * cannot reach it — the resolver is what turns those items into real `link`
+ * nodes instead of files. Fetched only for the handful of `text/uri-list`
+ * items rather than for the whole canvas.
+ */
+async function writeJsonCanvas(
+  ctx: Ctx,
+  client: DaemonRoutes,
+  canvasId: string,
+  snapshot: CanvasSnapshotResponse,
+  file: string,
+): Promise<void> {
+  const bodies = new Map<string, string>();
+  for (const item of Object.values(snapshot.canvas.items)) {
+    const v = item.versions.find((x) => x.id === item.currentVersionId);
+    if (v?.mimeType !== BROWSER_MIME) continue;
+    const bytes = await client.downloadBlob(canvasId, v.blobHash).catch(() => null);
+    if (bytes) bodies.set(item.id, bytes.toString("utf8"));
+  }
+  const { file: out, lost } = toJsonCanvas(snapshot.canvas, {
+    bodyOf: (item) => bodies.get(item.id) ?? null,
+  });
+  await fs.writeFile(path.resolve(process.cwd(), file), JSON.stringify(out, null, 2) + "\n");
+  if (ctx.json) return printJson({ file, nodes: out.nodes.length, edges: out.edges.length, lost });
+  console.log(`${file} — ${out.nodes.length} nodes, ${out.edges.length} edges`);
+  // What did not cross, said out loud. An export that quietly drops half a
+  // canvas is the worst kind of success: it looks like a backup.
+  const losses = describeLosses(lost);
+  if (losses.length) {
+    console.log(`the format has no room for ${losses.join(", ")} — this is not a backup`);
+  }
+}
 
 program
   .command("inbox")
