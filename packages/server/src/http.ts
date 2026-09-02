@@ -2270,6 +2270,17 @@ export function registerRoutes(
    * written verbatim, seq and timestamp included, because a canvas replayed
    * through the ordinary write path would arrive correctly ordered and
    * entirely re-dated.
+   *
+   * The adopting badge's first admission here is taken after the fact, for
+   * the reason `project.create`'s is: the canvas did not exist to be admitted
+   * to a moment ago. It earned this one by bringing the canvas — the same
+   * `{root: "created"}` a birth gets, and no grant, because grants do not
+   * travel — and it is what lets the rest of the teleport through the door:
+   * the bytes follow the log (see `Engine.teleport`), and a home that took
+   * the log and then refused the badge that sent it would leave every item
+   * here pointing at nothing. It is also what makes a restored backup
+   * (`isocan import`) enterable at all: no grants travel, and the only other
+   * root is "somebody let me in", which nobody at a fresh home could do.
    */
   app.post("/api/projects/:id/adopt", async (req) => {
     const { id } = req.params as { id: string };
@@ -2278,13 +2289,8 @@ export function registerRoutes(
       return { error: "adopt takes the canvas's entries", code: "bad-op" };
     }
     const made = await engine.adopt(id, body.entries);
-    /**
-     * The same bootstrap `project.create` takes, for the same reason: the
-     * canvas did not exist to be admitted to a moment ago, and this badge
-     * made it. Without it a restored backup (`isocan import`) was a canvas
-     * nobody could enter — no grants travel, and the only other root is
-     * "somebody let me in", which nobody at a fresh home could do.
-     */
+    // Both arrivals need this: a teleport's bytes follow the log, and a
+    // restored backup is otherwise a canvas nobody could enter. See above.
     await admit(req, id, true);
     return made;
   });

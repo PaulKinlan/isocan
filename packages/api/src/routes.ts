@@ -692,7 +692,17 @@ export class DaemonRoutes {
     canvasId: string,
     to: string,
     dryRun: boolean,
-  ): Promise<{ canvasId: string; to: string; entries: number; blobs: number; bytes: number; moved: boolean }> {
+  ): Promise<{
+    canvasId: string;
+    to: string;
+    entries: number;
+    blobs: number;
+    bytes: number;
+    moved: boolean;
+    /** Blobs the far home did not take after the log landed; the old home,
+     *  a replica now, sends them on its next blob sweep or on `isocan blobs --push`. */
+    behind: number;
+  }> {
     return this.request("POST", `/api/projects/${canvasId}/teleport`, { to, dryRun });
   }
 

@@ -5013,6 +5013,16 @@ program
       } else {
         console.log("");
         console.log(`moved. ${canvas.title} lives at ${report.to} now; this daemon forwards to it.`);
+        if (report.behind > 0) {
+          // The move is done and the bytes are a step behind it — the shape
+          // the blob keeper exists for, and this daemon is a replica now, so
+          // its next sweep sends them. Said here so nobody has to wait for it.
+          console.log(
+            `${report.behind} blob${report.behind === 1 ? "" : "s"} did not arrive with it — ` +
+              "the items are there, their bytes are not yet. This daemon sends them on its " +
+              "next blob check; `isocan blobs --push` sends them now.",
+          );
+        }
       }
       /**
        * Said whether it moved or not, because the answer does not change and

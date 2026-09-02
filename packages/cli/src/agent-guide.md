@@ -1029,8 +1029,11 @@ isocan teleport <canvas> --to https://isocan.io             # move it
 ```
 
 The whole history goes, verbatim: the same operations, the same order, the
-same timestamps, and the bytes with them. Afterwards this daemon forwards to
-the new home, so every address that worked still works.
+same timestamps, and the bytes after them. Afterwards this daemon forwards to
+the new home, so every address that worked still works. If the new home
+refuses a blob on the way, the move still completes and the report counts
+what is behind — `isocan blobs --push` sends it, and this daemon's own blob
+check would anyway.
 
 **Two things do not travel, and the command says so both times.** Who may
 enter — invite them again at the new home and set its link, because who may
