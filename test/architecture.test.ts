@@ -27,9 +27,13 @@ const section = doc.slice(doc.indexOf("## Distance to the map"));
 
 function grep(pattern: string, ...paths: string[]): string {
   try {
+    // A deadline of its own: `execFileSync` blocks the worker thread, so
+    // vitest's own timer cannot fire and the test's budget is a wish
+    // (`syncexec.test.ts` holds this for every synchronous exec in the suite).
     return execFileSync("git", ["grep", "-l", pattern, "--", ...paths], {
       cwd: repo,
       encoding: "utf8",
+      timeout: 30_000,
     });
   } catch {
     return ""; // git grep exits 1 when it finds nothing
