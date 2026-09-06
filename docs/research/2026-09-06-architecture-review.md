@@ -1,6 +1,7 @@
 ---
 status: partial
 since: 2026-09-06
+issue: 185
 see: ui-refresh, evals
 note: step 0 done (the eight-PR queue drained) and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
 ---
