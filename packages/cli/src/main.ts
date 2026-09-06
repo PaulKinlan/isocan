@@ -86,6 +86,10 @@ import {
   checkDesign,
   designSystem,
   designSystemProperties,
+  readToolExtension,
+  toolCapabilities,
+  toolExtensionItems,
+  toolProperties,
   parseDesign,
   toCss,
   toDtcg,
@@ -8509,6 +8513,124 @@ style
       });
       if (ctx.json) return printJson({ itemId, format, counts, problems });
       console.error(`${itemId} — design system for ${p.title}, imported from ${path.basename(file)}`);
+    }),
+  );
+
+// ---------- tools: extending the canvas from inside it ----------
+
+/**
+ * **Stage 1 of `docs/projects/extensions/design.md`, on the surface an agent
+ * has.** A tool is an item with `role=tool` whose bytes are a small JSON
+ * manifest, so every verb here could have been typed as `isocan add
+ * rail.json --prop role=tool` — which is the point. These exist because the
+ * manifest has rules, and a refusal at the moment you write the file is worth
+ * more than a button that does nothing when pressed.
+ */
+const tool = program
+  .command("tool")
+  .description("Tools this canvas puts in the rail")
+  .addHelpText(
+    "after",
+    `
+A tool is a BUTTON plus the ask it makes, and the ask is a slash command that
+already exists — "an extension may only ask for what a person could ask for".
+It is an ordinary item, so it versions, undoes, comments, trashes and travels
+with the canvas: open somebody's canvas and their tool is on the rail, because
+the tool is ON the canvas. Nothing was installed.
+
+  { "kind": "tool", "label": "Tidy", "icon": "broom", "does": "/format" }
+
+isocan draws it — its own component, its own tokens, its own focus ring, and
+an icon from the set isocan ships. A tool cannot be off-brand, cannot be
+inaccessible, and cannot do anything the vocabulary does not permit.`,
+  );
+
+tool
+  .command("list", { isDefault: true })
+  .description("Every tool on this canvas, and what each may do")
+  .action(
+    run(async (_opts: unknown, cmd: Command) => {
+      const ctx = await ctxOf(cmd);
+      const { canvas: p, snapshot } = await canvasAndSnapshot(ctx);
+      const commands = withModuleCommands(await ctx.client.commands());
+      type Row = { itemId: string; title: string; label?: string; icon?: string; does?: string; can?: string[]; problem?: string };
+      const rows: Row[] = [];
+      for (const item of toolExtensionItems(snapshot.canvas)) {
+        const version = item.versions.find((v) => v.id === item.currentVersionId);
+        const text = version ? (await ctx.client.downloadBlob(p.id, version.blobHash)).toString("utf8") : "";
+        const { tool: read, problem } = readToolExtension(text, commands);
+        rows.push({
+          itemId: item.id,
+          title: item.title,
+          ...(read ? { ...read, can: toolCapabilities(read, commands) } : { problem }),
+        });
+      }
+      if (ctx.json) return printJson(rows);
+      if (rows.length === 0) {
+        return console.error("no tools on this canvas — isocan tool add <file>");
+      }
+      for (const row of rows) {
+        if (row.problem) {
+          // Named, not dropped: a tool the rail cannot show is a thing
+          // somebody needs to be told about, in the place they would look.
+          console.log(`${row.itemId}  ${row.title} — unavailable: ${row.problem}`);
+          continue;
+        }
+        console.log(`${row.itemId}  ${row.label} (${row.icon}) → ${row.does}`);
+        for (const can of row.can ?? []) console.log(`    ${can}`);
+      }
+    }),
+  );
+
+tool
+  .command("add")
+  .description("Put a tool on this canvas's rail, having read what it may do")
+  .argument("<file>", "the manifest: a small JSON file")
+  .option("--yes", "add it, having read what it may do")
+  .addHelpText(
+    "after",
+    `
+Prints the manifest and everything the tool may do, and adds NOTHING until you
+run it again with --yes. The same ceremony \`command add --from\` has, for the
+same reason: an extension is code with a seat at the table, and what it may do
+gets answered before it lands rather than after.`,
+  )
+  .action(
+    run(async (file: string, opts: { yes?: boolean }, cmd: Command) => {
+      const ctx = await ctxOf(cmd);
+      const text = await fs.readFile(file, "utf8");
+      const { canvas: p, snapshot } = await canvasAndSnapshot(ctx, { create: true });
+      const commands = withModuleCommands(await ctx.client.commands());
+
+      // Read BEFORE anything is uploaded: a refused manifest should leave no
+      // blob behind, and the reader is the same one the rail uses.
+      const { tool: read, problem } = readToolExtension(text, commands);
+      if (!read) throw new Error(`not a tool: ${problem}`);
+      const can = toolCapabilities(read, commands);
+
+      if (!opts.yes) {
+        if (ctx.json) return printJson({ ...read, can, added: false });
+        console.error(`${read.label} (${read.icon}) → ${read.does}`);
+        for (const line of can) console.error(`  ${line}`);
+        console.error(`\nread that? then: isocan tool add ${file} --yes`);
+        return;
+      }
+
+      const filename = path.basename(file);
+      const upload = await ctx.client.uploadBlob(p.id, Buffer.from(text, "utf8"), "application/json", filename);
+      const itemId = newItemId();
+      await sendOp(ctx, p.id, {
+        type: "item.add",
+        itemId,
+        version: { id: newVersionId(), blobHash: upload.blobHash, mimeType: "application/json", filename, size: upload.size },
+        width: 240,
+        height: 120,
+        placement: placementFor(snapshot, {}),
+        title: read.label,
+        properties: toolProperties(),
+      });
+      if (ctx.json) return printJson({ itemId, ...read, can, added: true });
+      console.error(`${itemId} — ${read.label} is on the rail of ${p.title}`);
     }),
   );
 

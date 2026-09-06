@@ -677,6 +677,41 @@ A module is built from `packages/modules/<name>` with
 bounded by one rule: only what a person could already do with a file and a
 verb — never an operation, never a route.
 
+## Tools: a canvas that carries its own buttons
+
+A **tool** is a button on the rail that a canvas brought with it. It is an
+ordinary item with `role=tool` whose bytes are a small JSON manifest, so it
+versions, undoes, comments and trashes like anything else — and open somebody
+else's canvas and their tool is already there, because the tool is ON the
+canvas. Nothing was installed.
+
+```json
+{ "kind": "tool", "label": "Tidy", "icon": "broom", "does": "/format" }
+```
+
+The one rule the whole design turns on: **a tool may only ask for what a
+person could ask for.** `does` is a slash command that exists here — so
+pressing the button posts the same comment you would have typed, and an agent
+(possibly you) carries it out. Everything that follows is attributed and
+undoable per actor, because it went through the same door as everybody else's
+work. A tool cannot run code, cannot add an operation, and cannot draw its own
+icon: isocan renders it, with its own component and an icon from the set it
+ships.
+
+- `isocan tool list` — every tool on this canvas, what each asks for, and what
+  that means it may do. A tool whose command is gone is listed as
+  **unavailable** with the reason, rather than quietly dropped.
+- `isocan tool add <file>` — prints the manifest and everything the tool may
+  do, and adds nothing until you run it again with `--yes`. Same gate as
+  `command add --from`, for the same reason: what it may do gets answered
+  before it lands.
+- It is an item, so `isocan rm <item>` takes one off the rail and the trash
+  gives it back.
+
+If you are asked for a button that does something new, the answer is usually a
+**slash command** first (`isocan command add`) and then a tool that names it —
+a tool asking for a command nobody wrote is refused when it is read.
+
 ## Saying where a document stands
 
 Every note in `docs/research/` and every project's primary doc carries its

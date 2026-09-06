@@ -1,8 +1,8 @@
 ---
-status: designed
-since: 2026-08-29
+status: partial
+since: 2026-09-06
 see: extensions
-note: gated on runtime validation for `does`
+note: stages 1 and 2 built 6 Sep — a declarative tool as an item with `role=tool`, `does` limited to a slash command that exists, a closed icon set, reserved labels, and the capability list printed before `--yes`; `isocan tool list/add` and the rail render from ONE reader in core. Stages 3 (declarative panels), 4 (extension actors) and 5 (hosted panels, now that the content origin is live) not built
 ---
 # Extending the canvas from inside it
 
@@ -157,11 +157,34 @@ by typing.
 
 ## Stages
 
-1. **Declarative tools.** Manifest, named icons, `does` limited to existing
-   commands. No new ops, no frames, no actors — the rail becomes editable and
-   most of the want is met.
+1. **Declarative tools.** ✅ **Built 6 Sep.** Manifest, named icons, `does`
+   limited to existing commands. No new ops, no frames, no actors — the rail
+   becomes editable and most of the want is met.
+
+   `core/extensions.ts` is the one reader — `readToolExtension` answers with a
+   tool or a **sentence naming the field**, and both surfaces call it, so a
+   manifest the terminal refuses is one the rail refuses for the same reason.
+   The rule is enforced where it is stated: `does` must name a command this
+   canvas actually has, the icon must come from the set we ship (a closed set
+   is a security decision — an icon is a place anything at all could be
+   painted, including a copy of a control that already exists), and the label
+   may not be one of the app's own tools, compared with case and punctuation
+   flattened because a check that only catches the exact string catches nobody
+   trying. `isocan tool list` / `tool add`; the rail draws them below a divider,
+   with the tool's own name under the glyph. Pressing one calls `postToMain` —
+   the same door the composer uses — which is the design's sentence made
+   literal, and a test forbids the rail sending an operation of its own.
+
+   **No new op, route or store**, and the CLI test proves it the honest way: it
+   asserts `isocan ls` sees a tool as an ordinary item with `role=tool`, and
+   removes one with `rm` rather than a verb of its own.
+
 2. **The capability list**, printed on install, even though tier 1 needs almost
    none. The habit has to exist before the tier that depends on it.
+   ✅ **Built 6 Sep, with stage 1** and for exactly the stated reason.
+   `toolCapabilities` is **derived, never declared** — a manifest that stated
+   its own capabilities could understate them — and `tool add` prints it and
+   adds nothing until `--yes`, the gate `command add --from` already has.
 3. **Declarative panels**, once two real tools have asked for the same shape.
 4. **Extension actors and grants**, which is mostly wiring the identity desk to
    a non-human subject.

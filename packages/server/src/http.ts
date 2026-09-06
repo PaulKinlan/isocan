@@ -493,6 +493,30 @@ export function registerRoutes(
   // Raw bodies for blob uploads; JSON stays JSON.
   app.addContentTypeParser("*", { parseAs: "buffer" }, (_req, body, done) => done(null, body));
 
+  /**
+   * **`*` does not mean every type — it means every type Fastify does not
+   * already have a parser for**, and it has one for `application/json`.
+   *
+   * So a blob whose media type IS JSON never reached the line above: Fastify
+   * parsed it into an object, `Buffer.isBuffer` said no, and the upload was
+   * refused with `empty blob body` — a message about a body that was neither
+   * empty nor wrong. Nothing in the CLI hit it, because `.json` is not in the
+   * mime table and files fall through to `application/octet-stream`. **The web
+   * did**: `mimeTypeOf` prefers `file.type`, and a browser reports
+   * `application/json` for a `.json` file, so dragging one onto a canvas
+   * failed on every deployment with a refusal that named the wrong thing.
+   *
+   * Found on 6 Sep by the first code to upload a blob with a deliberate mime —
+   * a tool manifest (`docs/projects/extensions/design.md`) — not by the drop
+   * path, which had been broken quietly for as long as it existed.
+   *
+   * The fix has to be scoped: replacing the JSON parser on `app` would take
+   * the body away from every API route, all of which are JSON. Content type
+   * parsers are encapsulated per Fastify instance, so the blob POST lives in
+   * its own scope with its own parser, inheriting every hook the root has —
+   * the badge, the admission and the door all still run.
+   */
+
   // What this home can verify, derived once from its configuration rather than
   // per request: it cannot change while the process is up, and a home that
   // recomputed it per call would invite somebody to make it a lookup that can
@@ -3691,16 +3715,23 @@ export function registerRoutes(
       .send({ urls, expiresAt, ttlSeconds: signing.ttlSeconds } satisfies SignedBlobsResponse);
   });
 
-  app.post("/api/projects/:id/blobs", async (req, reply) => {
-    const { id } = req.params as { id: string };
-    await engine.getSnapshot(id); // 404 for unknown canvases
-    const data = req.body as Buffer;
-    if (!Buffer.isBuffer(data) || data.length === 0) {
-      return reply.status(400).send({ error: "empty blob body", code: "bad-op" });
-    }
-    const mimeType = req.headers["content-type"] ?? "application/octet-stream";
-    const filename = decodeFilename(req.headers[FILENAME_HEADER.toLowerCase()]);
-    return engine.putBlob(id, data, { mimeType, filename });
+  // Its own scope, so `application/json` bytes arrive as bytes here and stay
+  // parsed everywhere else — see the note at the `*` parser above.
+  void app.register(async (blobs) => {
+    blobs.addContentTypeParser("application/json", { parseAs: "buffer" }, (_req, body, done) =>
+      done(null, body),
+    );
+    blobs.post("/api/projects/:id/blobs", async (req, reply) => {
+      const { id } = req.params as { id: string };
+      await engine.getSnapshot(id); // 404 for unknown canvases
+      const data = req.body as Buffer;
+      if (!Buffer.isBuffer(data) || data.length === 0) {
+        return reply.status(400).send({ error: "empty blob body", code: "bad-op" });
+      }
+      const mimeType = req.headers["content-type"] ?? "application/octet-stream";
+      const filename = decodeFilename(req.headers[FILENAME_HEADER.toLowerCase()]);
+      return engine.putBlob(id, data, { mimeType, filename });
+    });
   });
 
   /**

@@ -131,6 +131,15 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   that would have to answer them, because a help panel describing a different
   app than the one it is in is worse than no help panel. The same panel lists
   the slash commands available here, including any this home added.
+- **Tools a canvas carries (`role=tool`)**: a button on the rail that came
+  with the canvas rather than with the app. It is an ordinary item holding a
+  small JSON manifest, so it versions, undoes and travels — open somebody's
+  canvas and their tool is already on the rail, with nothing installed. What
+  it can do is bounded by one sentence: *an extension may only ask for what a
+  person could ask for*, so pressing it posts the slash command you would have
+  typed, and everything that follows is attributed and undoable like any other
+  work. isocan draws the button, from an icon set it ships; a tool runs no code
+  and cannot add an operation.
 - **Switching canvases (`⌘O`)**: the launcher's second face — a list of the
   canvases you were on lately, most recent first, then the rest by activity,
   with a field that finds one from a few letters (`lkh` reaches "Lake House";
@@ -556,6 +565,11 @@ isocan command list|show|add|rm        # slash commands: work a message can ask 
 #             /app-store-assets /web-assets /marketing-kit
 #             /design-audit /design-system /skill
 isocan command add --from <owner/repo/path>  # a published skill, shown before it lands
+isocan tool list|add [--yes]           # tools this canvas puts in its own rail
+#   a tool is an item ({"kind":"tool","label":"Tidy","icon":"broom","does":"/format"})
+#   whose ask is a slash command that exists — an extension may only ask for
+#   what a person could ask for. `add` prints what it may do, and adds nothing
+#   until --yes.
 isocan format [--dry-run]              # tidy the canvas: rows, children, references
 isocan merge <drawings...>             # several drawings into one, exactly
 isocan shortcuts                       # every key the canvas answers to

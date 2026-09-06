@@ -61,17 +61,21 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
 /**
  * **The last agreed size of the entry chunk, in bytes.**
  *
- * 725,291 on 2026-09-06, at main `834e341` — after step 1 put `LensPage`,
- * `CanvasListPage`, `NotHerePage`, the Share dialog and the history scrubber
- * behind lazy boundaries (768,993 → 720,659, plus the content origin's own
- * couple of kilobytes).
+ * 730,736 on 2026-09-06 — 725,291 (step 1's lazy boundaries: `LensPage`,
+ * `CanvasListPage`, `NotHerePage`, the Share dialog and the history scrubber,
+ * 768,993 → 720,659, plus the content origin's couple of kilobytes) plus
+ * **5,445 for extensions stage 1**: core's manifest reader, the rail's hook,
+ * and twelve icons. Raised deliberately, which is what this number is for —
+ * the feature is on the canvas page, so it is bytes a canvas visitor genuinely
+ * needs, and it arrived as one commit with a reason rather than as a hundred
+ * unremarked ones.
  *
  * **Lower it when you win.** The goal is 640,000 and the note is clear that
  * splitting is spent: the remaining ~83KB is `ItemView`, `CanvasViewport`,
  * `api.ts` and the stores — the canvas itself — so getting under it honestly
  * means less shell code rather than another chunk boundary.
  */
-const CEILING = 725_291;
+const CEILING = 730_736;
 
 /** The performance persona's goal, restated here only so the failure message
  * can say how far there is left to go. `.agents/personas/performance.md` is

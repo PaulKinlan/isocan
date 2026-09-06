@@ -6,8 +6,8 @@ Every research note and every project, by where it stands. **Derived**: the
 status of a thing lives in that thing's front matter, so it cannot drift from
 what it describes. Run `node scripts/roadmap.mjs` after changing one.
 
-**21 built · 32 still open** — of which 24 partly
-built, 8 designed, 0 blocked, and
+**21 built · 32 still open** — of which 25 partly
+built, 7 designed, 0 blocked, and
 **0 with no verdict recorded at all**, which is the number worth
 watching: an untriaged doc is not a doc nobody needs, it is a doc nobody has
 read lately.
@@ -16,7 +16,7 @@ read lately.
 3 superseded. Neither counts as done: reading is not building,
 and the done column should not be flattered by either.
 
-## Partly built <sub>24</sub>
+## Partly built <sub>25</sub>
 
 | | What | Since | |
 | --- | --- | --- | --- |
@@ -27,6 +27,7 @@ and the done column should not be flattered by either.
 | research | [Component libraries, and what survives the trip to a canvas](docs/research/2026-08-28-component-libraries.md) | 2026-08-30 | `design import` built 29 Aug; motion-as-CSS and the no-house-look rule are not · [#143](https://github.com/dglazkov/isocan/issues/143) |
 | **project** | [context](docs/projects/context/design.md) | 2026-08-30 | stages 1 and 2 built; the MCP surface is not · see context |
 | **project** | [evals](docs/projects/evals/plan.md) | 2026-08-29 | stages 1 and 2 are built, and stage 1's hand-labelling was done 3 Sep — it corrected the 1 Sep headline (73% of the corpus was agents' own prose; people's asks were 95% answered) and found a sixteen-fold cancel bug; a calibrated classifier ships in `isocan evals corpus`. Stage 3's twenty golden tasks are in `evals/golden/v1/`, weighted by that distribution and self-testing in both directions. Stage 5's harness `scripts/lift.mjs` measured `/sprint` (same result, a third of the cost) and `isocan-collab` (same result, fewer turns) on 3 Sep. Stage 4's harness `scripts/calibrate.mjs` gave its first reading 4 Sep — 30 comparisons, 63% agreement, κ 0.26, and the finding that over half the pairs were an agent's choice, not a person's; the converge lane is built · see evals |
+| **project** | [extensions](docs/projects/extensions/design.md) | 2026-09-06 | stages 1 and 2 built 6 Sep — a declarative tool as an item with `role=tool`, `does` limited to a slash command that exists, a closed icon set, reserved labels, and the capability list printed before `--yes`; `isocan tool list/add` and the rail render from ONE reader in core. Stages 3 (declarative panels), 4 (extension actors) and 5 (hosted panels, now that the content origin is live) not built · see extensions |
 | research | [Google Docs on the canvas](docs/research/2026-09-02-google-docs-on-the-canvas.md) | 2026-09-02 | stages 1–3 built 2–3 Sep — the ↗ on anything with a source, `isocan gdoc add` and the Add-site dialog landing a doc's markdown as a document with source and synced, the daemon fetching for the app, `gdoc sync` stacking a version only where the doc changed, and on 3 Sep `gdoc auth`: a Drive access token on the machine for docs not shared by link, with sync asking Drive for modifiedTime first. Stage 4's live mode built 4 Sep — Live | Words on the strip, the /preview frame in the same item, remembered per browser. Stage 5's folder watch is designed and not built · see standing-agents, on-demand · [#152](https://github.com/dglazkov/isocan/issues/152) |
 | **project** | [inception](docs/projects/inception/design.md) | 2026-09-02 | phases 0–3 built 2 Sep, and phase 4's half — the card drawn live one level deep, ↗ and double-click open a tab, `isocan canvas place`, the popup from the rail and ⌘K, `isocan canvas shot --into` as the picture that survives a refused pull, the miniature wherever thumbnails are, and "lives at another home" said on the card; pulling a picture across homes is not built · see on-demand, standing-agents |
 | research | [JSON Canvas: what adopting it would mean](docs/research/json-canvas.md) | 2026-08-30 | export built; import deliberately not, and the edge question is answered · [#154](https://github.com/dglazkov/isocan/issues/154) |
@@ -45,13 +46,12 @@ and the done column should not be flattered by either.
 | research | [The flake family, and the first one caught in the act](docs/research/2026-08-29-the-flake-family.md) | 2026-08-29 | 4 of 5 witnesses diagnosed; on 3 Sep the suite's fetch gained a per-attempt connect deadline (undici `UND_ERR_CONNECT_TIMEOUT`, provably before any bytes), so a lost SYN costs a 1.2 s retry inside the 3 s budget instead of the kernel's 7.8 s — proved against a stopped listener with a full queue · [#146](https://github.com/dglazkov/isocan/issues/146) |
 | research | [The night shift](docs/research/2026-08-24-the-night-shift.md) | 2026-08-29 | steps 1–4 built — nightly grades (29 Aug), convergence (the fold), and on 3 Sep the converge lane one item wide (`scripts/converge-night.mjs`, its verdicts read by `isocan evals converge`) and the morning comment (`npm run night`, posted by the Night actor); the diverge lane and "what changed while you were gone" are open · see evals, personas · [#138](https://github.com/dglazkov/isocan/issues/138) |
 
-## Designed, not built <sub>8</sub>
+## Designed, not built <sub>7</sub>
 
 | | What | Since | |
 | --- | --- | --- | --- |
 | research | [A story is a URL](docs/research/2026-08-24-storybook.md) | 2026-08-30 | the outward half — a canvas holding somebody's components — is unbuilt; there is no component item kind · [#137](https://github.com/dglazkov/isocan/issues/137) |
 | **project** | [atlas](docs/projects/atlas/journey.md) | 2026-08-29 | both mechanisms designed, neither built · see atlas |
-| **project** | [extensions](docs/projects/extensions/design.md) | 2026-08-29 | gated on runtime validation for `does` · see extensions |
 | research | [Live mode: voice on an isomorphic canvas](docs/research/2026-08-24-voice.md) | 2026-08-30 | voice as an input surface over the existing vocabulary · [#139](https://github.com/dglazkov/isocan/issues/139) |
 | research | [Mobile web: a phone talks to the canvas](docs/research/2026-09-05-mobile-web.md) | 2026-09-05 | measured 5 Sep on a 375×812 viewport — the canvas cannot be moved with a finger, the chrome overlaps, the Chat fits by accident and the deck fits on purpose; the field draws one line (a phone views, comments and presents; a tablet edits); recommends touch physics for every coarse pointer, a phone face built from the Chat, the viewer and the deck, and no native app. Nothing built · see multi-identity, workbench, on-demand, ui-refresh · [#182](https://github.com/dglazkov/isocan/issues/182) |
 | research | [Modules: adding a kind of thing, and taking it away again](docs/research/2026-09-04-modules.md) | 2026-09-04 | the closed registries are counted; recommends internal modules first, Mermaid as the first node type, runtime loading third, sandboxes last. Became the modules project (docs/projects/modules) on 4 Sep; phase 1 built the same night · see modules, extensions, workbench, iso-api, mindmap, atlas · [#156](https://github.com/dglazkov/isocan/issues/156) |

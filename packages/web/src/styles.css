@@ -3454,6 +3454,17 @@ button.mt-card:hover { border-color: var(--accent); }
 .tool-btn:hover { background: var(--chip); color: var(--ink); }
 .tool-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .tool-sep { height: 1px; margin: 2px 6px; background: var(--line); }
+/* A canvas's own tool (extensions stage 1). It keeps the rail's geometry —
+   same 38px square, same radius, same focus ring — because the app draws it
+   and a tool cannot be off-brand. What differs is that it says its own name
+   under the glyph, which is the design's *it must look like an extension*:
+   a control wearing no name is a control a person reads as the app's. */
+.tool-ext { flex-direction: column; gap: 1px; height: auto; padding: 5px 2px 4px; }
+.tool-ext-label {
+  font-size: 9.5px; line-height: 1; letter-spacing: .01em;
+  max-width: 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tool-ext:disabled { opacity: .45; }
 /* A short window gets a shorter rail rather than a scrolling one: smaller
    buttons keep every control on screen and reachable, and the popovers that
    hang off the rail (the ink well, the Add popover) keep working, which an
