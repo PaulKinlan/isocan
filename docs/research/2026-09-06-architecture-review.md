@@ -3,7 +3,7 @@ status: partial
 since: 2026-09-06
 issue: 185
 see: ui-refresh, evals
-note: step 0 done (the eight-PR queue drained) and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
+note: steps 0, 2, 3 and 7 done and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
 ---
 
 # The architecture review, checked against the tree
@@ -25,8 +25,9 @@ Checked and confirmed: core's runtime dependencies are still exactly one
 is 11,818 lines and `packages/server/src/http.ts` 4,542; all six pages in
 `App.tsx` are statically imported; `docs/architecture.md`'s "Distance to the
 map" still lists the Share dialog and grant routes as unbuilt, which they have
-not been since phase 14; and `test/roadmap.test.ts` really does kill its child
-at 60s inside a test that allows 120s, so raising the child is exactly right.
+not been since phase 14; and `test/roadmap.test.ts` really did kill its child
+at 60s inside a test that allows 120s — though the fix turned out to be
+removing the reason it took a minute, not raising the minute (step 7).
 
 Unused exports measure 49, not 47. A small thing, and the direction is the
 same.
@@ -224,6 +225,29 @@ guard.
 
 **6–8. The small true things.** `architecture.md`'s stale inventory; the
 `roadmap.test.ts` child timeout; the 49 unused exports.
+
+**7 did not need its fix — it needed its cause removed.** ✅ **Done 6 Sep.**
+The review is right that the child was killed at 60s inside a test allowing
+120s, and raising the child would have made the test pass. But the question
+raising it does not ask is *why a script that reads front matter out of 62
+markdown files needs a minute*. It was spawning the whole CLI once per
+document: `isocan --json doc status <file>`, and every spawn registers tsx and
+transpiles `main.ts`'s 11,818 lines plus core, api and server before it reads
+a single `---`. Measured: 571ms a spawn, 62 documents, ~35 seconds — the
+slowest file in the suite by an order of magnitude, paid on every run.
+
+`scripts/roadmap.mjs` now registers tsx once and imports `docStatus` directly.
+**0.42s for the whole script**, and the test file went 35s → 1.8s. The "one
+reader" invariant is untouched, because the reader was never the CLI — it was
+`docStatus`, reached through eleven thousand lines of command definitions that
+have nothing to do with front matter.
+
+The guard moved with it, and this is the part worth keeping: it used to assert
+`doc", "status"` appeared in the script — the *mechanism*, which made the 62
+spawns a thing the suite required. It now asserts the invariant (core is the
+one reader, no second parser here) and adds what the textual check cannot say:
+that the roadmap and `isocan doc status` **agree about a document**, through
+one spawn rather than 62.
 
 **9. The monoliths — and this page disagrees with the review.** `main.ts` at
 11,818 lines is a real cost. A big-bang split is a large, risky diff with no
