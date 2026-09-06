@@ -3,7 +3,7 @@ status: partial
 since: 2026-09-06
 issue: 185
 see: ui-refresh, evals
-note: steps 0, 2, 3, 4, 5 and 7 done and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
+note: steps 0, 2, 3, 4, 5, 6, 7 and 8 done and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
 ---
 
 # The architecture review, checked against the tree
@@ -256,6 +256,45 @@ ref to a new name to dodge it.
 
 **6–8. The small true things.** `architecture.md`'s stale inventory; the
 `roadmap.test.ts` child timeout; the 49 unused exports.
+
+**6 — the inventory, and why a list of ABSENCES rots quietly.** ✅ **Done
+6 Sep.** "Distance to the map" said the Share dialog and the grant routes were
+unbuilt for the three weeks after phase 14 built them (the dispatch path on the
+same line is built too; `registrations/{id}` really is not, and now stands
+alone). An absence is the one kind of claim that goes stale without anything
+failing — the shape the roadmap exists to end for a document's status, one
+level along.
+
+So the section says how each bullet would be checked, and
+`test/architecture.test.ts` checks the two that can be: no client mentions
+`MAX_DIRECT_UPLOAD_BYTES`, and nothing queues blob bytes offline. Build either
+and the suite asks for the doc in the same commit. The others carry their
+reasoning instead, because "queueing bytes is a second durable store" is a
+design position and not a grep. Both guards mutation-tested.
+
+**8 — and the review undersold this one.** ✅ **Enforced 6 Sep.** It reported
+"49 unused exports, not 47" — a small thing, same direction. The finding is in
+`.agents/personas/reviewer.md`, which has said **`at most: 0`** since 2
+September with the reasoning beside it: *"a ratchet set above its floor is
+slack nobody decided to leave. The next one fails on the commit that adds it,
+which is the whole point."*
+
+Four days later it was **56**. The ratchet was at its floor, the principle was
+written down, and fifty-six arrived anyway — because only the nightly read the
+number, and a nightly report is not a commit failing. **That is step 2's
+finding on a second metric**, which is what makes it a pattern rather than an
+incident: a bound nothing enforces is a comment.
+
+`test/unused-exports.test.ts` measures it in the ordinary suite, through the
+same `scripts/measure.mjs` the persona declares. 56 → 39 by un-exporting every
+server and web `lib/` name on the list, where nothing outside this repository
+could have imported them, with the compiler as the check. **The 39 that remain
+are all in `packages/core/src`** — and core is what a runtime module is handed
+at load, so deleting from it is a decision about what `@isocan/core` promises a
+module author, not a tidy-up. `ModuleEdge`, `ModuleActionFacts` and the DTCG
+token types look exactly like surface somebody would build against. That
+decision wants a person and is left as one; the drift is not.
+`measure.mjs unused-exports --names` prints them.
 
 **7 did not need its fix — it needed its cause removed.** ✅ **Done 6 Sep.**
 The review is right that the child was killed at 60s inside a test allowing

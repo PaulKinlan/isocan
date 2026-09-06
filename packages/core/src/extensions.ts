@@ -124,7 +124,7 @@ function flattened(label: string): string {
  * A refusal is prose rather than a code because it is shown to whoever wrote
  * the file, and "invalid manifest" tells them nothing about which line to fix.
  */
-export type ToolRead = { tool: ToolExtension; problem?: undefined } | { tool?: undefined; problem: string };
+type ToolRead = { tool: ToolExtension; problem?: undefined } | { tool?: undefined; problem: string };
 
 /**
  * **Read a tool manifest, or say why it is not one.**

@@ -21,7 +21,7 @@ import { useCommands } from "./commands.ts";
  * refuses, with the same sentence. A second little parser here is how the two
  * surfaces would come to disagree about what a tool is.
  */
-export interface CanvasTool {
+interface CanvasTool {
   itemId: string;
   /** The item's title, so an unavailable tool can still be named. */
   title: string;
