@@ -71,7 +71,12 @@ preflight
 require_project
 
 HTTPS_PROXY_NAME="${SERVICE}-https-proxy"
-CONTENT_MATCHER="content"
+# The path matcher THIS script creates — the one that serves the backend.
+# Deliberately not the `content` matcher the 5 September parking created, which
+# holds the 301: re-tying a host rule to a matcher of the same name it is
+# already tied to is not a documented operation, while orphaning the old one
+# and deleting it is. The name says which of the two it is.
+CONTENT_MATCHER="content-served"
 
 if [ -z "${CONTENT_DOMAIN}" ]; then
   note "no ISOCAN_CONTENT_DOMAIN for this home — nothing to do."
@@ -139,48 +144,91 @@ fi
 # ISOCAN_CONTENT_FLIP_ANYWAY=1 skips the check, for the one case it is wrong
 # about: a brand-new home whose app has never been deployed, where there is no
 # app on the second name to expose because there is no app yet.
-step "the deployed service knows this domain"
-DEPLOYED="$(gcloud run services describe "${SERVICE}" \
-  --project="${PROJECT_ID}" --region="${REGION}" \
-  --format='yaml(spec.template.spec.containers)' 2>/dev/null || true)"
-if printf '%s' "${DEPLOYED}" | grep -q "ISOCAN_CONTENT_HOST"; then
-  have "the running revision carries ISOCAN_CONTENT_HOST"
-elif [ -n "${ISOCAN_CONTENT_FLIP_ANYWAY:-}" ]; then
-  note "ISOCAN_CONTENT_FLIP_ANYWAY is set — flipping without checking the service"
-else
-  note "the running revision does NOT carry ISOCAN_CONTENT_HOST."
-  note "Flipping now would serve the whole app and API on ${CONTENT_DOMAIN} until"
-  note "the next deploy — see THE TRAP at the top of this script."
-  note ""
-  note "The certificate above is created and provisioning; nothing else was changed."
-  note "Deploy the daemon first, then run this again:"
-  note "    ./infra/70-cloud-run.sh && ./infra/82-content-origin.sh"
-  exit 0
-fi
-
 step "host rule ${CONTENT_DOMAIN} -> ${BACKEND_NAME}"
-MAP_YAML="$(mktemp)"
-gcloud compute url-maps describe "${URLMAP_NAME}" --global \
-  --project="${PROJECT_ID}" --format=yaml >"${MAP_YAML}"
-if grep -q "defaultService.*${BACKEND_NAME}" "${MAP_YAML}" && grep -q "name: ${CONTENT_MATCHER}" "${MAP_YAML}"; then
+
+# **What the map says now**, read as two tables rather than grepped out of one
+# YAML blob. `--filter` is a LIST-command flag and `describe` does not take it,
+# so the shape that works is `--flatten` (one row per element) plus a `value()`
+# projection; the rows come back tab-separated and awk picks the one that
+# matters.
+#
+# The grep this replaces asked whether the map contained `defaultService:
+# .*isocan-backend` ANYWHERE — which is always true, because that is the whole
+# map's own default service. It would have reported the flip already done, on
+# every home, forever, and quietly skipped the only thing this script is for.
+url_map_rows() {
+  gcloud compute url-maps describe "${URLMAP_NAME}" --global --project="${PROJECT_ID}" \
+    --flatten="$1" --format="value($2)" 2>/dev/null || true
+}
+CURRENT_MATCHER="$(url_map_rows 'hostRules[]' 'hostRules.hosts,hostRules.pathMatcher' \
+  | awk -v d="${CONTENT_DOMAIN}" 'index($1, d) { print $2; exit }')"
+SERVED_BY="$(url_map_rows 'pathMatchers[]' 'pathMatchers.name,pathMatchers.defaultService' \
+  | awk -v m="${CONTENT_MATCHER}" '$1 == m { print $2; exit }')"
+
+if [ "${CURRENT_MATCHER}" = "${CONTENT_MATCHER}" ] \
+   && printf '%s' "${SERVED_BY}" | grep -q "/${BACKEND_NAME}\$"; then
   have "${CONTENT_DOMAIN} -> ${BACKEND_NAME}"
 else
-  # `add-path-matcher` replaces a matcher of the same name, so this is
-  # idempotent AND is what turns the 5 September redirect into a route.
-  gcloud compute url-maps add-path-matcher "${URLMAP_NAME}" \
-    --project="${PROJECT_ID}" --global \
-    --path-matcher-name="${CONTENT_MATCHER}" \
-    --default-service="${BACKEND_NAME}" \
-    --new-hosts="${CONTENT_DOMAIN}" \
-    --existing-host="${CONTENT_DOMAIN}" >/dev/null 2>&1 \
-  || gcloud compute url-maps add-path-matcher "${URLMAP_NAME}" \
-    --project="${PROJECT_ID}" --global \
-    --path-matcher-name="${CONTENT_MATCHER}" \
-    --default-service="${BACKEND_NAME}" \
-    --new-hosts="${CONTENT_DOMAIN}" >/dev/null
-  made "${CONTENT_DOMAIN} -> ${BACKEND_NAME} (was: 301 to ${DOMAIN})"
+  # **The order, enforced rather than asked for.** See THE TRAP at the top: a
+  # host rule that reaches a daemon which has never heard of this domain serves
+  # the whole app and the whole API on a second name. So the flip refuses until
+  # the deployed revision actually carries ISOCAN_CONTENT_HOST — the same fact
+  # as "the daemon will refuse this Host everything but blob bytes", read from
+  # the service rather than assumed.
+  #
+  # Inside this branch and not above it, so a re-run against an already-flipped
+  # map does not nag about an ordering that is already behind us.
+  #
+  # ISOCAN_CONTENT_FLIP_ANYWAY=1 skips the check, for the one case it is wrong
+  # about: a brand-new home whose app has never been deployed, where there is
+  # no app on the second name to expose because there is no app yet.
+  step "the deployed service knows this domain"
+  DEPLOYED="$(gcloud run services describe "${SERVICE}" \
+    --project="${PROJECT_ID}" --region="${REGION}" \
+    --format='yaml(spec.template.spec.containers)' 2>/dev/null || true)"
+  if printf '%s' "${DEPLOYED}" | grep -q "ISOCAN_CONTENT_HOST"; then
+    have "the running revision carries ISOCAN_CONTENT_HOST"
+  elif [ -n "${ISOCAN_CONTENT_FLIP_ANYWAY:-}" ]; then
+    note "ISOCAN_CONTENT_FLIP_ANYWAY is set — flipping without checking the service"
+  else
+    note "the running revision does NOT carry ISOCAN_CONTENT_HOST."
+    note "Flipping now would serve the whole app and API on ${CONTENT_DOMAIN} until"
+    note "the next deploy — see THE TRAP at the top of this script."
+    note ""
+    note "The certificate above is created and provisioning; nothing else was changed."
+    note "Deploy the daemon first, then run this again:"
+    note "    ./infra/70-cloud-run.sh && ./infra/82-content-origin.sh"
+    exit 0
+  fi
+
+  # **Two commands, because the two situations are genuinely different** —
+  # `--existing-host` and `--new-hosts` are mutually exclusive
+  # (`[--existing-host=X | --new-hosts=Y]`), so the first draft's "pass both and
+  # fall back" always failed its first call on an argument error and hid the
+  # real one behind `2>/dev/null`.
+  if [ -n "${CURRENT_MATCHER}" ]; then
+    # The 5 September parking: a host rule for this domain exists and its
+    # matcher is a 301. Re-tie the SAME host rule to a matcher that serves the
+    # backend. That orphans the redirect matcher, which the command refuses to
+    # leave behind unless told — hence the flag, which is the delete.
+    step "re-tying ${CONTENT_DOMAIN} from '${CURRENT_MATCHER}' to '${CONTENT_MATCHER}'"
+    gcloud compute url-maps add-path-matcher "${URLMAP_NAME}" \
+      --project="${PROJECT_ID}" --global \
+      --path-matcher-name="${CONTENT_MATCHER}" \
+      --default-service="${BACKEND_NAME}" \
+      --existing-host="${CONTENT_DOMAIN}" \
+      --delete-orphaned-path-matcher >/dev/null
+    made "${CONTENT_DOMAIN} -> ${BACKEND_NAME} (was: '${CURRENT_MATCHER}', a 301 to ${DOMAIN})"
+  else
+    # A home whose second domain has never been routed at all.
+    gcloud compute url-maps add-path-matcher "${URLMAP_NAME}" \
+      --project="${PROJECT_ID}" --global \
+      --path-matcher-name="${CONTENT_MATCHER}" \
+      --default-service="${BACKEND_NAME}" \
+      --new-hosts="${CONTENT_DOMAIN}" >/dev/null
+    made "${CONTENT_DOMAIN} -> ${BACKEND_NAME} (a new host rule)"
+  fi
 fi
-rm -f "${MAP_YAML}"
 
 # ------------------------------------------------------- 3. the cache key
 
@@ -198,11 +246,21 @@ rm -f "${MAP_YAML}"
 # anyway, because "the default is currently what we need" is not a control, and
 # because a future `--cache-key-include-query-string=false` typed by somebody
 # optimizing hit rates would be a silent, total authorization bypass.
-step "cache key includes the query string"
+#
+# **The empty blacklist is not decoration.** `--cache-key-include-query-string`
+# alone means "include the query string *according to the whitelist and
+# blacklist*" — so a whitelist somebody set earlier that does not name `sig`
+# would leave the signature out of the key while this flag says it is in. The
+# CLI's own help names the fix: "Use --cache-key-query-string-blacklist= (sets
+# the blacklist to the empty list) to include the entire query string." The two
+# are mutually exclusive, so setting the blacklist empty also clears any
+# whitelist. Include everything, exclude nothing, say both.
+step "cache key includes the whole query string"
 gcloud compute backend-services update "${BACKEND_NAME}" \
   --project="${PROJECT_ID}" --global \
-  --cache-key-include-query-string >/dev/null
-made "${BACKEND_NAME}: signature is part of the cache key"
+  --cache-key-include-query-string \
+  --cache-key-query-string-blacklist= >/dev/null
+made "${BACKEND_NAME}: the signature is part of the cache key"
 
 step "done"
 note "${CONTENT_DOMAIN} now reaches the daemon, which serves it blob bytes and 404s"
