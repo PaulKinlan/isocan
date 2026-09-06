@@ -1,8 +1,8 @@
 ---
-status: designed
+status: partial
 since: 2026-09-06
 see: ui-refresh, evals
-note: an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
+note: step 0 done (the eight-PR queue drained) and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
 ---
 
 # The architecture review, checked against the tree
@@ -145,12 +145,37 @@ days across a dozen ordinary feature commits, each individually reasonable.
 
 Ordered by what unblocks the rest, not by size.
 
-**0. Drain the eight nightly PRs.** Before anything else, or tomorrow's report
-is the fifth. This is the finding above, and everything else on this page is
-downstream of whether reports get read.
+**0. Drain the eight nightly PRs.** ✅ **Done 6 Sep.** All eight merged — four
+grade runs and four persona runs, 2 through 5 September. The queue is empty
+for the first time since 1 September. Three of the persona branches needed a
+rebase, because each rewrites the same `scripts/reviews.mjs`-generated block
+in `docs/reviews/README.md`; regenerating it after each merge is the
+resolution, and it is worth knowing that this conflict is structural and will
+recur every time more than one night is drained at once.
 
-**1. Get the entry chunk under 640,000.** Lazy-load `FrontPage`, `TermsPage`,
-`LensPage`, `CanvasListPage`, `NotHerePage` — and **not `CanvasPage`**.
+**1. Get the entry chunk under 640,000.** ⚠️ **Partly done 6 Sep —
+768,993 → 720,659, and the bound is still missed.** `LensPage`,
+`CanvasListPage`, `NotHerePage`, the Share dialog and the history scrubber
+are behind lazy boundaries; all five were already mounted conditionally, so
+only the arrival of their bytes changed.
+
+`FrontPage` and `TermsPage` were tried and put back. They are what a stranger
+meets first, so deferring them costs a round trip to the one visitor
+guaranteed to have nothing cached — and they are the two the door renders
+outside the router, where `frontdoor.test.ts` reads them with
+`renderToStaticMarkup`, which cannot resolve a lazy component. Twelve
+kilobytes was not worth rewriting that guard to stream.
+
+**Splitting is spent, and the remaining 80KB is not a chunk-boundary
+problem.** Two measurements say so: removing all three build-time module web
+halves saves 8KB, and what is left in the entry is `ItemView`,
+`CanvasViewport`, `api.ts` and the stores — the canvas itself. Getting under
+the bound honestly now means less shell code, which is a different and larger
+piece of work than this step. Step 2 is what stops the next hundred kilobytes
+arriving the same way.
+
+The original recommendation, kept here because the reasoning still holds:
+lazy-load the secondary pages — and **not `CanvasPage`**.
 Splitting `CanvasPage` out would put the bound back inside its budget while
 every canvas visitor downloaded the same bytes and one more round trip, which
 is the precise move the bound was reshaped to make impossible. A metric
