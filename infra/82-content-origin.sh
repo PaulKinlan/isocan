@@ -120,7 +120,49 @@ else
   made "${CERT_NAME} + ${CONTENT_CERT_NAME} on ${HTTPS_PROXY_NAME}"
 fi
 
-# ------------------------------------------------------------ 2. the host rule
+# ------------------------------------------------------- 2. the cache key
+
+# **The one line that makes signed URLs safe to cache at the edge, said out
+# loud rather than inherited.**
+#
+# A verified signed read is served `Cache-Control: public, max-age=<what is
+# left of its TTL>` — the URL is the credential and it expires, so a shared
+# copy cannot outlive the permission. That reasoning holds only if the cache
+# key INCLUDES THE QUERY STRING, which is where the signature is. A cache that
+# dropped it would serve a signed response to a caller that presented none:
+# every private canvas on this home, readable by anyone who knows a hash.
+#
+# Cloud CDN's default already includes the query string. It is set explicitly
+# anyway, because "the default is currently what we need" is not a control, and
+# because a future `--cache-key-include-query-string=false` typed by somebody
+# optimizing hit rates would be a silent, total authorization bypass. Measured
+# on isocan-io-prod, 6 Sep 2026: `cdnPolicy.cacheKeyPolicy` was null — the
+# behaviour was right and nothing had said so.
+#
+# **BEFORE the flip, not after, and that is the whole reason this block moved.**
+# It is a PRECONDITION of the flip's safety, not a tidy-up after it: the moment
+# the host rule reaches the daemon, signed reads start being served
+# `public, max-age=…`, and a cache key that does not carry the signature makes
+# that an authorization bypass. Establishing it first also means the run that
+# REFUSES the flip still leaves this set, so the property is true before
+# anything depends on it rather than moments after.
+#
+# **The empty blacklist is not decoration.** `--cache-key-include-query-string`
+# alone means "include the query string *according to the whitelist and
+# blacklist*" — so a whitelist somebody set earlier that does not name `sig`
+# would leave the signature out of the key while this flag says it is in. The
+# CLI's own help names the fix: "Use --cache-key-query-string-blacklist= (sets
+# the blacklist to the empty list) to include the entire query string." The two
+# are mutually exclusive, so setting the blacklist empty also clears any
+# whitelist. Include everything, exclude nothing, say both.
+step "cache key includes the whole query string"
+gcloud compute backend-services update "${BACKEND_NAME}" \
+  --project="${PROJECT_ID}" --global \
+  --cache-key-include-query-string \
+  --cache-key-query-string-blacklist= >/dev/null
+made "${BACKEND_NAME}: the signature is part of the cache key"
+
+# ------------------------------------------------------------ 3. the host rule
 
 # **This is the flip.** Until now ${CONTENT_DOMAIN} has been a 301 to the app
 # domain — a parked name, so that a person who typed it landed somewhere real
@@ -230,37 +272,6 @@ else
   fi
 fi
 
-# ------------------------------------------------------- 3. the cache key
-
-# **The one line that makes signed URLs safe to cache at the edge, said out
-# loud rather than inherited.**
-#
-# A verified signed read is served `Cache-Control: public, max-age=<what is
-# left of its TTL>` — the URL is the credential and it expires, so a shared
-# copy cannot outlive the permission. That reasoning holds only if the cache
-# key INCLUDES THE QUERY STRING, which is where the signature is. A cache that
-# dropped it would serve a signed response to a caller that presented none:
-# every private canvas on this home, readable by anyone who knows a hash.
-#
-# Cloud CDN's default already includes the query string. It is set explicitly
-# anyway, because "the default is currently what we need" is not a control, and
-# because a future `--cache-key-include-query-string=false` typed by somebody
-# optimizing hit rates would be a silent, total authorization bypass.
-#
-# **The empty blacklist is not decoration.** `--cache-key-include-query-string`
-# alone means "include the query string *according to the whitelist and
-# blacklist*" — so a whitelist somebody set earlier that does not name `sig`
-# would leave the signature out of the key while this flag says it is in. The
-# CLI's own help names the fix: "Use --cache-key-query-string-blacklist= (sets
-# the blacklist to the empty list) to include the entire query string." The two
-# are mutually exclusive, so setting the blacklist empty also clears any
-# whitelist. Include everything, exclude nothing, say both.
-step "cache key includes the whole query string"
-gcloud compute backend-services update "${BACKEND_NAME}" \
-  --project="${PROJECT_ID}" --global \
-  --cache-key-include-query-string \
-  --cache-key-query-string-blacklist= >/dev/null
-made "${BACKEND_NAME}: the signature is part of the cache key"
 
 step "done"
 note "${CONTENT_DOMAIN} now reaches the daemon, which serves it blob bytes and 404s"
