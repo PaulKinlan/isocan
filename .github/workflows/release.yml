@@ -49,33 +49,19 @@ jobs:
           # cannot push a history it does not have.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-
+      # Pure git, and it needs no toolchain — so it runs before the setup
+      # rather than in the middle of it, which is what lets the setup be one
+      # shared thing.
       - name: Fetch the refs the release commit is built from
         run: |
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           git fetch --no-tags origin +refs/heads/release:refs/remotes/origin/release \
             || echo "no release branch yet — this run creates it"
 
-      # The Firestore emulator is a JAR and it refuses anything below 21 —
-      # "The java executable on your PATH is not a Java 21+ JRE". The runner
-      # image ships a JDK, and which one is not ours to assume; pin it.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      # `ubuntu-latest` MAY ship the Google Cloud CLI, and "may" is exactly the
-      # wrong foundation here: the failure mode is a silent skip of the cloud
-      # suites on the branch everybody installs from.
-      - uses: google-github-actions/setup-gcloud@v3
-        with:
-          install_components: cloud-firestore-emulator
-
-      - run: npm ci
+      # Node, Java, the Firestore emulator and `npm ci`. Shared with `pr.yml`
+      # so the two cannot disagree about what `npm test` runs on — see the
+      # action for why that drift is the dangerous kind.
+      - uses: ./.github/actions/suite-setup
 
       # A release nobody tested is a release that installs a broken canvas. If
       # these fail, main keeps its last good release until the next green commit.

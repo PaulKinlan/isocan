@@ -46,27 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-
-      # The Firestore emulator is a JAR and refuses anything below 21. The
-      # runner ships a JDK and which one is not ours to assume; pin it. Same
-      # reasoning as `release.yml`, and the two must not drift — if that one
-      # changes its java or its node, this one has to follow.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      # `ubuntu-latest` MAY ship the Google Cloud CLI, and "may" is the wrong
-      # foundation: the failure mode is a silent skip of the cloud suites.
-      - uses: google-github-actions/setup-gcloud@v3
-        with:
-          install_components: cloud-firestore-emulator
-
-      - run: npm ci
+      # Node, Java, the Firestore emulator and `npm ci` — the same steps
+      # `release.yml` runs, because they are the same steps. Shared rather
+      # than copied: the drift that matters is this file falling behind that
+      # one, which would leave pull requests green while main went red, and a
+      # comment asking two files to stay in step is not a guard.
+      - uses: ./.github/actions/suite-setup
 
       # ISOCAN_REQUIRE_EMULATOR is the anti-skip switch, and it is set here for
       # the same reason `release.yml` sets it: locally the cloud suites skip
