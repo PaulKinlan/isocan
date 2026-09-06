@@ -181,13 +181,49 @@ describe("stage 4b: the tickets", () => {
     expect(itemFrame(contentOrigin(), "prj_1", "a")).not.toBe(null);
   });
 
-  it("a ticket inside the renewal margin is treated as absent", async () => {
+  it("a ticket inside the renewal margin is still SERVED — it is only re-minted", async () => {
+    // **The white-screen bug, as a test** (6 Sep 2026). `ticket()` used to
+    // answer null for anything inside the renewal margin, so four and a half
+    // minutes after a canvas loaded every mounted frame went blank and STAYED
+    // blank: the effect that would re-mint has stable deps, so nothing asked
+    // again until the person clicked an item and remounted it.
+    //
+    // A ticket the home would still accept must still be handed over. Being
+    // inside the margin means "worth replacing", never "unusable".
     adoptContentBase("https://isocan.store", true);
     home({ a: "/api/projects/prj_1/blobs/a?exp=1&sig=sa" }, Math.floor(Date.now() / 1000) + 5, 5);
     await ensureTickets("prj_1", ["a"]);
-    // Five seconds of life is less than the margin: handing a frame a URL
-    // that dies mid-load is a broken screen for no reason.
+    expect(itemFrame(contentOrigin(), "prj_1", "a")?.src).toBe(
+      "https://isocan.store/api/projects/prj_1/blobs/a?exp=1&sig=sa",
+    );
+  });
+
+  it("a ticket that has actually expired is gone, and nothing is rendered", async () => {
+    // The other side of the same line: past `exp` the home refuses, so a
+    // frame pointed at it would show its own error page. Null is honest.
+    adoptContentBase("https://isocan.store", true);
+    home({ a: "/api/projects/prj_1/blobs/a?exp=1&sig=sa" }, 1, -5);
+    await ensureTickets("prj_1", ["a"]);
     expect(itemFrame(contentOrigin(), "prj_1", "a")).toBe(null);
+  });
+
+  it("renews while a frame is mounted, without the frame re-rendering", async () => {
+    // The cause, rather than the symptom: a mounted frame never re-renders
+    // when its ticket ages out, so something has to notice the passage of
+    // time. A 31s TTL puts the renewal one second away.
+    vi.useFakeTimers();
+    try {
+      adoptContentBase("https://isocan.store", true);
+      const calls = home({ a: "/api/projects/prj_1/blobs/a?exp=1&sig=sa" }, 0, 31);
+      await ensureTickets("prj_1", ["a"]);
+      expect(calls).toHaveLength(1);
+      // Nothing is waiting and nothing registered a want, so the timer lets
+      // it lapse rather than minting into an empty room.
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(calls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("mints nothing on a home that serves item content unsigned", async () => {

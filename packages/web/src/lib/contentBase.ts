@@ -38,7 +38,10 @@ export function contentBase(): string | null {
 export function adoptContentBase(next: string | null, wantsSignature = false): void {
   base = next;
   signed = next !== null && wantsSignature;
-  if (next === null) tickets.clear();
+  if (next === null) {
+    tickets.clear();
+    stopRenewals();
+  }
 }
 
 export async function loadContentBase(): Promise<void> {
@@ -97,7 +100,31 @@ const cell = (canvasId: string, blobHash: string) => `${canvasId}/${blobHash}`;
  */
 const RENEW_MARGIN_SECONDS = 30;
 
-function live(entry: Ticket | undefined): entry is Ticket {
+/**
+ * **Two questions, not one — and conflating them blanked every screen on the
+ * canvas** (6 Sep 2026, found within an hour of the hosted flip).
+ *
+ * `usable` is "would this URL still be served": the home refuses at `exp`, so
+ * anything before that works. `fresh` is "is it worth handing to a frame that
+ * is about to load": inside the renewal margin it is not, because a frame that
+ * starts loading at T+0 with a URL dying at T+2 is a broken screen for no
+ * reason.
+ *
+ * The first version had only `fresh`, and `ticket()` used it. So four and a
+ * half minutes after a canvas loaded, every mounted frame's ticket fell inside
+ * the margin, `itemFrame` answered null, and every screen went white and
+ * STAYED white — the effect that would have re-minted has `[canvasId, key]`
+ * for deps and those had not changed, so nothing asked again until the person
+ * clicked an item and remounted it. Which is exactly what was reported.
+ *
+ * Splitting them fixes the blanking on its own: a frame keeps its still-valid
+ * URL while a fresher one is fetched. `renewTickets` below fixes the cause.
+ */
+function usable(entry: Ticket | undefined): entry is Ticket {
+  return entry !== undefined && entry.goodUntil > Date.now() / 1000;
+}
+
+function fresh(entry: Ticket | undefined): entry is Ticket {
   return entry !== undefined && entry.goodUntil - Date.now() / 1000 > RENEW_MARGIN_SECONDS;
 }
 
@@ -127,10 +154,56 @@ export function contentOrigin(): ContentOrigin | null {
   return {
     base,
     ticket: (canvasId, blobHash) => {
+      // `usable`, deliberately: a ticket inside the renewal margin still
+      // works, and handing it over beats blanking the frame while a fresher
+      // one is on its way. Null here means "none at all", which is the only
+      // case where there is nothing honest to render.
       const entry = tickets.get(cell(canvasId, blobHash));
-      return live(entry) ? entry.path : null;
+      return usable(entry) ? entry.path : null;
     },
   };
+}
+
+/**
+ * **What each canvas's mounted frames still want, and the timer that keeps it
+ * true** — the fix for screens going white four and a half minutes in.
+ *
+ * A ticket expires; a mounted frame does not re-render when it does, and the
+ * effect that minted it has stable deps so it never runs again. Nothing in a
+ * render-driven design notices the passage of time, so something has to.
+ *
+ * The timer is per canvas and it renews only while somebody is waiting — a
+ * tab with no frames mounted stops asking, which is what keeps a backgrounded
+ * tab from minting forever. It fires one margin before expiry, so the swap
+ * happens while the old URL is still valid and no frame is ever handed
+ * nothing.
+ */
+const wanted = new Map<string, Set<string>>();
+const renewals = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleRenewal(canvasId: string, ttlSeconds: number): void {
+  clearTimeout(renewals.get(canvasId));
+  // One margin before the end, and never less than a second away — a home
+  // configured with a very short TTL must not turn this into a busy loop.
+  const delay = Math.max(1, ttlSeconds - RENEW_MARGIN_SECONDS) * 1000;
+  renewals.set(
+    canvasId,
+    setTimeout(() => {
+      renewals.delete(canvasId);
+      const hashes = wanted.get(canvasId);
+      // Nobody is looking any more: let it lapse rather than mint into an
+      // empty room. The next mount asks again.
+      if (!hashes || hashes.size === 0 || waiting.size === 0) return;
+      void ensureTickets(canvasId, [...hashes]);
+    }, delay),
+  );
+}
+
+/** Stop renewing everything — a base change invalidates every ticket. */
+function stopRenewals(): void {
+  for (const timer of renewals.values()) clearTimeout(timer);
+  renewals.clear();
+  wanted.clear();
 }
 
 /**
@@ -153,7 +226,7 @@ export async function ensureTickets(
     ...new Set(
       hashes.filter((hash) => {
         const key = cell(canvasId, hash);
-        return !live(tickets.get(key)) && !inFlight.has(key);
+        return !fresh(tickets.get(key)) && !inFlight.has(key);
       }),
     ),
   ];
@@ -171,6 +244,9 @@ export async function ensureTickets(
       for (const [hash, path] of Object.entries(answer.urls)) {
         tickets.set(cell(canvasId, hash), { path, goodUntil });
       }
+      // The home's own TTL, not a number this tab believes: a home that
+      // changes ISOCAN_CONTENT_TTL changes the renewal cadence with it.
+      scheduleRenewal(canvasId, answer.ttlSeconds);
     }
   } catch {
     // Expelled, offline, or a home that signs nothing: nothing to hold, and
@@ -202,11 +278,22 @@ export function useContentOrigin(canvasId: string, hashes: readonly string[]): C
   const key = hashes.join(",");
   useEffect(() => {
     if (base === null || !signed) return;
+    const mine = key.length > 0 ? key.split(",") : [];
     const wake = () => bump((n) => n + 1);
     waiting.add(wake);
-    void ensureTickets(canvasId, key.length > 0 ? key.split(",") : []);
+    // Register what this frame wants, so the renewal timer knows what to
+    // re-mint while it stays mounted — a mounted frame never re-renders on
+    // its own when its ticket ages out, which is what blanked the canvas.
+    const want = wanted.get(canvasId) ?? new Set<string>();
+    for (const hash of mine) want.add(hash);
+    wanted.set(canvasId, want);
+    void ensureTickets(canvasId, mine);
     return () => {
       waiting.delete(wake);
+      // Unregister on unmount. Other frames on the same canvas keep their own
+      // hashes registered, so this only narrows what the timer renews.
+      const still = wanted.get(canvasId);
+      if (still) for (const hash of mine) still.delete(hash);
     };
     // `key` rather than the array: a caller that rebuilds the list on every
     // render must not re-run this on every render.
