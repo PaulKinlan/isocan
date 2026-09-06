@@ -155,7 +155,8 @@ resolution, and it is worth knowing that this conflict is structural and will
 recur every time more than one night is drained at once.
 
 **1. Get the entry chunk under 640,000.** ⚠️ **Partly done 6 Sep —
-768,993 → 720,659, and the bound is still missed.** `LensPage`,
+768,993 → 720,659, and the bound is still missed.** (722,753 as measured on
+the 6th after the day's other merges; step 2 now holds that line.) `LensPage`,
 `CanvasListPage`, `NotHerePage`, the Share dialog and the history scrubber
 are behind lazy boundaries; all five were already mounted conditionally, so
 only the arrival of their bytes changed.
@@ -182,9 +183,24 @@ every canvas visitor downloaded the same bytes and one more round trip, which
 is the precise move the bound was reshaped to make impossible. A metric
 satisfied that way is worse than a metric breached honestly.
 
-**2. Make the bound fail a push, not a report.** The nightly says MISSED; CI
-says nothing. Until the number can redden a commit, step 1 is a one-time
-cleanup rather than a floor.
+**2. Make the bound fail a push, not a report.** ✅ **Done 6 Sep.** The nightly
+said MISSED; CI said nothing. `test/bundle-budget.test.ts` now measures the
+entry chunk in the ordinary suite — so it runs on every pull request, now that
+`pr.yml` exists.
+
+**It is a ratchet, not the bound**, and that is deliberate: the chunk is
+722,753 today against a goal of 640,000, so asserting the goal would redden
+main from the moment it landed, which is a red trunk rather than a guard.
+The assertion is "no bigger than the last number somebody agreed to", and the
+distance to the goal is printed on every run. Raising the ceiling is one line
+in a diff with a reason beside it; what cannot happen again is a hundred
+kilobytes arriving as a hundred unremarked commits.
+
+It builds the bundle when `dist` is missing or older than any web source,
+because it measures an artifact — and that trap bit while it was being
+written: this machine's `dist` predated step 1 and measured 768,812 for a tree
+whose real answer was 722,753. `lessons.md`'s "verify against what is actually
+served" in its newest costume.
 
 **3. `formatBytes` to core**, with the terabyte as its test.
 
