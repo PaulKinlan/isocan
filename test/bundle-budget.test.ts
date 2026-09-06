@@ -104,7 +104,21 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
  * Three of these raises have been justified individually; the fourth should
  * be somebody deciding to spend a session on shell code instead.
  */
-const CEILING = 736_800;
+/**
+ * **Raised again the same day, 736,800 → 737,300, and that is worth naming.**
+ *
+ * The first raise was the freeze fix. This one is #196 and #194: `formatScope`
+ * is reachable from the command palette and the right-click menu, both eager,
+ * and `shelf.ts` is shared between the entry and the lazy canvas list, so
+ * rollup hoists it. 376 bytes for two features.
+ *
+ * Each raise has been small and had a reason. That is also exactly how the
+ * last hundred kilobytes arrived — as a dozen individually reasonable
+ * commits — so the pattern matters more than either number: **this is the
+ * second raise in one session, and there should not be a third before
+ * somebody spends a session taking bytes OUT.** The goal is 97,300 away.
+ */
+const CEILING = 737_300;
 
 /** The performance persona's goal, restated here only so the failure message
  * can say how far there is left to go. `.agents/personas/performance.md` is

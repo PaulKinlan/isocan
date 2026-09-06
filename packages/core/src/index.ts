@@ -73,6 +73,7 @@ export * from "./jsoncanvas.ts";
 export * from "./contextmark.ts";
 export * from "./slides.ts";
 export * from "./deckexport.ts";
+export * from "./shelf.ts";
 export * from "./sprint.ts";
 export * from "./timeline.ts";
 export * from "./opwords.ts";
