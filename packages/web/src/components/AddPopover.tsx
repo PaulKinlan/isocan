@@ -243,7 +243,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
                   setError(null);
                 }}
               >
-                <KindIcon kind={row.kind === "file" ? "document" : row.kind === "doc" ? "document" : row.kind} />
+                <KindIcon className="kind-icon" kind={row.kind === "file" ? "document" : row.kind === "doc" ? "document" : row.kind} />
                 <span>{row.label}</span>
               </button>
             ))}
