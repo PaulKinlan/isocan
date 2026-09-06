@@ -507,6 +507,14 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   home-wide listening; the old "on call" presence was retired with this
   change. `~/.isocan/dirs.json` is the dir→canvas roster, a lazily healed
   cache.
+- **Backups**: `isocan export` writes a canvas to a directory — the whole
+  log verbatim, every blob it names, the folded snapshot, a manifest — in
+  the same layout `~/.isocan` keeps, so the directory IS the canvas with no
+  daemon involved. Point it at this directory's canvas, at a canvas or one
+  item by URL (any home you may see), or at a whole home; `--git <repo>`
+  commits and pushes it. `isocan import <dir>` hands it back to a home
+  through the route teleport arrives by — same seqs, same timestamps,
+  creates and never merges. [`docs/isocan-export.md`](docs/isocan-export.md).
 
 ## CLI surface
 
@@ -559,6 +567,19 @@ isocan tail [-f] [--archived]          # print/stream the operation log
 isocan recap [-n N]                    # that history at decaying resolution:
                                        # old spans summarized to a line each,
                                        # the last N ops verbatim
+isocan teleport <canvas> --to <home> [--dry-run]   # move a canvas to another
+                                       # home, history intact; this one forwards
+isocan export [<canvas>|<url>] [--to <dir>] [--item <item>] [--all]
+              [--dry-run] [--commit | --git <remote>]
+                                       # back a canvas (or one item, or every
+                                       # canvas at a home) up to a directory:
+                                       # the whole log verbatim and every blob
+                                       # it names — and commit or push it
+isocan export --jsoncanvas <file>      # the canvas as JSON Canvas (jsoncanvas.org)
+                                       # for other tools — a format, not a backup
+isocan import <dir> [--to <home>] [--only <id>] [--dry-run]
+                                       # restore a backup, seqs and timestamps
+                                       # intact; creates, never merges
 ```
 
 Items and threads resolve by id, id prefix, or title prefix. `--json`

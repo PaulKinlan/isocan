@@ -1161,8 +1161,11 @@ isocan teleport <canvas> --to https://isocan.io             # move it
 ```
 
 The whole history goes, verbatim: the same operations, the same order, the
-same timestamps, and the bytes with them. Afterwards this daemon forwards to
-the new home, so every address that worked still works.
+same timestamps, and the bytes after them. Afterwards this daemon forwards to
+the new home, so every address that worked still works. If the new home
+refuses a blob on the way, the move still completes and the report counts
+what is behind — `isocan blobs --push` sends it, and this daemon's own blob
+check would anyway.
 
 **Two things do not travel, and the command says so both times.** Who may
 enter — invite them again at the new home and set its link, because who may
@@ -1174,6 +1177,39 @@ Only a canvas's own home can send it, and it can only land somewhere that
 does not already have it. Moving a canvas onto a home that has it would be a
 merge, and two orders of the same canvas is not a thing this system has an
 answer for.
+
+## Backing a canvas up
+
+`isocan export` writes a canvas to a directory: its whole history verbatim,
+every blob the history names, the folded snapshot, and a manifest saying
+where it came from. The log IS the canvas, so that directory is one — with
+no daemon involved.
+
+```sh
+isocan export --to ./isocan-backup                      # this directory's canvas
+isocan export <canvas> --to ./isocan-backup --dry-run    # what would be written
+isocan export https://isocan.io/p/<id> --to ./backup     # a canvas at any home you may see
+isocan export https://isocan.io/p/<id>/i/<item> --to ./backup   # one item: its versions, ops, threads
+isocan export https://isocan.io --to ./backup            # every canvas you may see there
+isocan export --all --to ./backup                        # every canvas at this daemon
+isocan export --to ./backup --git <owner/repo>           # commit the export and push it
+```
+
+`--commit` commits into the repository at `--to` (making one if there is
+none); `--git <remote>` does that and pushes. Only what the export wrote is
+staged, so `--to .` inside a project never sweeps other work into a backup
+commit. A canvas is not public until you push it somewhere public — use a
+PRIVATE repository, and never one whose address a pass or a share link is
+also posted in.
+
+`isocan import <dir>` hands a backup to a home again — the same seqs, the
+same timestamps, through the route teleport arrives by. `--to <home>` restores
+somewhere other than this daemon. It creates and never merges: a canvas the
+home already has is refused, per canvas, and the rest still restore. Who may
+enter does not come back with it — `isocan share` at the restored canvas.
+
+The manifest lists blobs the home no longer had (`missing`). An export that
+says so is a backup; one that did not would only look like one.
 
 ## When a teammate sees the item but not the picture
 
@@ -1926,6 +1962,14 @@ from the Chat's newest `/sprint` line; `phase` calls one, `handin` marks what
 was made for it, `tally` splits human and agent dots),
 `present <item>` (a main-thread comment carrying the workbench address —
 inviting the room to a view, never dragging anyone to it),
+`teleport <canvas> --to <home> [--dry-run]` (move a canvas to another home,
+history intact — see **Moving a canvas to another home**),
+`export [<canvas>|<url>] [--to <dir>] [--item <ref>] [--all] [--dry-run]
+[--commit|--git <remote>]` (back a canvas, one item, or a whole home up to a
+directory — and commit or push it; `--jsoncanvas <file>` writes a JSON
+Canvas file instead, which is a format, not a backup),
+`import <dir> [--to <home>] [--only <id>]`
+(restore a backup, seqs and timestamps intact; creates, never merges),
 `use`, `canvas`,
 `share`, `share --space <name>` (the space's rows, and `--link` on every
 canvas in it), `share group:<name>` (a row naming a group),
