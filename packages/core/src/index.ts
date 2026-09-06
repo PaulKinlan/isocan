@@ -49,6 +49,7 @@ export * from "./slop.ts";
 export * from "./skillsource.ts";
 export * from "./designsystem.ts";
 export * from "./extensions.ts";
+export * from "./media.ts";
 export * from "./designmd.ts";
 export * from "./contrast.ts";
 export * from "./designcheck.ts";

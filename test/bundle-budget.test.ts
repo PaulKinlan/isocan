@@ -70,12 +70,18 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
  * needs, and it arrived as one commit with a reason rather than as a hundred
  * unremarked ones.
  *
+ * **+276 on the same day** for step 4 of the architecture review: the web app
+ * now reads the whole fourteen-row mime table out of core instead of keeping
+ * its own five. The review guessed the other nine would be "dead weight" —
+ * this is what that weighs, and it buys one table with one lookup order
+ * instead of two that can drift.
+ *
  * **Lower it when you win.** The goal is 640,000 and the note is clear that
  * splitting is spent: the remaining ~83KB is `ItemView`, `CanvasViewport`,
  * `api.ts` and the stores — the canvas itself — so getting under it honestly
  * means less shell code rather than another chunk boundary.
  */
-const CEILING = 730_736;
+const CEILING = 731_012;
 
 /** The performance persona's goal, restated here only so the failure message
  * can say how far there is left to go. `.agents/personas/performance.md` is

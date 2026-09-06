@@ -3,7 +3,7 @@ status: partial
 since: 2026-09-06
 issue: 185
 see: ui-refresh, evals
-note: steps 0, 2, 3 and 7 done and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
+note: steps 0, 2, 3, 4, 5 and 7 done and step 1 partly (768,993 → 720,659, still over the 640,000 bound — the rest is shell code, not chunk boundaries); an outside architecture review checked against the tree — most of it holds, four items are wrong in ways that change the fix, and the finding it missed is that the nightly caught the bundle breach three nights running and every report is sitting in an unmerged PR
 ---
 
 # The architecture review, checked against the tree
@@ -218,10 +218,41 @@ which is the case that was wrong, and a guard names the two files that used
 to hold a copy each so a re-introduction is caught where it happened.
 
 **4. `defaultSize` and the extension table to core**, keeping `mimeFor` and
-`mimeTypeOf` as two entry points.
+`mimeTypeOf` as two entry points. ✅ **Done 6 Sep.** `core/media.ts` holds the
+fourteen-row table, the lookup ORDER (a loaded module's extensions first, then
+the table — two copies of that is how one surface keeps calling a file a
+diagram after the other has stopped), and `defaultSize`, which was three number
+pairs written out twice.
+
+`mimeFromName` answers `undefined` rather than a default, which is what lets
+the two entry points stay two: the CLI has nothing else to go on and falls back
+to `application/octet-stream`; the browser still has `file.type` and reaches
+the table only as a patch. The web now sees all fourteen rows rather than the
+five browsers get wrong, and that is not the dead weight it looks like — the
+table is consulted only when `file.type` was empty or `octet-stream`, so extra
+rows can only improve an answer the browser declined to give and can never
+override one it did. It costs **276 bytes in the entry chunk**, measured, which
+is what "the other nine would be dead weight" turns out to weigh. `media.test.ts` names the three files that held a copy, so
+a re-introduction is caught where it happened.
 
 **5. Restate the cloud-desk invariant** as `denormalize()`, with a source
-guard.
+guard. ✅ **Done 6 Sep.** The comment says what is true — every write of a
+badge document passes its record through `denormalize()`, four write sites
+sharing one derivation — and says out loud that it used to claim one writer,
+so the next reader knows the sentence changed rather than the code.
+
+The guard is `cloud-desk-writers.test.ts`, and deliberately **not** in
+`cloud-desk-arrays.test.ts`, which needs a Firestore emulator and therefore
+does not run on most machines or most pull requests. A guard that catches a
+fifth writer has to run where the fifth writer is written. It reads the source,
+resolves each `.set(` to the collection it targets — chained, `tx.set(ref, …)`
+and plain receiver, all three — and requires `denormalize` on every badge
+write, with `touch`'s `lastSeen` merge as the one named exception. Anything it
+cannot classify comes back as **unresolved and fails**, rather than as "not a
+badge write": the first version silently missed the chained
+`collection(BADGES).doc(id).set(…)` entirely, which is a guard reporting green
+about code it never looked at. Three mutations killed, including aliasing the
+ref to a new name to dodge it.
 
 **6–8. The small true things.** `architecture.md`'s stale inventory; the
 `roadmap.test.ts` child timeout; the 49 unused exports.
