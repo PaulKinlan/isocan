@@ -1,0 +1,67 @@
+name: pr
+
+# **Test a change BEFORE main, not after it.**
+#
+# Until this file existed, every workflow here triggered on `schedule`,
+# `workflow_dispatch`, or `push: branches: [main]` — so main was the first
+# place anything in this repo was ever tested, and a pull request got review
+# but no run at all.
+#
+# What that cost, on one morning (6 September 2026): a research note merged
+# with no `issue:` in its front matter turned `docstatus.test.ts` red on main,
+# which held `green` back by ELEVEN commits, which stopped dev.isocan.io
+# deploying, and was noticed only when somebody went to promote to prod and
+# found `green` four days stale. The same day, a second change made
+# `docs/ROADMAP.md` stale and would have reddened main a second time; it was
+# caught by running the suite by hand before merging, which is not a system.
+# Every one of those is a thing this file would have caught, on the branch,
+# before it mattered to anyone else.
+#
+# It is deliberately NOT a required check in branch protection. An advisory
+# run that people read is the smaller promise, and deleting this file is the
+# whole rollback; making it required is a separate decision with a separate
+# cost (a flaky suite becomes a merge blocker) and should be argued on its own.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# **Cancel, do not queue — the opposite of `release.yml`, on purpose.**
+#
+# There, every commit gets its release in order, so runs queue. Here only the
+# newest commit on a branch is interesting: a run against a commit somebody has
+# already pushed past is spending eight minutes to answer a question nobody is
+# asking any more.
+concurrency:
+  group: pr-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # it reads the tree and writes nothing — no branch, no tag
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Node, Java, the Firestore emulator and `npm ci` — the same steps
+      # `release.yml` runs, because they are the same steps. Shared rather
+      # than copied: the drift that matters is this file falling behind that
+      # one, which would leave pull requests green while main went red, and a
+      # comment asking two files to stay in step is not a guard.
+      - uses: ./.github/actions/suite-setup
+
+      # ISOCAN_REQUIRE_EMULATOR is the anti-skip switch, and it is set here for
+      # the same reason `release.yml` sets it: locally the cloud suites skip
+      # loudly and say what they did not check, but a green CI run that quietly
+      # skipped Firestore launders an unknown into a checkmark. A PR check that
+      # can pass without testing the cloud backing is a PR check that will
+      # eventually wave through the one change that breaks it.
+      - run: npm test
+        env:
+          ISOCAN_REQUIRE_EMULATOR: "1"
+
+      - run: npm run typecheck
+      - run: npm run lint
