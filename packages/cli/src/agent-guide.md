@@ -1964,7 +1964,10 @@ NOT undoable — confirm on the thread first, and never delete a canvas you did
 not make). **`canvas archive` is the one to reach for instead**: it takes a
 canvas out of the list and changes nothing else — the address, the history,
 the agents and any view link all keep working, and `--undo` puts it back.
-`canvas list --archived` finds what is on the shelf,
+`canvas list --archived` finds what is on the shelf. `canvas background
+<galaxy|farm|mountains|ocean|none>` sets the ground a canvas stands on, and
+bare `canvas background` says what it is wearing — everybody on the canvas
+sees the same one, so it is a change to ask about rather than assume,
 `who [--all]`, `activity [who]`, `whoami`, `identity [--color]`,
 `command list|show|add|rm`, `format [--dry-run]`, `merge`, `shortcuts`,
 `design [--css|--tokens] [set|check]`,

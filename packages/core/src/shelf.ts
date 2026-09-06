@@ -76,6 +76,9 @@ export function unshelvePatch(): MetaPatch {
  *  default everywhere: the whole point is that the shelf is not in the way. */
 export type ShelfScope = "live" | "shelved" | "all";
 
+/** Does this canvas belong in a list asking for that scope — the one
+ *  comparison every surface makes, so "archived" means the same thing in the
+ *  app's list, `canvas list --archived`, and anything asked later. */
 export function inScope(
   canvas: { properties?: Record<string, string> },
   scope: ShelfScope,

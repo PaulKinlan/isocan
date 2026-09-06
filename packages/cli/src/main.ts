@@ -113,6 +113,11 @@ import {
   SHORTCUTS,
   formatMoves,
   inScope,
+  isTheme,
+  noThemePatch,
+  themeOf,
+  themePatch,
+  THEMES,
   isShelved,
   shelvePatch,
   shelvedAt,
@@ -4768,6 +4773,30 @@ canvas
         console.log(`updated canvas ${p.id}`);
       },
     ),
+  );
+
+canvas
+  .command("background [theme]")
+  .description(`The ground this canvas stands on — ${THEMES.join(", ")}, or \`none\` to remove it`)
+  .action(
+    run(async (theme: string | undefined, _opts: unknown, cmd: Command) => {
+      const ctx = await ctxOf(cmd);
+      const p = await resolveCanvas(ctx);
+      // No argument is a question, not a change: `isocan canvas background`
+      // says what it is wearing, which is what a person types first.
+      if (theme === undefined) {
+        const now = themeOf(p);
+        return console.log(now ?? `none — ${THEMES.join(", ")} are the grounds it can wear`);
+      }
+      if (theme !== "none" && !isTheme(theme)) {
+        throw new Error(`not a background: ${theme} — ${THEMES.join(", ")}, or none`);
+      }
+      await sendOp(ctx, p.id, {
+        type: "project.update",
+        patch: theme === "none" ? noThemePatch() : themePatch(theme),
+      });
+      console.log(theme === "none" ? `${p.id} is back to the dot grid` : `${p.id} wears ${theme}`);
+    }),
   );
 
 canvas

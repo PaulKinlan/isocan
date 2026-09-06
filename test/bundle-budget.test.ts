@@ -105,20 +105,29 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
  * be somebody deciding to spend a session on shell code instead.
  */
 /**
- * **Raised again the same day, 736,800 → 737,300, and that is worth naming.**
+ * **Lowered, 737,300 → 727,300, and that is the direction this is supposed to
+ * move.**
  *
- * The first raise was the freeze fix. This one is #196 and #194: `formatScope`
- * is reachable from the command palette and the right-click menu, both eager,
- * and `shelf.ts` is shared between the entry and the lazy canvas list, so
- * rollup hoists it. 376 bytes for two features.
+ * It went up twice on 6 September — once for the fix that stopped a browser
+ * freezing, once for #196 and #194 — and the file said, in these words, that
+ * there should not be a third before somebody took bytes OUT. So the third
+ * ask went looking instead.
  *
- * Each raise has been small and had a reason. That is also exactly how the
- * last hundred kilobytes arrived — as a dozen individually reasonable
- * commits — so the pattern matters more than either number: **this is the
- * second raise in one session, and there should not be a third before
- * somebody spends a session taking bytes OUT.** The goal is 97,300 away.
+ * `menuentries.tsx` is twenty-four kilobytes of every row the canvas can
+ * offer, and it was in the bytes of every first visit — including the visits
+ * that never open a menu. It is now imported when a menu is actually asked
+ * for: a right-click and the `···` handle are deliberate gestures with a
+ * frame to spare. That returned 11,116 bytes, which paid for the freeze fix,
+ * the tidy, the archive AND the themes, and left 10,000 over.
+ *
+ * The lesson is the cheap one: the entry chunk grew for months because
+ * nothing asked, not because it had to. The first place anybody looked, on
+ * being told to look, held eleven kilobytes.
+ *
+ * The goal is 87,300 away. Same rule as before — this comes down, not up,
+ * unless somebody has a reason worth writing here.
  */
-const CEILING = 737_300;
+const CEILING = 727_300;
 
 /** The performance persona's goal, restated here only so the failure message
  * can say how far there is left to go. `.agents/personas/performance.md` is
