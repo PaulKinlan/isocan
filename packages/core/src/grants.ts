@@ -40,27 +40,14 @@ import type { Attestation, SweepReport } from "./badge.ts";
  * - `repo:<host>/<owner>/<name>` — Scene 6's sentence made checkable:
  *   committing the marker was a grant to whoever can read the repo. Satisfied
  *   the same way, by an attestation that the holder can read it.
+ * - `group:<id>` — a named set of people (roles phase 5, "The group").
+ *   Satisfied when any of the badge's attested attributes is in the group's
+ *   `members` AT THE MOMENT THE DOOR ASKS: membership is read from the desk
+ *   by the door and never copied onto a row, which is what makes removing a
+ *   member one write.
  */
-export type GrantSubject = "link" | `email:${string}` | `repo:${string}`;
+export type GrantSubject = "link" | `email:${string}` | `repo:${string}` | `group:${string}`;
 
-/**
- * What a grant lets its holder DO once the door says yes — the roles question
- * `identity-desk.md` left open ("that waits for a scene that forces it"),
- * answered by the scene that forced it: a presentation (#87) whose viewers
- * must not walk in and start moving things (#88).
- *
- * Two words and not a matrix. `edit` is everything admission has always
- * meant; `view` is admission to READ — the snapshot, the oplog, the blobs,
- * the socket's fan-out — and nothing that writes. The refusal is server-side
- * at the op chokepoint, not a hidden toolbar: a capability that only a client
- * enforced would be what the scrubber's comment calls a habit rather than a
- * rule.
- *
- * **Absent means `edit`, everywhere.** Every grant row and every admission
- * written before this field existed meant full access, so the absent field
- * must go on meaning exactly that — and the wire, the desk and Firestore all
- * store the field only when it narrows.
- */
 /**
  * **Who owns a canvas: the actor who made it.**
  *
@@ -86,13 +73,122 @@ export function ownsCanvas(project: { createdBy: { id: string } }, actorId: stri
   return ownerOf(project) === actorId;
 }
 
-export type Capability = "edit" | "view";
+/**
+ * What a grant lets its holder DO once the door says yes — the roles question
+ * `identity-desk.md` left open ("that waits for a scene that forces it"),
+ * answered first by the scene that forced it (a presentation, #87, whose
+ * viewers must not walk in and start moving things, #88) and then widened by
+ * the roles project (`docs/projects/roles/design.md`) into a ladder.
+ *
+ * **A ladder, not a matrix.** Four rungs in a total order, and every
+ * question about them is one comparison — `atLeast(held, needed)`. From the
+ * bottom:
+ *
+ * - `view` — the deck. Admission to READ, rendered as the presentation: the
+ *   current slide full screen, arrows to flip. Stays out of presence.
+ * - `read` — the canvas with the writes hidden. The same admission to read,
+ *   rendered as the canvas itself; appears in presence, marked as reading.
+ *   The daemon enforces nothing between `view` and `read`: both may read the
+ *   oplog and neither may write. The difference is what the home tells the
+ *   client to render, and whether the connection appears in presence.
+ * - `edit` — everything admission has always meant.
+ * - `own` — what the creator holds; grantable, so a canvas can change hands
+ *   by adding an owner and leaving. What it gates beyond `edit` is built by
+ *   roles phase 2; phase 1 stores and carries it so it round-trips.
+ *
+ * The new rung is spelled `read` and not `view` so that nothing already
+ * written changes meaning: every `view` row in the wild still opens the deck.
+ *
+ * The refusal is server-side at the op chokepoint, not a hidden toolbar: a
+ * capability that only a client enforced would be what the scrubber's
+ * comment calls a habit rather than a rule.
+ *
+ * **Absent means `edit`, everywhere.** Every grant row and every admission
+ * written before this field existed meant full access, so the absent field
+ * must go on meaning exactly that. The wire rule is **written whenever it is
+ * not `edit`** (`narrowed`), which is the same rule for every row in the
+ * wild, because `view` is the only value that was ever written before the
+ * ladder.
+ */
+export type Capability = "view" | "read" | "edit" | "own";
+
+/** The ladder, lowest first. `atLeast` and `highest` compare positions in
+ * this list and nowhere else. */
+export const RUNGS: readonly Capability[] = ["view", "read", "edit", "own"];
+
+/** A word this home does not know is below every rung it does: an old client
+ * meeting a new rung renders it as an editor (the design's compatibility
+ * rule), and a NEW client meeting a word it cannot place must not be
+ * promoted by it. */
+function rungIndex(capability: Capability): number {
+  return RUNGS.indexOf(capability);
+}
+
+/** Is what is held at least what is needed — the one comparison the ladder
+ * exists to make. */
+export function atLeast(held: Capability, needed: Capability): boolean {
+  return rungIndex(held) >= rungIndex(needed);
+}
+
+/** The higher of two rungs: a person's rung on a canvas is the highest of
+ * every row that admits them. */
+export function highest(a: Capability, b: Capability): Capability {
+  return rungIndex(a) >= rungIndex(b) ? a : b;
+}
+
+/** Is this word a rung at all? The route's shape check, and the desks'
+ * read-back guard: a stored word from a newer home is not silently read as
+ * edit, and not silently read as anything else either. */
+export function isCapability(word: unknown): word is Capability {
+  return typeof word === "string" && (RUNGS as readonly string[]).includes(word);
+}
+
+/**
+ * **Whether the field is written** — the one place that decides, replacing
+ * the eleven literal `"view"` tests the roles design counted (both desks'
+ * `admit` and `reroot`, the cloud desk's `toGrant`, the grants route, the
+ * hello, the API client, the web client, the home link's forwarder).
+ *
+ * True whenever the rung is not `edit`. Any rung a call site has not met is
+ * then stored rather than dropped: the cloud desk's own comment records that
+ * a field-picking rebuild once escalated `view` to `edit` on the hosted home,
+ * and a literal test would do the same to `read` and `own`.
+ */
+export function narrowed(capability: Capability | undefined): capability is Capability {
+  return capability !== undefined && capability !== "edit";
+}
 
 /** The one reading of an absent field: a grant from before capabilities — or
  * one written without narrowing — admits to everything, as it always did. */
 export function capabilityOf(grant: { capability?: Capability }): Capability {
   return grant.capability ?? "edit";
 }
+
+/**
+ * The two vocabularies a rung is spoken in, from one map so the dialog, the
+ * CLI table, the facepile and the roster cannot drift apart.
+ *
+ * `dialog` is the Share dialog's picker and the CLI's rung column: the
+ * research's four names. `presence` is the word beside a face — what the
+ * facepile's hover card and the Share roster say about somebody who is here,
+ * the way they say *standing by* for an available agent. Only the rungs
+ * below `edit` are ever spoken there (an editor is simply *here*), but the
+ * map covers all four so a caller can index it without a case.
+ */
+export const capabilityWord: Record<"dialog" | "presence", Record<Capability, string>> = {
+  dialog: {
+    own: "Owner",
+    edit: "Editor",
+    read: "Canvas Viewer",
+    view: "Presentation Viewer",
+  },
+  presence: {
+    own: "editing",
+    edit: "editing",
+    read: "reading",
+    view: "viewing",
+  },
+};
 
 /** The one subject that needs no attester: presenting the address IS the
  * proof, which is why it is the subject a canvas is born with. */
@@ -103,10 +199,59 @@ export const LINK: GrantSubject = "link";
  * the door, and a home's configuration all name the same thing. */
 export type AttestedKind = "email" | "repo";
 
+/**
+ * Null for `link` AND for `group:` (roles phase 5). A group is not an
+ * attested kind: nobody proves "I am in the design team" to an attester,
+ * they prove an address and the door looks the address up in the group. And
+ * `normalizeAttribute` lowercases every attested kind, which an id must
+ * never be — `ppl_Ab` and `ppl_ab` are two rows. So a group subject is
+ * deliberately not folded here, and `attesterRefusal` in the server gets its
+ * own `group:` case rather than reading this null as "needs no attester".
+ */
 export function attestedKindOf(subject: string): AttestedKind | null {
   if (subject.startsWith("email:")) return "email";
   if (subject.startsWith("repo:")) return "repo";
   return null;
+}
+
+/** The prefix a group's id wears. `ppl_`, because `grp_` already names a
+ * gesture group in the oplog (`newGroupId`), and one prefix meaning two
+ * things is how an id ends up looked up in the wrong ledger. */
+export const GROUP_ID_PREFIX = "ppl";
+
+/** The subject a group is granted as: `group:<id>`. */
+export function groupSubject(groupId: string): GrantSubject {
+  return `group:${groupId}`;
+}
+
+/** Is this a group subject? The shape check is `grantSubjectRefusal`'s. */
+export function isGroupSubject(subject: unknown): subject is `group:${string}` {
+  return typeof subject === "string" && subject.startsWith("group:");
+}
+
+/** The id behind a group subject, or null when it is not one. */
+export function groupIdOf(subject: string): string | null {
+  return isGroupSubject(subject) ? subject.slice("group:".length) : null;
+}
+
+/**
+ * **What a grant names: one canvas, or one space** (roles design, "The
+ * space"). A discriminated scope rather than two optional fields, so a row
+ * cannot name both or neither. Every row in the wild has `canvasId` and
+ * matches the first arm with no migration; a space row is the second arm,
+ * written only by the space routes.
+ */
+export type GrantScope = { canvasId: string } | { spaceId: string };
+
+/** Which scope a row names, as one word and one id — for the code that has
+ * to branch on it without spelling `"canvasId" in grant` in five places. */
+export function scopeOf(grant: GrantScope): { kind: "canvas" | "space"; id: string } {
+  return "spaceId" in grant ? { kind: "space", id: grant.spaceId } : { kind: "canvas", id: grant.canvasId };
+}
+
+/** Is this a row on a space? */
+export function isSpaceGrant(grant: GrantScope): grant is { spaceId: string } {
+  return "spaceId" in grant;
 }
 
 /**
@@ -114,11 +259,13 @@ export function attestedKindOf(subject: string): AttestedKind | null {
  *
  * `{id, canvasId, subject, grantedBy, at}` is the architecture's
  * `grants/{id}` row exactly; `revokedAt`/`revokedBy` are what revocation
- * needs and are the only addition.
+ * needs and are the only addition. Since roles phase 4 the canvas id is one
+ * arm of {@link GrantScope}, and a row may name a space instead.
  */
-export interface Grant {
+export type Grant = GrantBase & GrantScope;
+
+export interface GrantBase {
   id: string;
-  canvasId: string;
   subject: GrantSubject;
   /**
    * Who granted it: the badge id that asked for the row, or one of the two
@@ -137,9 +284,31 @@ export interface Grant {
    */
   revokedAt?: string;
   revokedBy?: string;
-  /** What this row admits its holder to do. Written only when it NARROWS
-   * (`view`); absent is `edit` — see {@link Capability}. */
+  /** What this row admits its holder to do. Written whenever it is not
+   * `edit` (see `narrowed`); absent is `edit` — see {@link Capability}. A
+   * bar (below) has none. */
   capability?: Capability;
+  /**
+   * **A bar: this row says no** (roles design, "The bar"). Its subject may
+   * not enter until the row is revoked, whatever any other row says — a
+   * live bar beats every rung, which is why it is not a rung: rungs are
+   * compared by highest-wins and a bar has to win. It is a grant row and
+   * not a second table because everything that lists, revokes and sweeps
+   * rows then works on it with no second path, and `isocan share` prints
+   * it in the same table as *kept out*.
+   *
+   * A bar's subject is an address or a repo, never `link` and never a
+   * group (`barSubjectRefusal`). The creator cannot be barred: the door
+   * checks the floor before a bar takes effect, and the route refuses to
+   * write a row that would do nothing. Written as `true` or not at all, the
+   * way `capability` is written only when it narrows.
+   */
+  bars?: true;
+}
+
+/** Is this row a bar — a row that refuses rather than admits? */
+export function isBar(grant: { bars?: true }): boolean {
+  return grant.bars === true;
 }
 
 /**
@@ -175,9 +344,21 @@ export const GRANTED_BY_MIGRATION = "migration";
  */
 export function grantSubjectRefusal(subject: unknown): string | null {
   if (typeof subject !== "string" || subject === "") {
-    return "a grant needs a subject — `link`, `email:<addr>` or `repo:<host>/<owner>/<name>`";
+    return "a grant needs a subject — `link`, `email:<addr>`, `repo:<host>/<owner>/<name>` or `group:<id>`";
   }
   if (subject === LINK) return null;
+  if (isGroupSubject(subject)) {
+    // An ID, and only an id (roles phase 5): the wire carries ids and the
+    // CLI resolves a name through the list. `group:design team` is what a
+    // person types, and the CLI turns it into `group:ppl_…` before it is
+    // sent — a route handed the name would have to guess whose "design
+    // team" was meant, and a guessed subject admits the wrong people.
+    const id = subject.slice("group:".length);
+    if (!id.startsWith(`${GROUP_ID_PREFIX}_`) || id.length <= GROUP_ID_PREFIX.length + 1 || /\s/.test(id)) {
+      return `not a group id: ${id} (a grant subject is \`group:${GROUP_ID_PREFIX}_…\` — \`isocan group list\` shows the ids)`;
+    }
+    return null;
+  }
   if (subject.startsWith("email:")) {
     // An address, not a display name. Deliberately the weakest possible check
     // — one `@` with something on each side and no whitespace — because the
@@ -201,7 +382,28 @@ export function grantSubjectRefusal(subject: unknown): string | null {
     }
     return null;
   }
-  return `not a grant subject: ${subject} (expected \`link\`, \`email:<addr>\` or \`repo:<host>/<owner>/<name>\`)`;
+  return `not a grant subject: ${subject} (expected \`link\`, \`email:<addr>\`, \`repo:<host>/<owner>/<name>\` or \`group:<id>\`)`;
+}
+
+/**
+ * Why this cannot be a BAR's subject, or null when it can.
+ *
+ * A bar names a person or a repo — something a badge proves — and never
+ * `link`, because "anyone with the address may not enter" is the link turned
+ * off, and never a group, because barring a group is un-inviting it (roles
+ * design, "The bar"). The two bar-only refusals come BEFORE the shape check
+ * on purpose: they were written before `group:` was a grant subject at all
+ * (roles phase 5 made it one), and they refuse it as a bar without having
+ * been re-taught.
+ */
+export function barSubjectRefusal(subject: unknown): string | null {
+  if (subject === LINK) {
+    return "the link cannot be kept out — turn it off instead (`isocan share --link off`)";
+  }
+  if (isGroupSubject(subject)) {
+    return "a group cannot be kept out — un-invite it instead";
+  }
+  return grantSubjectRefusal(subject);
 }
 
 /**
@@ -291,7 +493,11 @@ export function attestationSatisfying(
   subject: GrantSubject,
   attestations: readonly Attestation[],
 ): Attestation | null {
-  if (subject === LINK) return null;
+  // A group is not answered here either (roles phase 5): it needs the desk,
+  // to read `members`, and this function has none. `server/grants.ts` keeps
+  // that branch beside the link's. Said explicitly rather than left to the
+  // equality below finding nothing, so nobody reads the null as a bug.
+  if (subject === LINK || isGroupSubject(subject)) return null;
   const wanted = normalizeSubject(subject);
   return attestations.find((row) => normalizeAttribute(row.attribute) === wanted) ?? null;
 }
@@ -321,11 +527,48 @@ export const grantsRoute = (canvasId: string): string =>
 export const grantRoute = (canvasId: string, grantId: string): string =>
   `${grantsRoute(canvasId)}/${encodeURIComponent(grantId)}`;
 
+/**
+ * The same `DELETE`, with what rides on its query. A revocation sends no
+ * body (a bodiless DELETE that declares a content type is a parse error),
+ * so what it has to say goes here: `actorId`, who is acting, and `bar=1`,
+ * **revoke and keep them out in one request** (roles design, "Withdrawing
+ * versus barring") — the row is tombstoned and a bar for the same subject
+ * is written before the one sweep runs. Spelled once so the browser, the
+ * CLI and a replica's forwarder cannot disagree about the parameter's name.
+ */
+export const grantRevokeRoute = (
+  canvasId: string,
+  grantId: string,
+  options: { actorId?: string; bar?: boolean } = {},
+): string => {
+  const query = new URLSearchParams();
+  if (options.actorId) query.set("actorId", options.actorId);
+  if (options.bar) query.set("bar", "1");
+  const route = grantRoute(canvasId, grantId);
+  const tail = query.toString();
+  return tail ? `${route}?${tail}` : route;
+};
+
 export interface CreateGrantRequest {
   subject: GrantSubject;
   /** Omitted means `edit`, which is what every caller from before the field
-   * asked for by not being able to ask. */
+   * asked for by not being able to ask. Not sent with `bars`. */
   capability?: Capability;
+  /** Write a BAR rather than an invitation (see `Grant.bars`): the subject
+   * is kept out until the row is revoked. A live row for the same subject is
+   * replaced, the way a re-grant replaces one, and the sweep runs. */
+  bars?: true;
+  /**
+   * **Who is acting** (roles design, "Over a replica, the write names the
+   * person"). A write to grants asks `own`, and `own` is held by a PERSON —
+   * the creator's floor is checked against the badge's claims. A badge that
+   * claims several people (a browser with two personas, a daemon relaying a
+   * whole machine) names the one acting here, and the home checks two
+   * things: the actor is among the presenting badge's claims, and the actor
+   * holds `own`. Absent, the home reads the badge's claims as a whole, which
+   * is what every caller from before the field asked for by not saying.
+   */
+  actorId?: string;
 }
 
 export interface GrantsResponse {
@@ -346,7 +589,368 @@ export interface GrantResponse {
    * courtesy `?reach=admitted` extended in the other direction.
    */
   swept?: SweepReport;
+  /**
+   * **After a revocation: what would still admit the subject.** `link` when
+   * the canvas's link is live and no bar names them — the difference between
+   * withdrawing an invitation and barring a person (roles journey 3, step 3),
+   * which the dialog and the CLI both owe the person before they act on it:
+   * *they can still enter by the link; `--bar` to keep them out*. Computed
+   * from the live rows after the revoke, so a `?bar=1` answers without it.
+   * Absent when nothing would, and from a home from before bars. `space`
+   * (roles phase 4) when a live row on the canvas's space names the same
+   * subject: removing them here does not remove them, and the remedy is the
+   * space's Share.
+   */
+  stillAdmittedBy?: "link" | "space";
+  /** The bar written in the same request as the revocation (`?bar=1`), so a
+   * caller knows the row it would revoke to let them back in. */
+  bar?: Grant;
+  /**
+   * **How many canvases the sweep reached** — present on a write to a
+   * SPACE's rows (roles phase 4), whose sweep is one `sweepCanvas` per canvas
+   * in the space; `swept` is then the sum. Absent on a canvas write, which
+   * reaches exactly one.
+   */
+  reached?: number;
 }
+
+// ---- the space: a named set of canvases access is set on once (roles phase 4) ----
+
+/**
+ * **A space** (roles design, "The space"): desk state at the home, like a
+ * grant and for the same reason — it is part of what a grant means, and what
+ * a grant means does not travel to a replica.
+ *
+ * The set of canvases lives HERE and not on the canvas record, because the
+ * canvas record is oplog state and replicates to every laptop that holds the
+ * canvas, and a laptop has no use for the id of a space it cannot see. It
+ * also means moving a canvas is a desk write and not an op, so nothing in the
+ * op vocabulary changes. A canvas is in at most one space; the write that
+ * adds one refuses when it is already in another (`CANVAS_IN_SPACE`).
+ *
+ * `createdBy` is an actor id and it is the floor: the creator holds `own`
+ * over the space and every canvas in it, and cannot lose it. A space has no
+ * address, so it has no link row; `link` is refused as a space subject.
+ */
+export interface Space {
+  /** `spc_…` */
+  id: string;
+  name: string;
+  /** The actor who made it — the floor. */
+  createdBy: string;
+  canvasIds: string[];
+  at: string;
+  /** A tombstone, like a grant's: the row stays so the id keeps meaning what
+   * it meant, and `spaceOf` stops naming it. */
+  deletedAt?: string;
+}
+
+/** Is this actor the one who made the space? The same reading `ownsCanvas`
+ * makes of `createdBy`, so the floor is one rule on two kinds of thing. */
+export function ownsSpace(space: { createdBy: string }, actorId: string): boolean {
+  return space.createdBy === actorId;
+}
+
+/** Is this space still standing? */
+export function isSpaceLive(space: Space): boolean {
+  return space.deletedAt === undefined;
+}
+
+/** How long a space's name may be. Generous — it is a heading on a list, not
+ * an identifier — and bounded, because a name is stored on a row. */
+export const SPACE_NAME_MAX = 80;
+
+/**
+ * Why this is not a space name, or null when it is one. Trimmed by the
+ * caller; a name that is all whitespace is no name. Names are unique among
+ * the ones a person owns, not across the home — that is a fact about the
+ * desk and refused at the route (`SPACE_NAME_TAKEN`), not here.
+ */
+export function spaceNameRefusal(name: unknown): string | null {
+  if (typeof name !== "string" || name.trim() === "") return "a space needs a name";
+  if (name.trim().length > SPACE_NAME_MAX) {
+    return `a space's name is at most ${SPACE_NAME_MAX} characters`;
+  }
+  if (/[\n\r]/.test(name)) return "a space's name is one line";
+  return null;
+}
+
+/** The one spelling of "the same name" for the per-owner uniqueness rule:
+ * trimmed and case-folded, so `Design` and `design ` are one space. */
+export function sameSpaceName(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** `GET` lists the spaces the badge may see; `POST {name}` makes one. All at
+ * the home; a replica forwards through its one home. */
+export const SPACES_ROUTE = "/api/spaces";
+
+/** `DELETE` marks it deleted. */
+export const spaceRoute = (spaceId: string): string =>
+  `${SPACES_ROUTE}/${encodeURIComponent(spaceId)}`;
+
+/** `PUT` adds the canvas; `DELETE` removes it. */
+export const spaceCanvasRoute = (spaceId: string, canvasId: string): string =>
+  `${spaceRoute(spaceId)}/canvases/${encodeURIComponent(canvasId)}`;
+
+/** The grants routes, scoped to the space: `GET` lists, `POST` creates. */
+export const spaceGrantsRoute = (spaceId: string): string => `${spaceRoute(spaceId)}/grants`;
+
+/** `DELETE` revokes one. */
+export const spaceGrantRoute = (spaceId: string, grantId: string): string =>
+  `${spaceGrantsRoute(spaceId)}/${encodeURIComponent(grantId)}`;
+
+/** The same `DELETE` with `actorId` and `bar=1` on its query, spelled once
+ * like `grantRevokeRoute`. */
+export const spaceGrantRevokeRoute = (
+  spaceId: string,
+  grantId: string,
+  options: { actorId?: string; bar?: boolean } = {},
+): string => {
+  const query = new URLSearchParams();
+  if (options.actorId) query.set("actorId", options.actorId);
+  if (options.bar) query.set("bar", "1");
+  const route = spaceGrantRoute(spaceId, grantId);
+  const tail = query.toString();
+  return tail ? `${route}?${tail}` : route;
+};
+
+/** **Every canvas in this space** — `POST {capability | "off"}` sets or
+ * revokes the link row on every canvas in the space, in a loop, and answers
+ * with the count (roles journey 4, step 4). */
+export const spaceLinkRoute = (spaceId: string): string => `${spaceRoute(spaceId)}/link`;
+
+/** The `DELETE`s on a space carry who is acting on the query, for
+ * `grantRevokeRoute`'s reason: a bodiless DELETE announces no content type. */
+export const spaceActingRoute = (route: string, actorId?: string): string =>
+  actorId ? `${route}?${new URLSearchParams({ actorId }).toString()}` : route;
+
+export interface SpacesResponse {
+  spaces: Space[];
+}
+
+export interface CreateSpaceRequest {
+  name: string;
+  /** Who is making it — the floor. A badge that claims one actor need not
+   * say; one that claims several must. */
+  actorId?: string;
+}
+
+export interface SpaceResponse {
+  space: Space;
+}
+
+/** A write on the space's set of canvases: `PUT` and `DELETE …/canvases/:id`,
+ * and `DELETE /api/spaces/:id`. The sweep's count rides back, added up over
+ * every canvas it reached. */
+export interface SpaceCanvasRequest {
+  actorId?: string;
+}
+
+export interface SpaceCanvasResponse {
+  space: Space;
+  swept: SweepReport;
+  /** How many canvases were swept — one for a canvas added or removed, the
+   * whole space for a delete. */
+  reached: number;
+}
+
+/** `POST /api/spaces/:id/link` — the every-canvas link setting. */
+export interface SpaceLinkRequest {
+  /** A rung the link admits to, or `off`. Never `own`. */
+  capability: Capability | "off";
+  actorId?: string;
+}
+
+export interface SpaceLinkResponse {
+  /** Every canvas in the space, walked. */
+  reached: number;
+  /** Of those, the ones whose link row was written or revoked — the rest
+   * already stood as asked. */
+  changed: number;
+  canvasIds: string[];
+  swept: SweepReport;
+}
+
+/** There is no such space, or it was deleted, or this badge may not see it —
+ * the three answer alike, so a stranger learns nothing about the space around
+ * a canvas they were invited to (roles design, "The space"). */
+export const SPACE_NOT_FOUND = "space-not-found";
+/** The canvas is already in another space — a canvas is in at most one. */
+export const CANVAS_IN_SPACE = "canvas-in-space";
+/** A request about a space that is not one: no name, no actor, a canvas
+ * whose home is elsewhere, `link` as a space subject. */
+export const BAD_SPACE = "bad-space";
+/** This actor already owns a space of that name. Names are unique per owner
+ * because the CLI resolves them; the wire carries ids. */
+export const SPACE_NAME_TAKEN = "space-name-taken";
+
+// ---- the group: a named set of people access is given to once (roles phase 5) ----
+
+/**
+ * **A group** (roles design, "The group"): desk state at the home, like a
+ * space and for the same reason — it is part of what a grant means.
+ *
+ * `members` are normalized attributes (`email:…`, `repo:…`), the same
+ * namespace a badge's attestations live in, so the door's question is
+ * "is any attribute this badge has proved in the list" — read at the door,
+ * on every test, and never copied onto a grant row. That is what makes
+ * removing a member one write (journey 6). A group whose members are
+ * `repo:` attributes rides the same rows; nothing here builds a repo
+ * attester.
+ *
+ * `createdBy` is an actor id and it is the floor: the creator owns the
+ * group, sees its members, and is the only one who may change them. A
+ * canvas or space owner who uses the group in a grant sees its name and its
+ * size and nothing more — a group is a private list until its owner says
+ * otherwise, and a directory is a different feature.
+ */
+export interface Group {
+  /** `ppl_…` (see {@link GROUP_ID_PREFIX}). */
+  id: string;
+  name: string;
+  /** The actor who made it — the floor. */
+  createdBy: string;
+  /** Normalized attributes: `email:…`, `repo:…`. Never `link`, never a group. */
+  members: string[];
+  at: string;
+  /** A tombstone, like a space's: the row stays so the id keeps meaning what
+   * it meant, and its grant rows stop admitting anybody. */
+  deletedAt?: string;
+}
+
+/** Is this actor the one who made the group? The same reading `ownsSpace`
+ * makes of `createdBy`. */
+export function ownsGroup(group: { createdBy: string }, actorId: string): boolean {
+  return group.createdBy === actorId;
+}
+
+/** Is this group still standing? */
+export function isGroupLive(group: Group): boolean {
+  return group.deletedAt === undefined;
+}
+
+/** How long a group's name may be — a space's bound, for a space's reason. */
+export const GROUP_NAME_MAX = SPACE_NAME_MAX;
+
+/** Why this is not a group name, or null when it is one. A space's rules:
+ * trimmed by the caller, one line, bounded. Unique among the ones a person
+ * owns, which is the desk's fact and refused at the route (`GROUP_NAME_TAKEN`). */
+export function groupNameRefusal(name: unknown): string | null {
+  if (typeof name !== "string" || name.trim() === "") return "a group needs a name";
+  if (name.trim().length > GROUP_NAME_MAX) {
+    return `a group's name is at most ${GROUP_NAME_MAX} characters`;
+  }
+  if (/[\n\r]/.test(name)) return "a group's name is one line";
+  return null;
+}
+
+/** The one spelling of "the same name" for the per-owner rule: trimmed and
+ * case-folded, as for a space. */
+export const sameGroupName = sameSpaceName;
+
+/**
+ * Why this cannot be a group MEMBER, or null when it can: a member is an
+ * attested attribute — an address or a repo — because that is what the door
+ * compares against. Never `link` (a group that anybody with the address is
+ * in is the link), and never a group (no nesting: the door reads one list
+ * per row, and a list that pointed at lists would make membership a walk).
+ */
+export function groupMemberRefusal(attribute: unknown): string | null {
+  if (attribute === LINK) return "a group holds addresses, not the link — turn the link on instead";
+  if (isGroupSubject(attribute)) return "a group holds addresses, not other groups";
+  const refusal = grantSubjectRefusal(attribute);
+  if (refusal) return refusal;
+  return attestedKindOf(attribute as string) === null
+    ? `not something a person can prove: ${String(attribute)} (a member is \`email:<addr>\` or \`repo:<host>/<owner>/<name>\`)`
+    : null;
+}
+
+/** `GET` lists the groups the badge's actor made; `POST {name}` makes one.
+ * All at the home; a replica forwards through its one home. */
+export const GROUPS_ROUTE = "/api/groups";
+
+/** `GET` reads one (members for its owner, name and size for anybody a live
+ * grant naming it lets see it); `DELETE` marks it deleted. */
+export const groupRoute = (groupId: string): string =>
+  `${GROUPS_ROUTE}/${encodeURIComponent(groupId)}`;
+
+/** `PUT` adds the member; `DELETE` removes it. The attribute rides the path,
+ * encoded, so `email:jordan@acme.test` survives the `@` and the `:`. */
+export const groupMemberRoute = (groupId: string, attribute: string): string =>
+  `${groupRoute(groupId)}/members/${encodeURIComponent(attribute)}`;
+
+/**
+ * A group as the API hands it back. `size` for everybody who may see it;
+ * `members` only when the caller owns the group (roles design, "Who sees
+ * the members"). Absent members and an empty list are different answers on
+ * purpose: a canvas owner using somebody's group sees `size: 5` and no
+ * `members`, and the group's owner sees both.
+ */
+export interface GroupView {
+  id: string;
+  name: string;
+  createdBy: string;
+  at: string;
+  size: number;
+  members?: string[];
+  deletedAt?: string;
+}
+
+/** The view the owner gets: the row, with its size counted. */
+export function groupViewOf(group: Group, forOwner: boolean): GroupView {
+  return {
+    id: group.id,
+    name: group.name,
+    createdBy: group.createdBy,
+    at: group.at,
+    size: group.members.length,
+    ...(forOwner ? { members: [...group.members] } : {}),
+    ...(group.deletedAt !== undefined ? { deletedAt: group.deletedAt } : {}),
+  };
+}
+
+export interface GroupsResponse {
+  groups: GroupView[];
+}
+
+export interface CreateGroupRequest {
+  name: string;
+  /** Who is making it — the floor. A badge that claims one actor need not
+   * say; one that claims several must. */
+  actorId?: string;
+}
+
+export interface GroupResponse {
+  group: GroupView;
+  /**
+   * What a member write did to the people inside — the sweep over every
+   * canvas every live row on the group reaches, added up, and how many
+   * canvases that was. Absent on a create and on a read, which reach
+   * nobody.
+   */
+  swept?: SweepReport;
+  reached?: number;
+}
+
+/** `PUT …/members/:attribute` carries who is acting in its body; the DELETEs
+ * carry it on the query, as every bodiless DELETE here does. */
+export interface GroupMemberRequest {
+  actorId?: string;
+}
+
+/** The `DELETE`s carry who is acting on the query — `spaceActingRoute`'s
+ * spelling, which is the one spelling for every bodiless DELETE here. */
+export const groupActingRoute = spaceActingRoute;
+
+/** There is no such group, or it was deleted, or this badge may not see it —
+ * three answers alike, so a group stays a private list. */
+export const GROUP_NOT_FOUND = "group-not-found";
+/** A request about a group that is not one: no name, no actor, a member that
+ * is not an attested attribute. */
+export const BAD_GROUP = "bad-group";
+/** This actor already owns a group of that name. */
+export const GROUP_NAME_TAKEN = "group-name-taken";
 
 // ---- refusal ----
 
@@ -363,8 +967,8 @@ export interface GrantResponse {
 export const NOT_ADMITTED = "not-admitted";
 
 /**
- * The door said yes and the ledger says LOOK, DON'T TOUCH — a view admission
- * meeting a write.
+ * The door said yes and the ledger says LOOK, DON'T TOUCH — an admission
+ * below `edit` (`view` or `read`) meeting a write.
  *
  * Its own code, for `not-admitted`'s reason turned one notch: this caller is
  * both badged AND admitted, so neither "go to the door" nor "ask for the
@@ -372,6 +976,10 @@ export const NOT_ADMITTED = "not-admitted";
  * editing, and a client can only say that sentence if the refusal is
  * distinguishable from the other two. 403, like `not-admitted`: the request
  * was understood and will not be honoured, and retrying cannot fix it.
+ *
+ * The code stayed `view-only` when the `read` rung arrived: old clients
+ * branch on the code and keep working. The message widened — *you may read
+ * this canvas but not change it* — see `ViewOnlyError` in the server.
  */
 export const VIEW_ONLY = "view-only";
 
@@ -383,3 +991,14 @@ export const VIEW_ONLY = "view-only";
  * retrying the one it cannot fix.
  */
 export const WS_NOT_ADMITTED = 4402;
+
+/**
+ * **The reason a refusal gives when the caller had been inside** (roles
+ * design, "Reaching an open socket"). A `WS_NOT_ADMITTED` close carries it as
+ * the close reason; a `not-admitted` on `POST /api/oplog/watch` carries it as
+ * `reason`. The code is the same either way — an expelled badge is a badge
+ * that is not admitted — and the word is the whole difference for the person
+ * reading it: *your access to this canvas was withdrawn* is a different
+ * sentence from *this canvas will not have you*, because they were in.
+ */
+export const WITHDRAWN = "withdrawn";

@@ -2,12 +2,17 @@
 status: partial
 since: 2026-08-29
 see: evals
-note: stages 1 and 2 are built; stage 1's join key was not the one this plan named
+note: stages 1 and 2 are built, and stage 1's hand-labelling was done 3 Sep — it corrected the 1 Sep headline (73% of the corpus was agents' own prose; people's asks were 95% answered) and found a sixteen-fold cancel bug; a calibrated classifier ships in `isocan evals corpus`. Stage 3's twenty golden tasks are in `evals/golden/v1/`, weighted by that distribution and self-testing in both directions. Stage 5's harness `scripts/lift.mjs` measured `/sprint` (same result, a third of the cost) and `isocan-collab` (same result, fewer turns) on 3 Sep. Stage 4's harness `scripts/calibrate.mjs` gave its first reading 4 Sep — 30 comparisons, 63% agreement, κ 0.26, and the finding that over half the pairs were an agent's choice, not a person's; the converge lane is built
 ---
 # Evals
 
 How we find out whether isocan is any good at the thing it exists for — and
 then keep finding out, as the models, the skills and the product all move.
+
+[`../../evals.md`](../../evals.md) is the reader's map of this: what runs
+today, what the numbers said, and how a finding becomes a better skill or
+prompt. This document is the staged plan and the record of what each stage
+measured.
 
 This is a plan in stages. Each one is useful on its own and none of them
 requires the next, which is deliberate: eval programmes die when the first
@@ -136,6 +141,30 @@ them, every task suite is a guess about our own users.
 most common thing anybody asks an agent on a canvas is ___, and it is ___% of
 all asks."
 
+### Built, 3 September 2026 — the labelling, and what it corrected
+
+Finished: *the most common thing anybody asks an agent on a canvas is to
+change something that already exists — 21% — and edits of every kind are
+39%, twice the 18% that ask for something new.* Every row at one home (414)
+was read and labelled by hand; 304 were agents' own prose, 12 were probes,
+and the 98 asks people made are the distribution in
+[`research/2026-09-03-what-people-ask-agents-for.md`](../../research/2026-09-03-what-people-ask-agents-for.md):
+revise, create, orchestrate, question, arrange, social, restyle, document,
+critique, repair, variation, converge, ops, cancel.
+
+Steps 3 and 4 of this stage as written: `categoriseAsk` in `core/evals.ts`
+classifies the rest and agrees with the hand labels on 84%; it ships in
+`isocan evals corpus` labelled as a reading, with the number. The
+distribution and the hypotheses it suggests for Stage 2 are in the note.
+
+**What the reading found that the report could not.** The 1 Sep headline —
+one ask in four silent — was agents' receipts nobody replied to; people's
+asks were 95% answered. And `buildCorpus` scored a `/cancel` against every
+earlier ask by that person in the thread, which in the Chat is all of them:
+16 cancels on one canvas were one. Fixed, with a test from the measured
+shape. The Stage 0 note that broadcast is an upper bound was true and did
+not help; a caveat on a number is not a correction to it.
+
 ---
 
 ## Stage 2 — Deterministic graders, before any judge
@@ -244,6 +273,38 @@ system already on the canvas*.
 **Version the suite.** A task suite that changes silently makes every
 comparison across time meaningless.
 
+### Built, 3 September 2026 — twenty tasks, `evals/golden/v1/`
+
+Twenty tasks, weighted by the Stage 1 distribution rather than by what is
+easy to score: six revise (one of them in the `orchestrate` shape — a bare
+mention under a comment), five create (the empty state, the error state
+that says what failed and what to do, a pricing screen and a checklist from
+a shell that carries the design system, a greeting card), two restyle
+(literals to tokens; a fixed-width dashboard made to work at 390), three
+repair (contrast, a squashed photo, nameless toolbar buttons), and one each
+of arrange, document (a README, in markdown), variation (three type
+treatments) and converge (the best of two takes, as one screen).
+
+Each is a synthetic fixture, an ask in plain words, and checks a machine can
+make. `scripts/lib/golden.mjs` has the file checks — says / no longer says /
+in this order / this element untouched / the same words rearranged / fewer
+colour literals — and a task names which of `grade.mjs`'s screen checks it
+wants (contrast, sideways scroll, named controls, target size, stretched
+images) rather than re-deriving any. Counts and pass/fail; no score.
+
+**The suite tests itself in both directions.** `scripts/golden.mjs
+--selftest` requires every reference answer to pass every check and every
+untouched fixture to fail at least one — a task whose fixture passes asks
+for nothing, and a task whose answer fails asks for what its author could
+not do. `test/golden.test.ts` runs the browser-free half of that on every
+push, so a broken browser can never make the suite look like it measures
+something it does not. `--task <id> --file <out>` grades one attempt;
+`--dir <runs>` grades a directory of them, one file per task id — which is
+the shape Stage 5's with-and-without runs will produce.
+
+Not built: anything that runs an agent against the tasks. That is Stage 5,
+and this suite is what it runs.
+
 ---
 
 ## Stage 4 — Autoraters, calibrated or not shipped
@@ -275,6 +336,42 @@ number generator:
 - **Adversarial by default.** Ask the judge to refute rather than confirm.
   Default-to-fail on uncertainty.
 
+### Built, 4 September 2026 — `scripts/calibrate.mjs`, and the first reading
+
+The harness: `isocan evals pairs` per canvas, each kept version against each
+it beat at that moment, the two files fetched with `isocan get --rev` and
+shown to `claude -p` (Read only) as A and B in a shuffled order, asked to
+argue against each before picking and to cite; agreement reported with
+κ = 2·agreement − 1, because the shuffle makes chance a coin; a page in
+`docs/calibration/` either way, dry or not, and nothing written to any
+canvas. `test/calibrate.test.ts` pins the discipline.
+
+**The first reading** ([page](../../calibration/2026-09-04.md)): 27
+canvases, 12 pairs, 30 comparisons, **12/19 answered agreed (63%, κ 0.26
+± 0.23), $11.77**. A first reading, not a calibration — and what it taught
+matters more than the number. **Sixteen of the thirty comparisons were an
+agent's choice, not a person's**: *Admiral One* keeping its own earlier take
+while it worked. The harvest could not tell whose hand it was; now
+`PreferencePair` carries `chosenById`, `isocan evals pairs` asks the
+registry and says *(an agent)*, and the harness reads people only unless
+`--include-agents`. With a caveat the run also found: the registry knows
+an agent by the harness its claim came through, and an agent that drives
+the CLI as itself wears a person's harness — Admiral One reads as a person.
+`--exclude <actor>` names such a chooser on the page; a claim that says
+which kind of hand holds the CLI is the standing-agents project's to add.
+Several pairs were the same bytes, or differed by one line of quotation
+marks — a coin flip at forty cents; a pair whose versions share a blob hash
+is skipped now. Eleven comparisons got no answer, probably the largest
+screens against an eight-turn judge; the page's run column will say next
+time. Among a person's choices the judge answered, it agreed 7 of 9.
+
+What this leaves: the calibration set is smaller than the eleven pairs the
+1 September count suggested, because that count did not ask who chose.
+Nothing generates human pairs until people reach for `/variation` and keep
+one; the harness is ready for when they do, and a judge over screenshots
+rather than source is the next thing to try, for cost and for fidelity to
+what the person saw.
+
 ---
 
 ## Stage 5 — Skill evals: lift, not vibes
@@ -298,6 +395,78 @@ Three separate questions, commonly confused:
 
 Report all three per skill, and re-run when the skill or the model changes. A
 skill's lift is not a property of the skill alone.
+
+### Built, 3 September 2026 — `scripts/lift.mjs`, and the first two readings
+
+The harness holds everything equal but the skill: the same golden fixture
+placed as an item on a fresh scratch canvas, the same ask posted as a comment
+on it, the same prompt, model, tools (`Read`, `Write`, `Edit`, `Glob`,
+`Grep`, `Bash` limited to `isocan …`) and turn budget, in a temp directory
+bound to the canvas. For `isocan-collab` the treatment is the skill's
+SKILL.md on the system prompt; for `sprint` it is the `/sprint` command's own
+text against a plain sentence asking for the same thing. It grades what
+reached the canvas with `golden.mjs`, records the model from the run's own
+report, prints the three numbers side by side, and deletes the canvases.
+Pages in `docs/lift/`.
+
+**`/sprint`, one run each** ([page](../../lift/2026-09-03-sprint.md)). Both
+conditions laid the board — eleven sheets, nine phases named, a brief. The
+skill's lift is entirely cost: **10 turns, $0.36, 47 s, finished** against
+**26 turns, $1.11, 169 s, out of turns**. Without the command's text the
+agent found `isocan sprint board` by reading `--help` and got there; with it,
+it went straight there. For a facilitation skill that is the right shape of
+lift — the method is in the CLI, the skill is knowing to reach for it.
+
+**`isocan-collab`, four golden tasks each way**
+([page](../../lift/2026-09-03-isocan-collab.md)). *Fires:* 4/4 both — every
+run landed a new version and replied, because the prompt names the canvas
+and the item, and an agent told that much finds `isocan` unaided. *Helps:*
+3/4 both; the same task failed both ways, and its two failures were the
+task's fault (below). *Costs:* the skill saved turns — **17.8 against 21.8
+on average** — and a little money, and lost time to one run that hit the
+turn budget while checking its own work. On tasks this small, with a prompt
+this specific, the collab skill's measurable value is a shorter lap, not a
+better result. The reading that follows: **the skill earns its keep where
+the prompt does not already say where the work is** — the standing agent
+woken by a bare mention — and that is the fixture the next run needs, not a
+better version of this one.
+
+**Two things the first run taught the harness.**
+
+- *The treatment ended differently from the control.* The collab skill's lap
+  ends by parking on `isocan wait`; in a one-shot run the agent landed its
+  work at minute two and waited out the whole fifteen-minute budget. Both
+  conditions are now told it is a one-shot job. A control that ends one way
+  and a treatment that ends another is a difference that is not the skill.
+- *A check may only ask for what the ask asked for.* `create-empty-state`
+  demanded a `[data-state=empty]` hook and an untouched header; two agents
+  built a sound empty state — one disabled Filter, one removed it — and
+  failed both. The suite is v2 for it, and `tasks.json` says why.
+
+Not built: the trigger-rate half of *does it fire* — tasks the skill should
+NOT fire on. And every number above is one run; a lift worth acting on is a
+delta that survives three.
+
+**Later the same day, blind, three runs per cell**
+([page](../../lift/2026-09-03-isocan-collab-blind.md)). `lift.mjs --blind
+--runs 3`: the prompt no longer names the canvas or the item — *something
+on the canvas this directory belongs to needs you; find out what* — and
+every cell ran three times. Two tasks, twelve runs. *Fires:* 6/6 both ways
+again. Even blind, an agent with no skill finds the comment: the directory
+is bound, `isocan --agent-help` is in the tool, and the tool is enough. So
+the collab skill's discoverability value is nil on a machine where isocan
+is installed, and that is a finding about the CLI, not a failure of the
+skill. *Helps:* 6/6 both. *Costs:* **14.7 turns with the skill against
+23.2 without**, every one of the six pairs in the same direction (14–16
+against 21–26), and one skill-less run out of turns before it replied. The
+dollars are the same because the skill's turns are longer. The delta that
+survived three is the lap: the skill teaches the shape of a turn — read,
+act, reply, stop — and an agent without it rediscovers that shape each
+time, at a cost of eight or nine turns.
+
+Read for the product: the thing to ship is not the skill's discoverability
+but its lap, and the lap could live in `--agent-help` itself, where every
+agent already reads it.
 
 Two isocan-specific opportunities:
 

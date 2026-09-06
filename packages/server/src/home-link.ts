@@ -22,16 +22,35 @@ import type {
   Canvas,
   RedeemPassResponse,
   ServerMessage,
+  SpaceCanvasResponse,
+  SpaceLinkRequest,
+  SpaceLinkResponse,
+  SpaceResponse,
+  SpacesResponse,
+  GroupResponse,
+  GroupsResponse,
   UndoRedoRequest,
 } from "@isocan/core";
 import {
   ATTEST_ROUTE,
+  narrowed,
+  groupActingRoute,
+  groupMemberRoute,
+  groupRoute,
+  GROUPS_ROUTE,
+  spaceActingRoute,
+  spaceCanvasRoute,
+  spaceGrantRevokeRoute,
+  spaceGrantsRoute,
+  spaceLinkRoute,
+  spaceRoute,
+  SPACES_ROUTE,
   BADGES_ROUTE,
   badgeRoute,
   encodeFilename,
   FILENAME_HEADER,
   FREE_NAME_ROUTE,
-  grantRoute,
+  grantRevokeRoute,
   grantsRoute,
   healthPath,
   normalizeHomeUrl,
@@ -40,6 +59,8 @@ import {
   canvasesRoute,
   WS_BEHIND,
   WS_NO_CANVAS,
+  WS_NOT_ADMITTED,
+  WITHDRAWN,
 } from "@isocan/core";
 import type { Engine } from "./engine.ts";
 import type { PresenceHub } from "./presence.ts";
@@ -218,14 +239,25 @@ export interface HomeConnection {
    * enter the canvas at all lives at the home, and a `isocan share` that
    * edited the laptop's ledger would report success while the link stayed on
    * for the world. These three go up for the same reason writes do.
+   *
+   * A WRITE names the person acting (roles design, "Over a replica, the
+   * write names the person"): this daemon's badge at the home claims everyone
+   * it has relayed, and `own` is held by a person, so the home is told which
+   * one — after the claim goes up, as it does before a forwarded op.
    */
   grants(canvasId: string): Promise<GrantsResponse>;
   createGrant(
     canvasId: string,
     subject: GrantSubject,
     capability?: Capability,
+    actor?: Actor,
+    /** A bar rather than an invitation (roles phase 3): carried up as
+     * `bars: true`, the way the rung is carried only when it narrows. */
+    bars?: boolean,
   ): Promise<GrantResponse>;
-  revokeGrant(canvasId: string, grantId: string): Promise<GrantResponse>;
+  /** `bar` is the DELETE's `?bar=1` — revoke and keep them out, one request
+   * at the home, so the sweep that expels them meets the bar. */
+  revokeGrant(canvasId: string, grantId: string, actor?: Actor, bar?: boolean): Promise<GrantResponse>;
   /**
    * Your surfaces at the HOME, and ending one there — forwarded for the grant
    * routes' reason, arriving at the machine it is most obviously about.
@@ -244,6 +276,36 @@ export interface HomeConnection {
    */
   badges(): Promise<BadgesResponse>;
   killBadge(badgeId: string): Promise<KillBadgeResponse>;
+  /**
+   * The space routes, forwarded (roles phase 4) — for the grant routes'
+   * reason, because a space is part of what a grant means: it is desk state
+   * at the home, and a laptop holds no row for it. Every write carries the
+   * actor acting, as a grant write does, so the home asks `own` of the person
+   * and not of the machine.
+   */
+  spaces(): Promise<SpacesResponse>;
+  createSpace(name: string, actor?: Actor): Promise<SpaceResponse>;
+  deleteSpace(spaceId: string, actor?: Actor): Promise<SpaceCanvasResponse>;
+  addToSpace(spaceId: string, canvasId: string, actor?: Actor): Promise<SpaceCanvasResponse>;
+  removeFromSpace(spaceId: string, canvasId: string, actor?: Actor): Promise<SpaceCanvasResponse>;
+  spaceGrants(spaceId: string): Promise<GrantsResponse>;
+  createSpaceGrant(
+    spaceId: string,
+    subject: GrantSubject,
+    capability?: Capability,
+    actor?: Actor,
+    bars?: boolean,
+  ): Promise<GrantResponse>;
+  revokeSpaceGrant(spaceId: string, grantId: string, actor?: Actor, bar?: boolean): Promise<GrantResponse>;
+  setSpaceLink(spaceId: string, capability: SpaceLinkRequest["capability"], actor?: Actor): Promise<SpaceLinkResponse>;
+  /** The group routes, forwarded (roles phase 5), for the space routes'
+   * reason. Every write carries the actor acting. */
+  groups(): Promise<GroupsResponse>;
+  createGroup(name: string, actor?: Actor): Promise<GroupResponse>;
+  group(groupId: string): Promise<GroupResponse>;
+  addGroupMember(groupId: string, attribute: string, actor?: Actor): Promise<GroupResponse>;
+  removeGroupMember(groupId: string, attribute: string, actor?: Actor): Promise<GroupResponse>;
+  deleteGroup(groupId: string, actor?: Actor): Promise<GroupResponse>;
   /**
    * The attest routes, forwarded — for the badge routes' reason, and it is the
    * same sentence one word further on.
@@ -1006,13 +1068,43 @@ export class HomeLink implements HomeConnection {
         .then(() => this.receive(link, since, message))
         .catch(() => {});
     });
-    socket.on("close", (code) => {
+    socket.on("close", (code, reason) => {
       if (link.socket !== socket) return; // superseded
       link.socket = null;
       // A socket that died before it ever opened leaves the attempt marked in
       // flight; the retry armed below is what is on it now.
       link.dialledAt = null;
       this.presence.mirror(link.canvasId, this.origin(), []);
+      // 4402: the home will not have this machine on that canvas — and, when
+      // the reason says `withdrawn`, it HAD it and put it out (roles design,
+      // "Reaching an open socket"). Not redialled: a refusal is not a blip,
+      // and dialling a door that just said no is the socket storm the 4404
+      // branch below already refuses to make. Said once, here, rather than
+      // after the several failures an unexplained close earns, because this
+      // one is explained. The next poll re-creates the link only if the home
+      // lists the canvas for this badge again, which is the home letting it
+      // back in.
+      if (code === WS_NOT_ADMITTED) {
+        const why =
+          String(reason) === WITHDRAWN
+            ? `the home withdrew this machine's access to ${link.canvasId} (${WS_NOT_ADMITTED} ${WITHDRAWN})`
+            : `the home does not admit this machine to ${link.canvasId} (${WS_NOT_ADMITTED})`;
+        const health = this.healthOf(link.canvasId);
+        health.failures += 1;
+        health.attemptedAt = Date.now();
+        health.lastFailure = why;
+        if (!health.complained) {
+          health.complained = true;
+          console.error(
+            `[isocan] ${this.homeUrl}: ${why} — this canvas is not redialled; ` +
+              "ops written here stay here until an owner lets this machine back in. " +
+              "`isocan home` shows this per canvas.",
+          );
+        }
+        link.closed = true;
+        this.links.delete(link.canvasId);
+        return;
+      }
       // 4404: the home says this canvas is not there. Stop dialling it — a
       // replica holding a canvas the home has never heard of is offline birth
       // (phase 13), and retrying forever would be a socket storm about a
@@ -1557,21 +1649,38 @@ export class HomeLink implements HomeConnection {
     return this.api<GrantsResponse>("GET", grantsRoute(canvasId));
   }
 
-  createGrant(
+  async createGrant(
     canvasId: string,
     subject: GrantSubject,
     capability?: Capability,
+    actor?: Actor,
+    bars?: boolean,
   ): Promise<GrantResponse> {
+    if (actor) await this.ensureClaim(actor);
     return this.api<GrantResponse>("POST", grantsRoute(canvasId), {
       subject,
-      // Forwarded only when it narrows, so an older home never sees a field
-      // it would not know how to read.
-      ...(capability === "view" ? { capability } : {}),
+      // Forwarded whenever it is not edit (`narrowed`), so an older home never
+      // sees the field for the one value it has always meant by omission —
+      // and refuses, with `bad-grant`, a rung it does not know. A bar is
+      // forwarded the same way: `bars: true` or nothing, and a home from
+      // before bars refuses the field it does not know.
+      ...(narrowed(capability) ? { capability } : {}),
+      ...(bars ? { bars: true } : {}),
+      ...(actor ? { actorId: actor.id } : {}),
     });
   }
 
-  revokeGrant(canvasId: string, grantId: string): Promise<GrantResponse> {
-    return this.api<GrantResponse>("DELETE", grantRoute(canvasId, grantId));
+  async revokeGrant(
+    canvasId: string,
+    grantId: string,
+    actor?: Actor,
+    bar?: boolean,
+  ): Promise<GrantResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GrantResponse>(
+      "DELETE",
+      grantRevokeRoute(canvasId, grantId, { ...(actor ? { actorId: actor.id } : {}), ...(bar ? { bar } : {}) }),
+    );
   }
 
   /** Your surfaces AT THE HOME. This daemon's own badge there is one of them
@@ -1592,6 +1701,127 @@ export class HomeLink implements HomeConnection {
 
   killBadge(badgeId: string): Promise<KillBadgeResponse> {
     return this.api<KillBadgeResponse>("DELETE", badgeRoute(badgeId));
+  }
+
+  // ---- the space routes, forwarded (roles phase 4) ----
+  //
+  // The claim goes up before every write, as it does before a grant write:
+  // the home checks the actor is among this badge's claims and then asks
+  // `own` of that person. Reads carry nothing — a space is about badges.
+
+  spaces(): Promise<SpacesResponse> {
+    return this.api<SpacesResponse>("GET", SPACES_ROUTE);
+  }
+
+  async createSpace(name: string, actor?: Actor): Promise<SpaceResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<SpaceResponse>("POST", SPACES_ROUTE, {
+      name,
+      ...(actor ? { actorId: actor.id } : {}),
+    });
+  }
+
+  async deleteSpace(spaceId: string, actor?: Actor): Promise<SpaceCanvasResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<SpaceCanvasResponse>("DELETE", spaceActingRoute(spaceRoute(spaceId), actor?.id));
+  }
+
+  async addToSpace(spaceId: string, canvasId: string, actor?: Actor): Promise<SpaceCanvasResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<SpaceCanvasResponse>("PUT", spaceCanvasRoute(spaceId, canvasId), {
+      ...(actor ? { actorId: actor.id } : {}),
+    });
+  }
+
+  async removeFromSpace(spaceId: string, canvasId: string, actor?: Actor): Promise<SpaceCanvasResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<SpaceCanvasResponse>(
+      "DELETE",
+      spaceActingRoute(spaceCanvasRoute(spaceId, canvasId), actor?.id),
+    );
+  }
+
+  spaceGrants(spaceId: string): Promise<GrantsResponse> {
+    return this.api<GrantsResponse>("GET", spaceGrantsRoute(spaceId));
+  }
+
+  async createSpaceGrant(
+    spaceId: string,
+    subject: GrantSubject,
+    capability?: Capability,
+    actor?: Actor,
+    bars?: boolean,
+  ): Promise<GrantResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GrantResponse>("POST", spaceGrantsRoute(spaceId), {
+      subject,
+      ...(narrowed(capability) ? { capability } : {}),
+      ...(bars ? { bars: true } : {}),
+      ...(actor ? { actorId: actor.id } : {}),
+    });
+  }
+
+  async revokeSpaceGrant(
+    spaceId: string,
+    grantId: string,
+    actor?: Actor,
+    bar?: boolean,
+  ): Promise<GrantResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GrantResponse>(
+      "DELETE",
+      spaceGrantRevokeRoute(spaceId, grantId, { ...(actor ? { actorId: actor.id } : {}), ...(bar ? { bar } : {}) }),
+    );
+  }
+
+  async setSpaceLink(
+    spaceId: string,
+    capability: SpaceLinkRequest["capability"],
+    actor?: Actor,
+  ): Promise<SpaceLinkResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<SpaceLinkResponse>("POST", spaceLinkRoute(spaceId), {
+      capability,
+      ...(actor ? { actorId: actor.id } : {}),
+    } satisfies SpaceLinkRequest);
+  }
+
+  // ---- the group routes, forwarded (roles phase 5) ----
+
+  groups(): Promise<GroupsResponse> {
+    return this.api<GroupsResponse>("GET", GROUPS_ROUTE);
+  }
+
+  async createGroup(name: string, actor?: Actor): Promise<GroupResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GroupResponse>("POST", GROUPS_ROUTE, {
+      name,
+      ...(actor ? { actorId: actor.id } : {}),
+    });
+  }
+
+  group(groupId: string): Promise<GroupResponse> {
+    return this.api<GroupResponse>("GET", groupRoute(groupId));
+  }
+
+  async addGroupMember(groupId: string, attribute: string, actor?: Actor): Promise<GroupResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GroupResponse>("PUT", groupMemberRoute(groupId, attribute), {
+      ...(actor ? { actorId: actor.id } : {}),
+    });
+  }
+
+  async removeGroupMember(groupId: string, attribute: string, actor?: Actor): Promise<GroupResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GroupResponse>(
+      "DELETE",
+      groupActingRoute(groupMemberRoute(groupId, attribute), actor?.id),
+    );
+  }
+
+  async deleteGroup(groupId: string, actor?: Actor): Promise<GroupResponse> {
+    if (actor) await this.ensureClaim(actor);
+    return this.api<GroupResponse>("DELETE", groupActingRoute(groupRoute(groupId), actor?.id));
   }
 
   /**

@@ -1,19 +1,31 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Markdown } from "../lib/markdown.tsx";
 import type { Actor, Item, Neighbour, Operation } from "@isocan/core";
 import {
   backingOf,
   isDesignSystem,
   BROWSER_MIME,
+  DOC_MIME,
+  googleDocId,
+  googleDocPreviewUrl,
+  memoryOf,
+  memoryPatch,
   annotationsOf,
   isAnnotation,
   isArea,
+  isCanvasItem,
+  canvasIdOf,
+  sourceOf,
+  areaGrid,
+  areaInner,
   areaTint,
   itemsIn,
   AREA_TITLE_HEIGHT,
   isDrawingItem,
   isSlide,
+  noteTarget,
   isTextItem,
+  reactionPointsOf,
   SLIDE_EMOJI,
   textFaceOf,
   textDrawSize,
@@ -27,7 +39,7 @@ import {
   paperOf,
 } from "@isocan/core";
 import { blobUrl, readBlobText } from "../lib/api.ts";
-import { contentBase } from "../lib/contentBase.ts";
+import { useContentOrigin } from "../lib/contentBase.ts";
 import { itemFrame } from "../lib/frame.ts";
 import { fetchBlobText, peekBlobText, type TextLoad } from "../lib/blobtext.ts";
 import { DesignSystemView } from "./DesignSystemView.tsx";
@@ -38,17 +50,22 @@ import { snapBox, unionBox } from "../lib/snap.ts";
 import { counterScale, hasRoomForChrome, titleRow, underRow, underRowSpellsItOut, underSlotFor } from "../lib/chrome.ts";
 import { useNavigate } from "react-router-dom";
 import { itemPath } from "@isocan/core";
-import { ICON_NOUN, iconKindFor } from "../lib/kinds.ts";
+import { CanvasCard } from "./CanvasCard.tsx";
+import { iconKindFor, kindNoun } from "../lib/kinds.ts";
+import { moduleRendererFor } from "../modules.ts";
 import { fileMarkTip } from "../lib/backing.ts";
 import { KindIcon } from "./KindIcon.tsx";
 import { Reactions } from "./Reactions.tsx";
 import { actorNameIn, sessionName, useActorNames } from "../lib/names.ts";
-import { useVotesHidden } from "../lib/sprint.ts";
+import { useOnWall, useSprint, useVotesHiddenOn, voteMark } from "../lib/sprint.ts";
 import { useDismissOnOutside } from "../lib/dismiss.ts";
 import { DRAG_SLOP } from "../lib/gesture.ts";
+import { useCanEdit } from "../lib/capability.ts";
 
 /** Two presses this close together are one double-press. */
 const DOUBLE_PRESS_MS = 450;
+/** An item made within this long, by somebody else, arrives with motion. */
+const ARRIVAL_MS = 1500;
 // How close an edge has to come before it snaps, in SCREEN pixels — the same
 // pull at every zoom. Holding Shift mid-drag widens it: the same gesture, more
 // magnetic, for when you are aiming at a line rather than a place.
@@ -95,7 +112,14 @@ function ItemViewInner({
   const navigate = useNavigate();
   const colors = useActorColors();
   const names = useActorNames();
-  const votesHidden = useVotesHidden();
+  // The curtain applies to the WALL — the Vote sheet's contents — and only
+  // there; a note on the Brief keeps its byline while a sketch hides its own.
+  const votesHidden = useVotesHiddenOn(item);
+  const { state: sprint } = useSprint();
+  const mark = voteMark(sprint);
+  // On the wall during a vote: where a dot may be placed.
+  const wall = useOnWall(item);
+  const onWall = mark !== null && wall;
   const selected = useUiStore((s) => s.selectedItemIds.includes(item.id));
   const soleSelection = useUiStore(
     (s) => s.selectedItemIds.length === 1 && s.selectedItemIds[0] === item.id,
@@ -107,6 +131,16 @@ function ItemViewInner({
   const peeked = useUiStore((s) => s.peekedItemId === item.id);
   const scale = useUiStore((s) => s.viewport.scale);
   const commentMode = useUiStore((s) => s.commentMode);
+  const canEdit = useCanEdit();
+  /**
+   * **Arrival motion** (motion note, recommendation 2): an item that
+   * appears from somebody else comes in over a few frames rather than
+   * popping fully formed between one frame and the next — kind 1,
+   * skippable, guarded by reduced motion in the stylesheet. Decided once,
+   * at mount: an item is new if it was made in the last moment and not by
+   * you; yours arrive where you put them and need no announcement.
+   */
+  const arrived = useRef(Date.now() - Date.parse(item.createdAt) < ARRIVAL_MS && item.createdBy.id !== actor.id);
   // A remote session holding this item shows as an outline in their color.
   const remoteHolder = useCanvasStore((s) => {
     const holder = s.sessions.find((session) => session.selection.includes(item.id));
@@ -199,14 +233,29 @@ function ItemViewInner({
   // the canvas fact and the per-machine one, kept apart by `backingOf`.
   const disk = useCanvasStore((s) => s.backing);
   const backing = backingOf(item, disk.bound, (path) => disk.onDisk[path] ?? null);
-  const isBrowser = current.mimeType === BROWSER_MIME;
+  // A canvas placed here carries a site's blob (an address) and is told
+  // apart by kind: it is a picture of a place, not a live frame, and it
+  // opens in a tab rather than being entered (`core/canvasitem.ts`).
+  const isCanvas = isCanvasItem(item);
+  const isBrowser = current.mimeType === BROWSER_MIME && !isCanvas;
+  const source = sourceOf(item);
+  // A doorway: this item points somewhere else — a canvas card, a live site, a
+  // Google Doc — and wears a dashed border in its own colour so a wall of
+  // cards says which ones lead away (`.item.away`).
+  const away = source !== null || kind === "site";
+  // A Google Doc on the canvas (research note, stage 4): the item's words
+  // are the record, and LIVE is a mode this browser flips — the `/preview`
+  // frame in place of the words, in the same item, never a second one.
+  const docId = source && current.mimeType === DOC_MIME ? googleDocId(source) : null;
+  const liveDoc = useUiStore((s) => docId !== null && s.liveDocs.includes(item.id));
+  const setDocLive = useUiStore((s) => s.setDocLive);
   // What the strip under the item says right now. The rule lives in
   // lib/chrome.ts, where it is argued and tested.
   const underSlot = underSlotFor({
     entered,
     resizing: resize !== null,
     soleSelection,
-    interactive: current.mimeType === "text/html" || isBrowser,
+    interactive: current.mimeType === "text/html" || isBrowser || liveDoc,
   });
   // Ink wears no chrome: a drawing IS its strokes, so the card, the border,
   // and the titlebar step aside until you point at it.
@@ -215,6 +264,9 @@ function ItemViewInner({
   // node IS its words, so a card around them would be a card around a
   // sentence somebody typed onto a canvas.
   const isText = isTextItem(item);
+  // A speaker note names its slide on the canvas (core/slides.ts).
+  const noteTargetId = noteTarget(item);
+  const noteSlideTitle = useCanvasStore((s) => (noteTargetId ? (s.canvas?.items[noteTargetId]?.title ?? "a slide") : null));
   // Paper turns a caption into an object: see `core/textnode.ts`.
   const paper = isText ? paperOf(item) : null;
   // An area is a sheet things are placed ON: drawn behind everything, and
@@ -222,6 +274,8 @@ function ItemViewInner({
   // tool used inside it still reaches the canvas. See `core/area.ts`.
   const isAreaItem = isArea(item);
   const tint = isAreaItem ? areaTint(item) : null;
+  const grid = isAreaItem ? areaGrid(item) : null;
+  const inner = isAreaItem ? areaInner(item) : null!;
   // The words' world size, and whether they are still words at this zoom.
   // Below the cut a node draws ONE mark instead of forty shapes of grey
   // smear — see `textIsLegible` in core for why 5px and not a fade.
@@ -276,6 +330,26 @@ function ItemViewInner({
     // bubbles to the viewport — Hand pans, Zoom fits this item, the Pen draws
     // over it — even though it started here.
     if (ui.activeTool === "hand" || ui.activeTool === "zoom" || ui.activeTool === "pen") return;
+    /**
+     * **Placing a dot** (sprint phase 4). While a mark is being placed, a
+     * press on a sketch ON THE WALL puts the mark where the press landed, as
+     * fractions of the box, so it sits on the same part of the sketch at
+     * every zoom. One op — `item.react` with `at` — and the same op the
+     * terminal writes with `--at`. A second press moves your dot; the set
+     * semantics of a reaction make it one vote either way. A press off the
+     * wall is an ordinary press: the wall is where the votes are.
+     */
+    if (ui.stamp && onWall) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const at = {
+        x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+        y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+      };
+      e.stopPropagation();
+      e.preventDefault();
+      void sendEchoed(canvasId, actor, { type: "item.react", itemId: item.id, emoji: ui.stamp, on: true, at });
+      return;
+    }
     if (commentMode) {
       // Anchored comment: store the click as an offset from the item origin.
       const world = screenToWorldPoint(e.clientX, e.clientY);
@@ -294,7 +368,7 @@ function ItemViewInner({
     // that follow to the frame — the label would never hear its own event.
     // The count is kept by hand: a pointerdown carries no click count (detail
     // is 0 on pointer events), so the pair has to be recognized by the clock.
-    if (target.closest(".item-titlebar")) {
+    if (canEdit && target.closest(".item-titlebar")) {
       const now = Date.now();
       if (now - labelPress.current < DOUBLE_PRESS_MS) {
         labelPress.current = 0;
@@ -311,6 +385,14 @@ function ItemViewInner({
     if (e.shiftKey) {
       // Shift-click toggles membership; no drag from a shift press.
       ui.toggleSelect(item.id);
+      return;
+    }
+
+    if (!canEdit) {
+      // A reader selects; nothing moves under their hand. Selection stays
+      // because it is how the context panel, the versions and full screen
+      // are reached, and none of those write.
+      ui.select(item.id);
       return;
     }
 
@@ -529,12 +611,21 @@ function ItemViewInner({
     // The pointer capture above hands us the label's double-click too; naming
     // a thing is not the same as stepping inside it.
     if (ui.renamingItemId === item.id) return;
+    // A canvas is a place you go, not a thing you step inside of: the same
+    // gesture opens it in a tab. Never in place — a canvas inside a canvas
+    // inside a canvas is a maze, and a tab is where a place belongs.
+    if (isCanvas && source) {
+      window.open(source, "_blank", "noopener");
+      return;
+    }
     // A text node has nothing to step INSIDE of — the words are the whole of
     // it — so the same gesture that enters a document re-opens the composer
     // on what it says. Editing lands as `item.addVersion`, so every wording
     // is kept and the CLI sees the change like any other.
     if (isText) {
-      void openTextEditor();
+      // A reader cannot re-open the composer on a text node: the words are
+      // the whole of it, so there is nothing to step inside of either.
+      if (canEdit) void openTextEditor();
       return;
     }
     ui.setEntered(item.id);
@@ -569,7 +660,7 @@ function ItemViewInner({
 
   return (
     <div
-      className={`item${selected ? " selected" : ""}${entered ? " entered" : ""}${drag ? " dragging" : ""}${isInk ? " ink" : ""}${isText ? " textnode" : ""}${paper ? ` paper paper-${paper}` : ""}${isAreaItem ? " area" : ""}${tint ? ` paper-${tint}` : ""}${isMark ? " annotation" : ""}${renaming ? " renaming" : ""}${peeked ? " peeked" : ""}${settling ? " settling" : ""}${reach !== null ? " reaching" : ""}${isSlide(item) ? " slide" : ""}`}
+      className={`item${selected ? " selected" : ""}${entered ? " entered" : ""}${drag ? " dragging" : ""}${isInk ? " ink" : ""}${isText ? " textnode" : ""}${paper ? ` paper paper-${paper}` : ""}${isAreaItem ? " area" : ""}${tint ? ` paper-${tint}` : ""}${isMark ? " annotation" : ""}${renaming ? " renaming" : ""}${peeked ? " peeked" : ""}${settling ? " settling" : ""}${reach !== null ? " reaching" : ""}${isSlide(item) ? " slide" : ""}${away ? " away" : ""}${arrived.current ? " arrived" : ""}`}
       data-item-id={item.id}
       /* One id in the store rather than a flag per item: moving the pointer
          across a canvas re-renders the two items whose state changed, not
@@ -618,6 +709,46 @@ function ItemViewInner({
           ×{item.versions.length}
         </button>
       )}
+      {isAreaItem && grid && (
+        /* The grid (sprint phase 5): guides between cells and a name per row
+           and column, in world units inside the sheet's inner region — the
+           storyboard's fifteen frames, the test wall's people × frames. No
+           pointer: a cell is geometry, and the sheet lets tools through. */
+        <div className="area-grid" aria-hidden>
+          {Array.from({ length: grid.cols - 1 }, (_, i) => (
+            <span
+              key={`c${i}`}
+              className="area-grid-line v"
+              style={{ left: inner.x - x + ((i + 1) * inner.width) / grid.cols, top: inner.y - y, height: inner.height }}
+            />
+          ))}
+          {Array.from({ length: grid.rows - 1 }, (_, i) => (
+            <span
+              key={`r${i}`}
+              className="area-grid-line h"
+              style={{ top: inner.y - y + ((i + 1) * inner.height) / grid.rows, left: inner.x - x, width: inner.width }}
+            />
+          ))}
+          {grid.colNames.map((name, i) => (
+            <span
+              key={`cn${i}`}
+              className="area-grid-name col"
+              style={{ left: inner.x - x + (i * inner.width) / grid.cols + 8, top: inner.y - y - 24 }}
+            >
+              {name}
+            </span>
+          ))}
+          {grid.rowNames.map((name, i) => (
+            <span
+              key={`rn${i}`}
+              className="area-grid-name row"
+              style={{ left: inner.x - x + 8, top: inner.y - y + (i * inner.height) / grid.rows + 6 }}
+            >
+              {name}
+            </span>
+          ))}
+        </div>
+      )}
       {isAreaItem && (
         /* The strip is the area's name AND its handle — the one part of the
            sheet that takes the pointer, so it can be grabbed at any zoom
@@ -628,6 +759,26 @@ function ItemViewInner({
           title={item.title}
         >
           {item.title}
+        </div>
+      )}
+      {mark !== null && reactionPointsOf(item, mark).length > 0 && (
+        /* The heat map: the mark, drawn where each person put it. Under the
+           curtain only YOUR dot shows — you may see where you voted, not
+           where anyone else did — and at the bell all of them. Fractions of
+           the box, so a dot stays on the part of the sketch it was put on. */
+        <div className="vote-dots" aria-hidden>
+          {reactionPointsOf(item, mark)
+            .filter((dot) => !votesHidden || dot.actorId === actor.id)
+            .map((dot) => (
+              <span
+                key={dot.actorId}
+                className={`vote-dot${dot.actorId === actor.id ? " mine" : ""}`}
+                style={{ left: `${dot.x * 100}%`, top: `${dot.y * 100}%` }}
+                title={votesHidden ? "your dot" : (names[dot.actorId] ?? dot.actorId)}
+              >
+                {mark}
+              </span>
+            ))}
         </div>
       )}
       <div className="item-titlebar" style={roomy ? undefined : { display: "none" }}>
@@ -694,13 +845,73 @@ function ItemViewInner({
             className="name"
             // Under a sprint's vote curtain the byline goes too: not knowing
             // who drew what while you vote is the method (core/sprint.ts).
-            title={`${item.title} (${current.filename}) — ${ICON_NOUN[kind]} · double-click to rename${
+            title={`${item.title} (${current.filename}) — ${kindNoun(kind)} · double-click to rename${
               votesHidden ? "" : ` · last edit by ${actorNameIn(names, item.updatedBy)}`
             }`}
           >
             {item.title}
           </span>
         ) : null}
+        {source && (
+          /* Anything that points at something you can open — a canvas, and
+             later a document — wears a ↗ on its strip. The href is the
+             item's own `source`; a new tab, because it is a place. */
+          <a
+            className="item-open-source"
+            href={source}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Open in a new tab — ${source}`}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            ↗
+          </a>
+        )}
+        {isCanvas && canEdit && (
+          /* The memory mark (memory phase 3): a canvas card says on its strip
+             whether the other canvas's context is read here, and the mark is
+             the switch — `memory=inherit` on, `removeProperties` off, the same
+             patch `isocan context inherit | uninherit` writes. */
+          <button
+            className={`memory-mark${memoryOf(item) === "inherit" ? " active" : ""}`}
+            title={
+              memoryOf(item) === "inherit"
+                ? "Inherited here — its design system and pins are read as part of this canvas's context. Click to stop."
+                : "Not inherited — click to read its design system and pins as part of this canvas's context."
+            }
+            aria-pressed={memoryOf(item) === "inherit"}
+            onClick={(e) => {
+              e.stopPropagation();
+              void sendEchoed(canvasId, actor, {
+                type: "item.update",
+                itemId: item.id,
+                patch: memoryPatch(memoryOf(item) === "inherit" ? null : "inherit"),
+              });
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            memory
+          </button>
+        )}
+        {docId && (
+          /* Live or words: the same item either way. Live is the doc as Google
+             draws it right now, for reading along; the words are what the
+             canvas holds — searched, versioned, read by agents — and what
+             `gdoc sync` keeps current. Remembered per browser. */
+          <button
+            className={`doc-live-toggle${liveDoc ? " active" : ""}`}
+            title={liveDoc ? "Showing the live doc — click for the words the canvas holds" : "Show the doc live, as Google draws it now"}
+            aria-pressed={liveDoc}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDocLive(item.id, !liveDoc);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {liveDoc ? "Words" : "Live"}
+          </button>
+        )}
         {isBrowser && (
           <button
             className="browser-reload"
@@ -743,6 +954,14 @@ function ItemViewInner({
           </span>
         )}
       </div>
+      {/* A speaker note says which slide it speaks for, on the canvas, where
+          the deck is arranged (core/slides.ts). A caption above the words,
+          not a card: the note stays the chromeless text it is. */}
+      {noteSlideTitle !== null && (
+        <span className="note-of" title="Speaker notes — N shows them in full screen">
+          {SLIDE_EMOJI} Notes for {noteSlideTitle}
+        </span>
+      )}
       <div className={`item-content${entered ? "" : " inert"}`}>
         {/**
          * Too far away to read: draw the mark, not the words.
@@ -771,7 +990,11 @@ function ItemViewInner({
           entered={entered}
           designSystem={isDesignSystem(item)}
           textNode={isText}
+          canvasOf={canvasIdOf(item)}
+          canvasSource={source}
+          size={{ width, height }}
           reloadToken={reloadToken}
+          liveDoc={liveDoc && docId ? googleDocPreviewUrl(docId) : null}
         />
         )}
 
@@ -870,7 +1093,7 @@ function ItemViewInner({
           )}
         </div>
       )}
-      {soleSelection && !entered && (
+      {soleSelection && !entered && canEdit && (
         <>
           <span className="resize-handle resize-handle-nw" onPointerDown={(e) => onResizeDown("nw", e)} />
           <span className="resize-handle resize-handle-ne" onPointerDown={(e) => onResizeDown("ne", e)} />
@@ -1021,12 +1244,26 @@ export function VersionContent({
   reloadToken = 0,
   designSystem,
   textNode,
+  canvasOf,
+  canvasSource,
+  size,
   warm,
+  liveDoc,
 }: {
   canvasId: string;
   blobHash: string;
   mimeType: string;
   filename: string;
+  /** A Google Doc shown LIVE: the `/preview` address to frame in place of
+   *  the words (stage 4). Null shows the words. */
+  liveDoc?: string | null;
+  /** A canvas placed here: the id of the canvas to draw small and live,
+   *  instead of framing the address the blob carries (`core/canvasitem.ts`). */
+  canvasOf?: string | null;
+  /** The address the canvas item points at — which home it is at. */
+  canvasSource?: string | null;
+  /** The item's box, for content that lays itself out to it (the canvas card). */
+  size?: { width: number; height: number };
   entered: boolean;
   /** Blobs to render out of sight because they are probably next — the slides
    *  either side of this one. See `HtmlView`. */
@@ -1041,6 +1278,35 @@ export function VersionContent({
   designSystem?: boolean;
 }) {
   const url = blobUrl(canvasId, blobHash);
+  // Stable per blob, so a module renderer keying an effect on it does not
+  // refetch on every shell render (see modules/mermaid/src/diagram.tsx).
+  const readText = useCallback(() => readBlobText(canvasId, blobHash), [canvasId, blobHash]);
+  // A runtime module that arrived after first paint may own this mime now.
+  useUiStore((s) => s.modulesGeneration);
+  if (liveDoc) {
+    // The doc as Google draws it, in the same item. A private doc shows
+    // Google's own sign-in here, which is honest: the frame is Google's,
+    // and the words the canvas holds are one click away on the strip.
+    return <iframe className="browser-view doc-live" src={liveDoc} sandbox="allow-scripts allow-same-origin allow-forms" title={filename} />;
+  }
+  // A loaded module's renderer, ahead of the built-in chain: a module owns
+  // the mimes its kind claims, and is handed facts rather than a blob path
+  // (`core/modules.ts`, `RendererFacts`). With the module gone the same
+  // version falls through to the chain below — a diagram reads as text.
+  const ModuleRenderer = moduleRendererFor(mimeType);
+  if (ModuleRenderer) {
+    return (
+      <ModuleRenderer
+        canvasId={canvasId}
+        blobHash={blobHash}
+        mimeType={mimeType}
+        filename={filename}
+        entered={entered}
+        url={url}
+        readText={readText}
+      />
+    );
+  }
   if (designSystem && (mimeType === "text/markdown" || mimeType === "text/plain")) {
     return <DesignSystemView canvasId={canvasId} blobHash={blobHash} />;
   }
@@ -1060,25 +1326,25 @@ export function VersionContent({
   if (mimeType.startsWith("video/")) {
     return <video className="video-view" src={url} controls={entered} muted loop playsInline />;
   }
+  if (canvasOf) {
+    return (
+      <CanvasCard
+        canvasId={canvasOf}
+        width={size?.width ?? 800}
+        height={size?.height ?? 600}
+        // A screenshot version, when one was taken: the picture that
+        // survives a pull the door refuses (inception phase 2).
+        picture={mimeType.startsWith("image/") ? url : null}
+        source={canvasSource ?? null}
+      />
+    );
+  }
   if (mimeType === BROWSER_MIME) {
     return <BrowserView canvasId={canvasId} blobHash={blobHash} reloadToken={reloadToken} />;
   }
   if (mimeType === "text/html") {
-    // Security boundary: src and sandbox are built as a pair by `itemFrame`,
-    // the one place allowed to decide them together (content-origin plan,
-    // invariant 2). With no content origin that pair is allow-scripts alone —
-    // an opaque origin that cannot reach the daemon API, this app's DOM, or
-    // its storage. The blob response additionally carries `CSP: sandbox` and
-    // nosniff.
-    const frame = itemFrame(contentBase(), canvasId, blobHash);
-    const base = contentBase();
     return (
-      <HtmlView
-        src={frame.src}
-        sandbox={frame.sandbox}
-        title={filename}
-        warm={(warm ?? []).map((hash) => itemFrame(base, canvasId, hash).src)}
-      />
+      <HtmlItemView canvasId={canvasId} blobHash={blobHash} filename={filename} warm={warm ?? []} />
     );
   }
   return (
@@ -1148,6 +1414,51 @@ const EMPTY: ReadonlySet<string> = new Set();
  * a hundred live documents; the oldest is dropped, and the one on screen
  * never is.
  */
+/**
+ * **A screen, and the two decisions that get it on the glass safely.**
+ *
+ * Its own component rather than a branch above, because the second decision
+ * is a hook: on a home whose content origin serves strangers, the frame's URL
+ * carries a short-lived signature this tab has to ask the badged app origin
+ * for (`contentBase.ts`, and `content-read-auth.md` for why). Local homes and
+ * homes with no content origin at all take the same path and pay nothing —
+ * `useContentOrigin` mints nothing where nothing is asked of it.
+ *
+ * The first decision is `itemFrame`: src and sandbox built as a pair by the
+ * one place allowed to decide them together (content-origin plan, invariant
+ * 2). With no content origin that pair is `allow-scripts` alone — an opaque
+ * origin that cannot reach the daemon API, this app's DOM, or its storage.
+ * The blob response additionally carries `CSP: sandbox` and nosniff.
+ *
+ * Null from `itemFrame` means "the ticket has not landed yet", and the honest
+ * render for that beat is the empty card the frame would sit on anyway.
+ */
+function HtmlItemView({
+  canvasId,
+  blobHash,
+  filename,
+  warm,
+}: {
+  canvasId: string;
+  blobHash: string;
+  filename: string;
+  warm: readonly string[];
+}) {
+  const origin = useContentOrigin(canvasId, [blobHash, ...warm]);
+  const frame = itemFrame(origin, canvasId, blobHash);
+  if (!frame) return <div className="html-view" />;
+  return (
+    <HtmlView
+      src={frame.src}
+      sandbox={frame.sandbox}
+      title={filename}
+      warm={warm
+        .map((hash) => itemFrame(origin, canvasId, hash)?.src)
+        .filter((src): src is string => src !== undefined)}
+    />
+  );
+}
+
 function HtmlView({
   src,
   sandbox,
@@ -1263,14 +1574,48 @@ function BrowserView({
   if ("failed" in load) return <BlobError reason={load.failed} />;
   const site = parseUriList(load.text);
   if (site === null) return <BlobError reason="not a link" />;
+  return <SiteFrame key={reloadToken} site={site} />;
+}
+
+/** After this long with no `load`, the frame says what may be happening
+ *  rather than sitting white. */
+const SITE_SLOW_MS = 8000;
+
+/**
+ * **The blank rectangle, explained** (the Add-site debt's other half). The
+ * daemon warns BEFORE an item is made for a site whose headers refuse
+ * framing; what it cannot see is a site that starts framing and stops, or
+ * one whose headers lie. A cross-origin frame tells this page nothing about
+ * what it drew — but it does fire `load`, and a frame that has not loaded
+ * after eight seconds is, more often than not, one that will not. So the
+ * note hangs under the frame with the one thing that always works, the
+ * site in a tab, and leaves the moment the frame loads.
+ */
+function SiteFrame({ site }: { site: string }) {
+  const [state, setState] = useState<"loading" | "slow" | "loaded">("loading");
+  useEffect(() => {
+    if (state !== "loading") return;
+    const timer = setTimeout(() => setState((s) => (s === "loading" ? "slow" : s)), SITE_SLOW_MS);
+    return () => clearTimeout(timer);
+  }, [state]);
   return (
-    <iframe
-      key={reloadToken}
-      className="browser-view"
-      src={site}
-      sandbox="allow-scripts allow-same-origin allow-forms"
-      title={site}
-    />
+    <>
+      <iframe
+        className="browser-view"
+        src={site}
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        title={site}
+        onLoad={() => setState("loaded")}
+      />
+      {state === "slow" && (
+        <div className="browser-slow" role="status">
+          <span>Still loading after a while — some sites refuse to be shown in a frame, and a browser does not say which.</span>
+          <a href={site} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+            Open it in a tab ↗
+          </a>
+        </div>
+      )}
+    </>
   );
 }
 

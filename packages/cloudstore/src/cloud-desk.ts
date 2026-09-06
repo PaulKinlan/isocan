@@ -1,6 +1,16 @@
+import { randomBytes } from "node:crypto";
 import type { DocumentData, Firestore } from "@google-cloud/firestore";
-import type { ActorClaim, Attestation, Capability, Grant } from "@isocan/core";
-import { SHELF, upsertAttestation } from "@isocan/core";
+import type { ActorClaim, Attestation, Capability, Grant, GrantSubject, Group, Space } from "@isocan/core";
+import {
+  groupSubject,
+  isCapability,
+  isGroupLive,
+  isLive,
+  isSpaceLive,
+  narrowed,
+  SHELF,
+  upsertAttestation,
+} from "@isocan/core";
 import type { Admission, BadgeRecord, Desk, PassRecord, Provenance } from "@isocan/server";
 
 export const BADGES = "badges";
@@ -17,12 +27,54 @@ export const GRANTS = "grants";
  * would be a pass whose spending raced with every other write to that
  * document. */
 export const PASSES = "passes";
+/**
+ * `spaces/{id}` — the desk's fourth row (roles phase 4). A collection for the
+ * grants' reason: a space is part of what a grant means, and what a grant
+ * means never leaves the home. Queried three ways, each a single-field
+ * question Firestore's automatic indexes serve with nothing in
+ * `firestore.indexes.json`: `holding array-contains <canvasId>` (`spaceOf`),
+ * `createdBy == <actorId>` (`spacesFor`), and by id. `holding` is derived from
+ * `canvasIds` by the one writer below and EMPTIED on the tombstone, so a
+ * deleted space drops out of `spaceOf` by not being in the index, the way a
+ * killed badge drops out of `badgesIn`.
+ *
+ * **If the hosted home ever needs a composite index here, it is this one:**
+ * none today. Every query is one field. A later `where("createdBy").where(
+ * "deletedAt")` would be the first, and the note belongs beside the query
+ * that needs it.
+ */
+export const SPACES = "spaces";
+/**
+ * `groups/{id}` — the desk's fifth row (roles phase 5). Queried two ways,
+ * both single-field and served by the automatic indexes with nothing in
+ * `firestore.indexes.json`: `createdBy == <actorId>` (`groupsFor`) and
+ * `members array-contains <attribute>` (`spacesFor`'s group branch). A
+ * tombstone keeps its `members` — the row is the record of who was in it —
+ * and is dropped in memory by the one query that could meet it, from a list
+ * already bounded to one attribute's groups. The door never queries this
+ * collection: it reads one document per `group:` row, by id.
+ */
+export const GROUPS = "groups";
 /** The migration shelf: pre-badge claims waiting for the session key that
  * will collect them. It belongs to no badge, so it has no home in
  * `badges/{badgeId}` — one document, keyed by sessionKey, and it dies when it
  * empties. One document is right precisely because it is finite and shrinking;
  * nothing new is ever shelved. */
 export const SHELF_DOC = "meta/shelf";
+/**
+ * `meta/content-key` — the HMAC key this home signs content reads with
+ * (`docs/projects/multiuser/content-read-auth.md`, option A). One document,
+ * because there is exactly one key; beside the shelf under `meta/` because
+ * neither is a ledger of rows, and both belong to the home rather than to
+ * anybody in it.
+ *
+ * **It is the one document here that is created in a transaction for
+ * uniqueness rather than for atomicity.** A rollout runs two instances of
+ * this home for a few seconds; if both minted a key, half the frames on
+ * every open tab would fail to verify until one instance drained. The
+ * transaction makes the second minter adopt the first's key instead.
+ */
+export const CONTENT_KEY_DOC = "meta/content-key";
 
 /**
  * How stale `lastSeen` may get before a touch costs a write.
@@ -75,6 +127,9 @@ export class CloudDesk implements Desk {
    * drift against. Purely an optimization cache: losing it costs one extra
    * write, never a wrong answer. */
   private readonly lastWrittenSeen = new Map<string, number>();
+  /** This home's content-signing key, once read. It cannot change while the
+   * process is up — see `contentKey`. */
+  private cachedContentKey: string | null = null;
 
   constructor(options: { firestore: Firestore; shutdown?: () => Promise<void> }) {
     this.db = options.firestore;
@@ -200,13 +255,13 @@ export class CloudDesk implements Desk {
   ): Promise<void> {
     await this.mutate(badgeId, (badge) => {
       if (badge.admissions.some((a) => a.canvasId === canvasId)) return null;
-      // Spread-in only when it narrows: absent means edit everywhere, and
-      // Firestore refuses an explicit `undefined` besides.
+      // Spread-in whenever it is not edit (`narrowed`): absent means edit
+      // everywhere, and Firestore refuses an explicit `undefined` besides.
       const admission: Admission = {
         canvasId,
         provenance,
         at: new Date().toISOString(),
-        ...(capability === "view" ? { capability } : {}),
+        ...(narrowed(capability) ? { capability } : {}),
       };
       return { ...badge, admissions: [...badge.admissions, admission] };
     });
@@ -252,7 +307,7 @@ export class CloudDesk implements Desk {
                 canvasId: a.canvasId,
                 at: a.at,
                 provenance,
-                ...(capability === "view" ? { capability } : {}),
+                ...(narrowed(capability) ? { capability } : {}),
               }
             : a,
         ),
@@ -332,8 +387,136 @@ export class CloudDesk implements Desk {
     return found.docs.map((doc) => toGrant(doc.data()));
   }
 
+  /**
+   * The other arm of `GrantScope`: `where("spaceId", "==", spaceId)`, a
+   * single-field equality like `grantsFor`'s, and no fallback for the same
+   * reason. A space with no rows admits nobody but its creator.
+   */
+  async grantsForSpace(spaceId: string): Promise<Grant[]> {
+    const found = await this.db.collection(GRANTS).where("spaceId", "==", spaceId).get();
+    return found.docs.map((doc) => toGrant(doc.data()));
+  }
+
   async putGrant(grant: Grant): Promise<void> {
     await this.db.collection(GRANTS).doc(grant.id).set(jsonSafe(grant));
+  }
+
+  /**
+   * `where("subject", "==", subject)` — the query `spacesFor` has run per
+   * attribute since roles phase 4, now a method of its own for the group
+   * routes (roles phase 5): every live row naming one subject, in either
+   * scope, is what a change to a group has to reach. Single-field, automatic
+   * index, no fallback.
+   */
+  async grantsBySubject(subject: GrantSubject): Promise<Grant[]> {
+    const found = await this.db.collection(GRANTS).where("subject", "==", subject).get();
+    return found.docs.map((doc) => toGrant(doc.data())).filter(isLive);
+  }
+
+  // ---- spaces (roles phase 4) ----
+
+  /** THE ONE WRITER of a space document, like `writeBadge` for a badge: the
+   * `holding` array is derived here from `canvasIds` on every write, empty on
+   * a tombstone, so "did you remember to update the index?" is never asked. */
+  async putSpace(space: Space): Promise<void> {
+    await this.db.collection(SPACES).doc(space.id).set(denormalizeSpace(space));
+  }
+
+  async space(spaceId: string): Promise<Space | null> {
+    const doc = await this.db.collection(SPACES).doc(spaceId).get();
+    return doc.exists ? toSpace(doc.data()!) : null;
+  }
+
+  /**
+   * `where("holding", "array-contains", canvasId)` — the door's one extra
+   * read per test. Single-field, so the automatic index serves it; a tombstone
+   * derives an empty `holding` and cannot come back, by construction rather
+   * than by a filter. No fallback: a space whose array was never written
+   * holds nothing.
+   */
+  async spaceOf(canvasId: string): Promise<Space | null> {
+    const found = await this.db
+      .collection(SPACES)
+      .where("holding", "array-contains", canvasId)
+      .limit(1)
+      .get();
+    const doc = found.docs[0];
+    return doc ? toSpace(doc.data()) : null;
+  }
+
+  /**
+   * Bounded queries, never a scan (roles design, "Routes"): one `createdBy`
+   * equality per actor the badge claims, one `subject` equality over the
+   * grants per attested attribute — from which the live rows naming a space
+   * give the ids to fetch — and nothing else. Both single-field, so the
+   * automatic indexes serve them. Tombstones are dropped in memory from a
+   * list already bounded to one actor's own spaces, which is not a scan.
+   *
+   * The group branch (roles phase 5): `where("members", "array-contains",
+   * attribute)` over the groups, per attribute, then `subject ==
+   * group:<id>` over the grants for each live group found. Two more
+   * single-field queries, and the tombstones are dropped from a list already
+   * bounded to one attribute's groups.
+   */
+  async spacesFor(badge: BadgeRecord): Promise<Space[]> {
+    const seen = new Map<string, Space>();
+    const keep = (space: Space) => {
+      if (isSpaceLive(space) && !seen.has(space.id)) seen.set(space.id, space);
+    };
+    for (const actorId of unique(badge.claims.map((claim) => claim.actorId))) {
+      const found = await this.db.collection(SPACES).where("createdBy", "==", actorId).get();
+      for (const doc of found.docs) keep(toSpace(doc.data()));
+    }
+    const named = new Set<string>();
+    const attributes = unique((badge.attestations ?? []).map((row) => row.attribute));
+    const subjects = new Set<string>(attributes);
+    for (const attribute of attributes) {
+      const groups = await this.db.collection(GROUPS).where("members", "array-contains", attribute).get();
+      for (const doc of groups.docs) {
+        const group = toGroup(doc.data());
+        if (isGroupLive(group)) subjects.add(groupSubject(group.id));
+      }
+    }
+    for (const subject of subjects) {
+      const rows = await this.db.collection(GRANTS).where("subject", "==", subject).get();
+      for (const doc of rows.docs) {
+        const grant = toGrant(doc.data());
+        if (isLive(grant) && "spaceId" in grant) named.add(grant.spaceId);
+      }
+    }
+    for (const spaceId of named) {
+      if (seen.has(spaceId)) continue;
+      const space = await this.space(spaceId);
+      if (space) keep(space);
+    }
+    return [...seen.values()];
+  }
+
+  // ---- groups (roles phase 5) ----
+
+  /** A plain document write: `members` is the array the query reads, so
+   * nothing is derived and there is nothing to forget. */
+  async putGroup(group: Group): Promise<void> {
+    await this.db.collection(GROUPS).doc(group.id).set(jsonSafe(group));
+  }
+
+  async group(groupId: string): Promise<Group | null> {
+    const doc = await this.db.collection(GROUPS).doc(groupId).get();
+    return doc.exists ? toGroup(doc.data()!) : null;
+  }
+
+  /** One `createdBy` equality per actor the badge claims; tombstones dropped
+   * from that bounded list. Never a scan. */
+  async groupsFor(badge: BadgeRecord): Promise<Group[]> {
+    const seen = new Map<string, Group>();
+    for (const actorId of unique(badge.claims.map((claim) => claim.actorId))) {
+      const found = await this.db.collection(GROUPS).where("createdBy", "==", actorId).get();
+      for (const doc of found.docs) {
+        const group = toGroup(doc.data());
+        if (isGroupLive(group) && !seen.has(group.id)) seen.set(group.id, group);
+      }
+    }
+    return [...seen.values()];
   }
 
   /**
@@ -426,6 +609,31 @@ export class CloudDesk implements Desk {
   async shelve(rows: Record<string, ActorClaim>): Promise<void> {
     if (Object.keys(rows).length === 0) return;
     await this.db.doc(SHELF_DOC).set(jsonSafe(rows), { merge: true });
+  }
+
+  /**
+   * Mint once, then answer the same key forever — across instances, which is
+   * the only reason this is a transaction and not a read-then-write. See
+   * `CONTENT_KEY_DOC`.
+   *
+   * Cached in memory after the first read: it is asked once per mint call on
+   * a hot route, it cannot change while the process is up (nothing rewrites
+   * the document), and a Firestore read per signature would put the content
+   * origin's cost on the app origin's hottest path.
+   */
+  async contentKey(): Promise<string> {
+    if (this.cachedContentKey) return this.cachedContentKey;
+    const ref = this.db.doc(CONTENT_KEY_DOC);
+    const key = await this.db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      const existing = doc.data()?.["key"];
+      if (typeof existing === "string" && existing.length > 0) return existing;
+      const minted = randomBytes(32).toString("base64url");
+      tx.set(ref, { key: minted, mintedAt: new Date().toISOString() });
+      return minted;
+    });
+    this.cachedContentKey = key;
+    return key;
   }
 
   // ---- internals ----
@@ -538,18 +746,32 @@ function toRecord(data: DocumentData): BadgeRecord {
 function toGrant(data: DocumentData): Grant {
   return {
     id: data["id"] as string,
-    canvasId: data["canvasId"] as string,
+    // One arm of `GrantScope` (roles phase 4): a row names a canvas or a
+    // space. Every row written before spaces has `canvasId`, and a rebuild
+    // that dropped `spaceId` would turn a space's row into one on a canvas
+    // called `undefined` — the field-picking trap, on the scope itself.
+    ...(typeof data["spaceId"] === "string"
+      ? { spaceId: data["spaceId"] as string }
+      : { canvasId: data["canvasId"] as string }),
     subject: data["subject"] as Grant["subject"],
     grantedBy: data["grantedBy"] as string,
     at: data["at"] as string,
     ...(typeof data["revokedAt"] === "string" ? { revokedAt: data["revokedAt"] } : {}),
     ...(typeof data["revokedBy"] === "string" ? { revokedBy: data["revokedBy"] } : {}),
-    // Written only when it narrows (#88), and it MUST come back: this
-    // field-picking rebuild is exactly where a stored `view` silently became
-    // `edit` on the hosted home — the write kept it, every read dropped it,
-    // and the flip "took" in the response while the door went on admitting
-    // editors. Absent stays absent, which reads as edit.
-    ...(data["capability"] === "view" ? { capability: "view" as const } : {}),
+    // Written whenever it is not edit (#88, `narrowed`), and it MUST come
+    // back: this field-picking rebuild is exactly where a stored `view`
+    // silently became `edit` on the hosted home — the write kept it, every
+    // read dropped it, and the flip "took" in the response while the door
+    // went on admitting editors. A literal test for `view` would do the same
+    // to `read` and `own`, so the guard is "is it a rung", not "is it that
+    // one". Absent stays absent, which reads as edit.
+    ...(isCapability(data["capability"]) && narrowed(data["capability"])
+      ? { capability: data["capability"] }
+      : {}),
+    // A bar (roles phase 3) is the same shape of field, and the same trap:
+    // a rebuild that dropped it would turn "kept out" into a row the door
+    // reads as an edit invitation. `true` or absent, nothing else.
+    ...(data["bars"] === true ? { bars: true as const } : {}),
   };
 }
 
@@ -566,6 +788,41 @@ function toPass(data: DocumentData): PassRecord {
     ...(typeof data["actorId"] === "string" ? { actorId: data["actorId"] } : {}),
     ...(typeof data["redeemedAt"] === "string" ? { redeemedAt: data["redeemedAt"] } : {}),
     ...(typeof data["redeemedBy"] === "string" ? { redeemedBy: data["redeemedBy"] } : {}),
+  };
+}
+
+/** A space document: the record plus `holding`, the array `spaceOf` queries —
+ * `canvasIds` while the space stands, EMPTY on a tombstone, so a deleted
+ * space is not in the index at all. One writer, like `denormalize`. */
+function denormalizeSpace(space: Space): DocumentData {
+  return {
+    ...jsonSafe(space),
+    holding: isSpaceLive(space) ? unique(space.canvasIds) : [],
+  };
+}
+
+/** A space document, back as a row; `holding` is derived and dropped. */
+function toSpace(data: DocumentData): Space {
+  return {
+    id: data["id"] as string,
+    name: data["name"] as string,
+    createdBy: data["createdBy"] as string,
+    canvasIds: (data["canvasIds"] as string[] | undefined) ?? [],
+    at: data["at"] as string,
+    ...(typeof data["deletedAt"] === "string" ? { deletedAt: data["deletedAt"] } : {}),
+  };
+}
+
+/** A group document, back as a row. Nothing is derived: `members` is both
+ * the record and the array the query reads. */
+function toGroup(data: DocumentData): Group {
+  return {
+    id: data["id"] as string,
+    name: data["name"] as string,
+    createdBy: data["createdBy"] as string,
+    members: (data["members"] as string[] | undefined) ?? [],
+    at: data["at"] as string,
+    ...(typeof data["deletedAt"] === "string" ? { deletedAt: data["deletedAt"] } : {}),
   };
 }
 

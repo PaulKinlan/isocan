@@ -7,20 +7,22 @@ import { publishCursor, setNotice, useCanvasStore } from "../stores/canvasStore.
 import { useSettling } from "../lib/settling.ts";
 import { type Tool, useUiStore } from "../stores/uiStore.ts";
 import { pan, screenToWorld, worldToScreen, zoomAt } from "../lib/viewport.ts";
+import { type Sample, coastFrame, flickVelocity } from "../lib/inertia.ts";
 import { zoomToBox, zoomToItem } from "../lib/zoomactions.ts";
-import { addFiles } from "../lib/upload.ts";
+import { addFailure, addFiles } from "../lib/upload.ts";
 import { placeSketch } from "../lib/sketch.ts";
 import { placeableArea, revealIfOffscreen } from "../lib/spot.ts";
 import { glideToBox } from "../lib/zoomactions.ts";
 import { settleDelay, wasHeld } from "../lib/pensession.ts";
 import { isTyping } from "../lib/keys.ts";
 import { TextComposer } from "./TextComposer.tsx";
+import { canEditNow, useCanEdit } from "../lib/capability.ts";
 import { ContextMenu, openContextMenu } from "./ContextMenu.tsx";
 import { canvasMenu, itemMenu } from "../lib/menuentries.tsx";
 import { ItemView } from "./ItemView.tsx";
 import { VersionFanOut } from "./VersionFanOut.tsx";
 import { CommentLayer } from "./CommentLayer.tsx";
-import { MapEdges } from "./MapEdges.tsx";
+import { ModuleUnderlays } from "./ModuleUnderlays.tsx";
 import { CursorLayer } from "./CursorLayer.tsx";
 import { CursorGlow } from "./CursorGlow.tsx";
 import { InkLayer, SketchBar } from "./InkLayer.tsx";
@@ -66,6 +68,8 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
   const viewport = useUiStore((s) => s.viewport);
   const commentMode = useUiStore((s) => s.commentMode);
   const activeTool = useUiStore((s) => s.activeTool);
+  const stamp = useUiStore((s) => s.stamp);
+  const canEdit = useCanEdit();
   const railPanning = useUiStore((s) => s.railPanning);
   const menu = useUiStore((s) => s.contextMenu);
   const navigate = useNavigate();
@@ -114,6 +118,9 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
   const penHeld = useRef(false);
   // Pending settle: the ink becomes an item when this fires (see INK_SETTLE_MS).
   const settleTimer = useRef<number | null>(null);
+  // The running coast's stopper, reachable from the wheel effect below
+  // without being one of its dependencies (a ref, not a closure).
+  const stopCoastRef = useRef<() => void>(() => {});
 
   // A macOS trackpad pinch is a wheel event with ctrlKey set (Chrome/Firefox)
   // or a gesture event (Safari). Left alone, the browser zooms the whole page —
@@ -191,6 +198,8 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
         return;
       }
       e.preventDefault();
+      // A wheel during a coast takes over from it.
+      stopCoastRef.current();
       const ui = useUiStore.getState();
       ui.setViewport(pan(ui.viewport, -e.deltaX, -e.deltaY));
     }
@@ -265,7 +274,7 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
         spacePrevTool.current = ui.activeTool; // capture once; keydown repeats while held
         ui.setActiveTool("hand");
       }
-      if (e.code === "KeyP" && !e.metaKey && !e.ctrlKey && !e.repeat) {
+      if (e.code === "KeyP" && !e.metaKey && !e.ctrlKey && !e.repeat && canEditNow()) {
         const ui = useUiStore.getState();
         penPrevTool.current = ui.activeTool;
         penDownAt.current = Date.now();
@@ -393,6 +402,9 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
     // Middle-drag or the Hand tool pan. (Space is momentary Hand, so it flows
     // through activeTool too.) The Hand tool pans from anywhere — an item
     // yields its pointer when it is active — so it is not gated on background.
+    // A press during a coast stops it where it is — nobody waits for the
+    // canvas to finish moving.
+    stopCoast();
     const wantsPan = e.button === 1 || (activeTool === "hand" && e.button === 0);
 
     if (activeTool === "zoom" && e.button === 0) {
@@ -499,17 +511,60 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
     el.addEventListener("pointercancel", onUp);
   }
 
+  /**
+   * **Pan inertia** (motion note, recommendation 1): a Hand or middle-button
+   * drag coasts after release, the way every canvas people arrive from
+   * does. The arithmetic is `lib/inertia.ts`; this is the loop, and the two
+   * conditions only the viewport can keep — interruptible (a press or a
+   * wheel stops it where it is, see `stopCoast`) and off under reduced
+   * motion, which the note calls the honest cost.
+   */
+  const coasting = useRef<number | null>(null);
+  function stopCoast() {
+    if (coasting.current !== null) {
+      cancelAnimationFrame(coasting.current);
+      coasting.current = null;
+      setPanning(false);
+    }
+  }
+  stopCoastRef.current = stopCoast;
+  function startCoast(v: { vx: number; vy: number }) {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let velocity = v;
+    let lastAt = performance.now();
+    setPanning(true);
+    const frame = (now: number) => {
+      const step = coastFrame(velocity, Math.min(now - lastAt, 64));
+      lastAt = now;
+      velocity = step.next;
+      const ui = useUiStore.getState();
+      ui.setViewport(pan(ui.viewport, step.dx, step.dy));
+      if (step.done) {
+        coasting.current = null;
+        setPanning(false);
+        return;
+      }
+      coasting.current = requestAnimationFrame(frame);
+    };
+    coasting.current = requestAnimationFrame(frame);
+  }
+
   function startPan(e: React.PointerEvent) {
     e.preventDefault();
+    stopCoast();
     const el = ref.current!;
     el.setPointerCapture(e.pointerId);
     setPanning(true);
     let last = { x: e.clientX, y: e.clientY };
+    // The last moments of the drag, for the flick's speed at release.
+    const samples: Sample[] = [{ t: performance.now(), x: e.clientX, y: e.clientY }];
 
     function onMove(ev: PointerEvent) {
       const dx = ev.clientX - last.x;
       const dy = ev.clientY - last.y;
       last = { x: ev.clientX, y: ev.clientY };
+      samples.push({ t: performance.now(), x: ev.clientX, y: ev.clientY });
+      if (samples.length > 12) samples.shift();
       const ui = useUiStore.getState();
       ui.setViewport(pan(ui.viewport, dx, dy));
     }
@@ -518,6 +573,8 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       setPanning(false);
+      const v = flickVelocity(samples, performance.now());
+      if (v) startCoast(v);
     }
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
@@ -614,6 +671,7 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
     e.preventDefault();
     if (droppingTimer.current) clearTimeout(droppingTimer.current);
     setDropping(false);
+    if (!canEditNow()) return; // a reader has nowhere to put a file
     const files = Array.from(e.dataTransfer.files);
     const ui = useUiStore.getState();
     const world = screenToWorld(ui.viewport, e.clientX, e.clientY);
@@ -623,11 +681,15 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
     if (files.length === 0) {
       const link = parseUriList(e.dataTransfer.getData("text/uri-list"));
       if (link) {
+        // Not http(s) — nothing to project, and nothing to say: a mailto:
+        // dragged onto the canvas is not a failure. Past that test, any
+        // throw is the upload's own, and is said (#51).
+        if (!/^https?:\/\//i.test(link)) return;
         const { addBrowserItem } = await import("../lib/upload.ts");
         try {
           ui.select(await addBrowserItem(canvasId, actor, link, world));
-        } catch {
-          // Not http(s) — nothing to project.
+        } catch (err) {
+          setNotice(err instanceof Error && err.message ? err.message : "That site could not be added.");
         }
       }
       return;
@@ -637,7 +699,13 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
     const targetItem = (e.target as HTMLElement).closest?.("[data-item-id]");
     if (targetItem && files.length === 1) {
       const { addVersionFromFile } = await import("../lib/upload.ts");
-      await addVersionFromFile(canvasId, actor, targetItem.getAttribute("data-item-id")!, files[0]!);
+      try {
+        await addVersionFromFile(canvasId, actor, targetItem.getAttribute("data-item-id")!, files[0]!);
+      } catch (err) {
+        setNotice(
+          `${files[0]!.name}: ${err instanceof Error && err.message ? err.message : "could not be added as a version"}`,
+        );
+      }
       return;
     }
     // The drop's own failure, said out loud rather than left as an unhandled
@@ -646,8 +714,10 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
     // Dropped AT the pointer: chosen, so the files stay where they were let
     // go rather than being tidied clear (`Placement.chosen`).
     const ids = await addFiles(canvasId, actor, files, { ...world, chosen: true }).catch((err: unknown) => {
-      setNotice(err instanceof Error ? err.message : "Those files could not be added.");
-      return [] as string[];
+      // "2 of 5 added — <why>", and the two are selected below (#51).
+      const { landed, notice } = addFailure(err, files.length, "Those files could not be added.");
+      setNotice(notice);
+      return landed;
     });
     // The whole drop is selected, not just the last file — you dropped five
     // things and five things are what arrived.
@@ -674,7 +744,7 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
   return (
     <div
       ref={ref}
-      className={`canvas-viewport${panning ? " panning" : ""}${commentMode ? " comment-mode" : ""}${activeTool === "hand" ? " hand" : ""}${activeTool === "zoom" ? " zoom" : ""}${activeTool === "pen" ? " pen" : ""}${activeTool === "text" ? " text-tool" : ""}${
+      className={`canvas-viewport${panning ? " panning" : ""}${commentMode ? " comment-mode" : ""}${stamp ? " stamping" : ""}${activeTool === "hand" ? " hand" : ""}${activeTool === "zoom" ? " zoom" : ""}${activeTool === "pen" ? " pen" : ""}${activeTool === "text" ? " text-tool" : ""}${
         activeTool === "select" && !commentMode ? " own-cursor-on" : ""
       }`}
       style={{
@@ -711,7 +781,7 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
         {/* Before the items, so a line passes UNDER the nodes it joins — a
             map node is chromeless text, and a line over it strikes through
             the words. */}
-        <MapEdges />
+        <ModuleUnderlays />
         {items.map((item) => (
           <ItemView
             key={item.id}
@@ -725,7 +795,7 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
           <VersionFanOut item={canvas.items[fannedItemId]!} canvasId={canvasId} actor={actor} />
         )}
         <InkLayer />
-        <TextComposer canvasId={canvasId} actor={actor} />
+        {canEdit && <TextComposer canvasId={canvasId} actor={actor} />}
       </div>
       <CommentLayer canvasId={canvasId} actor={actor} />
       <CursorLayer />

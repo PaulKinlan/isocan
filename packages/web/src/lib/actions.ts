@@ -1,12 +1,15 @@
 import type { NavigateFunction } from "react-router-dom";
 import type { Actor } from "@isocan/core";
-import { canvasPath, itemPath } from "@isocan/core";
+import { canvasPath, deckPath, itemPath, modulePagePath } from "@isocan/core";
 import { sendEchoed } from "../stores/canvasStore.ts";
 import { useCanvasStore } from "../stores/canvasStore.ts";
 import { useUiStore } from "../stores/uiStore.ts";
 import { openPanel } from "./panels.ts";
 import { zoomBy, zoomTo100, zoomToFit, zoomToSelection } from "./zoomactions.ts";
-import { formatMoves, mapOf, mapsOn, tidyMap } from "@isocan/core";
+import { formatMoves } from "@isocan/core";
+import { canEditNow } from "./capability.ts";
+import { hideChrome, showAllChrome, showChrome } from "./hideable.ts";
+import { MODULES, modulePages } from "../modules.ts";
 
 /**
  * **The things the app does itself.**
@@ -51,6 +54,9 @@ export interface Action {
   group: "View" | "Tools" | "Open" | "Canvas";
   /** Whether it makes sense at this moment. */
   available?: (ctx: ActionContext) => boolean;
+  /** This action changes the canvas — arming a tool that creates, a format,
+   *  a tidy. Not offered on the read-only canvas (roles phase 1). */
+  writes?: boolean;
   run: (ctx: ActionContext) => void | Promise<void>;
 }
 
@@ -59,6 +65,17 @@ const withSelection = (ctx: ActionContext) => ctx.selection.length > 0;
 
 /** Everything the launcher can do, grouped in the order it shows them. */
 export const ACTIONS: readonly Action[] = [
+  {
+    id: "add",
+    name: "Add…",
+    hint: "Files, a site, a Google Doc, or a canvas — paste anything, or pick",
+    group: "Canvas",
+    available: onCanvas,
+    writes: true,
+    // The same popover the rail's one Add button opens: two doors to one
+    // dialog, and the dialog reads what you give it.
+    run: () => useUiStore.getState().setAdding("any"),
+  },
   // ---- View ----
   {
     id: "fit",
@@ -112,6 +129,28 @@ export const ACTIONS: readonly Action[] = [
     },
   },
   {
+    // Door 3 of chrome you can turn off: the palette is not in the registry
+    // and cannot be hidden, so a person who hid everything still has this.
+    id: "show-chrome",
+    name: "Show hidden controls",
+    hint: "Bring back undo/redo, History — anything hidden by right-click",
+    group: "View",
+    available: onCanvas,
+    run: showAllChrome,
+  },
+  {
+    id: "top-fade",
+    name: "Top fade",
+    hint: "the wash of the ground under the top controls — off, or back",
+    group: "View",
+    available: onCanvas,
+    run: () => {
+      const hidden = useUiStore.getState().hiddenChrome.includes("canvas.topfade");
+      if (hidden) showChrome("canvas.topfade");
+      else hideChrome("canvas.topfade");
+    },
+  },
+  {
     id: "theme",
     name: "Switch light and dark",
     hint: "or follow the system",
@@ -134,6 +173,8 @@ export const ACTIONS: readonly Action[] = [
       keys: { select: "V", hand: "H", pen: "P", text: "T", comment: "C" }[tool],
       group: "Tools",
       available: onCanvas,
+      // Select and Hand read; the other three put something on the canvas.
+      ...(tool === "select" || tool === "hand" ? {} : { writes: true }),
       run: () => useUiStore.getState().setActiveTool(tool),
     }),
   ),
@@ -172,6 +213,18 @@ export const ACTIONS: readonly Action[] = [
     run: (ctx) => ctx.navigate("/lens"),
   },
   {
+    id: "switch-canvas",
+    name: "Switch canvas…",
+    hint: "the ones you were on lately first; type to find any",
+    keys: "⌘O",
+    group: "Open",
+    available: onCanvas,
+    /* The palette handles this one itself — it flips the window to the
+       switcher rather than closing it — so `run` is what a caller OUTSIDE the
+       palette gets: the same window, opened on that face. */
+    run: () => useUiStore.getState().setPaletteOpen("canvases"),
+  },
+  {
     id: "open-canvases",
     name: "All canvases",
     hint: "back to the home screen",
@@ -192,6 +245,7 @@ export const ACTIONS: readonly Action[] = [
     hint: "straighten the lines, decide nothing",
     group: "Canvas",
     available: onCanvas,
+    writes: true,
     run: (ctx) => runFormat(ctx, "grid"),
   },
   {
@@ -200,17 +254,8 @@ export const ACTIONS: readonly Action[] = [
     hint: "screens across, what came from each beneath it",
     group: "Canvas",
     available: onCanvas,
+    writes: true,
     run: (ctx) => runFormat(ctx, "smart"),
-  },
-  {
-    id: "tidy-map",
-    name: "Tidy the mind map",
-    hint: "a column per depth, parents centred on their children",
-    group: "Canvas",
-    /* Offered only where there is one to tidy: a menu that lists what it
-       cannot do teaches people to stop reading it. */
-    available: (ctx) => onCanvas(ctx) && mapsHere().length > 0,
-    run: (ctx) => runTidy(ctx),
   },
   {
     id: "full-screen",
@@ -220,6 +265,14 @@ export const ACTIONS: readonly Action[] = [
     group: "Canvas",
     available: (ctx) => onCanvas(ctx) && ctx.selection.length === 1,
     run: (ctx) => ctx.navigate(itemPath(ctx.canvasId!, ctx.selection[0]!)),
+  },
+  {
+    id: "export-deck",
+    name: "Export the deck",
+    hint: "every slide on one page — Save as PDF, or download one file that plays it",
+    group: "Canvas",
+    available: onCanvas,
+    run: (ctx) => ctx.navigate(deckPath(ctx.canvasId!)),
   },
   {
     id: "download",
@@ -250,13 +303,61 @@ export const ACTIONS: readonly Action[] = [
     available: onCanvas,
     run: (ctx) => ctx.navigate(`${canvasPath(ctx.canvasId!)}/w`),
   },
+  // What the modules this build carries add, after the app's own.
+  ...moduleActions(),
 ];
 
 /**
- * The tidy, run from here rather than asked for.
+ * **A module's palette actions, adapted** (`core/modules.ts`, `ModuleAction`).
  *
- * ONE `items.move`, which is one undo — a tidy you cannot take back in one
- * press is a tidy nobody dares run from a menu they were only browsing.
+ * A module declares an action over facts — the canvas and the selection —
+ * and returns the ops to send. The shell reads its stores here, once, and
+ * sends what comes back through the same echoed door every other write
+ * takes, so a module never holds a store or a socket and its tidy is an
+ * `items.move` the terminal sees as the same op. Every module action writes,
+ * so none is offered on the read-only canvas.
+ */
+function moduleActions(): Action[] {
+  // A module's pages are doors like the workbench's: "Open Documents".
+  const pages = modulePages().map(
+    (page): Action => ({
+      id: `open-page-${page.segment}`,
+      name: `Open ${page.label}`,
+      ...(page.hint ? { hint: page.hint } : {}),
+      group: "Open",
+      available: onCanvas,
+      run: (ctx) => ctx.navigate(modulePagePath(ctx.canvasId!, page.segment)),
+    }),
+  );
+  return pages.concat(MODULES.flatMap((m) =>
+    (m.actions ?? []).map(
+      (a): Action => ({
+        id: a.id,
+        name: a.name,
+        ...(a.hint ? { hint: a.hint } : {}),
+        group: "Canvas",
+        writes: true,
+        available: (ctx) => {
+          const canvas = useCanvasStore.getState().canvas;
+          return onCanvas(ctx) && canvas !== null && (a.available?.({ canvas, selection: ctx.selection }) ?? true);
+        },
+        run: async (ctx) => {
+          const canvas = useCanvasStore.getState().canvas;
+          if (!canvas || !ctx.canvasId) return;
+          for (const op of a.run({ canvas, selection: ctx.selection }) ?? []) {
+            await sendEchoed(ctx.canvasId, ctx.actor, op);
+          }
+        },
+      }),
+    ),
+  ));
+}
+
+/**
+ * The format, run from here rather than asked for.
+ *
+ * ONE `items.move`, which is one undo — a format you cannot take back in one
+ * press is a format nobody dares run from a menu they were only browsing.
  */
 async function runFormat(ctx: ActionContext, mode: "grid" | "smart"): Promise<void> {
   const canvas = useCanvasStore.getState().canvas;
@@ -266,40 +367,15 @@ async function runFormat(ctx: ActionContext, mode: "grid" | "smart"): Promise<vo
   await sendEchoed(ctx.canvasId, ctx.actor, { type: "items.move", moves });
 }
 
-/** The maps on the canvas in front of us, for the availability check and for
- *  deciding which one a tidy means. */
-function mapsHere() {
-  const canvas = useCanvasStore.getState().canvas;
-  return canvas ? mapsOn(canvas) : [];
-}
-
-/**
- * **Tidy the map the selection is in, or the only one there is.**
- *
- * Ambiguity is refused rather than guessed, the same rule `resolveMap` follows
- * in the CLI: with two maps on a canvas and nothing selected, tidying one of
- * them at random rearranges work somebody did not ask about.
- *
- * One `items.move`, so one undo — the first thing anybody does after an
- * automatic layout is decide they preferred it before.
- */
-async function runTidy(ctx: ActionContext): Promise<void> {
-  const canvas = useCanvasStore.getState().canvas;
-  if (!canvas || !ctx.canvasId) return;
-  const maps = mapsOn(canvas);
-  const selected = useUiStore.getState().selectedItemIds;
-  const fromSelection = selected
-    .map((id) => canvas.items[id])
-    .map((item) => (item ? mapOf(item) : null))
-    .find((mapId): mapId is string => mapId !== null);
-  const mapId = fromSelection ?? (maps.length === 1 ? maps[0]!.id : null);
-  if (!mapId) return;
-  const moves = tidyMap(canvas, mapId);
-  if (moves.length === 0) return;
-  await sendEchoed(ctx.canvasId, ctx.actor, { type: "items.move", moves });
-}
-
-/** What can be run right now, in the order the groups are declared. */
+/** What can be run right now, in the order the groups are declared. On the
+ * read-only canvas the actions that write are not in the list at all. */
 export function availableActions(ctx: ActionContext): Action[] {
-  return ACTIONS.filter((action) => action.available?.(ctx) ?? true);
+  // The module actions are read live, so a runtime module's arrive without a
+  // reload; the build-time ones are already in ACTIONS and are not doubled.
+  const live = moduleActions();
+  const known = new Set(ACTIONS.map((a) => a.id));
+  return [...ACTIONS, ...live.filter((a) => !known.has(a.id))].filter((action) => {
+    if (!canEditNow() && action.writes) return false;
+    return action.available?.(ctx) ?? true;
+  });
 }

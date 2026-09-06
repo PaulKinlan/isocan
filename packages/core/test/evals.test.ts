@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCorpus,
+  categoriseAsk,
+  harvestConverge,
+  withLanding,
   harvestPreferences,
   type CanvasContents,
   type LogEntry,
@@ -243,6 +246,81 @@ describe("the request corpus", () => {
     expect(buildCorpus(othersCancel, []).summary.cancelled).toBe(0);
   });
 
+  it("lets one /cancel call off the ask it follows, not every ask that person made in the Chat", () => {
+    // Measured 3 Sep 2026: one `/cancel` typed in the Chat after sixteen asks
+    // marked all sixteen cancelled, because the Chat is one thread and the
+    // first reading was "any later /cancel by the asker". The cancel belongs
+    // to the asker's most recent ask before it; the answered ones before that
+    // stay answered.
+    const state = canvas({
+      threads: {
+        main: thread(
+          "main",
+          [
+            comment("c1", "build the tracker", DI, "2026-08-01T10:00:00.000Z"),
+            comment("c2", "done", FABLE, "2026-08-01T10:05:00.000Z"),
+            comment("c3", "now a gallery", DI, "2026-08-01T10:10:00.000Z"),
+            comment("c4", "done", FABLE, "2026-08-01T10:15:00.000Z"),
+            comment("c5", "and grill me on it", DI, "2026-08-01T10:20:00.000Z"),
+            comment("c6", "/cancel", DI, "2026-08-01T10:21:00.000Z"),
+          ],
+          { main: true },
+        ),
+      },
+    });
+    const { summary, asks } = buildCorpus(state, []);
+    // Nobody is enrolled here, so Fable's "done"s are counted as asks too
+    // (the upper-bound case); the person's four are the ones under test.
+    const mine = asks.filter((a) => a.askedBy.id === DI.id);
+    // The `/cancel` row is itself counted (it is a Chat comment by a person)
+    // and nobody spoke after it, so it reads silent — which is right: it asked
+    // for nothing.
+    expect(mine.map((a) => a.outcome)).toEqual(["answered", "answered", "cancelled", "silent"]);
+    expect(summary.cancelled).toBe(1);
+  });
+
+  it("reads what kind of ask it is, and carries the caveat that it is a reading", () => {
+    // The categories came out of hand-labelling every human ask at one home
+    // (the research note); these are the shapes each one was named for, so a
+    // rewrite of the classifier that loses one of them fails here rather than
+    // in the next distribution.
+    const cases: [string, string | null, ReturnType<typeof categoriseAsk>][] = [
+      ["Can you build me a greeting card for Yu?", null, "create"],
+      ["sketch a picture of dion, line art like a 5 year old", null, "create"],
+      ["Can you replace the screenshot in slide 02 with the one selected here?", null, "revise"],
+      ["can we reorder the days so they show up sorted by recency", null, "revise"],
+      ["Can you redesign this as though it is a high end Airbnb listing?", null, "restyle"],
+      ["Can you give me 3 variations that just change the font?", null, "variation"],
+      ["Take the best of both and come up with a new version", null, "converge"],
+      ["Can you both critique each of your versions and tell me which one is superior?", null, "critique"],
+      ["When I full screen the slides they aren't taking the full width — can you fix that?", null, "repair"],
+      ["can you rearrange the screens so they are organized well?", null, "arrange"],
+      ["Can you create a README.md on the canvas that keeps an up to date spec?", null, "document"],
+      ["how did you build it? This is amazing.", null, "question"],
+      ["@Cana this one's for you", null, "orchestrate"],
+      ["@Canny 🤖", null, "orchestrate"],
+      ["Can we push the quiz to github pages so it can be hosted?", null, "ops"],
+      ["amazing", null, "social"],
+      ["/format grid", "format", "arrange"],
+      ["/variation very different styles", "variation", "variation"],
+      ["/design-audit", "design-audit", "critique"],
+      ["/cancel changed my mind", "cancel", "cancel"],
+      ["/sprint", "sprint", "orchestrate"],
+    ];
+    for (const [body, command, want] of cases) expect(categoriseAsk(body, command), body).toBe(want);
+
+    const state = canvas({
+      threads: {
+        t1: thread("t1", [
+          comment("c1", "@Fable build me a card", DI, "2026-08-01T10:00:00.000Z", { mentions: [FABLE.id] }),
+        ]),
+      },
+    });
+    const { summary, asks } = buildCorpus(state, []);
+    expect(asks[0]!.category).toBe("create");
+    expect(summary.categories).toEqual([{ name: "create", count: 1, silent: 1 }]);
+  });
+
   it("reads the slash command an ask opens with, and only at the start", () => {
     // `/format` halfway through a sentence is somebody TALKING about the
     // command. The guide says so to agents; the corpus must not disagree.
@@ -392,6 +470,43 @@ describe("attribution says how it knows", () => {
   });
 });
 
+describe("the converge lane's landings, and whether people kept them", () => {
+  const T0 = "2026-09-03T03:00:00.000Z";
+  const later = Date.parse(T0) + 13 * 3600e3; // a morning has passed
+  const stacked = (id: string, versions: string[], current: string, converged?: string) => {
+    const it = item(id, id, "2026-09-01T00:00:00.000Z", versions);
+    return { ...it, currentVersionId: current, properties: { ...it.properties, ...(converged ? { converged } : {}) } };
+  };
+
+  it("appends a landing to the property rather than replacing the last one", () => {
+    expect(withLanding(undefined, "v2", T0)).toBe(`v2@${T0}`);
+    expect(withLanding(`v2@${T0}`, "v3", "2026-09-04T03:00:00.000Z")).toBe(`v2@${T0},v3@2026-09-04T03:00:00.000Z`);
+  });
+
+  it("calls a landing kept, built on, reverted or standing by the stack alone", () => {
+    const state = canvas({
+      items: {
+        kept: stacked("kept", ["v1", "v2"], "v2", `v2@${T0}`),
+        builtOn: stacked("builtOn", ["v1", "v2", "v3"], "v3", `v2@${T0}`),
+        reverted: stacked("reverted", ["v1", "v2"], "v1", `v2@${T0}`),
+        standing: stacked("standing", ["v1", "v2"], "v2", `v2@${new Date(later - 3600e3).toISOString()}`),
+        untouched: stacked("untouched", ["v1"], "v1"),
+      },
+    });
+    const report = harvestConverge(state, later);
+    const by = Object.fromEntries(report.landings.map((l) => [l.itemId, l.status]));
+    expect(by).toEqual({ kept: "kept", builtOn: "built-on", reverted: "reverted", standing: "standing" });
+    // Standing is excluded from the rate, so a fresh night cannot move the battery before anyone looked.
+    expect(report).toMatchObject({ kept: 2, reverted: 1, standing: 1 });
+    expect(report.acceptRate).toBeCloseTo(2 / 3);
+  });
+
+  it("has no rate until something has been judged", () => {
+    const state = canvas({ items: { s: stacked("s", ["v1", "v2"], "v2", `v2@${new Date(later).toISOString()}`) } });
+    expect(harvestConverge(state, later).acceptRate).toBeNull();
+  });
+});
+
 describe("preference pairs, harvested from version stacks", () => {
   it("is a pair only when an earlier version was chosen over later ones", () => {
     const state = canvas({ items: { itm_a: item("itm_a", "Hero", "2026-08-01T09:00:00.000Z", ["v1", "v2", "v3"]) } });
@@ -409,6 +524,7 @@ describe("preference pairs, harvested from version stacks", () => {
         chosen: "v2",
         chosenAt: "2026-08-01T09:03:00.000Z",
         chosenBy: "Di",
+        chosenById: "usr_di",
         against: ["v1", "v3"],
       },
     ]);

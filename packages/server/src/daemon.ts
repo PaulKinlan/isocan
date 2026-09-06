@@ -7,6 +7,7 @@ import { registerRoutes } from "./http.ts";
 import { ParkCursors } from "./park.ts";
 import { RcHolds } from "./rc-holds.ts";
 import { attachWebSockets } from "./ws.ts";
+import { SweepHub } from "./sweep.ts";
 import { buildStamp } from "./build.ts";
 import { FileStore } from "./file-store.ts";
 import type { Store } from "./store.ts";
@@ -16,11 +17,13 @@ import { runMigrations } from "./migrations.ts";
 import { PresenceHub } from "./presence.ts";
 import { daemonFile, isocanHome } from "./paths.ts";
 import { resolveHomeUrl } from "./config.ts";
+import { readGoogleToken } from "./google.ts";
 import { resolveAuth, type AuthConfig, type SigningKeys } from "./attest.ts";
 import { startBlobKeeper } from "./blobkeeper.ts";
 import { gcIntervalFromEnv, startGcSweeper } from "./gc.ts";
 import { HomeLinks } from "./home-links.ts";
-import { CONTENT_CSP, contentPorts, registerContentRoutes } from "./content.ts";
+import { contentPorts, registerContentRoutes } from "./content.ts";
+import { contentTtl } from "./content-auth.ts";
 
 export interface DaemonOptions {
   port?: number;
@@ -56,6 +59,24 @@ export interface DaemonOptions {
    * a wide-bound daemon never gets a content listener at all).
    */
   contentPort?: number | "off";
+  /**
+   * **The hosted content origin's host** — `isocan.store`, read from
+   * `ISOCAN_CONTENT_HOST` when this is absent, and unset on every local
+   * daemon.
+   *
+   * The local half of the split is a second listener; the hosted half cannot
+   * be, because Cloud Run exposes one `$PORT`. So the hosted content origin
+   * is a second registrable domain routed to this same service, recognized
+   * here by Host header — the `githubusercontent.com` pattern, chosen and
+   * provisioned on 5 September 2026 (`content-read-auth.md`).
+   *
+   * Setting it is what turns the hosted half ON, and it does three things at
+   * once, which is why it is one variable and not three: item frames start
+   * pointing at that origin, reads there start requiring a signature, and
+   * this app starts refusing that Host everything but blob bytes. Unset —
+   * the rollback — restores today exactly.
+   */
+  contentHost?: string;
   /**
    * **Where a canvas born on this machine, naming nothing, is born** —
    * `https://isocan.io`. Absent (the default, and every daemon in this repo
@@ -186,6 +207,13 @@ export interface Daemon {
    * importantly, what a link did NOT do.
    */
   homes: HomeLinks;
+  /**
+   * The sweep's outcomes (roles design, "Reaching an open socket"), exposed
+   * for the reason `homes` is: a test that writes rows on the desk can run a
+   * sweep that reports into the daemon's own hub, and watch what reached
+   * the sockets.
+   */
+  sweeps: SweepHub;
   /**
    * The ephemeral plane, exposed for the same reason `homes` is: the questions
    * worth asking about presence are about what a daemon did NOT do. A test can
@@ -396,14 +424,45 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   // listener stands (below), and the `/api/serving` route reads it at request
   // time — the advertisement is derived from a listener that exists, never
   // from configuration alone (content-origin plan, stage 2).
+  // One hub for the sweep's outcomes (roles design, "Reaching an open
+  // socket"): the routes report into it, the sockets listen to it.
+  const sweeps = new SweepHub();
+
+  /**
+   * **The hosted content origin, or nothing** (content-origin plan, stage 4).
+   *
+   * One variable turns the whole hosted half on. When it is set, this app
+   * answers for two origins: item frames point at that host, reads there
+   * carry a signature the app origin minted, and every request bearing that
+   * Host gets blob bytes or a 404 (see the door hook). When it is unset —
+   * every local daemon, and the hosted home until it is deployed with one —
+   * nothing here exists and the shape is byte-for-byte today's.
+   *
+   * The key is read once and cached by the desk; the TTL says how long a
+   * minted URL lives, and therefore how long after an expulsion the bytes
+   * stay readable. `content-auth.ts` carries that argument in full.
+   */
+  const contentHost = (options.contentHost ?? process.env.ISOCAN_CONTENT_HOST ?? "").trim() || null;
+  const contentSigning = contentHost
+    ? { key: () => desk.contentKey(), ttlSeconds: contentTtl(process.env.ISOCAN_CONTENT_TTL) }
+    : null;
+
   const routeOptions = {
     birthHome,
     homes,
     auth,
+    sweeps,
     contentBase: null as string | null,
+    contentHost,
+    contentSigning,
+    // This machine's Drive token, if `isocan gdoc auth` saved one — read per
+    // request, so saving one needs no restart. Never sent anywhere.
+    googleToken: () => readGoogleToken(home),
     // The durable park cursor (on-demand phase 1) — a machine-local fact
     // beside homes.json, never behind the Store seam. See park.ts.
     park: new ParkCursors(home),
+    // This machine's runtime modules, read per request (modules phase 3).
+    modulesHome: home,
     rc,
     ...(options.signingKeys ? { signingKeys: options.signingKeys } : {}),
   };
@@ -439,12 +498,36 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
    */
   const bound = app.server.address();
   const mainPort = typeof bound === "object" && bound ? bound.port : port;
+  /**
+   * **The hosted flip** (stage 4c), which is this one line and nothing else.
+   *
+   * Advertising the base is what moves item frames onto the content origin —
+   * mechanically identical to stage 2's flip, still governed by invariant 2
+   * (`itemFrame` grants `allow-same-origin` if and only if the src it built
+   * is on this base). It is gated on the host being configured, which is
+   * gated on the read auth beside it being real: 4a, 4b and 4c land
+   * together or not at all.
+   *
+   * `https://` is not a guess. The hosted home sits behind a load balancer
+   * whose port 80 does nothing but redirect, and a frame src that started
+   * out `http://` would take that redirect on every load.
+   */
+  if (contentHost) routeOptions.contentBase = `https://${contentHost}`;
   const contentEnv =
     options.contentPort !== undefined ? String(options.contentPort) : process.env.ISOCAN_CONTENT_PORT;
   let contentApp: FastifyInstance | null = null;
-  for (const candidate of contentPorts(host, contentEnv, mainPort)) {
+  /**
+   * A home has ONE content origin. A daemon told about a hosted content host
+   * has it already, so it plans no second listener — otherwise a loopback
+   * daemon configured with both would advertise whichever was written last,
+   * and the two answer differently (one demands a signature, the other does
+   * not).
+   */
+  for (const candidate of contentHost ? [] : contentPorts(host, contentEnv, mainPort)) {
     const attempt = Fastify({ forceCloseConnections: true, logger: serverLogging() });
-    registerContentRoutes(attempt, { engine, store, homes }, { csp: CONTENT_CSP });
+    // `always`: every request this listener hears is the content role's, and
+    // no signature is asked for — loopback-bound, single-user, hash-addressed.
+    registerContentRoutes(attempt, { engine, store, homes }, { always: true, appCsp: null });
     try {
       await attempt.listen({ port: candidate, host: "127.0.0.1" });
       contentApp = attempt;
@@ -466,6 +549,11 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   const closeWebSockets = attachWebSockets(app.server, engine, desk, presence, rc, {
     ...(options.heartbeatMs !== undefined ? { heartbeatMs: options.heartbeatMs } : {}),
     ...(revision !== undefined ? { revision } : {}),
+    sweeps,
+    // The content origin has no socket either — the upgrade is hijacked off
+    // the raw server and never sees the door hook that refuses it everything
+    // but blob bytes.
+    contentHost,
   });
 
   /**
@@ -648,6 +736,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     port,
     birthHome,
     homes,
+    sweeps,
     contentBase: routeOptions.contentBase,
     close,
   };

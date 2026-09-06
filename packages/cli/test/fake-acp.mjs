@@ -25,10 +25,25 @@ const known = () => {
 let buffer = "";
 const loaded = new Set();
 let failedALoad = false;
+// FAKE_ACP_AUTH=<methodId>: advertise that one auth method and refuse
+// session verbs until `authenticate` names it — and, for gemini-api-key,
+// until GEMINI_API_KEY is in this process's environment, the way Google's
+// server reads it. The Antigravity shape, scripted.
+const authMethod = process.env.FAKE_ACP_AUTH ?? null;
+let authenticated = authMethod === null;
 
 // The failure modes journey 5 demands, drivable: a session that never
 // starts, and one that dies mid-turn.
 if (process.env.FAKE_ACP_CRASH === "boot") process.exit(1);
+// FAKE_ACP_STDERR=absl: the stderr Google's Antigravity server writes —
+// absl-format INFO and WARNING chatter, an absl ERROR, and a plain line —
+// so the client's filter can be seen keeping the last two and not the first.
+if (process.env.FAKE_ACP_STDERR === "absl") {
+  process.stderr.write("I0904 20:46:34.517650 8367415680 local_connection.py:521] RAW WS MSG: {\"stepUpdate\":{}}\n");
+  process.stderr.write("W0904 20:46:34.520097 8367415680 telemetry.py:431] No business auth manager configured\n");
+  process.stderr.write("E0904 20:46:34.600000 8367415680 oauth_manager.py:288] Onboarding failed with terminal error\n");
+  process.stderr.write("fake-acp: a plain complaint\n");
+}
 const send = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 let permissionId = 1000;
 const awaitingPermission = new Map();
@@ -62,9 +77,21 @@ function handle(msg) {
       result: {
         protocolVersion: 1,
         agentCapabilities: { loadSession: true },
-        agentInfo: { name: "fake-acp", version: "0.0.1" },
+        agentInfo: { name: "fake-acp", title: "Fake", version: "0.0.1" },
+        ...(authMethod ? { authMethods: [{ id: authMethod, name: authMethod }] } : {}),
       },
     });
+  } else if (method === "authenticate") {
+    if (params?.methodId !== authMethod) {
+      send({ jsonrpc: "2.0", id, error: { code: -32602, message: `unknown auth method ${params?.methodId}` } });
+    } else if (authMethod === "gemini-api-key" && !process.env.GEMINI_API_KEY) {
+      send({ jsonrpc: "2.0", id, error: { code: -32602, message: "The GEMINI_API_KEY environment variable must be set" } });
+    } else {
+      authenticated = true;
+      send({ jsonrpc: "2.0", id, result: {} });
+    }
+  } else if ((method === "session/new" || method === "session/load") && !authenticated) {
+    send({ jsonrpc: "2.0", id, error: { code: -32000, message: "Authentication required" } });
   } else if (method === "session/new") {
     const sessions = known();
     const sessionId = `sess_fake_${process.pid}_${sessions.length + 1}`;

@@ -35,21 +35,42 @@ import type {
   WatchLogRequest,
   WatchLogResponse,
   ActorNames,
+  ActorKinds,
   NewsResponse,
   PresenceWhereResponse,
   ServingResponse,
   SlashCommand,
+  SpaceCanvasResponse,
+  SpaceLinkRequest,
+  SpaceLinkResponse,
+  SpaceResponse,
+  SpacesResponse,
+  GroupResponse,
+  GroupsResponse,
 } from "@isocan/core";
 import {
   encodeFilename,
+  groupActingRoute,
+  groupMemberRoute,
+  groupRoute,
+  GROUPS_ROUTE,
+  spaceActingRoute,
+  spaceCanvasRoute,
+  spaceGrantRevokeRoute,
+  spaceGrantsRoute,
+  spaceLinkRoute,
+  spaceRoute,
+  SPACES_ROUTE,
   FILENAME_HEADER,
   NEWS_ROUTE,
   PRESENCE_WHERE_ROUTE,
+  ACTOR_KINDS_ROUTE,
   badgeRoute,
   BADGES_ROUTE,
-  grantRoute,
+  grantRevokeRoute,
   grantsRoute,
   healthPath,
+  narrowed,
   HOME_GC_ROUTE,
   HOME_JOIN_ROUTE,
   HOMES_ROUTE,
@@ -104,6 +125,9 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly code?: string,
+    /** Why, when the code alone does not say — `withdrawn` on a
+     * `not-admitted` from a badge that had been inside. */
+    readonly reason?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -186,7 +210,7 @@ export class DaemonRoutes {
       json = (await res.json().catch(() => null)) as any;
     }
     if (!res.ok) {
-      throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
+      throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
     }
     return json as T;
   }
@@ -431,19 +455,158 @@ export class DaemonRoutes {
     canvasId: string,
     subject: GrantSubject,
     capability?: Capability,
+    /** Who is acting — the CLI's actor. A write to grants asks `own`, which
+     * a person holds, and a badge may speak for several. */
+    actorId?: string,
   ): Promise<GrantResponse> {
     return this.request("POST", grantsRoute(canvasId), {
       subject,
-      // Sent only when it narrows, so an older home never meets the field.
-      ...(capability === "view" ? { capability } : {}),
+      // Sent whenever it is not edit (`narrowed`), so an older home never
+      // meets the field for the one value it has always meant by omission.
+      ...(narrowed(capability) ? { capability } : {}),
+      ...(actorId ? { actorId } : {}),
+    });
+  }
+
+  /**
+   * Keep somebody out (roles phase 3): a bar, written directly. The same
+   * POST as an invitation with `bars: true` and no rung; the home replaces
+   * any live row naming them and sweeps, so a person inside on the link is
+   * put out by the write.
+   */
+  bar(canvasId: string, subject: GrantSubject, actorId?: string): Promise<GrantResponse> {
+    return this.request("POST", grantsRoute(canvasId), {
+      subject,
+      bars: true,
+      ...(actorId ? { actorId } : {}),
     });
   }
 
   /** No body, deliberately: a DELETE that declares `application/json` and
    * sends nothing is a Fastify parse error, and a request with nothing to say
-   * should not announce a content type. */
-  revokeGrant(canvasId: string, grantId: string): Promise<GrantResponse> {
-    return this.request("DELETE", grantRoute(canvasId, grantId));
+   * should not announce a content type. `bar` is `?bar=1` — revoke and keep
+   * them out in one request (roles phase 3); the route's spelling is core's. */
+  revokeGrant(
+    canvasId: string,
+    grantId: string,
+    actorId?: string,
+    bar?: boolean,
+  ): Promise<GrantResponse> {
+    return this.request(
+      "DELETE",
+      grantRevokeRoute(canvasId, grantId, { ...(actorId ? { actorId } : {}), ...(bar ? { bar } : {}) }),
+    );
+  }
+
+  // ---- the space: a named set of canvases access is set on once (roles phase 4) ----
+  //
+  // The same routes the canvas list's headings and the space's Share dialog
+  // drive, built from core's spellings. All at the home; on a replica the
+  // daemon forwards through its one home and refuses on a mixed rig.
+
+  spaces(): Promise<SpacesResponse> {
+    return this.request("GET", SPACES_ROUTE);
+  }
+
+  createSpace(name: string, actorId?: string): Promise<SpaceResponse> {
+    return this.request("POST", SPACES_ROUTE, { name, ...(actorId ? { actorId } : {}) });
+  }
+
+  /** No body, for `revokeGrant`'s reason; the actor rides the query. */
+  deleteSpace(spaceId: string, actorId?: string): Promise<SpaceCanvasResponse> {
+    return this.request("DELETE", spaceActingRoute(spaceRoute(spaceId), actorId));
+  }
+
+  addToSpace(spaceId: string, canvasId: string, actorId?: string): Promise<SpaceCanvasResponse> {
+    return this.request("PUT", spaceCanvasRoute(spaceId, canvasId), actorId ? { actorId } : {});
+  }
+
+  removeFromSpace(spaceId: string, canvasId: string, actorId?: string): Promise<SpaceCanvasResponse> {
+    return this.request("DELETE", spaceActingRoute(spaceCanvasRoute(spaceId, canvasId), actorId));
+  }
+
+  spaceGrants(spaceId: string): Promise<GrantsResponse> {
+    return this.request("GET", spaceGrantsRoute(spaceId));
+  }
+
+  createSpaceGrant(
+    spaceId: string,
+    subject: GrantSubject,
+    capability?: Capability,
+    actorId?: string,
+  ): Promise<GrantResponse> {
+    return this.request("POST", spaceGrantsRoute(spaceId), {
+      subject,
+      ...(narrowed(capability) ? { capability } : {}),
+      ...(actorId ? { actorId } : {}),
+    });
+  }
+
+  barOnSpace(spaceId: string, subject: GrantSubject, actorId?: string): Promise<GrantResponse> {
+    return this.request("POST", spaceGrantsRoute(spaceId), {
+      subject,
+      bars: true,
+      ...(actorId ? { actorId } : {}),
+    });
+  }
+
+  revokeSpaceGrant(
+    spaceId: string,
+    grantId: string,
+    actorId?: string,
+    bar?: boolean,
+  ): Promise<GrantResponse> {
+    return this.request(
+      "DELETE",
+      spaceGrantRevokeRoute(spaceId, grantId, { ...(actorId ? { actorId } : {}), ...(bar ? { bar } : {}) }),
+    );
+  }
+
+  /** **Every canvas in this space**: the link on each canvas set to a rung,
+   * or turned off, in one request; the answer says how many it reached. */
+  setSpaceLink(
+    spaceId: string,
+    capability: SpaceLinkRequest["capability"],
+    actorId?: string,
+  ): Promise<SpaceLinkResponse> {
+    return this.request("POST", spaceLinkRoute(spaceId), {
+      capability,
+      ...(actorId ? { actorId } : {}),
+    } satisfies SpaceLinkRequest);
+  }
+
+  // ---- the group: a named set of people access is given to once (roles phase 5) ----
+  //
+  // `isocan group` and `isocan share group:<name>` drive these; the Groups
+  // panel on the canvas list and the Share dialog's picker drive the same
+  // routes. All at the home.
+
+  /** The groups this badge's actors made, members and all. */
+  groups(): Promise<GroupsResponse> {
+    return this.request("GET", GROUPS_ROUTE);
+  }
+
+  createGroup(name: string, actorId?: string): Promise<GroupResponse> {
+    return this.request("POST", GROUPS_ROUTE, { name, ...(actorId ? { actorId } : {}) });
+  }
+
+  /** One group: members for its maker; name and size for anybody a live
+   * row naming it lets see it. */
+  group(groupId: string): Promise<GroupResponse> {
+    return this.request("GET", groupRoute(groupId));
+  }
+
+  addGroupMember(groupId: string, attribute: string, actorId?: string): Promise<GroupResponse> {
+    return this.request("PUT", groupMemberRoute(groupId, attribute), actorId ? { actorId } : {});
+  }
+
+  /** No body; the actor rides the query. */
+  removeGroupMember(groupId: string, attribute: string, actorId?: string): Promise<GroupResponse> {
+    return this.request("DELETE", groupActingRoute(groupMemberRoute(groupId, attribute), actorId));
+  }
+
+  deleteGroup(groupId: string, actorId?: string): Promise<GroupResponse> {
+    return this.request("DELETE", groupActingRoute(groupRoute(groupId), actorId));
   }
 
   // ---- your own surfaces: kill-a-badge (phase 9) ----
@@ -560,6 +723,13 @@ export class DaemonRoutes {
    * fetched on its own for commands that print names without one. */
   actorNames(): Promise<ActorNames> {
     return this.request("GET", "/api/names");
+  }
+
+  /** Who is an agent — actor id → "agent" for every actor whose last claim
+   * came from a harness that is not a person's; people absent. A daemon from
+   * before the route answers its SPA fallback, which parses to nothing. */
+  actorKinds(): Promise<ActorKinds> {
+    return this.request("GET", ACTOR_KINDS_ROUTE);
   }
 
   /** Who is on which canvas right now, across every room this daemon can see

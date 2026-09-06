@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { preloadMarkdown } from "./lib/markdown.tsx";
 import { BrowserRouter, matchPath, Route, Routes, useLocation } from "react-router-dom";
 import type { Actor } from "@isocan/core";
-import { CANVAS_ROUTE, ITEM_ROUTE, WORKBENCH_ITEM_ROUTE, WORKBENCH_ROUTE } from "@isocan/core";
+import { CANVAS_ROUTE, DECK_ROUTE, ITEM_ROUTE, MODULE_PAGE_ROUTE, WORKBENCH_ITEM_ROUTE, WORKBENCH_ROUTE } from "@isocan/core";
 import { getSnapshot } from "./lib/api.ts";
 import { Viewer } from "./components/Viewer.tsx";
 import { readIdentity } from "./lib/identity.ts";
@@ -11,12 +11,42 @@ import type { SignIn, SignInLanding } from "./lib/signin.ts";
 import { adoptIdentity } from "./lib/identity.ts";
 import { faceFor } from "./lib/faces.ts";
 import { IdentityDialog } from "./components/IdentityDialog.tsx";
-import { FrontPage } from "./pages/FrontPage.tsx";
-import { LensPage } from "./pages/LensPage.tsx";
-import { TermsPage } from "./pages/TermsPage.tsx";
-import { CanvasListPage } from "./pages/CanvasListPage.tsx";
 import { CanvasPage } from "./pages/CanvasPage.tsx";
-import { NotHerePage } from "./pages/NotHerePage.tsx";
+import { FrontPage } from "./pages/FrontPage.tsx";
+import { TermsPage } from "./pages/TermsPage.tsx";
+/**
+ * **The pages nobody lands on first are loaded when they are asked for.**
+ *
+ * `bundle-bytes` bounds the entry chunk at 640,000 — "what a first visit
+ * downloads before anything renders" — and every one of these rode in it, so
+ * a person opening a canvas paid for the lens, the canvas list and the 404,
+ * and no visit needs more than one of them.
+ *
+ * `CanvasPage` is deliberately NOT among them, and the reason is the bound's
+ * own history. It was reshaped from a max-over-chunks measure precisely
+ * because that one "could be satisfied by splitting an eager chunk in two and
+ * downloading exactly the same bytes". Splitting the canvas out is that move:
+ * almost every real visit is a canvas, so the number would fall while the
+ * bytes stayed and a round trip was added. A bound satisfied that way is
+ * worse than a bound honestly breached — it stops measuring the thing it was
+ * built to measure.
+ *
+ * `FrontPage` and `TermsPage` stay eager for the opposite reason: they are
+ * what a STRANGER sees first, so deferring them puts a round trip in front of
+ * the one visitor guaranteed to have nothing cached. They are also the two
+ * the door renders itself, outside the router, where `frontdoor.test.ts`
+ * reads them with `renderToStaticMarkup` — which cannot resolve a lazy
+ * component. Rewriting that guard to stream would have traded a rule stated
+ * plainly for twelve kilobytes.
+ *
+ * `fallback={null}` for the frame the chunk takes, the way `CanvasPage`
+ * already loads its palette and its workbench.
+ */
+const LensPage = lazy(() => import("./pages/LensPage.tsx").then((m) => ({ default: m.LensPage })));
+const CanvasListPage = lazy(() =>
+  import("./pages/CanvasListPage.tsx").then((m) => ({ default: m.CanvasListPage })),
+);
+const NotHerePage = lazy(() => import("./pages/NotHerePage.tsx").then((m) => ({ default: m.NotHerePage })));
 
 export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
   // A tab holding a pass is not anybody yet, whatever localStorage says: the
@@ -94,6 +124,7 @@ export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
     <BrowserRouter>
       <Doorway actor={actor} onIdentity={setActor}>
         {(who) => (
+          <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<CanvasListPage actor={who} onIdentity={setActor} />} />
             {/* The canvas's address, built from core's one spelling of it — see
@@ -106,6 +137,8 @@ export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
                 sibling route element would tear all of that down and rebuild
                 it. */}
             <Route path={ITEM_ROUTE} element={<CanvasPage actor={who} onIdentity={setActor} />} />
+            <Route path={DECK_ROUTE} element={<CanvasPage actor={who} onIdentity={setActor} />} />
+            <Route path={MODULE_PAGE_ROUTE} element={<CanvasPage actor={who} onIdentity={setActor} />} />
             {/* The workbench — the same element again, for the same reason:
                 both covers live over a canvas that must not be torn down by
                 flipping to them. */}
@@ -121,6 +154,7 @@ export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
             <Route path="/lens/:actorId" element={<LensPage />} />
             <Route path="*" element={<NotHerePage />} />
           </Routes>
+          </Suspense>
         )}
       </Doorway>
       {/* Over whatever face you landed on, because a refused pass is about how
@@ -228,6 +262,10 @@ function ViewerGate({
   useEffect(() => {
     let live = true;
     setStanding("asking");
+    // Only `view` skips the door. A `read` admission is the canvas itself,
+    // and a person on the canvas is somebody the facepile names — so a
+    // reader is sent to the door for a name like an editor is (roles phase
+    // 1), and the page picks the read-only surface once they are through.
     getSnapshot(canvasId)
       .then((s) => live && setStanding(s.capability === "view" ? "view" : "door"))
       .catch(() => live && setStanding("door"));

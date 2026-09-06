@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   Actor,
   ActorColors,
+  Capability,
   CanvasContents,
   ClientMessage,
   OpEnvelope,
@@ -21,6 +22,7 @@ import {
   WS_NO_BADGE,
   WS_NO_CANVAS,
   WS_NOT_ADMITTED,
+  WITHDRAWN,
 } from "@isocan/core";
 import {
   ApiError,
@@ -82,6 +84,15 @@ export type Connection =
   | "gone"
   /** The door said no: a good badge, a canvas that will not have it. */
   | "refused"
+  /**
+   * The door said no to a badge that had been INSIDE (roles design,
+   * "Reaching an open socket"): a sweep put it out, and the socket was
+   * closed with `WS_NOT_ADMITTED` and the reason `withdrawn`. Its own state
+   * because it is a different sentence — *your access to this canvas was
+   * withdrawn* — and the difference is the whole message to somebody who
+   * was working a moment ago.
+   */
+  | "withdrawn"
   /** There is no canvas at this address here. */
   | "absent";
 
@@ -164,13 +175,15 @@ interface CanvasStore {
    * built-ins stand in until it lands (lib/commands.ts). */
   commands: SlashCommand[] | null;
   /**
-   * What this tab's admission lets it do here (#88), read off the socket's
-   * hello. `edit` until the home says otherwise — which is what every home
-   * from before the field says by omission. The HOME enforces this; what the
-   * flag is for is wearing the viewer face instead of offering gestures that
-   * would each come back refused.
+   * The rung this tab's admission holds here (#88, widened by the roles
+   * ladder), read off the socket's hello. `edit` until the home says
+   * otherwise — which is what every home from before the field says by
+   * omission. The HOME enforces this; what the rung is for is picking the
+   * surface — the deck for `view`, the canvas with its writes hidden for
+   * `read`, the editor otherwise — instead of offering gestures that would
+   * each come back refused. Compared through `atLeast` in core, never here.
    */
-  capability: "edit" | "view";
+  capability: Capability;
 }
 
 /**
@@ -1034,7 +1047,7 @@ function openSocket(canvasId: string): void {
         actorColors: message.colors,
         actorNames: message.names,
         actorJoins: message.joined ?? {},
-        capability: message.capability === "view" ? "view" : "edit",
+        capability: message.capability ?? "edit",
       });
       // Through `confirm`, like every other move of the truth: the snapshot IS
       // the home's state at `lastSeq`, and anything this tab has queued past it
@@ -1063,7 +1076,7 @@ function openSocket(canvasId: string): void {
         actorColors: message.colors,
         actorNames: message.names,
         actorJoins: message.joined ?? {},
-        capability: message.capability === "view" ? "view" : "edit",
+        capability: message.capability ?? "edit",
       });
       schedulePresenceFlush();
     } else if (message.type === "presence-roster") {
@@ -1100,6 +1113,11 @@ function openSocket(canvasId: string): void {
       if (next === null) return; // project.delete arrives as canvas-deleted too
       confirm(next, message.entry.seq);
       if (message.entry.seq > replayThrough) announceComment(message.entry.envelope);
+    } else if (message.type === "standing") {
+      // This connection's rung moved under it (roles journey 2 step 1): the
+      // page re-picks its surface off `capability`, and nothing reloads —
+      // the socket is the same one, and what changed is what it may do.
+      useCanvasStore.setState({ capability: message.capability });
     } else if (message.type === "canvas-deleted") {
       useCanvasStore.setState({ connection: "gone" });
       // A replica of a canvas that no longer exists is how a tab shows a
@@ -1134,7 +1152,14 @@ function openSocket(canvasId: string): void {
     // here does not appear because somebody asked twice.
     if (event.code === WS_NOT_ADMITTED || event.code === WS_NO_CANVAS) {
       useCanvasStore.setState({
-        connection: event.code === WS_NOT_ADMITTED ? "refused" : "absent",
+        connection:
+          event.code === WS_NO_CANVAS
+            ? "absent"
+            : // The reason is the one word that says this badge was inside
+              // and was put out, and it earns the other sentence.
+              event.reason === WITHDRAWN
+              ? "withdrawn"
+              : "refused",
       });
       disconnect();
       return;

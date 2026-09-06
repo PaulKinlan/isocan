@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
+import { AcpAgentProcess, adapterEnv } from "../src/acp.ts";
+import { adapterFor } from "../src/harnesses.ts";
 import { rcAgentsFile, type RcAgentRow } from "../src/rc.ts";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 
@@ -29,7 +31,8 @@ import { mintTestBadge, type TestBadge } from "./badge.ts";
  *   machine-badge binding from the turn itself
  *
  * The REAL adapter is not spawned here — it needs credentials and spends
- * money — except under ISOCAN_REAL_ACP=1, which runs one true turn.
+ * money — except under ISOCAN_REAL_ACP=1 (claude-code) or
+ * ISOCAN_REAL_ACP=pi|codex, which runs one true turn in that harness.
  */
 
 const cliBin = fileURLToPath(new URL("../bin/isocan.js", import.meta.url));
@@ -123,7 +126,7 @@ describe("a turn in a named agent (phase 3)", () => {
     await isocan("rc", "add", "Sian", "--harness", "fake");
     const run = await isocan("rc", "turn", "Sian", "say", "hello");
     expect(run.code).toBe(0);
-    expect(run.stderr).toContain("stopReason end_turn");
+    expect(run.stderr).toContain("turn ended — end_turn");
     // The scripted agent echoes its environment: the harness/session pair
     // the CLI inside would present — exactly the mint claim's key.
     expect(run.stdout).toContain("env:agent:Sian");
@@ -137,6 +140,88 @@ describe("a turn in a named agent (phase 3)", () => {
       spawnCli(["whoami"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: "Sian" }),
     );
     expect(inside.stdout).toContain("Sian");
+  }, 30_000);
+
+  it("pi ships known: `--harness pi` resolves to the pi-acp adapter without config", async () => {
+    // The registry's current pi-acp, pinned to the version the index names.
+    expect(await adapterFor(home, "pi")).toMatchObject({
+      harness: "pi",
+      command: "npx",
+      args: ["-y", expect.stringMatching(/^pi-acp@\d/)],
+    });
+    // The config hook still wins over the builtin, as it does for claude-code.
+    await fs.writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ acpAdapters: { pi: ["pi-acp", "--flag"], fake: [process.execPath, fakeAcp] } }),
+    );
+    expect(await adapterFor(home, "pi")).toEqual({ harness: "pi", command: "pi-acp", args: ["--flag"] });
+  });
+
+  it("codex ships known, and its bridge carries the sandbox mode the CLI inside needs", async () => {
+    const spec = await adapterFor(home, "codex");
+    expect(spec).toMatchObject({
+      harness: "codex",
+      command: "npx",
+      args: ["-y", expect.stringMatching(/^@agentclientprotocol\/codex-acp@\d/)],
+    });
+    expect(spec?.env).toEqual({ INITIAL_AGENT_MODE: "agent-full-access", NO_BROWSER: "1" });
+    // …and a spec's env reaches the spawned bridge: the scripted adapter
+    // told to die at boot through its environment, dies at boot.
+    await expect(
+      AcpAgentProcess.spawn(
+        { harness: "fake", command: process.execPath, args: [fakeAcp], env: { FAKE_ACP_CRASH: "boot" } },
+        { cwd: home, env: adapterEnv("prj_1", "Sian") },
+      ),
+    ).rejects.toThrow(/exited \(code 1\)/);
+  });
+
+  it("an adapter that wants a login gets it from the environment, or says which variable would", async () => {
+    // Google's Antigravity server, scripted: session verbs refuse with
+    // "Authentication required" until `authenticate` names gemini-api-key,
+    // which the server itself answers from GEMINI_API_KEY.
+    await isocan("rc", "add", "Sian", "--harness", "fake");
+    const wants = { FAKE_ACP_AUTH: "gemini-api-key" };
+    const refused = await collect(spawnCli(["rc", "turn", "Sian", "hello"], wants));
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("Fake wants a login before a session (methods: gemini-api-key)");
+    expect(refused.stderr).toContain("export GEMINI_API_KEY for gemini-api-key");
+    const run = await collect(spawnCli(["rc", "turn", "Sian", "hello"], { ...wants, GEMINI_API_KEY: "k" }));
+    expect(run.code).toBe(0);
+    expect(run.stderr).toContain("turn ended — end_turn");
+    // …and the login is answered on load too, so the second turn resumes.
+    const again = await collect(spawnCli(["rc", "turn", "Sian", "again"], { ...wants, GEMINI_API_KEY: "k" }));
+    expect(again.code).toBe(0);
+    expect(again.stderr).toContain("resumed");
+  }, 40_000);
+
+  it("an adapter's stderr reaches ours, minus absl's INFO and WARNING chatter", async () => {
+    await isocan("rc", "add", "Sian", "--harness", "fake");
+    const run = await collect(spawnCli(["rc", "turn", "Sian", "hello"], { FAKE_ACP_STDERR: "absl" }));
+    expect(run.code).toBe(0);
+    expect(run.stderr).not.toContain("RAW WS MSG");
+    expect(run.stderr).not.toContain("No business auth manager");
+    expect(run.stderr).toContain("Onboarding failed with terminal error");
+    expect(run.stderr).toContain("fake-acp: a plain complaint");
+    // …and all of it on request.
+    const loud = await collect(spawnCli(["rc", "turn", "Sian", "hello"], { FAKE_ACP_STDERR: "absl", ISOCAN_ADAPTER_STDERR: "all" }));
+    expect(loud.stderr).toContain("RAW WS MSG");
+  }, 40_000);
+
+  it("inside a summoned pi, the injected key beats pi's own: whoami and --session both resume the agent", async () => {
+    await isocan("rc", "add", "Sian", "--harness", "pi");
+    // pi's shells carry PI_SESSION_ID (a fresh uuid) beside the rc's
+    // injection — the shape the 2026-09-04 spike measured. Reads pick the
+    // bound key; a claim must pick the deliberate one, or the guide's first
+    // step (`identity --session`) mints a stranger on pi's key.
+    const piShell = { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: "Sian", PI_SESSION_ID: "0199-uuid" };
+    const who = await collect(spawnCli(["whoami"], piShell));
+    expect(who.stdout).toContain("Sian");
+    const claim = await collect(spawnCli(["identity", "--session"], piShell));
+    expect(claim.code).toBe(0);
+    expect(claim.stdout).toContain("identity saved: Sian");
+    expect(claim.stdout).toContain("(agent session)");
+    const again = await collect(spawnCli(["whoami"], piShell));
+    expect(again.stdout).toContain("Sian");
   }, 30_000);
 
   it("the session outlives the process: stored handle, then session/load", async () => {
@@ -171,10 +256,11 @@ describe("a turn in a named agent (phase 3)", () => {
       op: { type: "agent.enroll", agent: { id: "usr_percy", name: "Percy" } },
     });
     // No rc half — the turn adopts, but the fake adapter must be declared
-    // for the default harness this row will carry (null → claude-code).
+    // for the machine's default harness, which this row's null means —
+    // said outright, since the runner may have pi or claude installed too.
     await fs.writeFile(
       path.join(home, "config.json"),
-      JSON.stringify({ acpAdapters: { "claude-code": [process.execPath, fakeAcp] } }),
+      JSON.stringify({ acpAdapters: { "claude-code": [process.execPath, fakeAcp] }, defaultHarness: "claude-code" }),
     );
     const run = await isocan("rc", "turn", "Percy", "hi");
     expect(run.code).toBe(0);
@@ -197,13 +283,16 @@ describe("a turn in a named agent (phase 3)", () => {
     expect(run.stderr).toContain("person's verb");
   });
 
-  it.runIf(process.env.ISOCAN_REAL_ACP === "1")(
-    "the real adapter completes one turn (opt-in: ISOCAN_REAL_ACP=1)",
+  // `1` runs claude-code; a harness name (`pi`, `codex`) runs that one's adapter.
+  const realHarness =
+    process.env.ISOCAN_REAL_ACP === "1" ? "claude-code" : process.env.ISOCAN_REAL_ACP;
+  it.runIf(Boolean(realHarness))(
+    `the real ${realHarness ?? "claude-code"} adapter completes one turn (opt-in: ISOCAN_REAL_ACP=1|<harness>)`,
     async () => {
-      await isocan("rc", "add", "Real", "--harness", "claude-code");
+      await isocan("rc", "add", "Real", "--harness", realHarness!);
       const run = await isocan("rc", "turn", "Real", "Reply with exactly: ok");
       expect(run.code).toBe(0);
-      expect(run.stderr).toContain("stopReason end_turn");
+      expect(run.stderr).toContain("turn ended — end_turn");
     },
     300_000,
   );

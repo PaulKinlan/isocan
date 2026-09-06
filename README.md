@@ -131,6 +131,20 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   that would have to answer them, because a help panel describing a different
   app than the one it is in is worse than no help panel. The same panel lists
   the slash commands available here, including any this home added.
+- **Switching canvases (`⌘O`)**: the launcher's second face — a list of the
+  canvases you were on lately, most recent first, then the rest by activity,
+  with a field that finds one from a few letters (`lkh` reaches "Lake House";
+  the matched letters light up). Three doors, one window: `⌘O`, `⌘K` → "Switch
+  canvas…", or the `⌄` beside the canvas's name in the bar. Typing a title
+  into `⌘K` itself also lists the matches under the actions, so the common
+  trip is three letters and Enter with no mode to know about. The canvas you
+  leave recedes and the one you chose comes forward in its place; the bar and
+  the rail stay put, because they are the same chrome. "Lately" is this
+  browser's memory (the daemon sees writes, not visits), so the list paints
+  before the canvas list arrives and still works offline, where it is exactly
+  the canvases the replica can open. An agent switches canvases by naming one
+  — every verb takes `--canvas` — so there is no CLI verb for a viewport
+  gesture.
 - **Names**: an item's name sits above it rather than inside a chrome bar —
   the item is the content — and stays hidden until you point at the item or
   select it, so a canvas of sketches reads as the sketches rather than as a
@@ -211,7 +225,12 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   lays one sheet per stretch of the week (`isocan sprint board`), each saying
   what happens there; calling a phase walks everyone to its sheet and the clock
   chip offers the phase's one action — *New note* in the sheet, *Hand in* onto
-  it. See [the research](docs/research/2026-09-01-design-sprint.md) and
+  it. Sketchers get desks (`isocan sprint desk Theo`): private canvases that
+  show the sprint's clock and hand in across canvases. A vote is a picture:
+  *Place a 🔴* and click the part of a sketch you like; dots hide on the Vote
+  sheet until the bell. Grids draw the storyboard and the test wall
+  (`isocan area grid Test 5x15`). See
+  [the research](docs/research/2026-09-01-design-sprint.md) and
   [the journey](docs/projects/sprint/journey.md).
 - **Areas**: a titled sheet things are placed on — `isocan area new "Sketches"`,
   then `--in Sketches` on `text`, `add` and `mv`, `isocan ls --in` to read it
@@ -312,7 +331,39 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   credential". Beside the toggle is **one field for one person**: invite an
   email address, and whoever proves that address is let in whether or not the
   link is on. `isocan share <email>` and `isocan share --revoke <email>` are the
-  same two gestures from a terminal.
+  same two gestures from a terminal. Removing somebody is not the same as
+  keeping them out: if the link is on they can come straight back as a
+  stranger, and both surfaces say so before offering **and keep them out** —
+  a **bar**, a row that says no whatever the link or any invitation says,
+  listed as **kept out** with who and when, and lifted with **Let back in**
+  (`--revoke <email> --bar`, `--bar <email>`, `--unbar <email>` from a
+  terminal). The creator cannot be barred. Every one of these is an **owner's**:
+  whoever made the canvas, or anybody invited as **Owner** — an invited
+  person's rung is a picker on their row, and raising it reaches the tab they
+  have open without a reload. Everyone else sees the controls disabled with
+  the owner's name, and the daemon refuses them with `403 not-owner`.
+- **Spaces**: a named set of canvases access is set on once. **New space** on
+  the canvas list makes one; the list draws a heading per space and **No
+  space** last, and a card's **Move to space…** (or dragging it onto a
+  heading) puts a canvas in — at most one space per canvas. The space's
+  **Share**, from its heading, is the canvas's Share one scope wider, with one
+  more row at the top: **Every canvas in this space**, which sets or turns
+  off the link on each canvas in one gesture and says how many it reached.
+  A person's rung on a canvas is the highest from any row on the canvas or
+  on its space — the space's rows are a floor, never a ceiling, so one canvas
+  in a locked space can still be opened to a client. A canvas's Share shows
+  the space's rows first, greyed, as *from the space*. `isocan space
+  new|list|add|remove|delete` and `isocan share --space <name>` are the same
+  routes from a terminal, and `isocan canvas list` groups by space.
+- **Groups**: a named set of people access is given to once. **Groups…** on
+  the canvas list makes one and edits who is in it; the Share dialog's invite
+  field takes a group from a picker or as `group:<name>`, and a group row
+  reads by its name and size. Who is in the group is read at the door, never
+  copied onto a row, so removing somebody from the group reaches every canvas
+  the group is shared with in one write — their agents with them — and adding
+  somebody raises them in the tab they have open. Only the group's maker sees
+  its members. `isocan group new|list|add|remove|delete` and `isocan share
+  group:<name>` are the same routes from a terminal.
 - **Proving an address, which is not a login**: isocan has no accounts and does
   not want any. What a person can do is **borrow an attester they already
   have** — click your own face, pick **"Prove your address…"**, and a link
@@ -474,7 +525,8 @@ isocan identity [--session] [--name X] [--home|--new|--as <id>]|whoami
 isocan serve [--force]|status|stop|restart|upgrade · open
 isocan home [<url>|--clear]        # where each canvas here lives; set where
                                    # NEW ones are born (nothing already here moves)
-isocan share [<email>] [--link on|off] [--revoke <email>]
+isocan share [<email>] [--as own|edit|read|view] [--link on|off|edit|read|view]
+             [--revoke <email> [--bar]] [--bar <email>] [--unbar <email>]
                                    # the address, and who may enter this canvas
 isocan pass [--admit-only]         # a one-use pass: the command another
                                    # machine of yours pastes to join

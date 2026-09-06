@@ -60,6 +60,10 @@
      from the nearest of any of them, which is the widest gap on the wheel,
      and 5.23:1 on `--card` / 5.05:1 on `--ground`. */
   --slide: #b8339f;
+  /* A doorway: an item that leads somewhere else — a canvas card, a live site,
+     a Google Doc — wears this on a dashed border. Teal, so it is neither the
+     accent (selected), the slide (in the deck) nor a warning. */
+  --away: #1f7a6b;
   /* **Paper** (`core/textnode.ts`). Tints rather than the semantic hues:
      warn/accent/good/danger mean things, and seven more colours belong to
      people. Paper is a BACKGROUND, which reads in a different register from a
@@ -151,6 +155,7 @@
   /* Lifted for the dark ground, like every other hue here: 6.30:1 on `--card`,
      7.22:1 on `--ground`. The light value would sit at 2.69 and disappear. */
   --slide: #e07ccb;
+  --away: #4fb39f;
   /* Paper stays PALE in the dark, because that is what paper is — a bright
      object on a dark desk, which is exactly how a sticky note reads on a
      board at night. Dimmed rather than inverted: the same tints a few steps
@@ -527,6 +532,8 @@ img { height: auto; }
 .share-head { font-size: 13px; font-weight: 600; }
 .share-address { display: flex; gap: 6px; }
 .share-address .text-input { flex: 1; min-width: 0; font-size: 12px; }
+/* The invite's rung picker: a word wide, never the field's width. */
+.share-address .share-rung { flex: none; width: auto; }
 /* The toggle reads as one control: the switch, the label, and the sentence
    under it are all inside the same button, so there is no way to press the
    words and have nothing happen. */
@@ -550,11 +557,16 @@ img { height: auto; }
 .share-link-text { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
 /* The link's capability, indented under the toggle it qualifies: it is a
    property of the link, not a fourth sharing control. */
-.share-link-mode { display: flex; gap: 6px; padding-left: 8px; }
+/* Three rungs in a 340px popover: the row wraps rather than running past
+   the panel's edge, and each radio keeps its whole label on one line. */
+.share-link-mode { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 8px; }
+.share-link-mode .btn { flex: 1 1 auto; justify-content: center; white-space: nowrap; font-size: 12px; padding: 5px 10px; }
 /* Who made the canvas — the answer to "why can I not change that", and on a
    shared canvas simply useful. Quiet: it is a fact, not a control. */
 .share-owner { margin: 0; font-size: 11.5px; color: var(--ink-muted); }
 .share-link-note { color: var(--ink-muted); font-size: 11.5px; line-height: 1.35; }
+/* "and keep them out" sits inside the sentence it answers (roles phase 3). */
+.share-link-note .btn { margin-left: 4px; vertical-align: middle; }
 /* The "who" field's absence, said out loud. Phase 9 replaces this line with
    the control it describes; until then a sentence is the honest shape. */
 .share-deferred { color: var(--ink-soft); font-size: 11px; line-height: 1.35; }
@@ -617,6 +629,14 @@ img { height: auto; }
   font-size: 12.5px; padding: 4px 0;
 }
 .surface-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* An invited row in the Share dialog: the address and its line own the first
+   line in full, and the rung picker with Un-invite sit on a second line,
+   right-aligned. Beside the address they squeezed it to a word a line in the
+   340px popover. The picker is a word wide, as in the invite field. */
+.share-invited { flex-wrap: wrap; row-gap: 4px; }
+.share-invited .surface-what { flex: 1 1 100%; }
+.share-row-controls { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+.share-row-controls .share-rung { width: auto; font-size: 12px; }
 /* The surface you are reading this on. Not dimmed and not coloured like a
    warning — it is a fact about the row, and the warning is on the button that
    would end it. */
@@ -633,6 +653,18 @@ img { height: auto; }
   color: var(--ink-muted); background: none; border: 1px solid transparent;
 }
 .theme-opt:hover { color: var(--ink); }
+/* Chrome you can turn off: the Settings list under the identity menu. A
+   switch per control, its area and its other door on the line, and one
+   "Show everything" when anything is hidden. */
+.chrome-list { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 4px; }
+.chrome-row {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline;
+  font-size: 12px; cursor: pointer;
+}
+.chrome-row input { margin: 0; align-self: center; }
+.chrome-name { font-weight: 600; }
+.chrome-where { grid-column: 2; font-size: 11px; color: var(--ink-soft); line-height: 1.35; }
+.chrome-show-all { align-self: flex-start; font-size: 11.5px; margin-top: 2px; }
 .theme-opt.active {
   color: var(--ink); background: var(--card);
   border-color: var(--chip-line); box-shadow: var(--shadow-card);
@@ -916,6 +948,12 @@ img { height: auto; }
    `.item.selected` is declared after this and paints the accent over it. */
 .item.slide { border-color: var(--slide); }
 .item.slide:hover { box-shadow: var(--shadow-card), 0 0 0 1px var(--slide); }
+/* A doorway — a canvas card, a live site, a Google Doc: dashed, in its own
+   colour, so a wall of cards says which ones lead away before you find the ↗.
+   Dashed rather than a second solid hue: a dashed edge reads as "through
+   here", which is what the item is. */
+.item.away { border-style: dashed; border-color: var(--away); }
+.item.away:hover { box-shadow: var(--shadow-card), 0 0 0 1px var(--away); }
 .item.selected { outline: calc(2px / var(--scale, 1)) solid var(--accent); z-index: 1; }
 /* STEPPED INSIDE — the item is running. Its scripts are live, its links work,
    and the wheel belongs to it rather than to the canvas. That is a different
@@ -953,6 +991,10 @@ img { height: auto; }
   .item.entered { animation: none; }
 }
 .item.dragging { opacity: 0.92; cursor: grabbing; z-index: 2; }
+/* The read-only canvas (roles phase 1): nothing here is a handle, so nothing
+   here wears a grab cursor. The daemon refuses the write; this stops the
+   pointer promising one. */
+.canvas-page.read-only .item, .canvas-page.read-only .item .item-titlebar { cursor: default; }
 /* A mark sits over what it marks. */
 .item.annotation { z-index: 3; }
 /* Drawings wear no chrome: the ink IS the item. The titlebar floats above the
@@ -1217,11 +1259,51 @@ img { height: auto; }
 @media (prefers-reduced-motion: reduce) { .html-view { transition: none; } }
 /* The mini-browser: a live site projected onto the canvas. */
 .browser-view { width: 100%; height: 100%; border: 0; background: #fff; }
+/* A frame that has not loaded after a while says so, under the frame, with
+   the one door that always works. Gone the moment `load` fires. */
+.browser-slow {
+  position: absolute; left: 10px; right: 10px; bottom: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; border-radius: var(--radius);
+  background: var(--panel); color: var(--ink-muted); border: 1px solid var(--line);
+  font-size: 12px; line-height: 1.4; box-shadow: var(--shadow-pop);
+}
+.browser-slow a { color: var(--accent-text); white-space: nowrap; text-decoration: none; }
+.browser-slow a:hover { text-decoration: underline; }
 .browser-reload {
   flex: none; background: none; border: none; padding: 0 2px;
   color: var(--ink-muted); font-size: 12px; line-height: 1; cursor: pointer;
 }
 .browser-reload:hover { color: var(--ink); }
+/* A Google Doc's Live | Words switch on its strip: a word, not a glyph,
+   because the two states are unlike things and a glyph would make you guess
+   which one you are looking at. */
+.doc-live-toggle {
+  flex: none; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line);
+  background: none; color: var(--ink-muted); font-size: 10.5px; line-height: 16px; cursor: pointer;
+}
+.doc-live-toggle:hover { color: var(--ink); border-color: var(--ink-soft); }
+/* The memory mark on a canvas card's strip (memory phase 3): a word, lit
+   when the other canvas's context is read here, and the switch for it. */
+.memory-mark {
+  flex: none; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line);
+  background: none; color: var(--ink-muted); font-size: 10.5px; line-height: 16px; cursor: pointer;
+}
+.memory-mark:hover { color: var(--ink); border-color: var(--ink-soft); }
+.memory-mark.active { background: var(--accent-wash, var(--chip)); color: var(--accent-text); border-color: transparent; }
+/* Arrival motion (motion note, recommendation 2): an item from somebody
+   else comes in rather than popping. The settled state IS the base state —
+   the keyframes are only an entrance, so a throttled tab still shows the
+   item — and reduced motion skips it. */
+@keyframes item-arrive {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.item.arrived { animation: item-arrive 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .item.arrived { animation: none; }
+}
+.doc-live-toggle.active { background: var(--accent-wash, var(--chip)); color: var(--accent-text); border-color: transparent; }
 /* "double-click to interact" is an instruction, not part of the document — so
    it hangs UNDER the item rather than lying across the bottom of it, and only
    while you are pointing at the thing it is talking about. Same bargain as the
@@ -2066,6 +2148,23 @@ button.wb-act:hover, .wb-act.here { color: var(--accent-text); }
 .text-edit-frame { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .text-edit-frame .html-view { flex: 1; }
 .text-edit-refusal { font-size: 11px; color: var(--accent-text); }
+/* Element properties (WYSIWYG stage 2): a strip under the bar for the
+   selected element — its tag, its class, and the handful of inline styles a
+   person reaches for. Fields, not a tree: this is not an inspector. */
+.props-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line-soft); background: var(--chip);
+  font-size: 11.5px;
+}
+.props-tag { font-family: ui-monospace, Menlo, monospace; color: var(--ink-muted); }
+.props-field { display: inline-flex; align-items: center; gap: 5px; }
+.props-field span { color: var(--ink-soft); }
+.props-field input {
+  width: 92px; padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); color: var(--ink); font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+}
+.props-field.props-class input { width: 180px; }
+.props-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .stage-pane-body > * { flex: 1; }
 
 .stage-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -2284,6 +2383,11 @@ button.wb-act:hover, .wb-act.here { color: var(--accent-text); }
   width: 26px; height: 26px; border-radius: 999px;
   border: 2px solid var(--card);
   color: var(--accent-ink); font-size: 11px; font-weight: 700; line-height: 1;
+  /* The actor's colour arrives as --face, set inline by lib/face.ts and
+     defaulting to the neutral chip; what it paints depends on what the disc
+     holds — see .ringed below. */
+  --face: var(--chip);
+  background: var(--face);
 }
 /* Here NOW — the same ring the pins wear. */
 .face.live .face-mark { box-shadow: 0 0 0 1.5px var(--card), 0 0 0 3px var(--good); }
@@ -2300,6 +2404,16 @@ button.wb-act:hover, .wb-act.here { color: var(--accent-text); }
 .face.self .face-mark { box-shadow: 0 0 0 1.5px var(--accent); }
 /* Being watched: the camera is tethered to this face right now. */
 .face.followed .face-mark { box-shadow: 0 0 0 2px var(--accent); }
+/* **An emoji gets a ring, not a disc.** A letter reads in white on any of
+   the palette; an emoji is a picture with colours of its own, and on a
+   saturated disc — the blues especially — the two fight. So a face wearing
+   a mark keeps its colour as a ring around a neutral disc, and the small
+   rows that drop the border for an initial get it back for a mark. Declared
+   after those rows on purpose: same specificity, and the later rule wins. */
+.face-mark.ringed {
+  background: var(--card); border-width: 2px; border-color: var(--face);
+  color: var(--ink);
+}
 .face-more { background: var(--chip); color: var(--ink-muted); font-size: 10px; }
 .face-badge {
   position: absolute; top: -4px; right: -5px; min-width: 15px; height: 15px;
@@ -2789,6 +2903,27 @@ button.mt-card:hover { border-color: var(--accent); }
 .ctx-row.stale .ctx-name { color: var(--warn); }
 .ctx-why { font-size: 11.5px; color: var(--ink-muted); line-height: 1.45; }
 .ctx-fix { font-size: 11.5px; color: var(--accent-text); line-height: 1.45; }
+/* Layers (memory phases 0–1): a heading per source canvas. The first is
+   "This canvas"; the rest are inherited, and every borrowed piece wears a
+   `from` chip so provenance is on the line, not in a tooltip. */
+.ctx-layer + .ctx-layer { margin-top: 10px; }
+.ctx-heading {
+  margin: 0; padding: 6px 10px 4px; display: flex; align-items: baseline; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.ctx-heading-note { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--ink-soft); }
+.ctx-from {
+  font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+  background: var(--accent-wash, var(--chip)); color: var(--accent-text); white-space: nowrap;
+}
+.ctx-row.overridden .ctx-name, .ctx-row.overridden .ctx-size { text-decoration: line-through; color: var(--ink-soft); }
+.add-inherit {
+  display: flex; align-items: flex-start; gap: 8px; margin: 6px 0 2px;
+  font-size: 11.5px; color: var(--ink-muted); line-height: 1.4; cursor: pointer;
+  white-space: normal;
+}
+.add-inherit input { margin: 2px 0 0; }
 
 /* ---------- mind maps ----------
 
@@ -3240,6 +3375,49 @@ button.mt-card:hover { border-color: var(--accent); }
   box-shadow: var(--shadow-pop); white-space: nowrap;
 }
 .site-popover .text-input { width: 220px; }
+/* Place a canvas: the site popover's shape with a list under the field —
+   your canvases, most recent first, narrowed as you type; or the one row an
+   address names. */
+/* The one Add door: the picker's shape, with what Enter would do said under
+   the field and four rows that narrow it. The rows are radios in a group,
+   so a state chosen is a state a reader is told. */
+.add-door { position: relative; }
+/* **Where the Add popover sits.** It hung off the TOP of the + button and grew
+   downward, and the + is the last thing on the rail: on a short window the
+   list of canvases ran off the bottom of the viewport, and the last rows were
+   unreachable. So it is placed against the viewport, not the button — centred
+   beside the rail like the rail itself, never taller than the window, and its
+   list scrolls inside it rather than pushing the Add button out of reach.
+   The right offset is the rail's inset plus its width plus the gutter. */
+.add-door .add-popover {
+  position: fixed; top: 50%; right: calc(var(--edge) + 40px + 20px);
+  transform: translateY(-50%);
+  max-height: calc(100vh - 2 * var(--edge)); overflow: auto;
+}
+.add-popover { width: 340px; }
+/* The field, the pills and the inherit line all size to the panel, so
+   mounting or unmounting any of them cannot move its edge. */
+.add-preview { font-size: 11px; color: var(--ink-muted); white-space: normal; min-height: 1.3em; }
+.add-kinds { display: flex; flex-wrap: wrap; gap: 4px; }
+.add-kind {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
+  border: 1px solid var(--line); border-radius: 999px; background: none; cursor: pointer;
+  color: var(--ink-muted); font: inherit; font-size: 11.5px;
+}
+.add-kind:hover, .add-kind:focus-visible { color: var(--ink); background: var(--chip); outline: none; }
+.add-kind.active { color: var(--accent-text); border-color: transparent; background: var(--accent-wash); }
+.canvas-picker { flex-direction: column; align-items: stretch; gap: 8px; }
+.canvas-picker .text-input { width: 300px; }
+.canvas-picker-list { display: flex; flex-direction: column; gap: 2px; max-height: min(280px, 36vh); overflow: auto; }
+.canvas-picker-row {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 6px 8px; border: none; border-radius: 6px; background: none; cursor: pointer;
+  color: var(--ink); text-align: left; font: inherit;
+}
+.canvas-picker-row:hover, .canvas-picker-row:focus-visible { background: var(--chip); outline: none; }
+.canvas-picker-title { font-size: 12.5px; font-weight: 600; }
+.canvas-picker-meta { font-size: 10.5px; color: var(--ink-muted); }
+.canvas-picker-note { padding: 6px 8px; font-size: 11px; color: var(--ink-muted); white-space: normal; }
 .site-error {
   position: absolute; top: calc(100% + 4px); right: 10px;
   font-size: 10.5px; color: var(--danger); white-space: nowrap;
@@ -3254,8 +3432,16 @@ button.mt-card:hover { border-color: var(--accent); }
 .btn.active .shelf-badge { background: var(--accent-ink); color: var(--accent); }
 
 /* ---------- right tool rail (pointer modes, Figma-style) ---------- */
+/* **Centred, but never off the top.** It was `top: 50%; translateY(-50%)`,
+   which centres a rail taller than the window by pushing BOTH ends out of
+   it — on a short window the + at the bottom, and the pointer at the top,
+   were simply not there. Pinning both edges with `margin: auto` centres the
+   same way when there is room and pins to the top edge when there is not,
+   so what overflows is at the bottom, once, and the height rules below
+   make sure it rarely does. */
 .tool-rail {
-  position: absolute; right: var(--edge); top: 50%; transform: translateY(-50%); z-index: var(--z-float);
+  position: absolute; right: var(--edge); top: var(--edge); bottom: var(--edge);
+  margin: auto 0; height: fit-content; z-index: var(--z-float);
   display: flex; flex-direction: column; gap: 4px; padding: 6px;
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   box-shadow: var(--shadow-pop);
@@ -3268,6 +3454,20 @@ button.mt-card:hover { border-color: var(--accent); }
 .tool-btn:hover { background: var(--chip); color: var(--ink); }
 .tool-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .tool-sep { height: 1px; margin: 2px 6px; background: var(--line); }
+/* A short window gets a shorter rail rather than a scrolling one: smaller
+   buttons keep every control on screen and reachable, and the popovers that
+   hang off the rail (the ink well, the Add popover) keep working, which an
+   `overflow` on the rail would have clipped. These sit after the base rules
+   on purpose: at equal specificity the later one wins. Measured: nine
+   buttons and two separators are 396px at 38px; 322px at 32px; 286px at 28px. */
+@media (max-height: 560px) {
+  .tool-rail { gap: 2px; padding: 4px; }
+  .tool-btn { width: 32px; height: 32px; border-radius: var(--radius); }
+}
+@media (max-height: 420px) {
+  .tool-btn { width: 28px; height: 28px; }
+  .tool-sep { margin: 1px 6px; }
+}
 
 /* The ink well: the Pen's palette, hung off the rail while the Pen is up.
    The chip on the button shows what is in the nib right now. */
@@ -4391,6 +4591,55 @@ button.mt-card:hover { border-color: var(--accent); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .item.area.dragging .area-title { cursor: grabbing; }
+
+/* ---------- a canvas on a canvas ----------
+   `core/canvasitem.ts`: a picture of a place, drawn live and small from the
+   other canvas's snapshot. A head with its title and how much is on it, then
+   the miniature — blocks at their places in the kind's colour, images as
+   themselves, sheets as washes. No pointer inside: the card is the thing you
+   grab, double-click, or open with its ↗. */
+.canvas-embed { display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; background: var(--card); }
+.canvas-embed-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  height: 40px; padding: 0 12px; box-sizing: border-box;
+  border-bottom: 1px solid var(--line-soft);
+}
+.canvas-embed-title { font-size: 13px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-embed-meta { flex: none; font-size: 11px; color: var(--ink-muted); }
+.canvas-embed-note { padding: 12px; font-size: 12px; color: var(--ink-muted); }
+/* The screenshot, when the live picture cannot be drawn: fills the card,
+   cropped from the top, the way a thumbnail is. */
+.canvas-embed-picture { flex: 1; min-height: 0; width: 100%; object-fit: cover; object-position: top; }
+.canvas-mini { position: relative; flex: 1; overflow: hidden; pointer-events: none; }
+.canvas-mini-item {
+  position: absolute; box-sizing: border-box; overflow: hidden;
+  border-radius: 2px; border: 1px solid var(--line-soft); background: var(--chip);
+  background-size: cover; background-position: top;
+  font-size: 9.5px; line-height: 1.2; padding: 1px 3px; color: var(--ink-muted); white-space: nowrap; text-overflow: ellipsis;
+}
+.canvas-mini-item.kind-area { background: color-mix(in srgb, var(--paper-yellow) 35%, transparent); border-style: dashed; }
+.canvas-mini-item.kind-screen { background: var(--card); border-color: var(--line); }
+.canvas-mini-item.kind-text { border-color: transparent; background: transparent; color: var(--ink); }
+.canvas-mini-item.kind-drawing { border-color: transparent; background: transparent; }
+.canvas-mini-item.nested { border-style: double; }
+/* The ↗ on the strip of anything with a `source`: a place you can open. */
+.item-open-source {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px;
+  color: var(--ink-muted); text-decoration: none; font-size: 12px; line-height: 1;
+}
+.item-open-source:hover { background: var(--chip); color: var(--ink); }
+/* A grid on the sheet (sprint phase 5): hairlines between cells and a
+   name per row and column, in world units so they hold their place at
+   every zoom. Drawn under the contents and taking no pointer. */
+.area-grid { position: absolute; inset: 0; pointer-events: none; }
+.area-grid-line { position: absolute; background: var(--paper-edge, var(--line)); opacity: 0.6; }
+.area-grid-line.v { width: 1px; }
+.area-grid-line.h { height: 1px; }
+.area-grid-name {
+  position: absolute; font-size: 18px; line-height: 1; font-weight: 600;
+  color: var(--paper-ink-soft, var(--ink-muted)); white-space: nowrap;
+}
 /* The card — what happens here, in a few lines — under the name, in the
    band `AREA_CARD_HEIGHT` reserves for it (120 world units), so it can
    never spill into the sheet's contents and nothing placed on the sheet
@@ -4432,6 +4681,10 @@ button.mt-card:hover { border-color: var(--accent); }
   /* Words on a canvas are read, not scrolled: a node that outgrew its box
      should be re-fitted (⇧F), not given a scrollbar the size of a sentence. */
   overflow: hidden;
+  /* A word longer than the box wraps inside it rather than running out of
+     the right edge and being clipped — the one way a title could still be
+     cut once the box is measured to the words (`core/textnode.ts`, textBox). */
+  overflow-wrap: anywhere;
 }
 .item.textnode .md-view p:first-child { margin-top: 0; }
 .item.textnode .md-view p:last-child { margin-bottom: 0; }
@@ -5113,6 +5366,58 @@ button.mt-card:hover { border-color: var(--accent); }
 .palette-none { margin: 0; padding: 12px 10px; color: var(--ink-soft); font-size: 13px; }
 
 /**
+ * **The switcher: the launcher's second face.**
+ *
+ * Same window, same rows — the only new furniture is the lit letters, the
+ * age column, and a foot that says how to get back. A title is allowed to
+ * shrink here where an action's name was not: an action's name IS the row,
+ * and a canvas's title can be forty characters somebody typed.
+ */
+.palette-canvas-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-canvas-title mark {
+  background: transparent; color: var(--accent-text); font-weight: 700;
+  text-decoration: underline; text-decoration-color: var(--accent);
+  text-underline-offset: 2px;
+}
+.palette-when { margin-left: auto; flex: none; color: var(--ink-soft); font-size: 11px; font-variant-numeric: tabular-nums; }
+.palette-foot {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 7px 14px; border-top: 1px solid var(--line-soft);
+  color: var(--ink-soft); font-size: 11px;
+}
+/* The caret beside the canvas's name: quiet until pointed at, like the name. */
+.canvas-name .canvas-switch {
+  padding: 4px 3px; margin-right: 6px; border-color: transparent;
+  background: transparent; color: var(--ink-soft);
+}
+.canvas-name .canvas-switch:hover:enabled { background: var(--chip); border-color: var(--chip-line); color: var(--ink); }
+.canvas-name .canvas-switch:disabled { visibility: hidden; }
+
+/**
+ * **Switching, as a move rather than a cut** (`lib/canvasswitch.ts`).
+ *
+ * The surface you are leaving recedes — a touch smaller, gone — and the one
+ * you chose comes forward from a touch larger. The durations are the same
+ * numbers the switch helper waits for; change one and change the other. The
+ * bar and the rail are outside `.canvas-surface` on purpose: they are the
+ * same chrome on both canvases, and chrome that lurched would say the app
+ * reloaded.
+ */
+.canvas-surface { position: absolute; inset: 0; transform-origin: 50% 50%; }
+.canvas-surface.switching-out { animation: switch-out 140ms cubic-bezier(0.4, 0, 1, 1) forwards; }
+.canvas-surface.switching-in { animation: switch-in 220ms cubic-bezier(0, 0, 0.2, 1) both; }
+@keyframes switch-out {
+  to { opacity: 0; transform: scale(0.96); }
+}
+@keyframes switch-in {
+  from { opacity: 0; transform: scale(1.03); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-surface.switching-out, .canvas-surface.switching-in { animation: none; }
+}
+
+/**
  * **The card's peek** — what happened here before the last thing.
  *
  * Inside the card rather than floating over it: a popover would need placing
@@ -5130,11 +5435,21 @@ button.mt-card:hover { border-color: var(--accent); }
   font-size: 11.5px;
   color: var(--ink-soft);
 }
-.card-peek-row { display: flex; align-items: baseline; gap: 8px; }
+.card-peek-row { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+/* A row that is a link to its item: the same quiet row, and a hover that
+   says so — the card around it is already the link to the canvas. */
+.card-peek-row.linked { border-radius: 6px; margin: 0 -4px; padding: 2px 4px; }
+.card-peek-row.linked:hover { background: var(--chip); color: var(--ink); }
+/* The thing itself, small — the lens's thumbnail, at the lens's size. */
+.card-peek-thumb { flex: none; display: inline-flex; border-radius: 4px; overflow: hidden; border: 1px solid var(--line-soft); }
+.card-peek-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .card-peek-what {
-  flex: 1; min-width: 0;
+  min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* The item's name under the verb, in the ink the card's title uses: the
+   verb is the small print and the name is the point. */
+.card-peek-about { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Figures that line up, because these are read as a column of times. */
 .card-peek-when { flex: none; font-variant-numeric: tabular-nums; }
 .card-peek-quiet { font-style: italic; }
@@ -5170,6 +5485,11 @@ button.mt-card:hover { border-color: var(--accent); }
   background: var(--good); flex: none;
 }
 .lens-live-dot.standby { background: transparent; box-shadow: inset 0 0 0 1.5px var(--good); }
+/* Where a subject stands — enrolled canvases with what they did there. The
+   same quiet italic as the live line, one step softer, because it is a record
+   rather than a moment. */
+.lens-standing { font-style: normal; font-size: 12px; color: var(--ink-muted); }
+.lens-standing-note { color: var(--ink-soft); }
 .lens-live-said {
   display: inline-flex; align-items: center; gap: 5px;
   color: var(--good); font-size: 11.5px; font-style: normal;
@@ -5199,6 +5519,21 @@ button.mt-card:hover { border-color: var(--accent); }
   font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
 }
 .sprint-action:hover { border-color: var(--accent); }
+.sprint-action.on { background: var(--ink); border-color: var(--ink); color: var(--card); }
+/* The heat map (sprint phase 4): the mark drawn where each person put it,
+   in world units so it stays on the part of the sketch it was put on. Not
+   a control — the item under it is what takes the press. */
+.vote-dots { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.vote-dot {
+  position: absolute; transform: translate(-50%, -50%);
+  font-size: 18px; line-height: 1;
+}
+.vote-dot.mine { transform: translate(-50%, -50%) scale(1.15); }
+/* While a mark is being placed, a sketch on the wall is a target. */
+.canvas-viewport.stamping .item { cursor: crosshair; }
+/* A desk's chip: the sprint's clock, read from elsewhere, and one button. */
+.sprint-desk-label { color: var(--ink-muted); font-weight: 500; }
+.sprint-chip.desk { border-style: dashed; }
 .sprint-action.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sprint-phase { display: inline-flex; align-items: center; gap: 5px; }
 .sprint-mark { font-size: 12px; }
@@ -5223,3 +5558,209 @@ button.mt-card:hover { border-color: var(--accent); }
 /* Reactions under the curtain: the mark shows, the number does not. */
 .react-chip.veiled .react-count { visibility: hidden; }
 .react-chip .react-agents { font-size: 9.5px; color: var(--ink-muted); }
+
+/* ---------- spaces on the canvas list (roles phase 4) ---------- */
+/* A heading per space the badge may see, and **No space** last. The heading
+   is a drop target — dragging a card onto it is **Move to space…** — so the
+   whole section lights when a card is over it, not just the words. */
+.canvas-space { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; border-radius: var(--r-float); }
+.canvas-space.over { outline: 2px dashed var(--accent); outline-offset: 6px; }
+.canvas-space-head { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
+.canvas-space-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.canvas-space-count { color: var(--ink-soft); font-size: 11.5px; font-variant-numeric: tabular-nums; flex: 1; }
+.canvas-space-head .share-popover { right: 0; left: auto; }
+/* **New space**, in the head beside Lens: a field and a button, the same
+   pair the create card has. */
+.canvas-space-new { display: flex; gap: 6px; align-items: center; }
+.canvas-space-new .text-input { width: 180px; font-size: 12.5px; }
+
+/* ---------- groups (roles phase 5) ---------- */
+/* The Groups panel hangs off the head beside New space and wears the Share
+   popover's shell. One group is a row, its members as chips under it, and
+   the add field under those — the same pieces the Share dialog is made of. */
+.groups-group { display: flex; flex-direction: column; gap: 6px; }
+.groups-members { display: flex; flex-wrap: wrap; gap: 6px; }
+.groups-member {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 12px;
+  background: var(--chip); border: 1px solid var(--chip-line); border-radius: var(--radius);
+}
+.groups-member .btn { padding: 0 4px; font-size: 12px; line-height: 1; }
+
+/* ---------- the space's Share ---------- */
+/* **Every canvas in this space**: the row above the invitations, shaped like
+   the link toggle it stands in for — a chip holding a label, the radios and
+   the sentence that reports what the last write reached. */
+.share-every {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: var(--radius);
+  background: var(--chip); border: 1px solid var(--chip-line); font-size: 12.5px;
+}
+.share-every .share-link-mode { padding-left: 0; }
+/* The rows from the space on a canvas's Share are read, never edited here,
+   and look it. */
+.share-from-space { opacity: 0.6; }
+/* A canvas open wider than its space — the mark an owner is looking for. */
+.share-wider { color: var(--accent-text); }
+.share-back { padding: 0 6px; margin-right: 4px; font-size: 14px; line-height: 1; }
+
+/* ---------- the deck, laid out for paper (DeckPrint.tsx) ---------- */
+/* Covers the canvas like full screen does, and for the same reason: `--ground`
+   here is load-bearing, an undefined token would be no colour at all. */
+.deck-print {
+  position: fixed; inset: 0; z-index: var(--z-fullscreen);
+  background: var(--ground); color: var(--ink);
+  overflow-y: auto; overflow-x: hidden;
+}
+.deck-bar {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px var(--edge);
+  background: var(--ground); border-bottom: 1px solid var(--line);
+}
+.deck-bar button {
+  padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.deck-bar button:disabled { color: var(--ink-muted); cursor: default; }
+.deck-count { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.deck-spacer { flex: 1; }
+.deck-empty { max-width: 48ch; margin: 40px auto; text-align: center; color: var(--ink-soft); }
+.deck-pages {
+  list-style: none; margin: 0; padding: 24px var(--edge) 40px;
+  display: flex; flex-direction: column; align-items: center; gap: 28px;
+}
+/* `--card` rather than white: a slide draws its own ground inside its frame,
+   and the page behind it should sit on this theme's surface like a card. */
+.deck-page {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  background: var(--card); border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+.deck-page iframe { display: block; width: 100%; height: 100%; border: 0; background: var(--card); }
+.deck-page img { display: block; max-width: 100%; max-height: 100%; height: auto; margin: 0 auto; object-fit: contain; }
+.deck-page-other {
+  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; color: var(--ink-soft);
+}
+.deck-page-n {
+  position: absolute; right: 10px; bottom: 8px; font-size: 12px;
+  font-variant-numeric: tabular-nums; color: var(--ink-soft);
+}
+@media print {
+  /* A slide is 16:9, so the sheet is: PowerPoint's 13.333 × 7.5 inches, not Letter landscape, which would stretch every slide to 4:3. */
+  @page { size: 13.333in 7.5in; margin: 0; }
+  /* Only the pages print — the canvas beneath, the bar and the page's own
+     chrome are all off the sheet. */
+  body > *:not(#root), .canvas-page > *:not(.deck-print) { display: none !important; }
+  /* The shell is a fixed, clipped viewport (`.canvas-page`, and `height: 100%`
+     up the chain); a print of that is one sheet holding the first screenful.
+     Measured: two slides printed as one page until these were let go. */
+  html, body, #root { height: auto; overflow: visible; }
+  .canvas-page { position: static; overflow: visible; }
+  .deck-print { position: static; overflow: visible; }
+  .deck-bar { display: none; }
+  .deck-pages { padding: 0; gap: 0; display: block; }
+  .deck-sheet { break-after: page; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+  .deck-sheet:last-child { break-after: auto; }
+  .deck-page { flex: 1; min-height: 0; width: 100%; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
+  /* With notes, the slide keeps the top of the sheet and the words the rest. */
+  .with-notes .deck-page { flex: 0 0 62%; }
+  .deck-notes { flex: 1; overflow: hidden; padding: 12px 24px; border-top: 1px solid var(--line); }
+  .deck-page-n { display: none; }
+}
+/* The sheet on screen: the page, and its notes beneath when asked for. */
+.deck-sheet { width: min(100%, 1280px); list-style: none; }
+.deck-notes {
+  padding: 12px 16px; color: var(--ink); font-size: 14px; line-height: 1.5;
+  background: var(--card); border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.deck-notes em { color: var(--ink-soft); }
+.with-notes .deck-page { border-radius: var(--radius) var(--radius) 0 0; }
+.deck-notes-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 13px; }
+
+/* ---------- a module's page, as a cover (ModulePage.tsx) ---------- */
+.module-page {
+  position: fixed; inset: 0; z-index: var(--z-fullscreen);
+  background: var(--ground); color: var(--ink);
+  display: flex; flex-direction: column;
+}
+.module-page-bar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 10px var(--edge); border-bottom: 1px solid var(--line); background: var(--ground);
+}
+.module-page-title { font-size: 14px; }
+.module-page-hint { color: var(--ink-soft); font-size: 13px; }
+.module-page-body { flex: 1; min-height: 0; overflow: auto; padding: 24px var(--edge); }
+.module-page-missing { max-width: 48ch; margin: 40px auto; text-align: center; color: var(--ink-soft); }
+
+/* ---------- the inspector beside the workbench's stage ---------- */
+.wb-inspector {
+  flex: none; width: 280px; min-height: 0; overflow: auto;
+  border-left: 1px solid var(--line); background: var(--card); padding: 12px 16px;
+}
+.wb-inspector-section h3 {
+  margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* ---------- documents (modules/documents) ---------- */
+.doc-size { margin: 0 0 8px; font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.doc-quiet { margin: 0; font-size: 13px; color: var(--ink-soft); }
+.doc-headings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.doc-headings li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-page { max-width: 720px; margin: 0 auto; }
+.docs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.docs-row a {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px;
+  color: var(--ink); text-decoration: none;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.docs-row a:hover { border-color: var(--accent); }
+.docs-row small { color: var(--ink-soft); font-size: 12px; }
+
+/* ---------- speaker notes (core/slides.ts) ---------- */
+/* On the canvas: the caption that says which slide a note speaks for, above
+   the words, in world units like the words. */
+.item.textnode .note-of {
+  position: absolute; left: 0; bottom: 100%; margin-bottom: 4px;
+  font-size: 11px; line-height: 1; white-space: nowrap; color: var(--ink-soft);
+  pointer-events: none;
+}
+/* In full screen: under the stage, never over it. */
+.fullscreen-stage.with-notes { bottom: 30%; }
+.fs-notes {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 30%;
+  overflow: auto; padding: 16px var(--edge);
+  background: var(--card); color: var(--ink); border-top: 1px solid var(--line);
+  font-size: 18px; line-height: 1.5;
+}
+.fs-notes-empty { margin: 0; color: var(--ink-soft); font-size: 14px; }
+.fullscreen-notes-toggle {
+  flex: none; font: inherit; font-size: 12px; font-weight: 600; line-height: 1;
+  padding: 6px 11px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--chip); color: var(--ink);
+}
+.fullscreen-notes-toggle.on { border-color: var(--accent); color: var(--accent-text); }
+
+/* ---------- the top fade (lib/hideable.ts, "canvas.topfade") ---------- */
+/* A wash of the page's own ground from the top edge, so the title, the faces
+   and Share read over a busy canvas — white on light, near-black on dark,
+   because it is `--ground` and not a colour of its own. Over the items
+   (`--z-canvas`) and under every piece of chrome; no pointer target, so a
+   drag that starts under it still starts on the canvas. */
+.top-fade {
+  position: absolute; top: 0; left: 0; right: 0; height: 96px;
+  z-index: var(--z-canvas); pointer-events: none;
+  background: linear-gradient(to bottom, var(--ground), transparent);
+}
+
+/* ---------- a diagram, drawn from its text (modules/mermaid) ---------- */
+/* The picture is an SVG the library wrote; it sits centred on the card's
+   own surface and scales to fit, so a wide flowchart and a tall sequence
+   diagram both read at card size and fill the stage. */
+.diagram-view {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  overflow: hidden; background: var(--card); padding: 8px; box-sizing: border-box;
+}
+.diagram-view svg { max-width: 100%; max-height: 100%; height: auto; }
+.diagram-error small { display: block; margin-top: 6px; color: var(--ink-soft); }

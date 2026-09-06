@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { harnessVars } from "@isocan/api";
-import { readConfigFile } from "@isocan/server";
+import type { AdapterSpec } from "./harnesses.ts";
 
 /**
  * **The ACP client in the rc** (agents-on-demand phase 3).
@@ -9,7 +9,9 @@ import { readConfigFile } from "@isocan/server";
  * adapter — one adapter process per enrolled agent, its subprocess, the
  * person's credentials, because the rc runs as the person. Everything here
  * was verified against the real `@zed-industries/claude-code-acp` adapter
- * (the phase's spike, 2026-08-30; the record lives in the design doc):
+ * (the phase's spike, 2026-08-30; the record lives in the design doc —
+ * since renamed `@agentclientprotocol/claude-agent-acp`, which the builtin
+ * follows through the ACP registry, `harnesses.ts`; re-verified 2026-09-05):
  *
  * - Framing is newline-delimited JSON-RPC 2.0; `protocolVersion` is the
  *   integer 1; a finished turn answers `stopReason: "end_turn"`.
@@ -39,6 +41,38 @@ import { readConfigFile } from "@isocan/server";
  *   the agent anyway — so the spawn env is scrubbed of every harness
  *   variable plus `CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT` before injection.
  *
+ * **pi** (`pi-acp`, verified 2026-09-04) speaks the same wire — integer
+ * protocolVersion 1, `end_turn`, `session/load` a real resume backed by
+ * pi's own session file — with two differences the rc lives with:
+ * - pi's shells DO carry the harness's own variable (`PI_SESSION_ID`, a
+ *   fresh uuid per session) beside the injected `ISOCAN_SESSION_ID`. Reads
+ *   still resolve to the enrolled actor (the newest binding wins), and the
+ *   claim path prefers the deliberate key over an ambient one
+ *   (`identity.ts`), so `isocan identity --session` inside a summoned pi
+ *   resumes the agent rather than minting a stranger on pi's key.
+ * - A new session's first turn opens with pi's startup banner (version,
+ *   extensions, an update notice) as agent text. `quietStartup: true` in
+ *   `~/.pi/agent/settings.json` silences it; the rc does not depend on the
+ *   turn's text either way.
+ *
+ * **Login, when an adapter wants one** (Antigravity, 2026-09-04). ACP lets
+ * an agent advertise `authMethods` at initialize and refuse `session/new`
+ * with "Authentication required" until `authenticate` has run. Google's
+ * `agy_acp_server` does exactly that, and its `gemini-api-key` method reads
+ * `GEMINI_API_KEY` from the environment it was launched from. A summoned
+ * session has nobody to click an OAuth link, so the client answers a
+ * refusal with the one kind of method an environment can satisfy
+ * unattended (`UNATTENDED_AUTH`), and otherwise fails naming the methods
+ * and the variable — where the person is looking, not as a hang.
+ *
+ * **codex** (`@agentclientprotocol/codex-acp`, verified 2026-09-04) speaks
+ * the same wire and resumes through `session/load` with memory intact. It
+ * asked no permission for a shell command or a file write in its default
+ * mode — but that mode's sandbox refuses loopback network, so the CLI
+ * inside could not reach the daemon. The builtin spec runs it with
+ * `INITIAL_AGENT_MODE=agent-full-access` (`harnesses.ts`), which is the
+ * posture below said in codex's words.
+ *
  * **Permissions are auto-allowed, provisionally.** The agent runs as the
  * person, in the person's directory, with the person's credentials — the
  * same trust as the person typing the harness's name themselves — and a
@@ -47,44 +81,6 @@ import { readConfigFile } from "@isocan/server";
  * module's policy is one function below, so the door has one thing to
  * change.
  */
-
-/** `config.json`'s hook: `{"acpAdapters": {"my-harness": ["cmd", "arg"]}}`.
- * The same posture as `harnessVars`: a harness isocan has never heard of
- * works the day it ships. */
-interface AcpAdapterConfig {
-  acpAdapters?: Record<string, string[] | string>;
-}
-
-export interface AdapterSpec {
-  command: string;
-  args: string[];
-}
-
-/** Adapters isocan knows without being told. `npx -y` so the adapter is
- * fetched on first use rather than shipped — isocan must not own a copy of
- * somebody's harness bridge. */
-const BUILTIN_ADAPTERS: Record<string, AdapterSpec> = {
-  "claude-code": { command: "npx", args: ["-y", "@zed-industries/claude-code-acp"] },
-};
-
-/** The adapter for a harness — config first, then builtin. A null harness
- * ("not yet said", the rc half's default) runs the claude-code adapter:
- * something must answer, and this is the machine's most likely something.
- * Null when nothing is declared anywhere — the caller owes a refusal that
- * names the config hook. */
-export async function adapterFor(home: string, harness: string | null): Promise<AdapterSpec | null> {
-  const wanted = harness ?? "claude-code";
-  const raw = await readConfigFile<AcpAdapterConfig>(home);
-  const declared = raw.acpAdapters?.[wanted];
-  if (typeof declared === "string" && declared.trim()) {
-    const [command, ...args] = declared.trim().split(/\s+/);
-    return { command: command!, args };
-  }
-  if (Array.isArray(declared) && declared.length > 0 && declared.every((p) => typeof p === "string")) {
-    return { command: declared[0]!, args: declared.slice(1) };
-  }
-  return BUILTIN_ADAPTERS[wanted] ?? null;
-}
 
 /** The environment a spawned adapter gets: the person's, scrubbed of every
  * harness variable (a stale one would misidentify the agent; `CLAUDECODE`
@@ -134,8 +130,56 @@ export interface TurnEvent {
   detail?: string;
 }
 
+/**
+ * **The adapter's stderr, passed through — minus one kind of chatter.** An
+ * adapter's own complaints are part of the narration, so its stderr reaches
+ * ours. Google's Antigravity server, though, logs every websocket message
+ * and every telemetry drop at INFO/WARNING in absl's format, hundreds of
+ * lines per turn, and its logging flags (`--verbosity`, `--stderrthreshold`,
+ * `--log_dir`, measured 2026-09-04) change nothing. So absl's INFO, WARNING
+ * and DEBUG lines are dropped here; its ERROR and FATAL lines, and any line
+ * in any other shape, pass through. `ISOCAN_ADAPTER_STDERR=all` passes
+ * everything, for the day the chatter is the clue.
+ */
+const ABSL_CHATTER = /^[IWDV]\d{4} \d\d:\d\d:\d\d\.\d+ +\d+ [\w./-]+:\d+\] /;
+
+function relayStderr(child: ChildProcess): void {
+  if (!child.stderr) return;
+  child.stderr.setEncoding("utf8");
+  const all = process.env.ISOCAN_ADAPTER_STDERR === "all";
+  let pending = "";
+  child.stderr.on("data", (chunk: string) => {
+    pending += chunk;
+    let nl;
+    while ((nl = pending.indexOf("\n")) >= 0) {
+      const line = pending.slice(0, nl + 1);
+      pending = pending.slice(nl + 1);
+      if (all || !ABSL_CHATTER.test(line)) process.stderr.write(line);
+    }
+  });
+  child.stderr.on("end", () => {
+    if (pending && (all || !ABSL_CHATTER.test(pending))) process.stderr.write(pending);
+  });
+}
+
+/** Auth methods an environment can satisfy with nobody at a keyboard: the
+ * method id an adapter advertises, and the variable that answers it. The
+ * adapter reads the variable itself; the client only chooses the method. */
+const UNATTENDED_AUTH: Record<string, string> = {
+  "gemini-api-key": "GEMINI_API_KEY",
+};
+
+interface AuthMethod {
+  id: string;
+  name?: string;
+}
+
 export class AcpAgentProcess {
   private child: ChildProcess;
+  private authMethods: AuthMethod[] = [];
+  private agentTitle = "the adapter";
+  private env: NodeJS.ProcessEnv = {};
+  private authenticated = false;
   private buffer = "";
   private nextId = 1;
   private pending = new Map<number, (msg: JsonRpcMessage) => void>();
@@ -158,19 +202,71 @@ export class AcpAgentProcess {
    * to ours: the adapter's own complaints are part of the narration. */
   static async spawn(
     spec: AdapterSpec,
-    options: { cwd: string; env: NodeJS.ProcessEnv },
+    options: { cwd: string; env: NodeJS.ProcessEnv; narrate?: (line: string) => void },
   ): Promise<AcpAgentProcess> {
+    // A builtin that is fetched rather than shipped (Antigravity's server)
+    // makes sure of itself first — narrated, because a first summons that
+    // downloads 300 MB in silence reads as a hang.
+    if (spec.ensure) {
+      const current = await spec.ensure(options.narrate ?? ((line) => console.error(line)));
+      if (current) Object.assign(spec, current);
+    }
+    // The bridge's own variables win over the person's: a builtin knows
+    // what its harness needs (codex's sandbox mode), and a person who
+    // wants otherwise declares the adapter in config.json.
+    const env = { ...options.env, ...spec.env };
     const child = spawn(spec.command, spec.args, {
       cwd: options.cwd,
-      env: options.env,
-      stdio: ["pipe", "pipe", "inherit"],
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    relayStderr(child);
     const agent = new AcpAgentProcess(child);
-    await agent.request("initialize", {
+    agent.env = env;
+    const init = await agent.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
     });
+    agent.authMethods = Array.isArray(init?.authMethods) ? init.authMethods : [];
+    agent.agentTitle = String(init?.agentInfo?.title ?? init?.agentInfo?.name ?? spec.harness);
     return agent;
+  }
+
+  /** The adapter refused for want of a login: answer with a method the
+   * environment can satisfy, once; otherwise say what would. */
+  private async authenticate(): Promise<void> {
+    if (this.authenticated) throw new Error(`${this.agentTitle} still wants a login after authenticating`);
+    const usable = this.authMethods.find((m) => {
+      const envVar = UNATTENDED_AUTH[m.id];
+      return envVar !== undefined && Boolean(this.env[envVar]?.trim());
+    });
+    if (!usable) {
+      const wanted = Object.entries(UNATTENDED_AUTH)
+        .filter(([id]) => this.authMethods.some((m) => m.id === id))
+        .map(([id, envVar]) => `${envVar} for ${id}`);
+      const methods = this.authMethods.map((m) => m.id).join(", ") || "none advertised";
+      throw new Error(
+        `${this.agentTitle} wants a login before a session (methods: ${methods}) — a summoned session has ` +
+          `nobody to click a link` +
+          (wanted.length > 0 ? `; export ${wanted.join(" or ")} where \`isocan rc\` runs` : "") +
+          `, or log in once with the harness's own tool`,
+      );
+    }
+    this.authenticated = true;
+    await this.request("authenticate", { methodId: usable.id });
+    this.onEvent?.({ kind: "other", detail: `authenticated (${usable.id})` });
+  }
+
+  /** A session verb, with the login step folded in: a refusal for want of
+   * a login is answered once and the verb retried. */
+  private async sessionRequest(method: string, params: unknown): Promise<any> {
+    try {
+      return await this.request(method, params);
+    } catch (err) {
+      if (!/authentication required|not authenticated|unauthenticated/i.test((err as Error).message)) throw err;
+      await this.authenticate();
+      return await this.request(method, params);
+    }
   }
 
   private receive(chunk: string): void {
@@ -282,14 +378,16 @@ export class AcpAgentProcess {
     if (previous) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          await this.request("session/load", { sessionId: previous, cwd, mcpServers: [] });
+          await this.sessionRequest("session/load", { sessionId: previous, cwd, mcpServers: [] });
           return { sessionId: previous, resumed: true };
-        } catch {
+        } catch (err) {
+          // A login refusal is not the transient scar the retry is for.
+          if (/wants a login|still wants a login/.test((err as Error).message)) throw err;
           await new Promise((r) => setTimeout(r, 500));
         }
       }
     }
-    const created = await this.request("session/new", { cwd, mcpServers: [] });
+    const created = await this.sessionRequest("session/new", { cwd, mcpServers: [] });
     return { sessionId: created.sessionId as string, resumed: false };
   }
 

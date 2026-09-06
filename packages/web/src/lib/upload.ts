@@ -15,6 +15,14 @@ import {
   regionOf,
   siteFilename,
   siteLabel,
+  CANVAS_ITEM_SIZE,
+  canvasItemOf,
+  MEMORY_PROP,
+  AREA_MIME,
+  AREA_FILENAME,
+  AREA_PROPERTIES,
+  DOC_MIME,
+  docProperties,
 } from "@isocan/core";
 import { uploadBlob } from "./api.ts";
 import { sendEchoed } from "../stores/canvasStore.ts";
@@ -55,6 +63,46 @@ async function measure(file: File, mimeType: string): Promise<{ width: number; h
  * whatever is already there, and applies these in turn, so each file's
  * placement already sees the one before it land.
  */
+/**
+ * **How far a drop got before it failed** (#51). `addFiles` lands one file
+ * after another; when the third of five fails, two items are on the canvas
+ * and the person deserves to hear "2 of 5 added — <why>" rather than
+ * "upload failed" — and to see the two selected, not lost.
+ */
+export class AddFilesError extends Error {
+  constructor(
+    message: string,
+    /** The items that DID land, in order. */
+    readonly landed: string[],
+    /** The file that failed, by name. */
+    readonly file: string,
+    readonly total: number,
+  ) {
+    super(message);
+    this.name = "AddFilesError";
+  }
+}
+
+/**
+ * What to say and what to select when `addFiles` throws: the sentence
+ * counts the landed against the total when there were several, and the
+ * items that landed are returned so the caller selects them as it would a
+ * whole drop. A failure with nothing landed is the plain sentence.
+ */
+export function addFailure(err: unknown, total: number, fallback: string): { landed: string[]; notice: string } {
+  if (err instanceof AddFilesError) {
+    const why = err.message;
+    return {
+      landed: err.landed,
+      notice:
+        total > 1
+          ? `${err.landed.length} of ${total} added — ${err.file}: ${why}`
+          : `${err.file}: ${why}`,
+    };
+  }
+  return { landed: [], notice: err instanceof Error && err.message ? err.message : fallback };
+}
+
 export async function addFiles(
   canvasId: string,
   actor: Actor,
@@ -87,8 +135,20 @@ export async function addFiles(
   let offsetX = 0;
   for (const file of files) {
     const mimeType = mimeTypeOf(file);
-    const upload = await uploadBlob(canvasId, file, file.name);
-    const { width, height } = await measure(file, mimeType);
+    let upload: Awaited<ReturnType<typeof uploadBlob>>;
+    let width: number;
+    let height: number;
+    try {
+      upload = await uploadBlob(canvasId, file, file.name);
+      ({ width, height } = await measure(file, mimeType));
+    } catch (err) {
+      throw new AddFilesError(
+        err instanceof Error && err.message ? err.message : "could not be added",
+        ids,
+        file.name,
+        files.length,
+      );
+    }
 
     const at: Placement = spread
       ? {
@@ -102,20 +162,29 @@ export async function addFiles(
     offsetX += width + FILE_GAP;
 
     const itemId = newItemId();
-    await sendEchoed(canvasId, actor, {
-      type: "item.add",
-      itemId,
-      version: {
-        id: newVersionId(),
-        blobHash: upload.blobHash,
-        mimeType,
-        filename: file.name,
-        size: upload.size,
-      },
-      width,
-      height,
-      placement: at,
-    }, group);
+    try {
+      await sendEchoed(canvasId, actor, {
+        type: "item.add",
+        itemId,
+        version: {
+          id: newVersionId(),
+          blobHash: upload.blobHash,
+          mimeType,
+          filename: file.name,
+          size: upload.size,
+        },
+        width,
+        height,
+        placement: at,
+      }, group);
+    } catch (err) {
+      throw new AddFilesError(
+        err instanceof Error && err.message ? err.message : "could not be added",
+        ids,
+        file.name,
+        files.length,
+      );
+    }
     ids.push(itemId);
   }
   return ids;
@@ -152,6 +221,109 @@ export async function addBrowserItem(
     ...BROWSER_SIZE,
     placement,
     title: siteLabel(site),
+  });
+  return itemId;
+}
+
+/**
+ * **A sheet, from the app** — the item `isocan area new` makes, spelled the
+ * same: an area-kind item whose blob is its card (one newline when it has
+ * nothing to say, because the daemon refuses an empty blob). The first
+ * caller is memory phase 3's Context sheet; `chosen`, because the corner of
+ * a sheet is exactly where somebody meant it to be.
+ */
+export async function addAreaItem(
+  canvasId: string,
+  actor: Actor,
+  title: string,
+  at: { x: number; y: number },
+  size: { width: number; height: number },
+): Promise<string> {
+  const blob = new Blob(["\n"], { type: AREA_MIME });
+  const upload = await uploadBlob(canvasId, blob, AREA_FILENAME);
+  const itemId = newItemId();
+  await sendEchoed(canvasId, actor, {
+    type: "item.add",
+    itemId,
+    version: { id: newVersionId(), blobHash: upload.blobHash, mimeType: AREA_MIME, filename: AREA_FILENAME, size: upload.size },
+    ...size,
+    placement: { ...at, chosen: true },
+    title,
+    properties: { ...AREA_PROPERTIES },
+  });
+  return itemId;
+}
+
+/**
+ * **A document from somewhere else, as an item that keeps its link** — a
+ * Google Doc's markdown export with `source` and `synced` on it
+ * (`core/googledoc.ts`). The same `item.add` a dropped `.md` makes, so it
+ * renders, thumbs and versions like any document; the two properties are
+ * what make it a snapshot of something rather than a file.
+ */
+export async function addDocumentItem(
+  canvasId: string,
+  actor: Actor,
+  doc: { title: string; markdown: string; filename: string; source: string; syncedAt: string },
+  placement: Placement,
+): Promise<string> {
+  const blob = new Blob([doc.markdown], { type: DOC_MIME });
+  const upload = await uploadBlob(canvasId, blob, doc.filename);
+  const itemId = newItemId();
+  await sendEchoed(canvasId, actor, {
+    type: "item.add",
+    itemId,
+    version: {
+      id: newVersionId(),
+      blobHash: upload.blobHash,
+      mimeType: DOC_MIME,
+      filename: doc.filename,
+      size: upload.size,
+    },
+    width: 640,
+    height: 800,
+    placement,
+    title: doc.title,
+    properties: docProperties(doc.source, doc.syncedAt),
+  });
+  return itemId;
+}
+
+/**
+ * **A canvas placed on this canvas** (inception phase 1) — the app's half of
+ * `isocan canvas place`, through the same contract: `canvasItemOf` says the
+ * properties, the blob and the file, so the two cannot drift. The picture is
+ * drawn live by the card; nothing is captured here.
+ */
+export async function addCanvasItem(
+  canvasId: string,
+  actor: Actor,
+  origin: string,
+  targetCanvasId: string,
+  title: string,
+  placement: Placement,
+  /** `memory=inherit` on the card: the linked canvas's context joins this
+   *  one's (`core/memory.ts`). One property, set at placement. */
+  memory: "inherit" | null = null,
+): Promise<string> {
+  const made = canvasItemOf(origin, targetCanvasId);
+  const blob = new Blob([made.blob], { type: made.mimeType });
+  const upload = await uploadBlob(canvasId, blob, made.filename);
+  const itemId = newItemId();
+  await sendEchoed(canvasId, actor, {
+    type: "item.add",
+    itemId,
+    version: {
+      id: newVersionId(),
+      blobHash: upload.blobHash,
+      mimeType: made.mimeType,
+      filename: made.filename,
+      size: upload.size,
+    },
+    ...CANVAS_ITEM_SIZE,
+    placement,
+    title,
+    properties: { ...made.properties, ...(memory ? { [MEMORY_PROP]: memory } : {}) },
   });
   return itemId;
 }

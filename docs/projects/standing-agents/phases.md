@@ -4,7 +4,7 @@
 phase ends with **Trajectory**: only what the phase discovered that
 changes the project's course.
 
-**Where we are: phase 1 closed (2026-09-01); phase 2 is next.**
+**Where we are: all four phases closed (2026-09-03). The walk is done.**
 
 ## Phase 1 — One name, one machine, many canvases
 
@@ -46,6 +46,23 @@ once there is more than one.
 **Proof:** the running-rc test with two canvases — a comment on each,
 answered on each, one session handle per agent.
 
+**Status: CLOSED (2026-09-03).** The door went to the explicit word:
+`isocan rc --all` answers on every canvas the machine's enrolment
+records name (plus the bound one); bare `rc` is unchanged, and an
+unbound bare `rc` still refuses rather than doing something large by
+default. The rc's body became `runRcRoom`, one per canvas, run together;
+what must not be per canvas is `RcShared` — the ceiling and cycle guard
+keyed by actor, the ACP session handle keyed by actor (a summons on any
+canvas resumes the same conversation, `ISOCAN_CANVAS` saying which one
+asked), one auto-upgrade per process, and one Ctrl-C standing every
+announcement down. Narration carries `rc[<title>]:` once there is more
+than one room.
+
+**Trajectory.** The extraction found nothing per canvas that wanted to
+be per agent except the three things the phase named, and one it did
+not: the auto-upgrade, which would have run once per room. Phase 3 is
+unchanged.
+
 ## Phase 3 — `available` in the web roster
 
 **Outcome:** an answerable-but-not-running agent renders as a third
@@ -55,10 +72,37 @@ the web learns.
 **Proof:** a web test for the three states, and the accessibility pass
 (a state told by colour alone is not told).
 
+**Status: CLOSED (2026-09-03).** The facepile now takes the `answerable`
+set — the same connection-bound set the agent tray reads, so the two
+cannot disagree — and gives each answerable agent a face in the third
+state: dimmed, ringed in the live wash, with a status that says "standing
+by" in words, which is what the tooltip and the aria label carry. Phase
+2.5's stand-in, which gave the rc's own announcement session a face
+wearing the person, is gone: the person at the terminal is not standing
+by, their agents are. The announcement survives for the add-agent
+dialog's footer.
+
+**Trajectory.** None. Phase 4 is unchanged.
+
 ## Phase 4 — `isocan history <actor>`
 
 **Outcome:** the cross-canvas fold: every canvas an actor has stood on,
 what it did there, from the logs. No new state.
+
+**Status: CLOSED (2026-09-03).** `isocan history <actor>` already
+folded what an actor DID across canvases; it now leads with where they
+STAND: a row per canvas where they are enrolled, acted, or are — the
+strongest true state (`here`, `answerable` while an rc holds them,
+`enrolled` with nobody listening), what they did there, how many of
+those acts were comments, and when the last was. `lensStanding` in
+core is the fold, from the rosters, the logs and presence the daemon
+already holds; the lens page reads the same fold for a subject. No new
+state, and the number that says whether a standing agent is earning its
+keep — replies against acts, per canvas — is one table.
+
+**Trajectory.** The walk is done. What it leaves standing is what it
+said it would: the actor credential for a second machine, and agents
+that spawn agents.
 
 ## Deliberately not in the walk
 

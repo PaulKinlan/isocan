@@ -1,6 +1,17 @@
+import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
-import type { ActorClaim, Attestation, Capability, Grant } from "@isocan/core";
-import { SHELF, upsertAttestation } from "@isocan/core";
+import type { ActorClaim, Attestation, Capability, Grant, GrantSubject, Group, Space } from "@isocan/core";
+import {
+  groupSubject,
+  isGroupLive,
+  isLive,
+  isSpaceGrant,
+  isSpaceLive,
+  narrowed,
+  scopeOf,
+  SHELF,
+  upsertAttestation,
+} from "@isocan/core";
 import { appendLineDurable, readJson, readJsonLines, writeFileAtomic } from "./fsutil.ts";
 import * as p from "./paths.ts";
 import type { Admission, BadgeRecord, Desk, PassRecord, Provenance } from "./desk.ts";
@@ -70,7 +81,25 @@ type DeskLogEntry =
   | { seq: number; type: "pass"; pass: PassRecord; at: string }
   | { seq: number; type: "redeem"; passId: string; by: string; at: string }
   | { seq: number; type: "attest"; badgeId: string; attestation: Attestation; at: string }
-  | { seq: number; type: "kill"; badgeId: string; by: string; at: string };
+  | { seq: number; type: "kill"; badgeId: string; by: string; at: string }
+  /** A space, WHOLE, on every write (roles phase 4): creation, a canvas added
+   * or removed, the tombstone. Replayed as a replacement, not a `??=`, because
+   * the latest write is the row. Losing one would quietly widen or narrow who
+   * may enter every canvas in it, which is the direction a lost file must
+   * never fail in. */
+  | { seq: number; type: "space"; space: Space; at: string }
+  /** A group, WHOLE, on every write (roles phase 5), for the space's reason:
+   * losing a member removal would quietly re-admit somebody to every canvas
+   * the group reaches. */
+  | { seq: number; type: "group"; group: Group; at: string }
+  /** **This home's content-signing key** (content-read-auth.md, option A),
+   * written exactly once and never again. Logged for the sharpest of the
+   * durability reasons on this list: losing it does not lose access, it
+   * INVALIDATES every URL already in a living page — every frame on every
+   * open tab breaks at once and stays broken until each one re-mints. A key
+   * is also the one row here that a replay must never overwrite with a newer
+   * one, and it cannot: it is written only when there is none. */
+  | { seq: number; type: "contentkey"; key: string; at: string };
 
 /** `Omit` over a union collapses it to the shared keys; this distributes. */
 type NewEntry<T> = T extends unknown ? Omit<T, "seq"> : never;
@@ -88,6 +117,19 @@ interface DeskSnapshot {
    * but id — a pass is presented, never listed — so this needs none of the
    * denormalization the badge documents carry. */
   passes: Record<string, PassRecord>;
+  /** `spaces/{id}` (roles phase 4), keyed by space id. Absent in every desk
+   * written before spaces, and correctly EMPTY: a canvas whose space was
+   * never written is in no space, which is what every canvas was. */
+  spaces?: Record<string, Space>;
+  /** `groups/{id}` (roles phase 5), keyed by group id. Absent before groups,
+   * and correctly EMPTY: a `group:` row whose group was never written admits
+   * nobody. */
+  groups?: Record<string, Group>;
+  /** The HMAC key this home signs content reads with (content-read-auth.md).
+   * Absent on every desk written before it, and absent means "not minted
+   * yet" — the first ask mints one. Local homes never ask: loopback content
+   * reads carry no signature and need none. */
+  contentKey?: string;
 }
 
 /** How stale `lastSeen` may get before a touch costs a snapshot rewrite. A
@@ -96,7 +138,7 @@ interface DeskSnapshot {
 const TOUCH_DEBOUNCE_MS = 60_000;
 
 export class FileDesk implements Desk {
-  private state: DeskSnapshot = { lastSeq: 0, badges: {}, shelf: {}, grants: {}, passes: {} };
+  private state: DeskSnapshot = { lastSeq: 0, badges: {}, shelf: {}, grants: {}, passes: {}, spaces: {}, groups: {} };
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(readonly home: string) {}
@@ -117,6 +159,15 @@ export class FileDesk implements Desk {
       // safe reading: a pass nobody can find is a pass nobody can redeem,
       // which is what an unknown row must always mean here.
       passes: snapshot?.passes ?? {},
+      // Absent in every desk written before roles phase 4; empty means every
+      // canvas is in no space, which is the truth about all of them.
+      spaces: snapshot?.spaces ?? {},
+      // Absent before roles phase 5; empty means no group exists, so a
+      // `group:` row admits nobody, which is the only safe reading.
+      groups: snapshot?.groups ?? {},
+      // Absent until a hosted home first signs a content read. Undefined
+      // means "none minted", never "sign with nothing".
+      ...(snapshot?.contentKey ? { contentKey: snapshot.contentKey } : {}),
     };
     // Crash recovery: replay any log tail the snapshot doesn't cover.
     let recovered = false;
@@ -231,9 +282,10 @@ export class FileDesk implements Desk {
       canvasId,
       provenance,
       at: new Date().toISOString(),
-      // Stored only when it narrows: absent has meant "edit" since before the
-      // field existed, and both backings keep that reading.
-      ...(capability === "view" ? { capability } : {}),
+      // Stored whenever it is not edit (`narrowed`, the one place that
+      // decides): absent has meant "edit" since before the field existed, and
+      // both backings keep that reading.
+      ...(narrowed(capability) ? { capability } : {}),
     };
     badge.admissions = [...badge.admissions, admission];
     await this.enqueue(() => this.writeSnapshot());
@@ -269,7 +321,7 @@ export class FileDesk implements Desk {
               canvasId: a.canvasId,
               at: a.at,
               provenance,
-              ...(capability === "view" ? { capability } : {}),
+              ...(narrowed(capability) ? { capability } : {}),
             }
           : a,
       );
@@ -330,8 +382,122 @@ export class FileDesk implements Desk {
     // matters is that the SEAM is a query, so `CloudDesk` serves it with
     // `where("canvasId", "==", …)` and an index rather than a scan.
     return Object.values(this.state.grants)
-      .filter((grant) => grant.canvasId === canvasId)
+      .filter((grant) => !isSpaceGrant(grant) && grant.canvasId === canvasId)
       .map((grant) => ({ ...grant }));
+  }
+
+  async grantsForSpace(spaceId: string): Promise<Grant[]> {
+    // The other arm of `GrantScope`, the same walk; `CloudDesk` serves it
+    // with `where("spaceId", "==", …)`.
+    return Object.values(this.state.grants)
+      .filter((grant) => isSpaceGrant(grant) && grant.spaceId === spaceId)
+      .map((grant) => ({ ...grant }));
+  }
+
+  // ---- spaces (roles phase 4) ----
+
+  async putSpace(space: Space): Promise<void> {
+    await this.enqueue(async () => {
+      this.spaces()[space.id] = { ...space, canvasIds: [...space.canvasIds] };
+      await this.append({ type: "space", space, at: new Date().toISOString() });
+    });
+  }
+
+  async space(spaceId: string): Promise<Space | null> {
+    const found = this.spaces()[spaceId];
+    return found ? { ...found, canvasIds: [...found.canvasIds] } : null;
+  }
+
+  async spaceOf(canvasId: string): Promise<Space | null> {
+    // A walk over the spaces, live ones only — the SEAM is the query, and
+    // `CloudDesk` serves it from a derived `holding` array with an index.
+    const found = Object.values(this.spaces()).find(
+      (space) => isSpaceLive(space) && space.canvasIds.includes(canvasId),
+    );
+    return found ? { ...found, canvasIds: [...found.canvasIds] } : null;
+  }
+
+  async spacesFor(badge: BadgeRecord): Promise<Space[]> {
+    // The same bounded questions the cloud desk asks, as walks: by creator
+    // for each actor the badge claims, and by the live rows whose subject is
+    // one of its attested attributes. Never "every space", even here, so
+    // the file desk cannot pass a test the cloud desk would fail.
+    const seen = new Map<string, Space>();
+    const keep = (space: Space | undefined) => {
+      if (space && isSpaceLive(space) && !seen.has(space.id)) {
+        seen.set(space.id, { ...space, canvasIds: [...space.canvasIds] });
+      }
+    };
+    const spaces = this.spaces();
+    const actorIds = new Set(badge.claims.map((claim) => claim.actorId));
+    for (const space of Object.values(spaces)) {
+      if (actorIds.has(space.createdBy)) keep(space);
+    }
+    const attributes = new Set((badge.attestations ?? []).map((row) => row.attribute));
+    for (const grant of Object.values(this.state.grants)) {
+      if (!isLive(grant) || !attributes.has(grant.subject)) continue;
+      const scope = scopeOf(grant);
+      if (scope.kind === "space") keep(spaces[scope.id]);
+    }
+    // The third branch (roles phase 5): the live groups holding one of the
+    // attributes, then the live rows naming each as `group:<id>` that name a
+    // space. The same walk `CloudDesk` serves with `array-contains` on
+    // `members` and `subject` equality.
+    const inGroups = new Set(
+      Object.values(this.groups())
+        .filter((group) => isGroupLive(group) && group.members.some((member) => attributes.has(member)))
+        .map((group) => groupSubject(group.id)),
+    );
+    if (inGroups.size > 0) {
+      for (const grant of Object.values(this.state.grants)) {
+        if (!isLive(grant) || !inGroups.has(grant.subject)) continue;
+        const scope = scopeOf(grant);
+        if (scope.kind === "space") keep(spaces[scope.id]);
+      }
+    }
+    return [...seen.values()];
+  }
+
+  /** The spaces ledger, which a desk from before roles phase 4 lacks. */
+  private spaces(): Record<string, Space> {
+    return (this.state.spaces ??= {});
+  }
+
+  // ---- groups (roles phase 5) ----
+
+  async putGroup(group: Group): Promise<void> {
+    await this.enqueue(async () => {
+      this.groups()[group.id] = { ...group, members: [...group.members] };
+      await this.append({ type: "group", group, at: new Date().toISOString() });
+    });
+  }
+
+  async group(groupId: string): Promise<Group | null> {
+    const found = this.groups()[groupId];
+    return found ? { ...found, members: [...found.members] } : null;
+  }
+
+  async groupsFor(badge: BadgeRecord): Promise<Group[]> {
+    // By creator, for each actor the badge claims — the one bounded question
+    // this list answers. Never "every group", and never the groups a badge is
+    // merely IN: those are the owner's list, members and all.
+    const actorIds = new Set(badge.claims.map((claim) => claim.actorId));
+    return Object.values(this.groups())
+      .filter((group) => isGroupLive(group) && actorIds.has(group.createdBy))
+      .map((group) => ({ ...group, members: [...group.members] }));
+  }
+
+  async grantsBySubject(subject: GrantSubject): Promise<Grant[]> {
+    // The same walk as `grantsFor`, by subject and live rows only; `CloudDesk`
+    // serves it with `where("subject", "==", …)`.
+    return Object.values(this.state.grants)
+      .filter((grant) => isLive(grant) && grant.subject === subject)
+      .map((grant) => ({ ...grant }));
+  }
+
+  /** The groups ledger, which a desk from before roles phase 5 lacks. */
+  private groups(): Record<string, Group> {
+    return (this.state.groups ??= {});
   }
 
   async putGrant(grant: Grant): Promise<void> {
@@ -416,6 +582,26 @@ export class FileDesk implements Desk {
       for (const [key, row] of Object.entries(rows)) this.state.shelf[key] = row;
       await this.append({ type: "shelve", rows, at: new Date().toISOString() });
     });
+  }
+
+  /**
+   * Mint once, then answer the same key forever. The write chain is what
+   * makes "once" true here: two callers racing arrive one after the other,
+   * and the second sees the first's key rather than replacing it.
+   *
+   * 256 bits from the CSPRNG — `mintBadge`'s number, because it is the same
+   * kind of secret and there is no reason for this home to hold two opinions
+   * about how long a secret is.
+   */
+  async contentKey(): Promise<string> {
+    if (this.state.contentKey) return this.state.contentKey;
+    await this.enqueue(async () => {
+      if (this.state.contentKey) return;
+      const key = randomBytes(32).toString("base64url");
+      this.state.contentKey = key;
+      await this.append({ type: "contentkey", key, at: new Date().toISOString() });
+    });
+    return this.state.contentKey!;
   }
 
   // ---- internals ----
@@ -522,6 +708,24 @@ export class FileDesk implements Desk {
         if (!badge || badge.killedAt !== undefined) return;
         badge.killedAt = entry.at;
         badge.killedBy = entry.by;
+        return;
+      }
+      case "space": {
+        // A replacement, not `??=`: the log carries the space whole on every
+        // write, and the newest write is the row.
+        this.spaces()[entry.space.id] = { ...entry.space, canvasIds: [...entry.space.canvasIds] };
+        return;
+      }
+      case "group": {
+        // A replacement, like a space's: the newest write is the row.
+        this.groups()[entry.group.id] = { ...entry.group, members: [...entry.group.members] };
+        return;
+      }
+      case "contentkey": {
+        // `??=`, and it is the strong kind: a key is written once, so a
+        // second entry could only come from a log two homes wrote into — and
+        // there the FIRST key is the one whose signatures are in flight.
+        this.state.contentKey ??= entry.key;
         return;
       }
     }

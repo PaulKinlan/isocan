@@ -69,6 +69,44 @@ export function itemUrl(origin: string, canvasId: string, itemId: string): strin
 }
 
 /**
+ * **The deck, laid out for paper** (`docs/research/2026-09-04-deck-export.md`).
+ *
+ * Every slide of a canvas stacked on one page, one per sheet when printed —
+ * the view the browser's own Save-as-PDF turns into a document, and the
+ * view the CLI's headless Chrome prints to `deck.pdf`, so both surfaces
+ * produce the same pages from the same address. A route for the reason
+ * full screen is one: it is an address either surface can hand you.
+ */
+const DECK_PATH_SEGMENT = "deck";
+export const DECK_ROUTE = `${CANVAS_ROUTE}/${DECK_PATH_SEGMENT}`;
+
+export function deckPath(canvasId: string): string {
+  return `${canvasPath(canvasId)}/${DECK_PATH_SEGMENT}`;
+}
+
+export function deckUrl(origin: string, canvasId: string): string {
+  return `${origin.replace(/\/+$/, "")}${deckPath(canvasId)}`;
+}
+
+/**
+ * **A module's page** (`docs/projects/modules/design.md`, phase 4): a whole
+ * section a module adds — the Documents page is the first — under `x/`, so
+ * a module's segment can never collide with a route the product adds later.
+ * A cover route like the workbench and the deck view: an address either
+ * surface can hand you, and `isocan open --page <segment>` does.
+ */
+const MODULE_PAGE_PATH_SEGMENT = "x";
+export const MODULE_PAGE_ROUTE = `${CANVAS_ROUTE}/${MODULE_PAGE_PATH_SEGMENT}/:segment`;
+
+export function modulePagePath(canvasId: string, segment: string): string {
+  return `${canvasPath(canvasId)}/${MODULE_PAGE_PATH_SEGMENT}/${segment}`;
+}
+
+export function modulePageUrl(origin: string, canvasId: string, segment: string): string {
+  return `${origin.replace(/\/+$/, "")}${modulePagePath(canvasId, segment)}`;
+}
+
+/**
  * **The workbench: the same canvas, flipped to the agent room.**
  *
  * A second projection of the canvas — the agent roster, the main thread, and

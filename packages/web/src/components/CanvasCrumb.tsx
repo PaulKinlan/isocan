@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import type { Actor } from "@isocan/core";
 
 import { useDismissOnOutside } from "../lib/dismiss.ts";
@@ -7,8 +7,14 @@ import { useUiStore } from "../stores/uiStore.ts";
 import { Presence } from "./Presence.tsx";
 import { CanvasEditor } from "./CanvasEditor.tsx";
 import { IdentityMenu } from "./IdentityMenu.tsx";
-import { ShareDialog } from "./ShareDialog.tsx";
-import { ShareGlyph } from "./Glyphs.tsx";
+/**
+ * Loaded when Share is clicked, not when the canvas is. The dialog is the
+ * largest component in the app after `ItemView`, it is a modal most sessions
+ * never open, and it was riding in the entry chunk on every visit.
+ */
+const ShareDialog = lazy(() => import("./ShareDialog.tsx").then((m) => ({ default: m.ShareDialog })));
+import { ChevronGlyph, ShareGlyph } from "./Glyphs.tsx";
+import { useCanEdit } from "../lib/capability.ts";
 
 /**
  * **What is true wherever you are on a canvas.**
@@ -35,6 +41,7 @@ import { ShareGlyph } from "./Glyphs.tsx";
  */
 export function CanvasTitle({ actor }: { actor: Actor }) {
   const canvas = useCanvasStore((s) => s.project);
+  const canEdit = useCanEdit();
   const [editing, setEditing] = useState(false);
   const nameRef = useDismissOnOutside<HTMLDivElement>(editing, () => setEditing(false));
 
@@ -42,15 +49,33 @@ export function CanvasTitle({ actor }: { actor: Actor }) {
     <div className="canvas-name" ref={nameRef}>
       <button
         className="title"
-        disabled={!canvas}
+        // A reader reads the title; renaming is `project.update`, a write.
+        disabled={!canvas || !canEdit}
         title={
           canvas
-            ? `${canvas.description ? `${canvas.description}\n\n` : ""}Rename this canvas`
+            ? `${canvas.description ? `${canvas.description}\n\n` : ""}${canEdit ? "Rename this canvas" : "You may read this canvas but not change it"}`
             : undefined
         }
         onClick={() => setEditing(!editing)}
       >
         {canvas?.title ?? "…"}
+      </button>
+      {/* **The switcher's handle, beside the name it would replace.** A
+          canvas's name with a caret is the shape every app with several
+          documents uses for "the others are under here", and it is the one
+          entry point that does not need a key to be found. Two glyphs wide,
+          and the only thing in the bar that grew: the drawer's `···` and the
+          rail already hold everything else that goes somewhere. Shown to a
+          reader too — switching is not a write. */}
+      <button
+        className="btn canvas-switch"
+        title="Switch canvas (⌘O)"
+        aria-label="Switch canvas"
+        aria-haspopup="dialog"
+        disabled={!canvas}
+        onClick={() => useUiStore.getState().setPaletteOpen("canvases")}
+      >
+        <ChevronGlyph />
       </button>
       {editing && canvas && (
         <div className="canvas-popover">
@@ -140,7 +165,9 @@ export function ShareButton({ actor }: { actor: Actor }) {
       </button>
       {shareOpen && canvas && (
         <div className="identity-popover share-popover">
-          <ShareDialog actor={actor} onClose={() => useUiStore.getState().setShareOpen(false)} />
+          <Suspense fallback={null}>
+            <ShareDialog actor={actor} onClose={() => useUiStore.getState().setShareOpen(false)} />
+          </Suspense>
         </div>
       )}
     </div>

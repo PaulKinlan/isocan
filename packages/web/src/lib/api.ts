@@ -18,6 +18,8 @@ import type {
   HomesResponse,
   NewsResponse,
   PresenceWhereResponse,
+  ActorKinds,
+  DocExportResponse,
   KillBadgeResponse,
   LogEntry,
   MintPassResponse,
@@ -32,26 +34,50 @@ import type {
   RcAskResponse,
   RedeemPassResponse,
   ServingResponse,
+  SignedBlobsResponse,
   SlashCommand,
+  SpaceCanvasResponse,
+  SpaceLinkRequest,
+  SpaceLinkResponse,
+  SpaceResponse,
+  SpacesResponse,
+  GroupResponse,
+  GroupsResponse,
 } from "@isocan/core";
 import {
   ATTEST_ROUTE,
+  groupActingRoute,
+  groupMemberRoute,
+  groupRoute,
+  GROUPS_ROUTE,
+  spaceActingRoute,
+  spaceCanvasRoute,
+  spaceGrantRevokeRoute,
+  spaceGrantsRoute,
+  spaceLinkRoute,
+  spaceRoute,
+  SPACES_ROUTE,
   badgeRoute,
   BADGES_ROUTE,
   DOOR_ROUTE,
   encodeFilename,
   FILENAME_HEADER,
-  grantRoute,
+  grantRevokeRoute,
   grantsRoute,
   HOMES_ROUTE,
+  narrowed,
   NEWS_ROUTE,
   PRESENCE_WHERE_ROUTE,
+  ACTOR_KINDS_ROUTE,
+  DOC_EXPORT_ROUTE,
   newClientId,
   newOpId,
   PASS_REDEEM_ROUTE,
   passesRoute,
   canvasesRoute,
   SERVING_ROUTE,
+  SIGN_BLOBS_PARAM,
+  SIGN_BLOBS_ROUTE,
 } from "@isocan/core";
 
 /** Stable per-tab id so a client can recognize its own ops in broadcasts. */
@@ -62,6 +88,9 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly code?: string,
+    /** Why, when the code alone does not say — `withdrawn` on a
+     * `not-admitted` from a badge that had been inside. */
+    readonly reason?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -167,7 +196,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     res = await send();
     json = (await res.json().catch(() => null)) as any;
   }
-  if (!res.ok) throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
+  if (!res.ok) throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
   return json as T;
 }
 
@@ -300,6 +329,11 @@ export function fetchActorMarks(): Promise<ActorMarks> {
 
 export function fetchActorNames(): Promise<ActorNames> {
   return request("GET", "/api/names");
+}
+
+/** Who is an agent — actor id → "agent", people absent. See `useActorKinds`. */
+export function fetchActorKinds(): Promise<ActorKinds> {
+  return request("GET", ACTOR_KINDS_ROUTE);
 }
 
 /** Every slash command available here — built-ins under this home's own. */
@@ -529,7 +563,7 @@ export async function uploadBlob(
   }
   if (res.status === 401 && (await knockOnDoor())) res = await send();
   const json = (await res.json().catch(() => null)) as any;
-  if (!res.ok) throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
+  if (!res.ok) throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
   return json as BlobUploadResponse;
 }
 
@@ -595,7 +629,7 @@ export async function readBoundFile(canvasId: string, path: string): Promise<Arr
   if (res.status === 401 && (await knockOnDoor())) res = await fetch(url);
   if (!res.ok) {
     const json = (await res.json().catch(() => null)) as any;
-    throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
+    throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
   }
   return res.arrayBuffer();
 }
@@ -744,11 +778,16 @@ export function createGrant(
   canvasId: string,
   subject: GrantSubject,
   capability?: Capability,
+  /** Who is acting — the persona this tab wears. A write to grants asks
+   * `own`, which a person holds, and a browser's badge may hold several. */
+  actorId?: string,
 ): Promise<GrantResponse> {
   return request("POST", grantsRoute(canvasId), {
     subject,
-    // Sent only when it narrows (#88), so an older home never meets the field.
-    ...(capability === "view" ? { capability } : {}),
+    // Sent whenever it is not edit (#88, `narrowed`), so an older home never
+    // meets the field for the one value it has always meant by omission.
+    ...(narrowed(capability) ? { capability } : {}),
+    ...(actorId ? { actorId } : {}),
   });
 }
 
@@ -758,8 +797,155 @@ export function createGrant(
  * and while `http.ts` now answers that with the 400 it always was, the
  * request that never needed a body should not send headers about one.
  */
-export function revokeGrant(canvasId: string, grantId: string): Promise<GrantResponse> {
-  return request("DELETE", grantRoute(canvasId, grantId));
+export function revokeGrant(
+  canvasId: string,
+  grantId: string,
+  actorId?: string,
+  /** `?bar=1`: revoke and keep them out in one request (roles phase 3). The
+   * parameter's spelling is core's, like the route. */
+  bar?: boolean,
+): Promise<GrantResponse> {
+  return request(
+    "DELETE",
+    grantRevokeRoute(canvasId, grantId, { ...(actorId ? { actorId } : {}), ...(bar ? { bar } : {}) }),
+  );
+}
+
+/**
+ * Keep somebody out (roles phase 3): a bar, written directly — the dialog's
+ * **and keep them out** after a Remove whose answer said the link would still
+ * admit them. The same POST as an invitation, with `bars: true` and no rung;
+ * the home replaces any live row naming them and sweeps.
+ */
+export function createBar(
+  canvasId: string,
+  subject: GrantSubject,
+  actorId?: string,
+): Promise<GrantResponse> {
+  return request("POST", grantsRoute(canvasId), {
+    subject,
+    bars: true,
+    ...(actorId ? { actorId } : {}),
+  });
+}
+
+// ---- the space: a named set of canvases access is set on once (roles phase 4) ----
+//
+// The canvas list's headings, **Move to space…**, and the space's Share
+// dialog drive these; `isocan space` and `isocan share --space` drive the
+// same routes, spelled once in core. A space is at the home, like a grant.
+
+/** The spaces this badge may see — made by an actor it claims, or named by
+ * a live row it satisfies — each with its `canvasIds`, which the canvas list
+ * joins to `GET /api/projects`. A badge admitted to one canvas sees none. */
+export function listSpaces(): Promise<SpacesResponse> {
+  return request("GET", SPACES_ROUTE);
+}
+
+export function createSpace(name: string, actorId?: string): Promise<SpaceResponse> {
+  return request("POST", SPACES_ROUTE, { name, ...(actorId ? { actorId } : {}) });
+}
+
+/** No body, for `revokeGrant`'s reason; the actor rides the query. */
+export function deleteSpace(spaceId: string, actorId?: string): Promise<SpaceCanvasResponse> {
+  return request("DELETE", spaceActingRoute(spaceRoute(spaceId), actorId));
+}
+
+/** **Move to space…** — refused with `canvas-in-space` when the canvas is
+ * in another; move it out first. */
+export function addToSpace(spaceId: string, canvasId: string, actorId?: string): Promise<SpaceCanvasResponse> {
+  return request("PUT", spaceCanvasRoute(spaceId, canvasId), actorId ? { actorId } : {});
+}
+
+/** **No space** — the canvas keeps its own rows and the space's stop
+ * reaching it; the home sweeps it. */
+export function removeFromSpace(spaceId: string, canvasId: string, actorId?: string): Promise<SpaceCanvasResponse> {
+  return request("DELETE", spaceActingRoute(spaceCanvasRoute(spaceId, canvasId), actorId));
+}
+
+export function listSpaceGrants(spaceId: string): Promise<GrantsResponse> {
+  return request("GET", spaceGrantsRoute(spaceId));
+}
+
+export function createSpaceGrant(
+  spaceId: string,
+  subject: GrantSubject,
+  capability?: Capability,
+  actorId?: string,
+): Promise<GrantResponse> {
+  return request("POST", spaceGrantsRoute(spaceId), {
+    subject,
+    ...(narrowed(capability) ? { capability } : {}),
+    ...(actorId ? { actorId } : {}),
+  });
+}
+
+export function createSpaceBar(spaceId: string, subject: GrantSubject, actorId?: string): Promise<GrantResponse> {
+  return request("POST", spaceGrantsRoute(spaceId), {
+    subject,
+    bars: true,
+    ...(actorId ? { actorId } : {}),
+  });
+}
+
+export function revokeSpaceGrant(
+  spaceId: string,
+  grantId: string,
+  actorId?: string,
+  bar?: boolean,
+): Promise<GrantResponse> {
+  return request(
+    "DELETE",
+    spaceGrantRevokeRoute(spaceId, grantId, { ...(actorId ? { actorId } : {}), ...(bar ? { bar } : {}) }),
+  );
+}
+
+/** **Every canvas in this space** (roles journey 4, step 4): the link on
+ * each canvas set to a rung or turned off, in one request, and the answer
+ * says how many canvases it reached. */
+export function setSpaceLink(
+  spaceId: string,
+  capability: SpaceLinkRequest["capability"],
+  actorId?: string,
+): Promise<SpaceLinkResponse> {
+  return request("POST", spaceLinkRoute(spaceId), {
+    capability,
+    ...(actorId ? { actorId } : {}),
+  } satisfies SpaceLinkRequest);
+}
+
+// ---- the group: a named set of people access is given to once (roles phase 5) ----
+//
+// The Groups panel on the canvas list and the Share dialog's group picker
+// drive these; `isocan group` and `isocan share group:<name>` drive the same
+// routes, spelled once in core. A group is at the home, like a grant.
+
+/** The groups this badge's actors made, members and all — the owner's list. */
+export function listGroups(): Promise<GroupsResponse> {
+  return request("GET", GROUPS_ROUTE);
+}
+
+export function createGroup(name: string, actorId?: string): Promise<GroupResponse> {
+  return request("POST", GROUPS_ROUTE, { name, ...(actorId ? { actorId } : {}) });
+}
+
+/** One group: members for its maker; name and size for anybody a live row
+ * naming it lets see it — what a group row in the Share dialog shows. */
+export function readGroup(groupId: string): Promise<GroupResponse> {
+  return request("GET", groupRoute(groupId));
+}
+
+export function addGroupMember(groupId: string, attribute: string, actorId?: string): Promise<GroupResponse> {
+  return request("PUT", groupMemberRoute(groupId, attribute), actorId ? { actorId } : {});
+}
+
+/** No body, for `revokeGrant`'s reason; the actor rides the query. */
+export function removeGroupMember(groupId: string, attribute: string, actorId?: string): Promise<GroupResponse> {
+  return request("DELETE", groupActingRoute(groupMemberRoute(groupId, attribute), actorId));
+}
+
+export function deleteGroup(groupId: string, actorId?: string): Promise<GroupResponse> {
+  return request("DELETE", groupActingRoute(groupRoute(groupId), actorId));
 }
 
 // ---- what this holder has proved (phase 9 stage 2) ----
@@ -895,7 +1081,7 @@ async function fetchBlob(canvasId: string, blobHash: string): Promise<Response> 
   if (res.status === 401 && (await knockOnDoor())) res = await fetch(url);
   if (!res.ok) {
     const json = (await res.json().catch(() => null)) as any;
-    throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
+    throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
   }
   return res;
 }
@@ -922,6 +1108,24 @@ export function getServing(): Promise<ServingResponse> {
   return request("GET", SERVING_ROUTE);
 }
 
+/**
+ * **Ask the badged app origin for URLs that will work on the content
+ * origin** (`docs/projects/multiuser/content-read-auth.md`, option A).
+ *
+ * A read through the door, on a route the door has already tested `canvasId
+ * ∈ admissions` for — which is why an expelled tab gets nothing here rather
+ * than getting URLs that fail later. `request` brings the 401 recovery with
+ * it: a tab whose badge lapsed knocks and asks again, exactly as it does for
+ * every other chrome read.
+ *
+ * Never called on a home that serves item content unsigned; `contentBase.ts`
+ * asks only when `/api/serving` said so.
+ */
+export function signedBlobs(canvasId: string, hashes: string[]): Promise<SignedBlobsResponse> {
+  const path = SIGN_BLOBS_ROUTE.replace(":id", encodeURIComponent(canvasId));
+  return request("GET", `${path}?${SIGN_BLOBS_PARAM}=${hashes.map(encodeURIComponent).join(",")}`);
+}
+
 
 /**
  * Whether a site will let itself be shown in a frame — asked of the daemon,
@@ -932,6 +1136,15 @@ export function getServing(): Promise<ServingResponse> {
  * free to try. Refusing a site on a failed probe would be worse than the
  * blank frame this exists to prevent.
  */
+/**
+ * A Google Doc's markdown, through the daemon — a browser cannot read
+ * docs.google.com across origins. Throws with the daemon's words when the
+ * doc is private or Google is unreachable, so the dialog can say why.
+ */
+export async function exportDoc(url: string): Promise<DocExportResponse> {
+  return request("GET", `${DOC_EXPORT_ROUTE}?url=${encodeURIComponent(url)}`);
+}
+
 export async function checkFrameable(
   url: string,
 ): Promise<{ ok: boolean; why?: string; url?: string }> {

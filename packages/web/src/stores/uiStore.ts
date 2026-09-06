@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { InkPoint, InkStroke, TextFace, TextStyle, Paper } from "@isocan/core";
+import type { AddKind, InkPoint, InkStroke, TextFace, TextStyle, Paper } from "@isocan/core";
 import { TEXT_FACES, TEXT_STYLES, isPaper } from "@isocan/core";
 import type { Clipboard } from "../lib/clipboard.ts";
 import type { MenuEntry } from "../components/ContextMenu.tsx";
@@ -8,6 +8,9 @@ import type { Viewport } from "../lib/viewport.ts";
 
 /** The pointer tools on the right rail. */
 export type Tool = "select" | "hand" | "comment" | "zoom" | "pen" | "text";
+
+/** The two faces of the ⌘K window — see `paletteOpen`. */
+export type PaletteMode = "commands" | "canvases";
 
 export interface DragState {
   /** Every item riding this gesture — the whole selection for a group drag. */
@@ -129,6 +132,15 @@ interface UiStore {
    * comment code already reads — the two never disagree. */
   activeTool: Tool;
   commentMode: boolean;
+  /** The mark being PLACED: while set, a click on a sketch on the wall puts
+   *  this emoji where the click landed (sprint phase 4's heat map). Local,
+   *  like a tool; Escape clears it. Null is the ordinary pointer. */
+  stamp: string | null;
+  /** The place-a-canvas popup is open (inception phase 1) — shared, so ⌘K
+   *  can open the same popover the rail's button does. */
+  /** The one Add door: closed, open to anything, or opened on a kind (a row
+   *  in the popover, or a launcher action that knew what it wanted). */
+  adding: AddKind | "any" | null;
   trashOpen: boolean;
   /** The identity menu, opened by clicking your own face in the pile. */
   identityOpen: boolean;
@@ -141,6 +153,10 @@ interface UiStore {
   /** The minimap, which folds away into its corner. Remembered per browser:
    * someone who put it away wants it away tomorrow too. */
   minimapOpen: boolean;
+  /** Full screen shows the slide's speaker note to the presenter (N). A
+   *  mode you flip, remembered per browser like the minimap. */
+  presenterNotes: boolean;
+  setPresenterNotes: (on: boolean) => void;
   /** The docked files panel — the canvas as a list of files. Shares the left
    * dock with the main thread (see lib/panels.ts). */
   filesPanelOpen: boolean;
@@ -169,12 +185,38 @@ interface UiStore {
    * composer once it has taken it, so it cannot re-apply on the next render.
    */
   pendingChat: string | null;
-  /** The ⌘K launcher. */
-  paletteOpen: boolean;
+  /**
+   * The ⌘K launcher, and which face it is wearing: `commands` is the list of
+   * things to do, `canvases` is the switcher — the same window, so ⌘K's
+   * "Switch canvas…" row flips it rather than opening a second one over it.
+   * `null` is closed.
+   */
+  paletteOpen: PaletteMode | null;
+  /**
+   * The beat between choosing another canvas and standing on it: `out` while
+   * this one recedes, `in` while the next one arrives. Set by
+   * `lib/canvasswitch.ts`, worn by the canvas surface as a class, and null
+   * the rest of the time — so a navigation that is not a switch (Back, a
+   * typed address) plays nothing.
+   */
+  switching: "out" | "in" | null;
   /** The history scrubber along the bottom. Whether it is OPEN lives here;
    * where its playhead is standing lives in `canvasStore.past`, because that
    * is canvas state and every reader of the canvas has to see it. */
   historyOpen: boolean;
+  /** Controls this browser has hidden — ids from `lib/chrome.ts`. Local, per
+   *  browser, like the theme: taste, not a canvas fact. */
+  hiddenChrome: string[];
+  setChromeHidden: (id: string, hidden: boolean) => void;
+  /** Bumped when a runtime module arrives after first paint (modules phase
+   *  3), so the slots that read the module list re-render. Never stored. */
+  modulesGeneration: number;
+  bumpModules: () => void;
+  /** Google Doc items this browser shows LIVE — the `/preview` frame in
+   *  place of the words (Google Docs stage 4). A mode you flip, remembered
+   *  per person, never a second item. */
+  liveDocs: string[];
+  setDocLive: (itemId: string, live: boolean) => void;
   /** Item a panel row is pointing at right now: the canvas outlines it, so a
    * name in a list and a thing on the surface are visibly the same thing. */
   peekedItemId: string | null;
@@ -227,6 +269,8 @@ interface UiStore {
   undoStroke: () => void;
   clearSketch: () => void;
   setActiveTool: (tool: Tool) => void;
+  setStamp: (stamp: string | null) => void;
+  setAdding: (adding: AddKind | "any" | null) => void;
   setCommentMode: (on: boolean) => void;
   setTrashOpen: (open: boolean) => void;
   setIdentityOpen: (open: boolean) => void;
@@ -241,7 +285,8 @@ interface UiStore {
   setMarksOpen: (open: boolean) => void;
   setHistoryOpen: (open: boolean) => void;
   setPendingChat: (text: string | null) => void;
-  setPaletteOpen: (open: boolean) => void;
+  setPaletteOpen: (open: PaletteMode | null) => void;
+  setSwitching: (phase: "out" | "in" | null) => void;
   setPeeked: (itemId: string | null) => void;
   setHoveredItem: (itemId: string | null) => void;
   setNewsOpen: (open: boolean) => void;
@@ -266,6 +311,7 @@ interface UiStore {
 
 const INK_KEY = "isocan.ink";
 const MINIMAP_KEY = "isocan.minimap";
+const PRESENTER_NOTES_KEY = "isocan.presenterNotes";
 const PANEL_WIDTH_KEY = "isocan.panelWidth";
 const WB_AGENTS_WIDTH_KEY = "isocan.wb.agents.width";
 /** The workbench agent column's floor — V1's fixed grid, now the reset. */
@@ -350,6 +396,38 @@ function readWbAgentsWidth(): number {
   } catch {
     return WB_AGENTS_MIN_WIDTH;
   }
+}
+
+const HIDDEN_CHROME_KEY = "isocan.hiddenChrome";
+const LIVE_DOCS_KEY = "isocan.liveDocs";
+
+/** A list of ids in local storage; anything unreadable is the empty list,
+ *  which is the default a fresh browser has. */
+function readIdList(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((one): one is string => typeof one === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeIdList(key: string, ids: string[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(ids));
+  } catch {
+    // Storage denied: the choice holds for this session and no longer.
+  }
+}
+
+/** The hidden controls (chrome you can turn off). */
+function readHiddenChrome(): string[] {
+  return readIdList(HIDDEN_CHROME_KEY);
+}
+
+function writeHiddenChrome(ids: string[]): void {
+  writeIdList(HIDDEN_CHROME_KEY, ids);
 }
 
 function readFlag(key: string, fallback: boolean): boolean {
@@ -480,11 +558,14 @@ export const useUiStore = create<UiStore>((set) => {
     inkColor: readInkColor(),
     activeTool: "select",
     commentMode: false,
+    stamp: null,
+    adding: null,
     trashOpen: false,
     identityOpen: false,
     shareOpen: false,
     mainPanelOpen: false,
     minimapOpen: readFlag(MINIMAP_KEY, true),
+    presenterNotes: readFlag(PRESENTER_NOTES_KEY, false),
     panelWidth: readPanelWidth(),
     panelResizing: false,
     panning: false,
@@ -496,8 +577,13 @@ export const useUiStore = create<UiStore>((set) => {
     followingActorId: null,
     marksOpen: false,
     historyOpen: false,
+    hiddenChrome: readHiddenChrome(),
+    modulesGeneration: 0,
+    bumpModules: () => set((s) => ({ modulesGeneration: s.modulesGeneration + 1 })),
+    liveDocs: readIdList(LIVE_DOCS_KEY),
     pendingChat: null,
-    paletteOpen: false,
+    paletteOpen: null,
+    switching: null,
     peekedItemId: null,
     hoveredItemId: null,
     newsOpen: false,
@@ -555,6 +641,8 @@ export const useUiStore = create<UiStore>((set) => {
     // activeTool is the source of truth; commentMode is its "comment" facet,
     // set together so the two can never drift.
     setActiveTool: (activeTool) => set({ activeTool, commentMode: activeTool === "comment" }),
+    setStamp: (stamp) => set({ stamp }),
+    setAdding: (adding) => set({ adding }),
     setCommentMode: (commentMode) =>
       set((s) => ({
         commentMode,
@@ -573,8 +661,29 @@ export const useUiStore = create<UiStore>((set) => {
     setFollowingActor: (followingActorId) => set({ followingActorId }),
     setMarksOpen: (marksOpen) => set({ marksOpen }),
     setHistoryOpen: (historyOpen) => set({ historyOpen }),
+    setChromeHidden: (id, hidden) =>
+      set((s) => {
+        const hiddenChrome = hidden
+          ? s.hiddenChrome.includes(id)
+            ? s.hiddenChrome
+            : [...s.hiddenChrome, id]
+          : s.hiddenChrome.filter((one) => one !== id);
+        writeHiddenChrome(hiddenChrome);
+        return { hiddenChrome };
+      }),
+    setDocLive: (itemId, live) =>
+      set((s) => {
+        const liveDocs = live
+          ? s.liveDocs.includes(itemId)
+            ? s.liveDocs
+            : [...s.liveDocs, itemId]
+          : s.liveDocs.filter((one) => one !== itemId);
+        writeIdList(LIVE_DOCS_KEY, liveDocs);
+        return { liveDocs };
+      }),
     setPendingChat: (pendingChat) => set({ pendingChat }),
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+    setSwitching: (switching) => set({ switching }),
     setPeeked: (peekedItemId) => set({ peekedItemId }),
     setHoveredItem: (hoveredItemId) => set({ hoveredItemId }),
     setNewsOpen: (newsOpen) => set({ newsOpen }),
@@ -618,6 +727,10 @@ export const useUiStore = create<UiStore>((set) => {
         // Storage denied: the width holds for this session and no longer.
       }
       set({ wbAgentsWidth });
+    },
+    setPresenterNotes: (presenterNotes) => {
+      writeFlag(PRESENTER_NOTES_KEY, presenterNotes);
+      set({ presenterNotes });
     },
     setMinimapOpen: (minimapOpen) => {
       writeFlag(MINIMAP_KEY, minimapOpen);

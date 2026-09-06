@@ -9,10 +9,13 @@ import {
   signOut,
 } from "../lib/identity.ts";
 import { IDENTITY_COLORS, actorColorIn, loadActorColors, useActorColors } from "../lib/colors.ts";
+import { faceMarkClass, faceMarkStyle } from "../lib/face.ts";
 import { setActorColor, setActorMark } from "../lib/identitycolor.ts";
 import { invalidateOwnActors, useOwnActors } from "../lib/ownactors.ts";
 import { refreshActorMarks, useActorMarks } from "../lib/marks.ts";
 import { type ThemePref, useTheme } from "../lib/theme.ts";
+import { HIDEABLE, showAllChrome } from "../lib/hideable.ts";
+import { useUiStore } from "../stores/uiStore.ts";
 import { EmojiPicker } from "./EmojiPicker.tsx";
 import { TerminalDialog } from "./TerminalDialog.tsx";
 import { CloudAgentDialog } from "./CloudAgentDialog.tsx";
@@ -123,6 +126,8 @@ export function IdentityMenu({
   const canProve = offer !== null && canVerifyEmail(offer);
   const themePref = useTheme((s) => s.pref);
   const setThemePref = useTheme((s) => s.setPref);
+  const hiddenChrome = useUiStore((s) => s.hiddenChrome);
+  const setChromeHidden = useUiStore((s) => s.setChromeHidden);
   const trimmed = name.trim();
   /**
    * **Is there a rename to do?** — the same question the submit handler
@@ -208,8 +213,8 @@ export function IdentityMenu({
         <button
           type="button"
           ref={markButton}
-          className="identity-mark face-mark"
-          style={{ background: actorColorIn(colors, actor.id) }}
+          className={faceMarkClass(marks, actor, "identity-mark")}
+          style={faceMarkStyle(colors, actor)}
           title={mine ? "Change or remove your emoji" : "Wear an emoji instead of your initial"}
           aria-label="Your emoji"
           onClick={() => setPicking((was) => !was)}
@@ -263,7 +268,7 @@ export function IdentityMenu({
                   title={`Continue as ${other.name} — the same you as before`}
                   onClick={() => attempt(adoptIdentity(other), other.name)}
                 >
-                  <span className="face-mark" style={{ background: actorColorIn(colors, other.id) }}>
+                  <span className={faceMarkClass(marks, other)} style={faceMarkStyle(colors, other)}>
                     {faceMark(marks, other)}
                   </span>
                   {other.name}
@@ -337,6 +342,27 @@ export function IdentityMenu({
             {opt.label}
           </button>
         ))}
+      </div>
+      {/* Chrome you can turn off — the one place the whole list is visible,
+          which is what makes hiding by right-click safe to do casually. Every
+          entry names its other door, so a switch off never strands anyone. */}
+      <div className="identity-menu-head">Controls</div>
+      <div className="chrome-list" role="group" aria-label="Controls you can hide">
+        {HIDEABLE.map((entry) => {
+          const hidden = hiddenChrome.includes(entry.id);
+          return (
+            <label key={entry.id} className="chrome-row">
+              <input type="checkbox" checked={!hidden} onChange={(e) => setChromeHidden(entry.id, !e.target.checked)} />
+              <span className="chrome-name">{entry.name}</span>
+              <span className="chrome-where">{entry.where} · {entry.stillReachable}</span>
+            </label>
+          );
+        })}
+        {hiddenChrome.length > 0 && (
+          <button type="button" className="btn chrome-show-all" onClick={showAllChrome}>
+            Show everything
+          </button>
+        )}
       </div>
       {/* Escalation, one click from your own face — "the canvas teaches its
           own escalation", so nobody is ever sent to documentation to find out

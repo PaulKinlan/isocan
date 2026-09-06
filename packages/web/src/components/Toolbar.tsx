@@ -7,12 +7,13 @@ import { useCanvasStore } from "../stores/canvasStore.ts";
 import { useUiStore } from "../stores/uiStore.ts";
 import { useUnreadNews } from "./WhatsNew.tsx";
 import { chromeMenu } from "../lib/menuentries.tsx";
+import { showMenu } from "../lib/chromemenu.tsx";
 import { HomeGlyph } from "./Glyphs.tsx";
 import { Presence } from "./Presence.tsx";
 import { CanvasEditor } from "./CanvasEditor.tsx";
 import { IdentityMenu } from "./IdentityMenu.tsx";
-import { ShareDialog } from "./ShareDialog.tsx";
 import { CanvasPresence, CanvasTitle, ShareButton} from "./CanvasCrumb.tsx";
+import { useCanEdit } from "../lib/capability.ts";
 
 /**
  * The top bar: where you are (canvas name, whether you're live, who's here) and
@@ -41,6 +42,7 @@ export function Toolbar({
   const identityOpen = useUiStore((s) => s.identityOpen);
   const shareOpen = useUiStore((s) => s.shareOpen);
   const trashCount = useCanvasStore((s) => s.canvas?.trash.length ?? 0);
+  const canEdit = useCanEdit();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const nameRef = useDismissOnOutside<HTMLDivElement>(editing, () => setEditing(false));
@@ -70,7 +72,7 @@ export function Toolbar({
      * `···` is the other half of phase 6 and the place "do not lose features"
      * is most at risk, so it is deliberately not bundled into a restyle.
      */
-    <div className="toolbar">
+    <div className="toolbar" onContextMenu={(e) => showMenu(e, "the top edge")}>
       <div className="bar-cluster floats">
         <Link className="home" to="/" title="All canvases" aria-label="All canvases">
           <HomeGlyph />
@@ -101,6 +103,7 @@ export function Toolbar({
                   historyOpen,
                   unreadNews,
                   minimapOpen,
+                  canEdit,
                   toWorkbench: () => navigate(workbenchPath(canvas.id)),
                 }),
               });

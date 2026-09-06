@@ -2,6 +2,8 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Link, useMatch, useNavigate, useParams } from "react-router-dom";
 import type { Actor } from "@isocan/core";
 import {
+  DECK_ROUTE,
+  MODULE_PAGE_ROUTE,
   WORKBENCH_ROUTE,
   anchorOffset,
   itemPath,
@@ -40,9 +42,14 @@ const Workbench = lazy(() =>
   import("../components/Workbench.tsx").then((m) => ({ default: m.Workbench })),
 );
 import { FullScreen } from "../components/FullScreen.tsx";
+import { DeckPrint } from "../components/DeckPrint.tsx";
+import { ModulePage } from "../components/ModulePage.tsx";
+import { useChromeHidden } from "../lib/hideable.ts";
 import { Viewer } from "../components/Viewer.tsx";
 import { CanvasTools } from "../components/CanvasTools.tsx";
-import { Scrubber } from "../components/Scrubber.tsx";
+/** Asked for by a keystroke and unmounted when closed, so it need not be in
+ *  the bytes a first visit downloads. */
+const Scrubber = lazy(() => import("../components/Scrubber.tsx").then((m) => ({ default: m.Scrubber })));
 import { WhatsNew } from "../components/WhatsNew.tsx";
 /**
  * **Loaded when it is opened, not when the canvas is.**
@@ -77,9 +84,11 @@ import { SprintChip } from "../components/SprintChip.tsx";
 import { unreadThreads, useUnreadStore } from "../stores/unreadStore.ts";
 import { HelpPanel } from "../components/HelpPanel.tsx";
 import { crossesCover, hasTextSelection, isTyping } from "../lib/keys.ts";
+import { recordVisit } from "../lib/recents.ts";
 import { OwnCursor } from "../components/OwnCursor.tsx";
 import { fitToContent } from "../lib/fititem.ts";
 import { useCanvasHome } from "../lib/homes.ts";
+import { canEditNow, useCanEdit } from "../lib/capability.ts";
 import { ElsewherePage } from "./ElsewherePage.tsx";
 
 /** Arrow keys → a world-space direction. */
@@ -92,6 +101,23 @@ const NUDGES: Record<string, [number, number]> = {
 
 /** Shift makes it a stride instead of a step. */
 const NUDGE_BIG = 10;
+
+/**
+ * The keys that write, for the read-only canvas: delete and backspace,
+ * paste, undo and redo, the arrow nudge, the tool letters (T, C — P is the
+ * viewport's), ⇧C (comment on the selection), ⇧F (fit the item to its
+ * content) and F2 (rename). Navigation keys are not here: a reader arrows
+ * between items with ⌘, fits, zooms and opens full screen like anyone.
+ */
+function writesByKey(e: KeyboardEvent): boolean {
+  const meta = e.metaKey || e.ctrlKey;
+  const key = e.key.toLowerCase();
+  if (meta) return key === "v" || key === "z";
+  if (e.key === "Delete" || e.key === "Backspace" || e.key === "F2") return true;
+  if (NUDGES[e.key]) return true;
+  if (e.shiftKey) return key === "c" || key === "f";
+  return key === "t" || key === "c";
+}
 
 /** How long after the last arrow press the move is written. */
 const NUDGE_FLUSH_MS = 350;
@@ -156,6 +182,11 @@ function CanvasSurface({
   // short-circuit or the hook order changes with the route.
   const wbRootMatch = useMatch(WORKBENCH_ROUTE);
   const onWorkbench = wbItemId !== undefined || wbRootMatch !== null;
+  // The third cover: the deck laid out for paper (DeckPrint.tsx).
+  const onDeck = useMatch(DECK_ROUTE) !== null;
+  // A module's page (ModulePage.tsx): the segment names which.
+  const pageSegment = useMatch(MODULE_PAGE_ROUTE)?.params.segment ?? null;
+  const topFadeHidden = useChromeHidden("canvas.topfade");
   const navigate = useNavigate();
   const panelResizing = useUiStore((s) => s.panelResizing);
   const historyOpen = useUiStore((s) => s.historyOpen);
@@ -166,8 +197,19 @@ function CanvasSurface({
   // The canvas's own title, for the tab. Subscribed separately from the
   // contents so a rename repaints the tab and an item move does not.
   const canvasTitle = useCanvasStore((s) => s.project?.title ?? null);
+  /**
+   * A canvas with a title is a canvas you were on: the switcher's "lately"
+   * list is written here, once per arrival, with the title so the list can
+   * paint before — or without — the daemon's answer. A rename while you stand
+   * here rewrites the row, which is what keeps the offline list truthful.
+   */
+  useEffect(() => {
+    if (canvasId && canvasTitle !== null) recordVisit({ id: canvasId, title: canvasTitle });
+  }, [canvasId, canvasTitle]);
+  const switching = useUiStore((s) => s.switching);
   const connection = useCanvasStore((s) => s.connection);
   const capability = useCanvasStore((s) => s.capability);
+  const canEdit = useCanEdit();
   const joined = useCanvasStore((s) => s.actorJoins);
   const seen = useUnreadStore((s) => s.seen);
   const followSessionId = useUiStore((s) => s.followSessionId);
@@ -466,6 +508,7 @@ function CanvasSurface({
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v" && !isTyping(e.target)) {
+        if (!canEditNow()) return; // a reader has nowhere to paste
         const held = useUiStore.getState().clipboard;
         if (!held || held.items.length === 0) return;
         e.preventDefault();
@@ -491,7 +534,22 @@ function CanvasSurface({
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         const ui = useUiStore.getState();
-        ui.setPaletteOpen(!ui.paletteOpen);
+        ui.setPaletteOpen(ui.paletteOpen ? null : "commands");
+        return;
+      }
+      /**
+       * **⌘O is the launcher's other face: the switcher.** The same window
+       * ⌘K opens, on the list of canvases — yours lately first — because
+       * "go to the canvas I was just on" is the one trip that deserves a
+       * key of its own rather than a row to find. Pressed on the switcher it
+       * closes it, like ⌘K on the commands; pressed on the commands it flips
+       * them, so the two keys are two doors to one place rather than two
+       * places.
+       */
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        const ui = useUiStore.getState();
+        ui.setPaletteOpen(ui.paletteOpen === "canvases" ? null : "canvases");
         return;
       }
       /**
@@ -546,6 +604,10 @@ function CanvasSurface({
        * typing is not.
        */
       if (isTyping(e.target) || isTyping(document.activeElement)) return;
+      // The read-only canvas: the keys that write are not offered (see
+      // `HIDDEN_WRITES`). Courtesy, not enforcement — the daemon refuses
+      // whatever a missed key reaches.
+      if (!canEditNow() && writesByKey(e)) return;
       const ui = useUiStore.getState();
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -621,7 +683,10 @@ function CanvasSurface({
         navigate(one ? workbenchItemPath(canvasId!, one) : workbenchPath(canvasId!));
       } else if (e.key === "Escape") {
         // Watching is the outermost mode: Esc hands the camera back first.
-        if (ui.renamingItemId) ui.setRenaming(null);
+        // A mark being placed is the innermost: it is the thing under the
+        // pointer right now.
+        if (ui.stamp) ui.setStamp(null);
+        else if (ui.renamingItemId) ui.setRenaming(null);
         else if (ui.followSessionId) ui.setFollow(null);
         else if (ui.pendingText) ui.setPendingText(null);
         else if (ui.pendingComment) ui.setPendingComment(null);
@@ -768,6 +833,12 @@ function CanvasSurface({
       note: "This canvas will not have you.",
       hint: "Its link has been switched off. Ask whoever shared it to turn it back on, or to let you in.",
     },
+    // Roles journey 3 step 2: the person was inside, and a sweep put them
+    // out. Nothing they did is undone; their name stays on what they made.
+    withdrawn: {
+      note: "Your access to this canvas was withdrawn.",
+      hint: "An owner removed you. Nothing you made is undone. Ask them if that was a mistake.",
+    },
     absent: {
       note: "There is no canvas at this address.",
       hint: "Check the link you were sent — the Share dialog's copy button always produces a working one.",
@@ -787,11 +858,18 @@ function CanvasSurface({
   }
 
   /**
-   * A view admission gets the viewer face, whoever is holding it (#88). This
+   * **Three surfaces, one rung** (roles design, "The read-only canvas").
+   *
+   * A `view` admission gets the deck, whoever is holding it (#88). This
    * branch is what a NAMED person meets when they follow a view link — the
    * stranger's path never reaches this page (`Doorway` hands them to the
    * viewer before identity is asked). After the hooks, deliberately: the
    * socket above is the very connection whose hello said "view".
+   *
+   * A `read` admission gets the editor below with its writes hidden — the
+   * `read-only` class, `canEdit` on the surfaces that create, and the list
+   * in `lib/capability.ts` that a test walks. Everything at `edit` or above
+   * gets the editor.
    */
   if (capability === "view") {
     return <Viewer canvasId={canvasId} itemId={itemId ?? null} />;
@@ -801,14 +879,25 @@ function CanvasSurface({
     // `resizing-panel` while the panel's edge is being dragged: chrome that
     // steps aside for the panel eases to its new place, which is right for the
     // one step of opening and wrong for a width changing every frame.
-    <div className={`canvas-page${panelResizing ? " resizing-panel" : ""}`}>
+    <div className={`canvas-page${panelResizing ? " resizing-panel" : ""}${canEdit ? "" : " read-only"}`}>
       {/* Covered, the canvas keeps its state and stops its paint:
           `visibility` preserves layout and the stores keep replaying, so Esc
           lands at the zoom you left without the covered surface spending
           frames nobody can see. */}
-      <div style={{ visibility: itemId || onWorkbench ? "hidden" : "visible" }}>
+      {/* `switching-out` / `switching-in` while a switch is under way — the
+          surface recedes and the next canvas arrives in its place, and the
+          chrome around it stays put because it is the same chrome
+          (`lib/canvasswitch.ts`). */}
+      <div
+        className={`canvas-surface${switching ? ` switching-${switching}` : ""}`}
+        style={{ visibility: itemId || onWorkbench ? "hidden" : "visible" }}
+      >
         <CanvasViewport canvasId={canvasId} actor={actor} />
       </div>
+      {/* A wash of the ground under the top controls, so they read over a
+          busy canvas (lib/hideable.ts, "canvas.topfade"). Over the items,
+          under every piece of chrome, and no pointer target at all. */}
+      {!topFadeHidden && <div className="top-fade" aria-hidden />}
       <Toolbar actor={actor} onIdentity={onIdentity} />
       {/* The sprint's clock, when the Chat says one is running — derived,
           like `isocan sprint`; sits under the banners when one is up. */}
@@ -823,10 +912,10 @@ function CanvasSurface({
           Watching {followedLabel} — Esc to stop
         </button>
       )}
-      <CanvasTools canvasId={canvasId} actor={actor} />
+      {canEdit && <CanvasTools canvasId={canvasId} actor={actor} />}
       <ZoomControls canvasId={canvasId} actor={actor} />
       <Minimap />
-      <TrashPanel canvasId={canvasId} actor={actor} />
+      {canEdit && <TrashPanel canvasId={canvasId} actor={actor} />}
       <RailStrip canvasId={canvasId} actor={actor} />
       <MainThreadPanel canvasId={canvasId} actor={actor} />
       <FilesPanel canvasId={canvasId} actor={actor} />
@@ -846,7 +935,9 @@ function CanvasSurface({
           <CommandPalette
             canvasId={canvasId}
             actor={actor}
-            onClose={() => setPaletteOpen(false)}
+            mode={paletteOpen}
+            onMode={setPaletteOpen}
+            onClose={() => setPaletteOpen(null)}
           />
         </Suspense>
       )}
@@ -857,7 +948,9 @@ function CanvasSurface({
           canvas to now, so there is no way to leave a tab stranded in a past
           with nothing on screen explaining why it will not take a change. */}
       {historyOpen && (
-        <Scrubber canvasId={canvasId} onClose={() => setHistoryOpen(false)} />
+        <Suspense fallback={null}>
+          <Scrubber canvasId={canvasId} onClose={() => setHistoryOpen(false)} />
+        </Suspense>
       )}
       {/* Release notes. Floats over the canvas like the other panels rather
           than living inside one, and decides its own visibility from the
@@ -871,6 +964,10 @@ function CanvasSurface({
       {itemId && (
         <FullScreen canvasId={canvasId} itemId={itemId} actor={actor} onIdentity={onIdentity} />
       )}
+      {/* The deck on paper: every slide stacked, printed one to a sheet. A
+          route like full screen, mounted here so it reads the open replica. */}
+      {onDeck && <DeckPrint canvasId={canvasId} />}
+      {pageSegment && <ModulePage canvasId={canvasId} segment={pageSegment} />}
       {/* The other cover: same architecture, different room. Lazy, so the
           canvas path never pays for it; Suspense falls back to nothing for
           the frame the chunk takes. */}

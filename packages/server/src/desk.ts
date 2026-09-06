@@ -1,4 +1,14 @@
-import type { ActorClaim, Attestation, BadgeKind, Capability, Grant, Pass } from "@isocan/core";
+import type {
+  ActorClaim,
+  Attestation,
+  BadgeKind,
+  Capability,
+  Grant,
+  GrantSubject,
+  Group,
+  Pass,
+  Space,
+} from "@isocan/core";
 
 /** Re-exported so `BadgeRecord`'s neighbours keep importing it from here, and
  * so the type has one definition. It moved to core in phase 9 because
@@ -108,8 +118,19 @@ export type Provenance =
    * Written by `redeemPass` in `passes.ts` and nowhere else.
    */
   | { root: "pass"; badgeId: string }
-  /** Admitted by a grant — the ordinary case from phase 7 on. */
-  | { root: "grant"; grantId: string };
+  /** Admitted by a grant — the ordinary case from phase 7 on. The row may be
+   * on the canvas or on its space (roles phase 4): the provenance names the
+   * row's id whichever scope it came from, and the sweep looks in both. */
+  | { root: "grant"; grantId: string }
+  /**
+   * **Admitted by a space creator's floor** (roles phase 4). The badge claims
+   * the actor who made the space this canvas is in, and holds `own` over
+   * every canvas in it without a row — the same floor `created` is for the
+   * canvas's own creator, with one difference that is the whole reason this
+   * is a separate root: a canvas can LEAVE a space, so this admission must be
+   * re-asked by every sweep, where `created` is never touched.
+   */
+  | { root: "space"; spaceId: string };
 
 export interface Admission {
   canvasId: string;
@@ -121,10 +142,10 @@ export interface Admission {
    * admissions` and never consults the grant again: a capability that lived
    * only on the grant row would be read once and then never enforced.
    *
-   * Written only when it NARROWS (`view`); absent is `edit`, which is what
-   * every admission written before the field meant. `created` and `pass`
-   * roots never narrow — making a canvas is editing it, and a pass endows
-   * what its minter had.
+   * Written whenever it is not `edit` (`narrowed` in core); absent is
+   * `edit`, which is what every admission written before the field meant.
+   * A `created` root is the creator's floor and never narrows; a `pass` root
+   * endows what its minter had.
    */
   capability?: Capability;
 }
@@ -305,7 +326,8 @@ export interface Desk {
   /** Record that this badge has been in this canvas. No longer policy-free:
    * from phase 7 the door decides whether this is called at all, and the
    * provenance it passes is what phase 9's sweep grips. `capability` is
-   * stored only when it narrows (`view`, #88); omitted means edit. */
+   * stored whenever it is not edit (`narrowed`, #88 widened by the roles
+   * ladder); omitted means edit. */
   admit(
     badgeId: string,
     canvasId: string,
@@ -450,6 +472,101 @@ export interface Desk {
    */
   revokeGrant(grantId: string, at: string, by: string): Promise<Grant | null>;
 
+  /**
+   * Every grant on one SPACE, revoked rows included — `grantsFor`'s twin over
+   * the other arm of `GrantScope` (roles phase 4). `where("spaceId", "==",
+   * spaceId)`, a single-field equality Firestore serves from its automatic
+   * index. Kept beside `grantsFor` rather than folded into it, so no caller
+   * that asks about one canvas suddenly sees rows it did not ask for; the
+   * door merges the two itself. No fallback: a space with no rows admits
+   * nobody but its creator.
+   */
+  grantsForSpace(spaceId: string): Promise<Grant[]>;
+
+  /**
+   * **Every LIVE row naming this subject, in either scope** (roles phase 5)
+   * — `where("subject", "==", subject)` over the grants, a single-field
+   * equality. What a change to a group has to reach: the server walks these
+   * rows, takes a canvas row's canvas and a space row's whole list, and
+   * sweeps each. Live rows only, because a revoked row reaches nobody and
+   * the caller would otherwise sweep canvases that have nothing to
+   * recompute. No fallback: a subject nobody granted reaches nothing.
+   */
+  grantsBySubject(subject: GrantSubject): Promise<Grant[]>;
+
+  // ---- spaces: a named set of canvases access is set on once (roles phase 4) ----
+  //
+  // The FOURTH ledger, `spaces/{id}`, and the first row the desk has grown
+  // since passes. It is here rather than on the canvas record because the
+  // record is oplog state and replicates to every laptop that holds the
+  // canvas, and a laptop has no use for the id of a space it cannot see.
+  // Moving a canvas is therefore a desk write and not an op.
+
+  /** Write one, whole — creation and every change alike (a canvas added or
+   * removed, the tombstone). The id is minted by the caller. */
+  putSpace(space: Space): Promise<void>;
+
+  /** The space behind an id, tombstone included, or null for one this home
+   * does not know. Deleted spaces come back so a route can tell "gone" from
+   * "never was" and a delete can be idempotent; they are nobody's answer to
+   * `spaceOf` or `spacesFor`. */
+  space(spaceId: string): Promise<Space | null>;
+
+  /**
+   * **The live space this canvas is in, or null when it is in none** — the
+   * door's one extra read on every test, because a canvas in no space cannot
+   * be told apart without asking. Firestore: `where("holding",
+   * "array-contains", canvasId)` over the array the space document derives
+   * from `canvasIds` while it stands and empties when it is deleted, so a
+   * tombstone is not in the index at all. No fallback: a space whose array
+   * was never written holds nothing, loudly.
+   */
+  spaceOf(canvasId: string): Promise<Space | null>;
+
+  /**
+   * **The live spaces this badge may see** (roles design, "Routes"): made by
+   * an actor it claims, or named by a live row whose subject is one of its
+   * attested attributes. Bounded queries and never a scan, per this file's
+   * rule: one `createdBy` equality per claimed actor, one `subject` equality
+   * over the grants per attested attribute (then the rows' `spaceId`s
+   * fetched), and nothing else. A badge that claims nobody and has proved
+   * nothing sees no space, which is the truth about it.
+   *
+   * The third branch (roles phase 5): the live groups whose `members` holds
+   * one of the badge's attested attributes — Firestore `array-contains` on
+   * `members` — and then the live rows whose subject is `group:<id>` that
+   * name a space. One more bounded query per attribute, and nothing else
+   * changed shape.
+   */
+  spacesFor(badge: BadgeRecord): Promise<Space[]>;
+
+  // ---- groups: a named set of people access is given to once (roles phase 5) ----
+  //
+  // The FIFTH ledger, `groups/{id}`. Here for a space's reason: a group is
+  // part of what a grant means, and what a grant means never leaves the
+  // home. The door reads `members` on every test of a `group:` row and
+  // copies the answer nowhere, so removing a member is one write to this
+  // ledger followed by a sweep.
+
+  /** Write one, whole — creation, a member added or removed, the tombstone.
+   * The id is minted by the caller. */
+  putGroup(group: Group): Promise<void>;
+
+  /** The group behind an id, tombstone included, or null for one this home
+   * does not know. Deleted groups come back so a route can tell "gone" from
+   * "never was"; the door and `spacesFor` skip them, so a deleted group's
+   * rows admit nobody. */
+  group(groupId: string): Promise<Group | null>;
+
+  /**
+   * **The live groups this badge OWNS**: made by an actor it claims. One
+   * `createdBy` equality per claimed actor and nothing else — a group a
+   * person is merely in is not listed here, because the list is the owner's
+   * (members and all) and a member sees a group only through the rows that
+   * name it. A badge that claims nobody owns no group.
+   */
+  groupsFor(badge: BadgeRecord): Promise<Group[]>;
+
   // ---- passes: what an admitted badge hands an unadmitted one (phase 8) ----
 
   /**
@@ -503,4 +620,33 @@ export interface Desk {
    * the private ledger, keyed by the `sessionKey` that will come to collect
    * it. */
   shelve(rows: Record<string, ActorClaim>): Promise<void>;
+
+  // ---- the content origin's key (content-read-auth.md, option A) ----
+
+  /**
+   * **This home's HMAC key for signing content reads**, minted on first ask
+   * and the same one ever after.
+   *
+   * It is on the desk rather than in the environment for the reason every
+   * other ledger here is: it is a fact ABOUT this home that must outlive any
+   * one process and be identical on every instance of it. A key in a
+   * deployment variable is a key somebody must provision before the origin
+   * works, forget to copy when they clone the home, and rotate by editing a
+   * console — and a signature minted by one Cloud Run instance has to verify
+   * on the next, which a per-process random key silently fails at exactly
+   * when a second instance appears during a rollout.
+   *
+   * **It must therefore be create-once across concurrent callers.** Two
+   * instances booting together must not mint two keys; the second to write
+   * loses and adopts the first one's. `CloudDesk` does that with a
+   * transaction, `FileDesk` with its serialized write chain — the same
+   * split `redeemPass` has, and for the same reason.
+   *
+   * Rotation is not here yet, and `content-read-auth.md` names it open: the
+   * shape it will take is a second key accepted while the first is still
+   * being minted against, which is the badge desk's revocation machinery in
+   * miniature. What is decided today is that when that lands, it lands in
+   * this ledger.
+   */
+  contentKey(): Promise<string>;
 }

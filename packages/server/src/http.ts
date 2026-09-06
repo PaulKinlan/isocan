@@ -19,6 +19,7 @@ import type {
   Grant,
   GrantResponse,
   GrantsResponse,
+  GrantSubject,
   KillBadgeResponse,
   JoinCanvasRequest,
   HomesResponse,
@@ -29,13 +30,49 @@ import type {
   PostOpRequest,
   Canvas,
   RcAskRequest,
+  SignedBlobsResponse,
   RedeemPassRequest,
   RedeemPassResponse,
+  Space,
+  SpacesResponse,
+  SpaceResponse,
+  CreateSpaceRequest,
+  SpaceCanvasRequest,
+  SpaceCanvasResponse,
+  SpaceLinkRequest,
+  SpaceLinkResponse,
+  Group,
+  GroupResponse,
+  GroupsResponse,
+  CreateGroupRequest,
+  GroupMemberRequest,
   UndoRedoRequest, LogEntry } from "@isocan/core";
 import {
   ATTEST_ROUTE,
   AUTH_ACTION_PATH,
   authActionOutcome,
+  BAD_SPACE,
+  CANVAS_IN_SPACE,
+  isSpaceLive,
+  sameSpaceName,
+  SPACE_NAME_TAKEN,
+  SPACE_NOT_FOUND,
+  spaceNameRefusal,
+  SPACES_ROUTE,
+  BAD_GROUP,
+  claimsActor,
+  GROUP_NAME_TAKEN,
+  GROUP_NOT_FOUND,
+  groupIdOf,
+  groupMemberRefusal,
+  groupNameRefusal,
+  GROUPS_ROUTE,
+  groupSubject,
+  groupViewOf,
+  isGroupLive,
+  isSpaceGrant,
+  normalizeAttribute,
+  sameGroupName,
   BADGE_RESTART_HINT,
   BADGES_ROUTE,
   cancelledSince,
@@ -45,6 +82,9 @@ import {
   FILENAME_HEADER,
   fileOf,
   FREE_NAME_ROUTE,
+  actorNameIn,
+  attestationSatisfying,
+  barSubjectRefusal,
   capabilityOf,
   grantSubjectRefusal,
   CANVAS_PATH_PREFIX,
@@ -57,6 +97,7 @@ import {
   PRESENCE_WHERE_ROUTE,
   type PresenceWhere,
   type PresenceWhereResponse,
+  isBar,
   isLive,
   isOpId,
   newId,
@@ -69,9 +110,22 @@ import {
   PARK_ADOPTED_CODE,
   parseCommandFile,
   AMBIGUOUS_HOME,
+  atLeast,
+  isCapability,
+  LINK,
+  ownerOf,
+  WITHDRAWN,
+  narrowed,
   normalizeHomeUrl,
   PASS_REDEEM_ROUTE,
+  RUNGS,
   SERVING_ROUTE,
+  SIGN_BLOBS_LIMIT,
+  SIGN_BLOBS_PARAM,
+  SIGN_BLOBS_ROUTE,
+  ACTOR_KINDS_ROUTE,
+  DOC_EXPORT_ROUTE,
+  googleDocId,
   staleClientRefusal,
   STALE_CLIENT_STATUS,
   CANVASES_REACH_PARAM,
@@ -84,6 +138,7 @@ import {
 } from "@isocan/core";
 import { Engine, NothingToUndoError, CanvasNotFoundError } from "./engine.ts";
 import { isocanHome } from "./paths.ts";
+import { moduleFile, readRuntimeModules } from "./modules.ts";
 import { boundDirs, hashBound, pickList, readBound, readTree, writeBound } from "./tree.ts";
 import {
   attestersOf,
@@ -99,9 +154,11 @@ import {
   admittingGrant,
   capabilityIn,
   heldCapability,
+  heldRung,
+  heldRungOnSpace,
   NOT_OWNER,
   NotAdmittedError,
-  ownsThisCanvas,
+  notOwnerMessage,
   ViewOnlyError,
 } from "./grants.ts";
 import {
@@ -111,7 +168,7 @@ import {
   TOO_MANY_BADGES,
   type MintRefusal,
 } from "./meter.ts";
-import { killAndSweep, sweepCanvas } from "./sweep.ts";
+import { killAndSweep, sweepCanvas, sweepCanvases, sweepSpace, SweepHub } from "./sweep.ts";
 import { mintPass, PassRefusedError, redeemPass } from "./passes.ts";
 import type { BlobUploadRequest, Store } from "./store.ts";
 import type { BadgeRecord, Desk, Provenance } from "./desk.ts";
@@ -128,8 +185,10 @@ import { buildRoot, buildStamp } from "./build.ts";
 import { HomeRefusedError, HomeUnreachableError } from "./home-link.ts";
 import type { HomeLinks } from "./home-links.ts";
 import type { ParkCursors } from "./park.ts";
+import { DocRefusal, fetchGoogleDoc, type GoogleToken } from "./google.ts";
 import { RcHolds } from "./rc-holds.ts";
-import { registerContentRoutes } from "./content.ts";
+import { isContentPath, isContentRequest, registerContentRoutes, type ContentSigning } from "./content.ts";
+import { signedBlobPath } from "./content-auth.ts";
 import { bindableRoot, markerFile, readMarker, recordDir, writeMarker } from "./binding.ts";
 import { personaRefusal, readPersonas, writePersona } from "./personas.ts";
 
@@ -278,6 +337,40 @@ const CANVAS_API_ROUTE = /^\/api\/projects\/([^/?]+)/;
  * See also the `Cache-Control` on the route itself, which had to become
  * `private` in the same change: a credentialed response cached at a shared
  * edge is a closed route with an open back gate.
+ *
+ * ---
+ *
+ * **2026-09-06: the hosted home reaches the bytes WITHIN ONE TTL, and the
+ * edge copy comes back on the other origin.** This is the entry
+ * `content-read-auth.md` said to write here when it landed.
+ *
+ * The content origin holds no cookie — that is the whole of its safety — so
+ * on a multi-user home it cannot ask the question this ledger answers. Option
+ * A resolves it without weakening either side: the badged app origin mints a
+ * signature over `(canvasId, hash, expiry)` at
+ * `GET /api/projects/:id/blobs/signed`, under this same canvas-scoped prefix
+ * and therefore behind this same `onRequest` hook, and the content origin
+ * verifies it (`content-auth.ts`).
+ *
+ * So the promise above holds in two halves, and the second is a cost rather
+ * than a caveat:
+ *
+ * - **Immediately**: an expelled badge cannot mint. The hook refuses it on
+ *   this prefix, and nothing about signing had to know that.
+ * - **Within one TTL** (five minutes, `ISOCAN_CONTENT_TTL`): what it minted
+ *   before it was expelled still works. That is the honest price of an origin
+ *   that cannot be asked who is calling, and both halves have a test.
+ *
+ * What comes back in exchange: on the content origin the URL *is* the
+ * credential and it expires, so a verified response is `public, max-age=<what
+ * is left>` — the shared-cache copy this change had to give up here, safe
+ * there because a cached copy cannot outlive the permission that fetched it.
+ * `private` stays on THIS origin, where the credential is a cookie that does
+ * not expire with the response.
+ *
+ * Nothing about the app origin changed. Chrome reads are badged, this hook
+ * still gates them, and a home with no `ISOCAN_CONTENT_HOST` is byte for byte
+ * the home this comment described before the line above it.
  */
 function isOpen(method: string, pathname: string): boolean {
   if ((HEALTH_ROUTES as readonly string[]).includes(pathname)) return true;
@@ -290,6 +383,13 @@ function isOpen(method: string, pathname: string): boolean {
 }
 
 interface RouteOptions {
+  /**
+   * Where a sweep's per-badge outcomes go (roles design, "Reaching an open
+   * socket"): the daemon hands the same hub to `ws.ts`, which tells the
+   * re-rooted their new rung and closes the expelled. Absent in a test that
+   * constructs routes alone, in which case one is made and nobody listens.
+   */
+  sweeps?: SweepHub;
   /** Where a canvas born here, naming nothing, is born — or null when it stays
    * here. What the health route reports as `home` (redefined in phase 10.3,
    * because `stalenessOf` and older CLIs read that key and the birth default
@@ -307,6 +407,13 @@ interface RouteOptions {
    */
   homes?: HomeLinks | null;
   /**
+   * **This machine's runtime modules** (`docs/projects/modules/design.md`,
+   * phase 3): the isocan home whose `modules/` directory holds them. Read per
+   * request by `/api/serving` and `/modules/<slug>/…`, so `isocan module add`
+   * needs no restart. Absent on a daemon that should serve none.
+   */
+  modulesHome?: string;
+  /**
    * The content origin's base URL, or null/absent when none exists — which
    * is every daemon at stage 1 of the content-origin plan. The daemon sets
    * this from the content listener it actually started (stage 2), never from
@@ -314,6 +421,31 @@ interface RouteOptions {
    * what `GET /api/serving` reports and nothing else reads it.
    */
   contentBase?: string | null;
+  /**
+   * **The hosted content origin's host** (`ISOCAN_CONTENT_HOST` —
+   * `isocan.store`), or null/absent on every local shape, where the content
+   * origin is a second listener instead.
+   *
+   * Cloud Run exposes one `$PORT`, so on the hosted shape this ONE app
+   * answers for both origins and the Host header is the seam. Two things
+   * read it: the door hook, which lets a content request past the badge and
+   * refuses it everything but blob bytes; and the blob route itself, which
+   * decides its CSP, its cache header and whether to demand a signature.
+   */
+  contentHost?: string | null;
+  /**
+   * **How a content read proves it may have these bytes** (stage 4b), or
+   * null/absent where none is required — which is every local home, and the
+   * hosted home until its content host is configured.
+   */
+  contentSigning?: ContentSigning | null;
+  /**
+   * The Drive token on THIS machine, read fresh per request so `isocan gdoc
+   * auth` takes effect without a restart — or null, which is every hosted
+   * home and most local ones. Only `/api/docs/export` reads it, and only
+   * after the anonymous export has refused. See `google.ts`.
+   */
+  googleToken?: () => Promise<GoogleToken | null>;
   /**
    * **The attester this home has borrowed**, or null when it has borrowed
    * none — which is every local daemon and is not a defect.
@@ -438,7 +570,9 @@ export function registerRoutes(
     // in exactly the same way — a refresh loop minting credentials that cannot
     // help. `not-admitted` is a different recovery: ask for the link.
     if (err instanceof NotAdmittedError) {
-      return reply.status(403).send({ error: err.message, code: err.code });
+      return reply
+        .status(403)
+        .send({ error: err.message, code: err.code, ...(err.reason ? { reason: err.reason } : {}) });
     }
     // 403 like `not-admitted`, one notch further in (#88): badged, admitted,
     // and the ledger says look-don't-touch. Its own code because the remedy is
@@ -587,8 +721,53 @@ export function registerRoutes(
    * and getting a badge is free — so what this changes is RECOGNITION: from
    * here on trust attaches to the badge and never to the address again.
    */
+  const sweeps = options.sweeps ?? new SweepHub();
+
+  /** The creator's name, resolved the way the Share dialog resolves
+   * `createdBy` — through the registry, so a rename reaches it. */
+  const ownerName = async (project: { createdBy: { id: string; name: string } }): Promise<string> =>
+    actorNameIn(await engine.actorNames(), project.createdBy);
+
+  /**
+   * The read-only refusal, naming the owner (roles journey 1 step 5: *ask
+   * Priya, who owns it*). The snapshot is read for the name only on the
+   * refusal itself — a rare path, and the engine holds the canvas already —
+   * so the hook pays nothing for it on the requests it lets through. A
+   * canvas that cannot be read says "whoever shared it", as before.
+   */
+  const viewOnly = async (canvasId: string): Promise<ViewOnlyError> => {
+    const snapshot = await engine.getSnapshot(canvasId).catch(() => null);
+    return new ViewOnlyError(canvasId, snapshot ? await ownerName(snapshot.project) : undefined);
+  };
+
   app.addHook("onRequest", async (req, reply) => {
     const pathname = (req.url ?? "/").split("?")[0]!;
+
+    /**
+     * **The content origin's door, which is that it has none** — stage 4b of
+     * `docs/projects/atlas/content-origin-plan.md`, and invariant 4 in the
+     * one shape that cannot express it as a route table.
+     *
+     * A local content origin is its own listener, so "the role serves blobs
+     * and nothing else" is enumerable: `content.test.ts` reads its routes.
+     * The hosted origin is a Host header on THIS app, which has the whole
+     * API on it — so the same invariant has to be a refusal, taken before
+     * any handler runs and before the badge is even resolved. Everything but
+     * a blob `GET` is 404 here: no door, no canvas questions, no app shell,
+     * no `/api/serving`, nothing that a second API with no door on it would
+     * have.
+     *
+     * And the blob GET itself is let through the BADGE check, not around the
+     * read check: an origin that holds no cookie can present no badge, so
+     * demanding one would refuse every frame. What it presents instead is a
+     * signature in its URL, and `content.ts` verifies that — which is the
+     * whole of option A, and the reason this branch is not a hole.
+     */
+    if (isContentRequest(hostHeader(req.headers.host), options.contentHost ?? null)) {
+      if (isContentPath(req.method, pathname)) return;
+      return reply.status(404).send({ error: `not found: ${req.method} ${pathname}` });
+    }
+
     const presented = presentedBadge(req.headers);
     req.badge = await resolveBadge(desk, presented);
 
@@ -618,20 +797,22 @@ export function registerRoutes(
         const canvasId = decodeSegment(scoped);
         await admit(req, canvasId);
         /**
-         * The capability check, method-keyed and in the SAME hook (#88): a
-         * view admission reads everything and changes nothing, and "changes"
-         * on an HTTP surface is any verb but GET/HEAD. One line here covers
-         * undo, redo, blobs, gc, grants, passes, sessions, bind, write — and
-         * whatever canvas-scoped route gets added next month, which is this
-         * hook's whole argument about coverage by default. `/api/ops` carries
-         * its canvas in the body and takes the same test in its handler.
+         * The capability check, method-keyed and in the SAME hook (#88): an
+         * admission below `edit` (`view`, `read`) reads everything and
+         * changes nothing, and "changes" on an HTTP surface is any verb but
+         * GET/HEAD. One line here covers undo, redo, blobs, gc, grants,
+         * passes, sessions, bind, write — and whatever canvas-scoped route
+         * gets added next month, which is this hook's whole argument about
+         * coverage by default. `/api/ops` carries its canvas in the body and
+         * takes the same test in its handler. The ladder's one comparison,
+         * so `own` counts as editing and any rung below it does not.
          */
         if (
           req.method !== "GET" &&
           req.method !== "HEAD" &&
-          capabilityIn(req.badge, canvasId) === "view"
+          !atLeast(capabilityIn(req.badge, canvasId) ?? "edit", "edit")
         ) {
-          throw new ViewOnlyError(canvasId);
+          throw await viewOnly(canvasId);
         }
       }
       return;
@@ -769,11 +950,16 @@ export function registerRoutes(
     // and this is the belt on `/api/ops`, whose canvas is in its body.
     if (!req.badge) return;
     if (req.badge.admissions.some((a) => a.canvasId === canvasId)) {
-      // Already in — but a VIEW admission re-asks the door, so proving an
-      // email after entering by a view link lets the invitation that names
-      // this person take effect (see `heldCapability`). Editors return on the
-      // short-circuit as they always have.
-      await heldCapability(desk, canvasId, req.badge);
+      // Already in — but an admission below `edit` re-asks the door, so
+      // proving an email after entering by a view link lets the invitation
+      // that names this person take effect (see `heldCapability`). Editors
+      // return on the short-circuit as they always have; the snapshot read
+      // for the creator's floor is paid only by the re-ask.
+      const held = capabilityIn(req.badge, canvasId);
+      if (held !== null && !atLeast(held, "edit")) {
+        const snapshot = await engine.getSnapshot(canvasId).catch(() => null);
+        await heldCapability(desk, canvasId, req.badge, snapshot?.project.createdBy.id ?? null);
+      }
       return;
     }
 
@@ -808,18 +994,18 @@ export function registerRoutes(
     // making a canvas is editing it.
     let capability: Capability = "edit";
     if (!provenance) {
-      const grant = await admittingGrant(desk, canvasId, req.badge);
-      if (grant) {
-        provenance = { root: "grant", grantId: grant.id };
-        capability = capabilityOf(grant);
-      }
-    }
-
-    if (!provenance) {
       // No canvas here at all — let the route answer 404 for itself. On a
       // replica this is also the ordinary shape of "not replicated yet".
       if (!(await store.canvasExists(canvasId))) return;
-      throw new NotAdmittedError(canvasId);
+      // The snapshot is read for one field: the creator, so the door can
+      // apply the floor (roles design) when no row admits. Once per badge per
+      // canvas, which is what an admission costs.
+      const snapshot = await engine.getSnapshot(canvasId).catch(() => null);
+      if (!snapshot) return;
+      const answer = await admittingGrant(desk, canvasId, req.badge, snapshot.project.createdBy.id);
+      if (!answer) throw new NotAdmittedError(canvasId);
+      provenance = answer.provenance;
+      capability = answer.capability;
     }
 
     await desk.admit(req.badge.badgeId, canvasId, provenance, capability);
@@ -829,7 +1015,7 @@ export function registerRoutes(
         canvasId,
         provenance,
         at: new Date().toISOString(),
-        ...(capability === "view" ? { capability } : {}),
+        ...(narrowed(capability) ? { capability } : {}),
       },
     ];
   };
@@ -870,6 +1056,25 @@ export function registerRoutes(
           "a canvas that already exists has a home, and no op re-points it (that is re-homing)",
         code: "bad-op",
       });
+    }
+    /**
+     * **`spaceId` is a birth's space and nothing else** (roles phase 4),
+     * refused beside anything but a create for `home`'s reason: request state
+     * about one canvas coming into existence, never a way to move one. Moving
+     * a canvas is `PUT /api/spaces/:id/canvases/:canvasId`.
+     */
+    if (body.spaceId !== undefined) {
+      if (body.op?.type !== "project.create") {
+        return reply.status(400).send({
+          error:
+            "`spaceId` says which space a canvas is being BORN in, so it belongs only on " +
+            "project.create — a canvas that exists is moved with `isocan space add`",
+          code: "bad-op",
+        });
+      }
+      if (typeof body.spaceId !== "string" || body.spaceId === "") {
+        return reply.status(400).send({ error: "`spaceId` names a space by id", code: BAD_SPACE });
+      }
     }
     if (body.op?.type === "actor.claim") {
       // A claim resolves who is speaking, so it is the one op that arrives
@@ -934,13 +1139,35 @@ export function registerRoutes(
       // The capability check, at the one mutating route the hook cannot cover
       // (#88). BEFORE the submit for the door's own reason: a refusal that
       // arrives after the op has landed is not a refusal at all.
-      if (capabilityIn(req.badge!, body.canvasId) === "view") {
-        throw new ViewOnlyError(body.canvasId);
+      if (!atLeast(capabilityIn(req.badge!, body.canvasId) ?? "edit", "edit")) {
+        throw await viewOnly(body.canvasId);
+      }
+    }
+    /**
+     * **Born in a space** (roles design, "Born in a space"). Decided HERE
+     * when this daemon is the birth home: the space is looked up, `own` on
+     * it is asked of the actor, and the create is submitted with the birth
+     * link grant suppressed, so a locked space stays locked as it grows. The
+     * newborn is added to the space after the create lands, because a space
+     * naming a canvas whose creation then failed would be a row about
+     * nothing. When the birth goes to another home — a stated address, or
+     * this machine's birth default — the id rides up with the op
+     * (`forwardSubmit`) and that home decides, because the space is its desk
+     * state and this one holds no row to check.
+     */
+    let bornInto: Space | null = null;
+    if (body.spaceId !== undefined && body.op?.type === "project.create") {
+      const bornAway = options.homes ? body.home !== undefined || options.homes.birth() !== null : false;
+      if (!bornAway) {
+        const owned = await ownedSpace(req, reply, body.spaceId, body.actor.id);
+        if ("refused" in owned) return owned.refused;
+        bornInto = owned.space;
       }
     }
     const entry = await engine.submit({
       ...(body as PostOpRequest & { actor: Actor }),
       badgeId: req.badge!.badgeId,
+      ...(bornInto ? { withoutLinkGrant: true } : {}),
     });
     if (body.op?.type === "project.create") {
       // The bootstrap badge's first admission, and it can only be taken after
@@ -948,6 +1175,14 @@ export function registerRoutes(
       // earned this one by making the canvas, which is the only provenance
       // that is not "somebody let me in".
       await admit(req, body.op.canvasId, true);
+      if (bornInto) {
+        // Re-read rather than reuse: another write may have moved the
+        // space's list while the create was landing.
+        const fresh = (await desk.space(bornInto.id)) ?? bornInto;
+        if (!fresh.canvasIds.includes(body.op.canvasId)) {
+          await desk.putSpace({ ...fresh, canvasIds: [...fresh.canvasIds, body.op.canvasId] });
+        }
+      }
     }
     return { seq: entry.seq, envelope: entry.envelope };
   });
@@ -1039,6 +1274,38 @@ export function registerRoutes(
     }
   });
 
+  /**
+   * **A Google Doc's markdown, fetched for the app**
+   * (`docs/research/2026-09-02-google-docs-on-the-canvas.md`, stage 2). A
+   * browser cannot read docs.google.com across origins, so the daemon does,
+   * the way it reads framing headers for `/api/frameable` — and only for an
+   * address core recognises as a doc, never as a general proxy. A doc that is
+   * not shared by link answers with a sign-in page; that is refused by its
+   * content type rather than handed back as if it were the document.
+   */
+  app.get(DOC_EXPORT_ROUTE, async (req, reply) => {
+    const raw = (req.query as { url?: string }).url ?? "";
+    const id = googleDocId(raw);
+    if (!id) {
+      reply.code(400);
+      return { error: "not a Google Doc address", code: "not-a-doc" };
+    }
+    // Anonymous first; then this machine's Drive token, if `isocan gdoc auth`
+    // saved one here (stage 3). A hosted home has no token and says so.
+    const token = options.googleToken ? await options.googleToken() : null;
+    try {
+      const doc = await fetchGoogleDoc(id, token);
+      return { id, source: doc.source, markdown: doc.markdown, title: doc.title, fetchedAt: doc.fetchedAt, via: doc.via };
+    } catch (err) {
+      if (err instanceof DocRefusal) {
+        reply.code(err.code === "doc-unreachable" ? 502 : 403);
+        return { error: err.message, code: err.code };
+      }
+      reply.code(502);
+      return { error: `could not reach Google: ${(err as Error).message}`, code: "doc-unreachable" };
+    }
+  });
+
   app.get("/api/colors", async () => engine.actorColors());
 
   /** Current names, for clients rendering words somebody wrote under a name
@@ -1048,11 +1315,45 @@ export function registerRoutes(
      goes in the disc. Kept a separate route rather than folded into `/names`
      so an older client reading names is unaffected. */
   app.get("/api/marks", async () => engine.actorMarks());
+  app.get(ACTOR_KINDS_ROUTE, async () => engine.actorKinds());
 
   /** How this home serves — today, only whether a content origin exists.
    * See `SERVING_ROUTE` in core for the contract and `content.ts` for the
    * role it advertises. */
-  app.get(SERVING_ROUTE, async () => ({ contentBase: options.contentBase ?? null }));
+  app.get(SERVING_ROUTE, async () => ({
+    contentBase: options.contentBase ?? null,
+    // Whether a read on that base must carry a signature (stage 4b). Derived
+    // from the signing the routes were actually given, never from
+    // configuration alone — the same rule `contentBase` follows, and for the
+    // same reason: an app told to sign against a home that verifies nothing
+    // would be paying for a promise nobody is keeping.
+    contentSigned: Boolean(options.contentSigning),
+    // The loaded runtime modules — refused ones are not advertised; `isocan
+    // module ls` is where a refusal is read.
+    modules: options.modulesHome
+      ? readRuntimeModules(options.modulesHome)
+          .filter((m) => m.refused === null)
+          .map((m) => m.manifest)
+      : [],
+  }));
+
+  /**
+   * **A runtime module's web half, served from its own directory.** Path
+   * guarded to that directory (real paths on both sides), typed from the
+   * same map every static asset uses, and never cached long: a module that
+   * was just replaced must be the module the next load runs. Nothing here
+   * is behind the door because the app's own chunks are not either — a
+   * module is app-origin code the operator installed, not canvas content.
+   */
+  app.get("/modules/:slug/*", async (req, reply) => {
+    const { slug, "*": rest } = req.params as { slug: string; "*": string };
+    const file = options.modulesHome && /^[a-z0-9][a-z0-9._-]*$/.test(slug) ? moduleFile(options.modulesHome, slug, rest) : null;
+    if (!file) return reply.status(404).send({ error: `not found: GET /modules/${slug}/${rest}` });
+    reply.type(STATIC_TYPES[path.extname(file)] ?? "application/octet-stream");
+    reply.header("Cache-Control", "no-cache");
+    reply.header("X-Content-Type-Options", "nosniff");
+    return reply.send(createReadStream(file));
+  });
 
   // ---- slash commands: the work a message can ask for ----
 
@@ -1147,10 +1448,55 @@ export function registerRoutes(
     const hereOnly = reach === "here";
     const admitted = new Set(badge.admissions.map((a) => a.canvasId));
     const visible: Canvas[] = [];
+    /**
+     * **The door's space reads, memoized for the wide list** (roles design,
+     * "The door reads both"). One `spacesFor(badge)` — the bounded queries —
+     * gives every space whose rows could admit this badge and the canvases
+     * each holds; one `grantsForSpace` per such space, on first use. A canvas
+     * in a space the badge cannot see is read as being in none, which is the
+     * truth the door would reach the long way: no row on an unseen space
+     * names this badge. So the list pays one query per visible space rather
+     * than one `spaceOf` per canvas. Built lazily, because the narrow answer
+     * runs no door test at all.
+     */
+    let canvasSpace: Map<string, Space> | null = null;
+    const spaceRows = new Map<string, Promise<Grant[]>>();
+    const groupReads = new Map<string, Promise<Group | null>>();
+    const via = {
+      spaceOf: async (canvasId: string): Promise<Space | null> => {
+        if (!canvasSpace) {
+          canvasSpace = new Map();
+          for (const space of await desk.spacesFor(badge)) {
+            for (const id of space.canvasIds) canvasSpace.set(id, space);
+          }
+        }
+        return canvasSpace.get(canvasId) ?? null;
+      },
+      grantsForSpace: (spaceId: string): Promise<Grant[]> => {
+        let rows = spaceRows.get(spaceId);
+        if (!rows) {
+          rows = desk.grantsForSpace(spaceId);
+          spaceRows.set(spaceId, rows);
+        }
+        return rows;
+      },
+      // A group named on several canvases is one read for the whole list
+      // (roles phase 5), for the same reason the space's rows are.
+      group: (groupId: string): Promise<Group | null> => {
+        let found = groupReads.get(groupId);
+        if (!found) {
+          found = desk.group(groupId);
+          groupReads.set(groupId, found);
+        }
+        return found;
+      },
+    };
     for (const canvas of await engine.listCanvases()) {
       if (hereOnly && (options.homes?.homeOf(canvas.id) ?? null) !== null) continue;
       if (admitted.has(canvas.id)) visible.push(canvas);
-      else if (!narrow && (await admittingGrant(desk, canvas.id, badge))) visible.push(canvas);
+      else if (!narrow && (await admittingGrant(desk, canvas.id, badge, canvas.createdBy.id, via))) {
+        visible.push(canvas);
+      }
     }
     return visible;
   });
@@ -1296,13 +1642,15 @@ export function registerRoutes(
   // remember. One endpoint for both surfaces — stage 2's Share dialog and the
   // CLI verb drive exactly these.
   //
-  // What is deliberately NOT here is a notion of OWNERSHIP: any admitted badge
-  // may share or un-share. The design leaves roles open ("whether grants may
-  // carry roles waits for a scene that forces it"), and inventing an owner
-  // here would invent it in the one place hardest to change later — the door.
-  // On a solo home this is exactly today's posture; on a shared one it is the
-  // familiar "anyone in the doc can share the doc", stated rather than
-  // stumbled into.
+  // **Every write here asks `own`** (roles design, "What only an owner may
+  // do"): inviting, revoking, the link and its rung. The reading routes stay
+  // with anyone admitted — who may be here is worth knowing whoever you are.
+  // Phase 7 deliberately left ownership out ("anyone in the doc can share the
+  // doc"); the roles research argued that an editor who can invite is an
+  // owner with extra steps, and roles phase 2 made every grant write an
+  // owner's. `heldRung` is the question: the admission's rung, raised to
+  // `own` if the badge claims the creator, and `own` is grantable like any
+  // other rung, so a canvas changes hands by adding an owner.
   //
   // On a REPLICA all three forward to the home. A grant is desk state and does
   // not replicate, so the row that decides who may enter the canvas lives at
@@ -1348,64 +1696,93 @@ export function registerRoutes(
   app.post("/api/projects/:id/grants", async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as Partial<CreateGrantRequest>;
-    const refusal = grantSubjectRefusal(body.subject);
-    if (refusal) return reply.status(400).send({ error: refusal, code: "bad-grant" });
-    // Shape-checked like the subject beside it: two words, and anything else
-    // is a caller sending something other than a capability (#88).
-    if (body.capability !== undefined && body.capability !== "edit" && body.capability !== "view") {
-      return reply.status(400).send({
-        error: `not a capability: ${String(body.capability)} (a grant admits to \`edit\` or \`view\`)`,
-        code: "bad-grant",
-      });
-    }
+    // The shape, in one place for this route and the space's (roles phase 4):
+    // `bars: true` or nothing — written only when it says something, so a
+    // caller sending `bars: false` is sending a shape this route has never
+    // meant; a bar's own subject rule (never `link`, never a group) on top of
+    // the shape every row must have; the ladder's four words and nothing
+    // else (#88, widened by the roles ladder — a home from before a rung
+    // refuses it here, which is what lets a newer client tell "this home
+    // cannot" from "this row was not written"); and no rung on a bar,
+    // because a "no" at Canvas Viewer is not a sentence.
+    const shape = badGrantBody(body);
+    if (shape) return reply.status(400).send({ error: shape, code: "bad-grant" });
+    const bars = body.bars === true;
     const subject = normalizeSubject(body.subject!);
-    const capability: Capability = body.capability === "view" ? "view" : "edit";
+    const capability: Capability = body.capability ?? "edit";
+    const actorId = await actingActor(req, body.actorId);
     // A REPLICA forwards without asking its own opinion, and the order of
     // these two lines is that decision. Shape is universal and refused above;
     // "can anything here verify that" is a fact about the home that OWNS the
     // grant, and a laptop that answered it locally would be a second copy of a
     // policy that is about to change — refusing an invitation the home would
     // have accepted, on the strength of its own configuration. Same reason
-    // `isocan share <email>` has no client-side "not yet".
+    // `isocan share <email>` has no client-side "not yet". The actor rides up
+    // with it, so the home asks `own` of the person and not of the machine.
     const home = options.homes?.for(id) ?? null;
-    if (home) return home.createGrant(id, subject, capability);
-    const unverifiable = attesterRefusal(subject, attesters);
-    if (unverifiable) {
-      return reply.status(400).send({ error: unverifiable, code: NO_ATTESTER });
-    }
+    if (home) return home.createGrant(id, subject, capability, await actorNamed(actorId), bars);
     const snapshot = await engine.getSnapshot(id);
     const live = liveGrants(await desk.grantsFor(id)).find((g) => g.subject === subject);
-    if (live && capabilityOf(live) === capability) return { grant: live } satisfies GrantResponse;
+    // What already stands is handed back, for the toggle's reason: a bar
+    // over a bar, or a rung over the same rung. A bar over an invitation, or
+    // an invitation over a bar, is the replacement below.
+    if (live && isBar(live) === bars && (bars || capabilityOf(live) === capability)) {
+      return { grant: live } satisfies GrantResponse;
+    }
     /**
-     * **Changing what a grant admits to is the owner's alone.**
-     *
-     * Everything else about sharing stays with anyone who can edit — invite
-     * somebody, turn the link off — because those are additive or undoable by
-     * the person who did them. Capability is neither: replacing the edit link
-     * with a view one sweeps everybody rooted at the old row into `view`,
-     * including the person who pressed it, and the control that would put it
-     * back is behind the edit they just gave away. Reported exactly that way.
+     * **Writing a row is the owner's** (roles design, "What only an owner may
+     * do") — inviting at any rung, and the link at any rung, alike. Until
+     * roles phase 2 only the CAPABILITY was owner-only and any editor could
+     * invite at edit or turn the link off; the research's argument stands,
+     * that an editor who can invite is an owner with extra steps, and this is
+     * the one deliberate change in behaviour for existing users. The refusal
+     * names the remedy, which is a person.
      *
      * Checked here rather than in the client, and after the replica forward
      * above, so the home that owns the canvas is the one that answers.
      */
-    const changingCapability = live ? capabilityOf(live) !== capability : capability === "view";
-    if (changingCapability && !(await ownsThisCanvas(desk, snapshot.project, req.badge!))) {
-      return reply.status(403).send({
-        error:
-          `only ${snapshot.project.createdBy.name}, who made this canvas, can change what its ` +
-          `link admits to — ask them, or share with somebody by name instead`,
-        code: NOT_OWNER,
-      });
+    if (!atLeast(await heldRung(desk, snapshot.project, req.badge!, actorId ?? null), "own")) {
+      return reply
+        .status(403)
+        .send({ error: notOwnerMessage(await ownerName(snapshot.project)), code: NOT_OWNER });
     }
-    const grant: Grant = {
-      id: newId("gnt"),
-      canvasId: id,
-      subject,
-      grantedBy: req.badge!.badgeId,
-      at: new Date().toISOString(),
-      ...(capability === "view" ? { capability } : {}),
-    };
+    /**
+     * A row naming the creator's own address is refused as redundant: the
+     * creator holds `own` without one, by the floor, and a row that admits
+     * somebody the door already admits to more is a row that would only
+     * confuse the table. Asked of every badge that claims the creator, since
+     * the address is proved on a badge and the creator is a person.
+     */
+    if (await namesTheCreator(subject, snapshot.project)) {
+      return reply.status(400).send({ error: await creatorRowRefusal(subject, snapshot.project, bars), code: "bad-grant" });
+    }
+    // After the owner's question, not before it: whether THIS home can
+    // verify the address is the next thing wrong with the request, once the
+    // caller is somebody who may write a row at all. A bar is held to it
+    // too: a bar naming an address nobody here can prove keeps nobody out,
+    // and a row with no effect is the thing this refusal exists to prevent.
+    const unverifiable = attesterRefusal(subject, attesters);
+    if (unverifiable) {
+      return reply.status(400).send({ error: unverifiable, code: NO_ATTESTER });
+    }
+    // A group row names a LIVE group on this home (roles phase 5). Any
+    // actor may make one and the wire carries ids, so the gate is that the
+    // group exists and stands: a row pointing at a group nobody here can
+    // produce would admit nobody while the dialog claimed the team was
+    // invited. Its maker is not asked — handing a canvas owner the id is how
+    // a group is lent, and what they learn of it is its name and size.
+    const groupId = groupIdOf(subject);
+    if (groupId !== null && !(await liveGroup(groupId))) return groupNotFound(reply, groupId);
+    const grant: Grant = bars
+      ? barRow(id, subject, req.badge!.badgeId)
+      : {
+          id: newId("gnt"),
+          canvasId: id,
+          subject,
+          grantedBy: req.badge!.badgeId,
+          at: new Date().toISOString(),
+          ...(narrowed(capability) ? { capability } : {}),
+        };
     /**
      * Same subject, different capability: a REPLACEMENT, in one gesture (#88).
      * The old row is tombstoned and the new one written BEFORE the sweep runs,
@@ -1416,16 +1793,268 @@ export function registerRoutes(
      * Two rows and a sweep rather than an edit-in-place, because provenance
      * points at grant ids and an id whose meaning changed underneath its
      * admissions would be a capability nothing ever re-checked.
+     *
+     * A bar replaces a live row the same way — and it sweeps even when there
+     * was no row to replace, because the person it names may be inside on
+     * the link. The sweep carries the bar without a mechanism of its own: it
+     * re-runs the door, and the door now says no (roles phase 3).
      */
     if (live) {
       await desk.revokeGrant(live.id, new Date().toISOString(), req.badge!.badgeId);
-      await desk.putGrant(grant);
-      const swept = await sweepCanvas(desk, id);
-      return { grant, swept } satisfies GrantResponse;
     }
     await desk.putGrant(grant);
+    if (live || bars) {
+      const swept = await sweepCanvas(desk, id, snapshot.project.createdBy.id, sweeps.report);
+      return { grant, swept } satisfies GrantResponse;
+    }
     return { grant } satisfies GrantResponse;
   });
+
+  /** A bar row (roles design, "The bar"): a grant row with `bars: true` and
+   * no capability, for the DELETE's `?bar=1` and the POST's `bars` alike. */
+  const barRow = (canvasId: string, subject: GrantSubject, grantedBy: string): Grant => ({
+    id: newId("gnt"),
+    canvasId,
+    subject,
+    grantedBy,
+    at: new Date().toISOString(),
+    bars: true,
+  });
+
+  /** Why a row naming the creator's own address is not written — as an
+   * invitation (redundant: the creator owns it without one) or as a bar (it
+   * would do nothing: the door checks the floor before a bar takes effect). */
+  const creatorRowRefusal = async (
+    subject: GrantSubject,
+    project: { createdBy: { id: string; name: string } },
+    bars: boolean,
+  ): Promise<string> =>
+    `${subject} is ${await ownerName(project)}'s own address, and they made this canvas — ` +
+    (bars ? "the creator cannot be kept out" : "the creator owns it without a row");
+
+  /**
+   * **Who is acting**, for a write that asks `own` (roles design, "Over a
+   * replica, the write names the person"). The caller may say
+   * (`CreateGrantRequest.actorId`, or `?actorId=` on a DELETE), and whoever
+   * it names must be somebody this badge speaks for — mechanism 5's own
+   * `requireActor`, on the replica and again on the home, which is the same
+   * split a pass takes. A caller that says nothing and holds exactly one
+   * claim is taken to be that person; one that holds several and says
+   * nothing is judged by the badge as a whole, which is what every caller
+   * from before the field asked for.
+   */
+  const actingActor = async (req: FastifyRequest, said: unknown): Promise<string | undefined> => {
+    const actorId = typeof said === "string" && said ? said : undefined;
+    if (actorId) {
+      await engine.requireActor(req.badge!.badgeId, actorId);
+      return actorId;
+    }
+    const claims = req.badge!.claims;
+    return claims.length === 1 ? claims[0]!.actorId : undefined;
+  };
+
+  /** The actor with its name, for a forwarded write: the home may never have
+   * heard of this person, and `HomeLink` claims before it asks. */
+  const actorNamed = async (actorId: string | undefined): Promise<Actor | undefined> => {
+    if (!actorId) return undefined;
+    const names = await engine.actorNames();
+    return { id: actorId, name: names[actorId] ?? "" };
+  };
+
+  /** Does this subject name an address the creator has proved, on any badge
+   * that claims them? */
+  const namesTheCreator = async (
+    subject: GrantSubject,
+    project: { createdBy: { id: string } },
+  ): Promise<boolean> => {
+    if (subject === LINK) return false;
+    for (const { badgeId } of await desk.claimants(ownerOf(project))) {
+      const holder = await desk.badge(badgeId);
+      if (holder && attestationSatisfying(subject, holder.attestations ?? [])) return true;
+    }
+    return false;
+  };
+
+  /** The creator of a canvas, for a sweep that does not hold the snapshot —
+   * `killAndSweep`'s shape, shared with the space sweeps. */
+  const creatorOf = (canvasId: string): Promise<string | null> =>
+    engine.getSnapshot(canvasId).then(
+      (snapshot) => snapshot.project.createdBy.id,
+      () => null,
+    );
+
+  /** An actor's name, through the registry, so a rename reaches it. */
+  const nameOf = async (actorId: string): Promise<string> =>
+    actorNameIn(await engine.actorNames(), { id: actorId, name: actorId });
+
+  const spaceNotFound = (reply: FastifyReply, spaceId: string): FastifyReply =>
+    reply.status(404).send({
+      error: `no space ${spaceId} here that this badge may see`,
+      code: SPACE_NOT_FOUND,
+    });
+
+  /**
+   * **A space this badge may WRITE** (roles phase 4), or the refusal: 404
+   * `space-not-found` for a space that is not here, is deleted, or that this
+   * badge may not see at all — three answers alike, so a stranger learns
+   * nothing about the space around a canvas — and 403 `not-owner`, naming
+   * the space's creator, for somebody who may see it and holds less than
+   * `own`. `heldRungOnSpace` is the question, with the actor narrowed the
+   * way the grant routes narrow it.
+   */
+  const ownedSpace = async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    spaceId: string,
+    actorId: string | undefined,
+  ): Promise<{ space: Space } | { refused: FastifyReply }> => {
+    const space = await desk.space(spaceId);
+    if (!space || !isSpaceLive(space)) return { refused: spaceNotFound(reply, spaceId) };
+    const held = await heldRungOnSpace(desk, space, req.badge!, actorId ?? null);
+    if (held === null) return { refused: spaceNotFound(reply, spaceId) };
+    if (!atLeast(held, "own")) {
+      return {
+        refused: reply.status(403).send({
+          error:
+            `ask ${await nameOf(space.createdBy)}, who owns the space ${space.name} — only an ` +
+            "owner of a space can change what is in it or who may enter its canvases",
+          code: NOT_OWNER,
+        }),
+      };
+    }
+    return { space };
+  };
+
+  /** A space this badge may SEE — the read routes. Null answers like not found. */
+  const visibleSpace = async (req: FastifyRequest, spaceId: string): Promise<Space | null> => {
+    const space = await desk.space(spaceId);
+    if (!space || !isSpaceLive(space)) return null;
+    return (await heldRungOnSpace(desk, space, req.badge!)) === null ? null : space;
+  };
+
+  const groupNotFound = (reply: FastifyReply, groupId: string): FastifyReply =>
+    reply.status(404).send({
+      error: `no group ${groupId} here that this badge may see`,
+      code: GROUP_NOT_FOUND,
+    });
+
+  /** A group that exists and stands — what a `group:` row may name. */
+  const liveGroup = async (groupId: string): Promise<Group | null> => {
+    const group = await desk.group(groupId);
+    return group && isGroupLive(group) ? group : null;
+  };
+
+  /**
+   * **A group this badge may SEE** (roles phase 5, "Who sees the members"),
+   * and whether it OWNS it. Its maker sees it whole. Anybody else sees it —
+   * name and size, never the members — only through a live grant naming it
+   * that they can already see: a canvas row on a canvas they are admitted
+   * to, or a space row on a space they may see. Otherwise null, which the
+   * routes answer as not found, so a group stays a private list: knowing an
+   * id is not knowing the group. `actorId` narrows the owner's question to
+   * one person, as `heldRung` narrows it.
+   */
+  const visibleGroup = async (
+    req: FastifyRequest,
+    groupId: string,
+    actorId?: string,
+  ): Promise<{ group: Group; owner: boolean } | null> => {
+    const group = await desk.group(groupId);
+    if (!group || !isGroupLive(group)) return null;
+    const claims = req.badge!.claims;
+    if ((actorId === undefined || actorId === group.createdBy) && claimsActor(claims, group.createdBy)) {
+      return { group, owner: true };
+    }
+    for (const row of await desk.grantsBySubject(groupSubject(groupId))) {
+      if (isSpaceGrant(row)) {
+        const space = await desk.space(row.spaceId);
+        if (space && isSpaceLive(space) && (await heldRungOnSpace(desk, space, req.badge!)) !== null) {
+          return { group, owner: false };
+        }
+      } else if (capabilityIn(req.badge!, row.canvasId) !== null) {
+        return { group, owner: false };
+      }
+    }
+    return null;
+  };
+
+  /** A group this badge may WRITE: its maker, narrowed to the acting actor.
+   * 404 for one it may not see at all; 403 `not-owner`, naming the maker,
+   * for one it sees through a row. */
+  const ownedGroup = async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    groupId: string,
+    actorId: string | undefined,
+  ): Promise<{ group: Group } | { refused: FastifyReply }> => {
+    const seen = await visibleGroup(req, groupId, actorId);
+    if (!seen) return { refused: groupNotFound(reply, groupId) };
+    if (!seen.owner) {
+      return {
+        refused: reply.status(403).send({
+          error:
+            `ask ${await nameOf(seen.group.createdBy)}, who made the group ${seen.group.name} — only ` +
+            "its maker can change who is in it",
+          code: NOT_OWNER,
+        }),
+      };
+    }
+    return { group: seen.group };
+  };
+
+  /**
+   * **Every canvas a group's rows reach** (roles design, "Adding and removing
+   * a member both sweep"): a canvas row reaches its canvas, a space row
+   * reaches the space's whole list, read from the live rows by subject.
+   * De-duplicated, because a canvas can be named directly and through its
+   * space.
+   */
+  const groupReach = async (groupId: string): Promise<string[]> => {
+    const reached = new Set<string>();
+    for (const row of await desk.grantsBySubject(groupSubject(groupId))) {
+      if (isSpaceGrant(row)) {
+        const space = await desk.space(row.spaceId);
+        if (space && isSpaceLive(space)) for (const canvasId of space.canvasIds) reached.add(canvasId);
+      } else {
+        reached.add(row.canvasId);
+      }
+    }
+    return [...reached];
+  };
+
+  /** A route's `:attribute`, as sent: the router decodes the path, and a
+   * value that still carries an escape was encoded twice by a client. */
+  const attributeParam = (raw: string): string => {
+    try {
+      return raw.includes("%") ? decodeURIComponent(raw) : raw;
+    } catch {
+      return raw;
+    }
+  };
+
+  /**
+   * The shape checks a grant body gets on a canvas and on a space alike:
+   * `bars` is `true` or absent, the subject is one, the rung is one, and a
+   * bar has no rung. One function, so the two POSTs cannot drift.
+   */
+  const badGrantBody = (body: Partial<CreateGrantRequest>): string | null => {
+    if (body.bars !== undefined && body.bars !== true) {
+      return "a bar is written as `bars: true`, or not at all";
+    }
+    const bars = body.bars === true;
+    const refusal = bars ? barSubjectRefusal(body.subject) : grantSubjectRefusal(body.subject);
+    if (refusal) return refusal;
+    if (body.capability !== undefined && !isCapability(body.capability)) {
+      return (
+        `not a capability: ${String(body.capability)} (a grant admits to ` +
+        `${RUNGS.map((rung) => `\`${rung}\``).join(", ")})`
+      );
+    }
+    if (bars && body.capability !== undefined) {
+      return "a bar has no rung — it keeps its subject out; drop `capability` or drop `bars`";
+    }
+    return null;
+  };
 
   /**
    * Un-share it — "turn off the link", and the same gesture for every other
@@ -1455,18 +2084,614 @@ export function registerRoutes(
    */
   app.delete("/api/projects/:id/grants/:grantId", async (req, reply) => {
     const { id, grantId } = req.params as { id: string; grantId: string };
+    // On the query, not in a body: a DELETE with nothing to say sends no
+    // content type (see `revokeGrant` in the web client), and the actor is
+    // one id. `bar=1` rides the same way (`grantRevokeRoute` in core): revoke
+    // and keep them out, in one request.
+    const query = req.query as { actorId?: unknown; bar?: unknown };
+    const actorId = await actingActor(req, query.actorId);
+    const bar = query.bar === "1" || query.bar === "true";
     const home = options.homes?.for(id) ?? null;
-    if (home) return home.revokeGrant(id, grantId);
-    await engine.getSnapshot(id);
+    if (home) return home.revokeGrant(id, grantId, await actorNamed(actorId), bar);
+    const snapshot = await engine.getSnapshot(id);
     // Read through this canvas's own rows, so a grant id belonging to another
     // canvas cannot be revoked through a canvas the caller happens to be in.
     const mine = (await desk.grantsFor(id)).find((g) => g.id === grantId);
     if (!mine) {
       return reply.status(404).send({ error: `no grant ${grantId} on ${id}`, code: "unknown-grant" });
     }
+    // Revoking is a write to grants, and every write to grants is an owner's
+    // (roles phase 2) — the link's off switch included.
+    if (!atLeast(await heldRung(desk, snapshot.project, req.badge!, actorId ?? null), "own")) {
+      return reply
+        .status(403)
+        .send({ error: notOwnerMessage(await ownerName(snapshot.project)), code: NOT_OWNER });
+    }
+    /**
+     * **`?bar=1` — withdraw and keep them out** (roles design, "Withdrawing
+     * versus barring"). Refused BEFORE anything is written when the bar
+     * could not be: the link is never a bar's subject, a bar over a bar is
+     * a second row saying the same thing, and the creator cannot be kept
+     * out. A refusal here leaves the row exactly as it was, so the caller
+     * can send the plain DELETE it meant.
+     */
+    if (bar) {
+      const refusal = isBar(mine)
+        ? `${grantId} is already a bar — revoking it lets them back in; there is nothing to keep out`
+        : barSubjectRefusal(mine.subject);
+      if (refusal) return reply.status(400).send({ error: refusal, code: "bad-grant" });
+      if (await namesTheCreator(mine.subject, snapshot.project)) {
+        return reply.status(400).send({
+          error: await creatorRowRefusal(mine.subject, snapshot.project, true),
+          code: "bad-grant",
+        });
+      }
+    }
     const revoked = await desk.revokeGrant(grantId, new Date().toISOString(), req.badge!.badgeId);
-    const swept = await sweepCanvas(desk, id);
-    return { grant: revoked ?? mine, swept } satisfies GrantResponse;
+    // The bar goes on the desk before the one sweep, for the replacement's
+    // reason: the sweep re-runs the door, and the door has to meet the bar.
+    const written = bar ? barRow(id, mine.subject, req.badge!.badgeId) : null;
+    if (written) await desk.putGrant(written);
+    // The creator rides along for the floor: turning the link off must not
+    // expel the creator's own browser (roles journey 1, step 2).
+    const swept = await sweepCanvas(desk, id, snapshot.project.createdBy.id, sweeps.report);
+    /**
+     * **What would still admit them**, read off the live rows AFTER the
+     * revoke, so the dialog and the CLI can say *they can still enter by the
+     * link* about the state that now obtains rather than the one that was.
+     * `link` when the link is live and no live bar names the subject — which
+     * is what a `?bar=1` just wrote, so that answer is absent by
+     * construction. The link's own revocation asks nothing: the subject is
+     * the link. Named `stillAdmittedBy` so roles phase 4 can add `space`.
+     */
+    const after = liveGrants(await desk.grantsFor(id));
+    // The space's rows too (roles phase 4): a row on the space naming the
+    // same subject means removing them here did not remove them, and the
+    // remedy is the space's Share rather than a bar — said as `space`, which
+    // wins over `link` because it is the more specific answer.
+    const space = await desk.spaceOf(id);
+    const onSpace = space ? liveGrants(await desk.grantsForSpace(space.id)) : [];
+    const barred = [...after, ...onSpace].some((g) => isBar(g) && g.subject === mine.subject);
+    const stillAdmittedBy =
+      mine.subject === LINK || barred
+        ? undefined
+        : onSpace.some((g) => g.subject === mine.subject && !isBar(g))
+          ? ("space" as const)
+          : after.some((g) => g.subject === LINK && !isBar(g))
+            ? ("link" as const)
+            : undefined;
+    return {
+      grant: revoked ?? mine,
+      swept,
+      ...(written ? { bar: written } : {}),
+      ...(stillAdmittedBy ? { stillAdmittedBy } : {}),
+    } satisfies GrantResponse;
+  });
+
+  // ---- the space: a named set of canvases access is set on once (roles phase 4) ----
+  //
+  // All at the home. A space is desk state for a grant's reason — it is part
+  // of what a grant means, and what a grant means does not travel — so a
+  // REPLICA forwards every one of these through `homeScoped()` and refuses
+  // on a mixed rig with the homes named (`refuseAmbiguousHome`), because a
+  // space belongs to the home its creator made it at and this daemon holds
+  // no row to answer from. Nothing here is canvas-scoped, so the door hook
+  // has NOT asked about the caller: every route asks for itself, through
+  // `heldRungOnSpace`, and a badge that may not see a space is told there is
+  // none.
+
+  /** The spaces this badge may see, each with its canvases — the canvas
+   * list joins these to `GET /api/projects`, which does not change. */
+  app.get(SPACES_ROUTE, async (req, reply) => {
+    const stuck = refuseAmbiguousHome(reply, options.homes, "list spaces");
+    if (stuck) return stuck;
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.spaces();
+    // `spacesFor` is the bounded query; a bar on a space names the badge too,
+    // and a space that only keeps you out is not one you may see.
+    const spaces: Space[] = [];
+    for (const space of await desk.spacesFor(req.badge!)) {
+      if ((await heldRungOnSpace(desk, space, req.badge!)) !== null) spaces.push(space);
+    }
+    return { spaces } satisfies SpacesResponse;
+  });
+
+  /** Make one. Any actor may; the creator is the floor, and a space with no
+   * rows is visible to nobody else, so this is a private act until it is
+   * shared. The name is unique among the ones THIS actor owns. */
+  app.post(SPACES_ROUTE, async (req, reply) => {
+    const body = (req.body ?? {}) as Partial<CreateSpaceRequest>;
+    const refusal = spaceNameRefusal(body.name);
+    if (refusal) return reply.status(400).send({ error: refusal, code: BAD_SPACE });
+    const name = body.name!.trim();
+    const stuck = refuseAmbiguousHome(reply, options.homes, "make a space");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, body.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.createSpace(name, await actorNamed(actorId));
+    if (!actorId) {
+      return reply.status(400).send({
+        error:
+          "a space needs a maker, and this badge did not say who — claim an actor first, or name " +
+          "one of this badge's actors as `actorId`",
+        code: BAD_SPACE,
+      });
+    }
+    const mine = (await desk.spacesFor(req.badge!)).filter((space) => space.createdBy === actorId);
+    const taken = mine.find((space) => sameSpaceName(space.name, name));
+    if (taken) {
+      return reply.status(409).send({
+        error: `you already have a space called ${taken.name} (${taken.id}) — names are unique among the spaces you own`,
+        code: SPACE_NAME_TAKEN,
+      });
+    }
+    const space: Space = {
+      id: newId("spc"),
+      name,
+      createdBy: actorId,
+      canvasIds: [],
+      at: new Date().toISOString(),
+    };
+    await desk.putSpace(space);
+    return { space } satisfies SpaceResponse;
+  });
+
+  /**
+   * Delete one: a tombstone, like a grant's. Every canvas stays where it was
+   * with its own rows, and each is swept, because the space's rows stop
+   * reaching it the moment `spaceOf` stops naming it. Idempotent: deleting a
+   * deleted space answers with the tombstone and sweeps nothing.
+   */
+  app.delete(`${SPACES_ROUTE}/:id`, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const query = req.query as { actorId?: unknown };
+    const stuck = refuseAmbiguousHome(reply, options.homes, "delete a space");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, query.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.deleteSpace(id, await actorNamed(actorId));
+    const existing = await desk.space(id);
+    if (!existing) return spaceNotFound(reply, id);
+    if (!isSpaceLive(existing)) {
+      // The tombstone's rows still say who may see it; an owner is told it
+      // is already gone, a stranger that it is not here.
+      const held = await heldRungOnSpace(desk, existing, req.badge!, actorId ?? null);
+      if (held === null || !atLeast(held, "own")) return spaceNotFound(reply, id);
+      return { space: existing, swept: { expelled: 0, rerooted: 0 }, reached: 0 } satisfies SpaceCanvasResponse;
+    }
+    const owned = await ownedSpace(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const gone: Space = { ...owned.space, deletedAt: new Date().toISOString() };
+    await desk.putSpace(gone);
+    const { expelled, rerooted, reached } = await sweepCanvases(desk, gone.canvasIds, creatorOf, sweeps.report);
+    return { space: gone, swept: { expelled, rerooted }, reached } satisfies SpaceCanvasResponse;
+  });
+
+  /**
+   * Add a canvas. `own` on BOTH: the space's, through `ownedSpace`, and the
+   * canvas's, through the door and `heldRung` — this route is not
+   * canvas-scoped, so the hook has not asked. Refused when the canvas is in
+   * another space (`canvas-in-space`: a canvas is in at most one) or lives
+   * at another home (a space holds only canvases whose home is this one).
+   * The canvas keeps whatever rows it has and the space's apply from now,
+   * which the sweep makes real for whoever is inside.
+   */
+  app.put(`${SPACES_ROUTE}/:id/canvases/:canvasId`, async (req, reply) => {
+    const { id, canvasId } = req.params as { id: string; canvasId: string };
+    const body = (req.body ?? {}) as Partial<SpaceCanvasRequest>;
+    const stuck = refuseAmbiguousHome(reply, options.homes, "move a canvas into a space");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, body.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.addToSpace(id, canvasId, await actorNamed(actorId));
+    const owned = await ownedSpace(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const elsewhere = options.homes?.homeOf(canvasId) ?? null;
+    if (elsewhere !== null) {
+      return reply.status(400).send({
+        error:
+          `${canvasId} lives at ${elsewhere}, and a space holds only canvases whose home is ` +
+          "this one — make the space there",
+        code: BAD_SPACE,
+      });
+    }
+    const snapshot = await engine.getSnapshot(canvasId); // 404 for a canvas that is not here
+    await admit(req, canvasId); // the door, since the hook did not ask
+    if (!atLeast(await heldRung(desk, snapshot.project, req.badge!, actorId ?? null), "own")) {
+      return reply
+        .status(403)
+        .send({ error: notOwnerMessage(await ownerName(snapshot.project)), code: NOT_OWNER });
+    }
+    const current = await desk.spaceOf(canvasId);
+    if (current && current.id !== owned.space.id) {
+      return reply.status(409).send({
+        error:
+          `${snapshot.project.title} is already in the space ${current.name} (${current.id}) — a canvas ` +
+          "is in at most one space; remove it there first",
+        code: CANVAS_IN_SPACE,
+      });
+    }
+    if (current) {
+      // Already here: the gesture is "this canvas is in the space", and it is.
+      return { space: owned.space, swept: { expelled: 0, rerooted: 0 }, reached: 0 } satisfies SpaceCanvasResponse;
+    }
+    const next: Space = { ...owned.space, canvasIds: [...owned.space.canvasIds, canvasId] };
+    await desk.putSpace(next);
+    const swept = await sweepCanvas(desk, canvasId, snapshot.project.createdBy.id, sweeps.report);
+    return { space: next, swept, reached: 1 } satisfies SpaceCanvasResponse;
+  });
+
+  /** Remove a canvas: `own` on the space; the canvas keeps its own rows and
+   * is swept, so whoever was inside on the space's rows is put out or
+   * re-rooted onto a row of the canvas's own. Idempotent. */
+  app.delete(`${SPACES_ROUTE}/:id/canvases/:canvasId`, async (req, reply) => {
+    const { id, canvasId } = req.params as { id: string; canvasId: string };
+    const query = req.query as { actorId?: unknown };
+    const stuck = refuseAmbiguousHome(reply, options.homes, "move a canvas out of a space");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, query.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.removeFromSpace(id, canvasId, await actorNamed(actorId));
+    const owned = await ownedSpace(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    if (!owned.space.canvasIds.includes(canvasId)) {
+      return { space: owned.space, swept: { expelled: 0, rerooted: 0 }, reached: 0 } satisfies SpaceCanvasResponse;
+    }
+    const next: Space = {
+      ...owned.space,
+      canvasIds: owned.space.canvasIds.filter((held) => held !== canvasId),
+    };
+    await desk.putSpace(next);
+    const swept = await sweepCanvas(desk, canvasId, await creatorOf(canvasId), sweeps.report);
+    return { space: next, swept, reached: 1 } satisfies SpaceCanvasResponse;
+  });
+
+  // The grants routes, scoped to the space. Reads for anybody who may see
+  // it; writes for `own` on it; every write sweeps every canvas in it, and
+  // the count reached rides back beside the sum.
+
+  app.get(`${SPACES_ROUTE}/:id/grants`, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const stuck = refuseAmbiguousHome(reply, options.homes, "read a space's grants");
+    if (stuck) return stuck;
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.spaceGrants(id);
+    const space = await visibleSpace(req, id);
+    if (!space) return spaceNotFound(reply, id);
+    return { grants: liveGrants(await desk.grantsForSpace(id)) } satisfies GrantsResponse;
+  });
+
+  /**
+   * Share the space. The canvas POST's rules, one scope wider, with one
+   * refusal of its own: **`link` is not a space subject.** A space has no
+   * address, so a link row on it would admit nobody and mean nothing;
+   * **Every canvas in this space** (`POST …/link`) is what sets each canvas's
+   * link. The space creator's own address is refused as redundant, like the
+   * canvas creator's.
+   */
+  app.post(`${SPACES_ROUTE}/:id/grants`, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as Partial<CreateGrantRequest>;
+    const shape = badGrantBody(body);
+    if (shape) return reply.status(400).send({ error: shape, code: "bad-grant" });
+    const bars = body.bars === true;
+    const subject = normalizeSubject(body.subject!);
+    if (subject === LINK) {
+      return reply.status(400).send({
+        error:
+          "a space has no address, so it has no link row — set every canvas's link at once " +
+          "with `POST /api/spaces/:id/link` (`isocan share --space <name> --link …`)",
+        code: BAD_SPACE,
+      });
+    }
+    const capability: Capability = body.capability ?? "edit";
+    const stuck = refuseAmbiguousHome(reply, options.homes, "share a space");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, body.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.createSpaceGrant(id, subject, capability, await actorNamed(actorId), bars);
+    const owned = await ownedSpace(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const space = owned.space;
+    const live = liveGrants(await desk.grantsForSpace(id)).find((g) => g.subject === subject);
+    if (live && isBar(live) === bars && (bars || capabilityOf(live) === capability)) {
+      return { grant: live } satisfies GrantResponse;
+    }
+    if (await namesTheCreator(subject, { createdBy: { id: space.createdBy } })) {
+      return reply.status(400).send({
+        error:
+          `${subject} is ${await nameOf(space.createdBy)}'s own address, and they made this space — ` +
+          (bars ? "the creator cannot be kept out" : "the creator owns it without a row"),
+        code: "bad-grant",
+      });
+    }
+    const unverifiable = attesterRefusal(subject, attesters);
+    if (unverifiable) return reply.status(400).send({ error: unverifiable, code: NO_ATTESTER });
+    const groupId = groupIdOf(subject);
+    if (groupId !== null && !(await liveGroup(groupId))) return groupNotFound(reply, groupId);
+    const grant: Grant = {
+      id: newId("gnt"),
+      spaceId: id,
+      subject,
+      grantedBy: req.badge!.badgeId,
+      at: new Date().toISOString(),
+      ...(bars ? { bars: true as const } : narrowed(capability) ? { capability } : {}),
+    };
+    if (live) await desk.revokeGrant(live.id, new Date().toISOString(), req.badge!.badgeId);
+    await desk.putGrant(grant);
+    // Always swept, replacement or not: a new row on a space can RAISE people
+    // already inside its canvases on a lower row, and the sweep is what
+    // reaches their open sockets (journey 4, step 6).
+    const { expelled, rerooted, reached } = await sweepSpace(desk, id, creatorOf, sweeps.report);
+    return { grant, swept: { expelled, rerooted }, reached } satisfies GrantResponse;
+  });
+
+  /** Revoke one, `?bar=1` included — the canvas DELETE's rules, scoped to
+   * the space, with the sweep over every canvas in it. No `stillAdmittedBy`:
+   * a space has no link, and what its canvases' own rows would still admit is
+   * each canvas's answer. */
+  app.delete(`${SPACES_ROUTE}/:id/grants/:grantId`, async (req, reply) => {
+    const { id, grantId } = req.params as { id: string; grantId: string };
+    const query = req.query as { actorId?: unknown; bar?: unknown };
+    const bar = query.bar === "1" || query.bar === "true";
+    const stuck = refuseAmbiguousHome(reply, options.homes, "revoke a space's grant");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, query.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.revokeSpaceGrant(id, grantId, await actorNamed(actorId), bar);
+    const owned = await ownedSpace(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const mine = (await desk.grantsForSpace(id)).find((g) => g.id === grantId);
+    if (!mine) {
+      return reply.status(404).send({ error: `no grant ${grantId} on space ${id}`, code: "unknown-grant" });
+    }
+    if (bar) {
+      const refusal = isBar(mine)
+        ? `${grantId} is already a bar — revoking it lets them back in; there is nothing to keep out`
+        : barSubjectRefusal(mine.subject);
+      if (refusal) return reply.status(400).send({ error: refusal, code: "bad-grant" });
+      if (await namesTheCreator(mine.subject, { createdBy: { id: owned.space.createdBy } })) {
+        return reply.status(400).send({
+          error: `${mine.subject} is the space creator's own address — the creator cannot be kept out`,
+          code: "bad-grant",
+        });
+      }
+    }
+    const revoked = await desk.revokeGrant(grantId, new Date().toISOString(), req.badge!.badgeId);
+    const written: Grant | null = bar
+      ? {
+          id: newId("gnt"),
+          spaceId: id,
+          subject: mine.subject,
+          grantedBy: req.badge!.badgeId,
+          at: new Date().toISOString(),
+          bars: true,
+        }
+      : null;
+    if (written) await desk.putGrant(written);
+    const { expelled, rerooted, reached } = await sweepSpace(desk, id, creatorOf, sweeps.report);
+    return {
+      grant: revoked ?? mine,
+      swept: { expelled, rerooted },
+      reached,
+      ...(written ? { bar: written } : {}),
+    } satisfies GrantResponse;
+  });
+
+  /**
+   * **Every canvas in this space** (roles journey 4, step 4). The floor is
+   * not the ceiling: a canvas's own rows can only add to what the space
+   * gives, so "turn the link off for the space" cannot be one row on the
+   * space — it is the per-canvas link row written or revoked on every canvas
+   * in a loop, each followed by that canvas's sweep, and the answer says how
+   * many canvases it reached and how many it changed. Each canvas's own
+   * link can be set again afterwards, which is journey 5.
+   */
+  app.post(`${SPACES_ROUTE}/:id/link`, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as Partial<SpaceLinkRequest>;
+    const want = typeof body.capability === "string" ? body.capability.toLowerCase() : "";
+    const capability: Capability | "off" | null =
+      want === "off" ? "off" : isCapability(want) && want !== "own" ? want : null;
+    if (capability === null) {
+      return reply.status(400).send({
+        error: "the every-canvas link takes `edit`, `read`, `view` or `off` — never `own`",
+        code: BAD_SPACE,
+      });
+    }
+    const stuck = refuseAmbiguousHome(reply, options.homes, "set a space's links");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, body.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.setSpaceLink(id, capability, await actorNamed(actorId));
+    const owned = await ownedSpace(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const now = new Date().toISOString();
+    let changed = 0;
+    let expelled = 0;
+    let rerooted = 0;
+    for (const canvasId of owned.space.canvasIds) {
+      const live = liveGrants(await desk.grantsFor(canvasId)).find((g) => g.subject === LINK);
+      if (capability === "off") {
+        if (!live) continue;
+        await desk.revokeGrant(live.id, now, req.badge!.badgeId);
+      } else {
+        if (live && capabilityOf(live) === capability) continue;
+        if (live) await desk.revokeGrant(live.id, now, req.badge!.badgeId);
+        await desk.putGrant({
+          id: newId("gnt"),
+          canvasId,
+          subject: LINK,
+          grantedBy: req.badge!.badgeId,
+          at: now,
+          ...(narrowed(capability) ? { capability } : {}),
+        });
+      }
+      changed += 1;
+      const swept = await sweepCanvas(desk, canvasId, await creatorOf(canvasId), sweeps.report);
+      expelled += swept.expelled;
+      rerooted += swept.rerooted;
+    }
+    return {
+      reached: owned.space.canvasIds.length,
+      changed,
+      canvasIds: [...owned.space.canvasIds],
+      swept: { expelled, rerooted },
+    } satisfies SpaceLinkResponse;
+  });
+
+  // ---- the group: a named set of people access is given to once (roles phase 5) ----
+  //
+  // All at the home, for the space's reason: a group is part of what a grant
+  // means. A REPLICA forwards through `homeScoped()`. Membership is read at
+  // the door and copied nowhere, so a member added or removed is one write
+  // here followed by a sweep of every canvas every live row on the group
+  // reaches — the same sweep a revoked link runs (journey 6).
+
+  /** The groups this badge's actors made, members and all — the owner's
+   * list. A group somebody is merely in is not listed; they meet it as a
+   * row's name and size on the canvases it opens. */
+  app.get(GROUPS_ROUTE, async (req, reply) => {
+    const stuck = refuseAmbiguousHome(reply, options.homes, "list groups");
+    if (stuck) return stuck;
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.groups();
+    const groups = (await desk.groupsFor(req.badge!)).map((group) => groupViewOf(group, true));
+    return { groups } satisfies GroupsResponse;
+  });
+
+  /** Make one. Any actor may; the maker is the floor. The name is unique
+   * among the groups THIS actor owns. */
+  app.post(GROUPS_ROUTE, async (req, reply) => {
+    const body = (req.body ?? {}) as Partial<CreateGroupRequest>;
+    const refusal = groupNameRefusal(body.name);
+    if (refusal) return reply.status(400).send({ error: refusal, code: BAD_GROUP });
+    const name = body.name!.trim();
+    const stuck = refuseAmbiguousHome(reply, options.homes, "make a group");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, body.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.createGroup(name, await actorNamed(actorId));
+    if (!actorId) {
+      return reply.status(400).send({
+        error:
+          "a group needs a maker, and this badge did not say who — claim an actor first, or name " +
+          "one of this badge's actors as `actorId`",
+        code: BAD_GROUP,
+      });
+    }
+    const mine = (await desk.groupsFor(req.badge!)).filter((group) => group.createdBy === actorId);
+    const taken = mine.find((group) => sameGroupName(group.name, name));
+    if (taken) {
+      return reply.status(409).send({
+        error: `you already have a group called ${taken.name} (${taken.id}) — names are unique among the groups you own`,
+        code: GROUP_NAME_TAKEN,
+      });
+    }
+    const group: Group = {
+      id: newId("ppl"),
+      name,
+      createdBy: actorId,
+      members: [],
+      at: new Date().toISOString(),
+    };
+    await desk.putGroup(group);
+    return { group: groupViewOf(group, true) } satisfies GroupResponse;
+  });
+
+  /** One group: whole for its maker; name and size for somebody a live row
+   * naming it lets see it; not found for everybody else. */
+  app.get(`${GROUPS_ROUTE}/:id`, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const stuck = refuseAmbiguousHome(reply, options.homes, "read a group");
+    if (stuck) return stuck;
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.group(id);
+    const seen = await visibleGroup(req, id);
+    if (!seen) return groupNotFound(reply, id);
+    return { group: groupViewOf(seen.group, seen.owner) } satisfies GroupResponse;
+  });
+
+  /**
+   * Add a member. The attribute is normalized the way a grant's subject is
+   * (`email:` lowercased), because the door compares it against a badge's
+   * attestations by equality. Then the sweep, for journey 2's reason: a
+   * change reaches an open socket — somebody already inside at `read` on a
+   * canvas row is raised by it, and somebody not inside is admitted at the
+   * door when they arrive. Idempotent: adding a member twice is one member.
+   */
+  app.put(`${GROUPS_ROUTE}/:id/members/:attribute`, async (req, reply) => {
+    const { id, attribute: raw } = req.params as { id: string; attribute: string };
+    const body = (req.body ?? {}) as Partial<GroupMemberRequest>;
+    const attribute = attributeParam(raw);
+    const refusal = groupMemberRefusal(attribute);
+    if (refusal) return reply.status(400).send({ error: refusal, code: BAD_GROUP });
+    const stuck = refuseAmbiguousHome(reply, options.homes, "add somebody to a group");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, body.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.addGroupMember(id, attribute, await actorNamed(actorId));
+    const owned = await ownedGroup(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const member = normalizeAttribute(attribute);
+    if (owned.group.members.includes(member)) {
+      return { group: groupViewOf(owned.group, true), swept: { expelled: 0, rerooted: 0 }, reached: 0 } satisfies GroupResponse;
+    }
+    const next: Group = { ...owned.group, members: [...owned.group.members, member] };
+    await desk.putGroup(next);
+    const { expelled, rerooted, reached } = await sweepCanvases(desk, await groupReach(id), creatorOf, sweeps.report);
+    return { group: groupViewOf(next, true), swept: { expelled, rerooted }, reached } satisfies GroupResponse;
+  });
+
+  /** Remove a member: one write, then the sweep that puts them out of every
+   * canvas the group's rows reach — and their agents with them, since a pass
+   * root adopts its minter's outcome. Idempotent. */
+  app.delete(`${GROUPS_ROUTE}/:id/members/:attribute`, async (req, reply) => {
+    const { id, attribute: raw } = req.params as { id: string; attribute: string };
+    const query = req.query as { actorId?: unknown };
+    const attribute = attributeParam(raw);
+    const stuck = refuseAmbiguousHome(reply, options.homes, "remove somebody from a group");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, query.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.removeGroupMember(id, attribute, await actorNamed(actorId));
+    const owned = await ownedGroup(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const member = normalizeAttribute(attribute);
+    if (!owned.group.members.includes(member)) {
+      return { group: groupViewOf(owned.group, true), swept: { expelled: 0, rerooted: 0 }, reached: 0 } satisfies GroupResponse;
+    }
+    const next: Group = { ...owned.group, members: owned.group.members.filter((held) => held !== member) };
+    await desk.putGroup(next);
+    const { expelled, rerooted, reached } = await sweepCanvases(desk, await groupReach(id), creatorOf, sweeps.report);
+    return { group: groupViewOf(next, true), swept: { expelled, rerooted }, reached } satisfies GroupResponse;
+  });
+
+  /** Delete one: a tombstone. Its rows stay and stop admitting — the door
+   * skips a deleted group — and the sweep puts out whoever was inside on
+   * them. Idempotent for its maker; not there for anybody else. */
+  app.delete(`${GROUPS_ROUTE}/:id`, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const query = req.query as { actorId?: unknown };
+    const stuck = refuseAmbiguousHome(reply, options.homes, "delete a group");
+    if (stuck) return stuck;
+    const actorId = await actingActor(req, query.actorId);
+    const home = options.homes?.homeScoped() ?? null;
+    if (home) return home.deleteGroup(id, await actorNamed(actorId));
+    const existing = await desk.group(id);
+    if (!existing) return groupNotFound(reply, id);
+    if (!isGroupLive(existing)) {
+      const owner =
+        (actorId === undefined || actorId === existing.createdBy) && claimsActor(req.badge!.claims, existing.createdBy);
+      if (!owner) return groupNotFound(reply, id);
+      return { group: groupViewOf(existing, true), swept: { expelled: 0, rerooted: 0 }, reached: 0 } satisfies GroupResponse;
+    }
+    const owned = await ownedGroup(req, reply, id, actorId);
+    if ("refused" in owned) return owned.refused;
+    const gone: Group = { ...owned.group, deletedAt: new Date().toISOString() };
+    await desk.putGroup(gone);
+    const { expelled, rerooted, reached } = await sweepCanvases(desk, await groupReach(id), creatorOf, sweeps.report);
+    return { group: groupViewOf(gone, true), swept: { expelled, rerooted }, reached } satisfies GroupResponse;
   });
 
   // ---- your own surfaces: kill-a-badge (identity desk, mechanism 1) ----
@@ -1540,7 +2765,18 @@ export function registerRoutes(
         code: NOT_YOUR_BADGE,
       });
     }
-    const outcome = await killAndSweep(desk, badgeId, req.badge!.badgeId);
+    const outcome = await killAndSweep(
+      desk,
+      badgeId,
+      req.badge!.badgeId,
+      undefined,
+      (canvasId) =>
+        engine.getSnapshot(canvasId).then(
+          (snapshot) => snapshot.project.createdBy.id,
+          () => null,
+        ),
+      sweeps.report,
+    );
     if (!outcome) {
       return reply
         .status(404)
@@ -1884,11 +3120,12 @@ export function registerRoutes(
     // for this route and every other one shaped like it.
     const snapshot = await engine.getSnapshot(id);
     // The one fact about the READER that rides on the read (#88): a client
-    // whose admission can only view learns it here, with the canvas, instead
-    // of discovering it as a refusal per gesture. Absent means edit, so a
-    // pre-capability client parsing this response sees nothing new.
-    if (req.badge && capabilityIn(req.badge, id) === "view") {
-      return { ...snapshot, capability: "view" as const };
+    // whose admission is not edit learns its rung here, with the canvas,
+    // instead of discovering it as a refusal per gesture. Absent means edit,
+    // so a pre-capability client parsing this response sees nothing new.
+    const held = req.badge ? capabilityIn(req.badge, id) : null;
+    if (held !== null && narrowed(held)) {
+      return { ...snapshot, capability: held };
     }
     return snapshot;
   });
@@ -1940,26 +3177,54 @@ export function registerRoutes(
    * long poll must be woken by ANY canvas's op, and a canvas born while it
    * waits is streamed from its first entry.
    *
-   * **Still home-wide, and it is the sibling of the leak `GET /api/projects`
-   * just closed.** "Canvases it has never opened" is the feature — a parked
-   * agent must hear a canvas it was summoned to — and at a multi-tenant home
-   * that same sentence reads as "hears everybody's". Narrowing it is the same
-   * per-canvas door test as the listing above; what stops it happening here
-   * is that a parked `isocan wait` is exactly the caller whose badge has no
-   * admissions yet, so the narrowing has to be designed WITH the wake-up
-   * (phase 11's thin agent and phase 12's dispatch), not bolted on the poll.
-   * Recorded here so the next person meets a decision rather than a surprise.
+   * **Home-wide, and no longer a leak** (roles phase 1). "Canvases it has
+   * never opened" is still the feature — a parked agent must hear a canvas
+   * it was summoned to — and at a multi-tenant home that sentence used to
+   * read as "hears everybody's": this route checked no admission at all, so
+   * any badge on the home could read any canvas's oplog. It now runs the
+   * same per-canvas door test as the listing above, per canvas in its list:
+   * a canvas the badge is admitted to, or that a live row would admit it to,
+   * is reported; any other is simply not in the answer. A summoned agent on
+   * a canvas whose link is on still hears it, because the link is the row
+   * that admits it. Nothing is written — hearing about a room is not
+   * entering it, the same rule the listing keeps.
    */
   app.post("/api/oplog/watch", async (req) => {
     const body = (req.body ?? {}) as import("@isocan/core").WatchLogRequest;
     const { cursors } = body;
     const only = body.only ? new Set(body.only) : null;
+    const badge = req.badge!;
+    const admitted = new Set(badge.admissions.map((a) => a.canvasId));
+    const judged = new Map<string, boolean>();
+    const mayHear = async (canvas: Canvas): Promise<boolean> => {
+      const known = judged.get(canvas.id);
+      if (known !== undefined) return known;
+      const allowed =
+        admitted.has(canvas.id) ||
+        Boolean(await admittingGrant(desk, canvas.id, badge, canvas.createdBy.id));
+      judged.set(canvas.id, allowed);
+      /**
+       * **An expelled badge's next poll is refused, and told why** (roles
+       * design, "Reaching an open socket"). A badge that was swept out of a
+       * canvas it asked for by name is not quietly answered with nothing —
+       * that is a parked agent hearing silence forever — but refused with
+       * `not-admitted` and the reason `withdrawn`, which `isocan wait`
+       * prints and exits on. Only for a canvas the caller NAMED: a home-wide
+       * watch is not ended by one room. A badge admitted again is forgotten.
+       */
+      if (allowed) sweeps.forget(badge.badgeId, canvas.id);
+      else if (only?.has(canvas.id) && sweeps.withdrew(badge.badgeId, canvas.id)) {
+        throw new NotAdmittedError(canvas.id, WITHDRAWN);
+      }
+      return allowed;
+    };
 
     const collect = async (): Promise<import("@isocan/core").WatchLogResponse> => {
       const entries: import("@isocan/core").WatchedLogEntry[] = [];
       const next: Record<string, number> = {};
       for (const canvas of await engine.listCanvases()) {
         if (only && !only.has(canvas.id)) continue;
+        if (!(await mayHear(canvas))) continue;
         const since = cursors?.[canvas.id] ?? 0;
         // Seeding (no cursors at all) means "from now on" — tips, no entries.
         const log = cursors ? await engine.getLog(canvas.id, since) : [];
@@ -1986,6 +3251,19 @@ export function registerRoutes(
       landed = true;
       wake?.();
     });
+    // And on this badge's own expulsion from a canvas it named: the parked
+    // agent is told within the sweep, not at the end of its poll window.
+    // The wake runs `collect`, which is where the refusal is raised.
+    const unsubscribeSweeps = sweeps.on((canvasId, badgeId, outcome) => {
+      if (badgeId !== badge.badgeId || outcome.outcome !== "expelled") return;
+      if (!only?.has(canvasId)) return;
+      // The answer this request memoised for that canvas is now stale, and
+      // so is the admission it read at the door; the re-run must ask again.
+      judged.delete(canvasId);
+      admitted.delete(canvasId);
+      landed = true;
+      wake?.();
+    });
     try {
       let result = await collect();
       const holdMs = Math.min(Number(body.waitMs) || 0, 55_000);
@@ -2006,6 +3284,7 @@ export function registerRoutes(
       return result;
     } finally {
       unsubscribe();
+      unsubscribeSweeps();
     }
   });
 
@@ -2339,6 +3618,77 @@ export function registerRoutes(
     const admitted = new Set(badge.admissions.map((a) => a.canvasId));
     const held = (await engine.listCanvases()).filter((canvas) => admitted.has(canvas.id));
     return gcCanvases(engine, held.map((canvas) => canvas.id), body);
+  });
+
+  /**
+   * **Mint the URLs a canvas's frames load from** — the app-origin half of
+   * option A (`docs/projects/multiuser/content-read-auth.md`), and the only
+   * place in this codebase that turns a badge into permission to read bytes
+   * from an origin that holds no badge.
+   *
+   * Three things make it safe, and all three are somewhere else:
+   *
+   * 1. **The door.** This route is under `/api/projects/:id/`, so the
+   *    `onRequest` hook has already re-asked `canvasId ∈ admissions`. An
+   *    expelled badge reaches this line only by being un-expelled first.
+   * 2. **The clock.** Every signature carries an expiry minutes away, so what
+   *    an about-to-be-expelled badge minted dies on its own. That is the
+   *    honest cost the decision recorded: on the hosted shape expulsion
+   *    reaches the bytes *within one TTL*, not at once.
+   * 3. **The scope.** A signature is over `(canvasId, hash, expiry)` and
+   *    nothing else, so it is a capability for ONE object on ONE canvas — a
+   *    URL copied out of a page's source hands over that item for its
+   *    remaining minutes, and never the canvas.
+   *
+   * It reads no store and touches no ledger: signing is a pure function of
+   * the home's key and three strings, so a canvas of forty screens costs one
+   * key lookup and forty HMACs. Nothing is checked about the hashes
+   * themselves — an unknown one signs happily and 404s on the content
+   * origin, because signing something the store does not have grants
+   * precisely nothing.
+   *
+   * **A `GET`, deliberately** — see `SIGN_BLOBS_ROUTE`: the capability hook
+   * refuses every non-GET to a badge below `edit`, and a viewer who cannot
+   * mint is a viewer who sees an empty canvas.
+   *
+   * **A home with no signing answers 404**, not an empty object: the app asks
+   * only when `/api/serving` said `contentSigned`, so a call arriving here on
+   * a home that signs nothing is a client with a wrong idea, and an empty
+   * success would let it render frames that cannot load.
+   */
+  app.get(SIGN_BLOBS_ROUTE, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const signing = options.contentSigning ?? null;
+    if (!signing) {
+      return reply
+        .status(404)
+        .send({ error: "this home serves item content unsigned", code: "no-signing" });
+    }
+    const raw = (req.query as Record<string, unknown>)[SIGN_BLOBS_PARAM];
+    const hashes = (typeof raw === "string" ? raw.split(",") : [])
+      .map((h) => h.trim())
+      .filter((h) => h.length > 0);
+    if (hashes.length === 0) {
+      return reply
+        .status(400)
+        .send({ error: `${SIGN_BLOBS_PARAM} must name at least one content hash`, code: "bad-op" });
+    }
+    if (hashes.length > SIGN_BLOBS_LIMIT) {
+      return reply.status(400).send({
+        error: `${hashes.length} hashes is more than this home signs at once — ask for ${SIGN_BLOBS_LIMIT} or fewer`,
+        code: "bad-op",
+      });
+    }
+    await engine.getSnapshot(id); // 404 for unknown canvases, as everywhere here
+    const key = await signing.key();
+    const expiresAt = Math.floor(Date.now() / 1000) + signing.ttlSeconds;
+    const urls: Record<string, string> = {};
+    for (const hash of hashes) urls[hash] = signedBlobPath(key, id, hash, expiresAt);
+    // `no-store` because the body IS the credential. Nothing between here and
+    // the tab may keep a copy — least of all the CDN this home sits behind.
+    return reply
+      .header("Cache-Control", "no-store")
+      .send({ urls, expiresAt, ttlSeconds: signing.ttlSeconds } satisfies SignedBlobsResponse);
   });
 
   app.post("/api/projects/:id/blobs", async (req, reply) => {
@@ -2733,7 +4083,14 @@ export function registerRoutes(
   registerContentRoutes(
     app,
     { engine, store, homes: options.homes ?? null },
-    { csp: "sandbox allow-scripts" },
+    {
+      appCsp: "sandbox allow-scripts",
+      // Hosted: the same registration answers for the content origin too,
+      // told apart by Host and made safe by the signature. Null on every
+      // local shape, where this mount only ever hears the app origin.
+      host: options.contentHost ?? null,
+      signing: options.contentSigning ?? null,
+    },
   );
 
   /**
@@ -2950,6 +4307,11 @@ function badUploadRequest(request: Partial<BlobUploadRequest> | undefined): stri
 /** The canvas id out of a path segment. A malformed percent escape is not
  * worth a 500 from a hook: it is not a canvas id either way, and the route
  * behind it will say so. */
+/** The `Host` header as one string, however the client spelled it. */
+function hostHeader(raw: string | string[] | undefined): string | undefined {
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
 function decodeSegment(raw: string): string {
   try {
     return decodeURIComponent(raw);
