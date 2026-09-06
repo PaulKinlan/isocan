@@ -45,6 +45,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # **The suite reads git history, so a shallow checkout fails it.**
+          # `changelog-day.mjs` asks `git log` what landed on a day, and
+          # `changelog.test.ts` drives it against the EARLIEST entry — which on
+          # a depth-1 clone is a day with no commits in view, so the generator
+          # answers "nothing landed" where the test expects "already written".
+          #
+          # `release.yml` has had this since it was written, for its own
+          # unrelated reason (it pushes a commit naming two parents by sha),
+          # which is exactly why it did not travel: the shared `suite-setup`
+          # action cannot carry a checkout, and the reason written beside it
+          # there is not this reason. The comment below about drift between
+          # these two files was already here, and this is the drift it
+          # described, in the file that carries it.
+          fetch-depth: 0
 
       # Node, Java, the Firestore emulator and `npm ci` — the same steps
       # `release.yml` runs, because they are the same steps. Shared rather
@@ -62,6 +77,10 @@ jobs:
       - run: npm test
         env:
           ISOCAN_REQUIRE_EMULATOR: "1"
+          # The bundle budget measures packages/web/dist, which `npm ci`
+          # built through `prepare`. If it is missing here, that did not
+          # happen — and a silent skip would let the entry chunk drift again.
+          ISOCAN_REQUIRE_BUNDLE: "1"
 
       - run: npm run typecheck
       - run: npm run lint
