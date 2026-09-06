@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-06
 see: extensions
-note: stages 1 and 2 built 6 Sep — a declarative tool as an item with `role=tool`, `does` limited to a slash command that exists, a closed icon set, reserved labels, and the capability list printed before `--yes`; `isocan tool list/add` and the rail render from ONE reader in core. Stages 3 (declarative panels), 4 (extension actors) and 5 (hosted panels, now that the content origin is live) not built
+note: stages 1 and 2 built 6 Sep — a declarative tool as an item with `role=tool`, `does` limited to a slash command that exists, a closed icon set, reserved labels, and the capability list printed before `--yes`; `isocan tool list/add` and the rail render from ONE reader in core. Stages 3 (declarative panels), 4 (extension actors — which has no subject to attribute until a panel ACTS, checked 6 Sep) and 5 (hosted panels; its content-origin gate cleared 6 Sep) not built
 ---
 # Extending the canvas from inside it
 
@@ -188,7 +188,32 @@ by typing.
 3. **Declarative panels**, once two real tools have asked for the same shape.
 4. **Extension actors and grants**, which is mostly wiring the identity desk to
    a non-human subject.
+
+   **It has no subject yet, and that is a finding rather than a delay.**
+   Checked on 6 Sep with stages 1 and 2 built: a tier-1 tool does not *act*, it
+   *asks*. Pressing one posts the slash command the person would have typed,
+   under that person's actor, and the acting is done by whatever agent picks
+   the comment up — which is already attributed, already undoable per actor,
+   already revocable. Giving the tool its own actor there would make the log
+   say the Tidy button asked for something, when what happened is that a person
+   asked for it with one click instead of eight keystrokes. That is a worse
+   record, not a better one.
+
+   The subject appears at tier 2 and 3, where a panel acts on its own — and
+   tier 3 is where it becomes load-bearing, because a hosted panel is somebody
+   else's code. So this stage's real predecessor is **a panel that acts**, not
+   the calendar. Building the desk wiring first would be machinery with nothing
+   to attribute, tested only against a fixture, which is the thing this design
+   forbids two paragraphs above about panel fields: *added when two real
+   extensions need it, never because one might.*
+
+   What stages 1 and 2 did settle, and what stage 4 inherits: the manifest, the
+   one reader, the capability list, and the rule that the ask goes through the
+   same door a person's message goes through. An extension actor is a change of
+   WHO is at that door, not a second door.
 5. **Hosted panels**, after the content origin lands. Not before.
+   *(The content origin landed on prod 6 Sep, so this gate is clear — the two
+   in front of it are not.)*
 
 ## Open
 
