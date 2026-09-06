@@ -186,7 +186,13 @@ satisfied that way is worse than a metric breached honestly.
 says nothing. Until the number can redden a commit, step 1 is a one-time
 cleanup rather than a floor.
 
-**3. `formatBytes` to core**, with the terabyte as its test.
+**3. `formatBytes` to core**, with the terabyte as its test. ✅ **Done 6 Sep.**
+`core/bytes.ts`, beside `elapsed.ts` and not in `format.ts` — that file is the
+canvas tidy, and a size is not a layout. The CLI re-exports it from
+`output.ts` so `main.ts`'s import list is untouched; the web imports it
+directly and its shorter unit list is gone. The test leads with the terabyte,
+which is the case that was wrong, and a guard names the two files that used
+to hold a copy each so a re-introduction is caught where it happened.
 
 **4. `defaultSize` and the extension table to core**, keeping `mimeFor` and
 `mimeTypeOf` as two entry points.

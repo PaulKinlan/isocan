@@ -41,6 +41,7 @@ export * from "./undone.ts";
 export * from "./lineage.ts";
 export * from "./commands.ts";
 export * from "./shortcuts.ts";
+export * from "./bytes.ts";
 export * from "./format.ts";
 export * from "./merge.ts";
 export * from "./onit.ts";
