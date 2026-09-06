@@ -62,6 +62,10 @@ jobs:
       - run: npm test
         env:
           ISOCAN_REQUIRE_EMULATOR: "1"
+          # The bundle budget measures packages/web/dist, which `npm ci`
+          # built through `prepare`. If it is missing here, that did not
+          # happen — and a silent skip would let the entry chunk drift again.
+          ISOCAN_REQUIRE_BUNDLE: "1"
 
       - run: npm run typecheck
       - run: npm run lint

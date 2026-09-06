@@ -196,11 +196,17 @@ distance to the goal is printed on every run. Raising the ceiling is one line
 in a diff with a reason beside it; what cannot happen again is a hundred
 kilobytes arriving as a hundred unremarked commits.
 
-It builds the bundle when `dist` is missing or older than any web source,
-because it measures an artifact — and that trap bit while it was being
-written: this machine's `dist` predated step 1 and measured 768,812 for a tree
-whose real answer was 722,753. `lessons.md`'s "verify against what is actually
-served" in its newest costume.
+**It measures the build and never makes one**, and that took two goes. The
+first version built when `dist` was stale — because the trap bit immediately:
+this machine's `dist` predated step 1 and measured 768,812 for a tree whose
+real answer was 722,753. But building from inside a parallel suite is worse
+than the problem: four other test files read `packages/web/dist`, and the
+racing build made this test report **1,093,766** for a tree that actually
+produces 725,291 — fifty per cent wrong, in the alarming direction, which is
+how a guard teaches people to ignore it. So a missing or stale build is a loud
+SKIP naming the command, and `ISOCAN_REQUIRE_BUNDLE=1` (which both workflows
+set) turns that skip into a failure — the `ISOCAN_REQUIRE_EMULATOR` shape,
+for the same reason.
 
 **3. `formatBytes` to core**, with the terabyte as its test. ✅ **Done 6 Sep.**
 `core/bytes.ts`, beside `elapsed.ts` and not in `format.ts` — that file is the

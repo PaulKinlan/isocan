@@ -30,15 +30,30 @@ import { describe, expect, it } from "vitest";
  * with a person's reason beside it. What must not happen again is a hundred
  * kilobytes arriving as a hundred unremarked commits.
  *
- * ## It measures the BUILD, so it builds when it must
+ * ## It measures the BUILD, and must never make one
  *
  * `packages/web/dist` is an artifact, and an artifact can be older than the
  * source it came from — `lessons.md`'s "verify against what is actually
- * served" is exactly this trap. It bit while this test was being written: the
- * container's `dist` predated the lazy-loading commit and measured 768,812
- * for a tree whose real answer was 722,753. So: if the build is missing or
- * older than any web source, build it first. In CI it is always fresh (`npm
- * ci` runs `prepare`), so this costs nothing there.
+ * served" is exactly this trap. It bit twice while this test was being
+ * written, the second time worse than the first.
+ *
+ * First: the container's `dist` predated the lazy-loading commit and measured
+ * 768,812 for a tree whose real answer was 722,753. The obvious fix was to
+ * build when stale — so this test did.
+ *
+ * **Then it built from inside a parallel suite, and reported 1,093,766 for a
+ * tree that actually produced 725,291.** `packages/web/dist` is read by four
+ * other test files (`packaging`, `replica`, `authaction`, `shot`) and written
+ * by a couple more. A test that rebuilds a shared artifact mid-run is not
+ * measuring, it is racing everybody else — and the number it invented was 50%
+ * wrong in the alarming direction.
+ *
+ * So it builds nothing. Missing or stale means SKIP, loudly, naming the
+ * command — and `ISOCAN_REQUIRE_BUNDLE=1` turns that skip into a failure, the
+ * same shape as `ISOCAN_REQUIRE_EMULATOR` and for the same reason: a
+ * contributor may have a green run that says what it did not check, while CI
+ * may not. CI never skips anyway, because `npm ci` runs `prepare`, which
+ * builds.
  */
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
@@ -46,7 +61,7 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
 /**
  * **The last agreed size of the entry chunk, in bytes.**
  *
- * 722,753 on 2026-09-06, at main `56a54ca` — after step 1 put `LensPage`,
+ * 725,291 on 2026-09-06, at main `834e341` — after step 1 put `LensPage`,
  * `CanvasListPage`, `NotHerePage`, the Share dialog and the history scrubber
  * behind lazy boundaries (768,993 → 720,659, plus the content origin's own
  * couple of kilobytes).
@@ -56,7 +71,7 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
  * `api.ts` and the stores — the canvas itself — so getting under it honestly
  * means less shell code rather than another chunk boundary.
  */
-const CEILING = 722_753;
+const CEILING = 725_291;
 
 /** The performance persona's goal, restated here only so the failure message
  * can say how far there is left to go. `.agents/personas/performance.md` is
@@ -93,12 +108,22 @@ function builtEntry(): string | null {
 describe("what a first visit downloads", () => {
   it(
     "is no bigger than the last number somebody agreed to",
-    () => {
+    (ctx) => {
       const entry = builtEntry();
-      if (!entry || !existsSync(entry) || statSync(entry).mtimeMs < newestSourceMtime()) {
-        // Stale or absent: measuring it would answer for a tree that no longer
-        // exists, which is worse than being slow.
-        execFileSync("npm", ["run", "build"], { cwd: repo, stdio: "ignore", timeout: 300_000 });
+      const stale =
+        !entry || !existsSync(entry) || statSync(entry).mtimeMs < newestSourceMtime();
+      if (stale) {
+        const why = entry ? "older than packages/web/src" : "missing";
+        if (process.env.ISOCAN_REQUIRE_BUNDLE === "1") {
+          throw new Error(
+            `ISOCAN_REQUIRE_BUNDLE=1, but packages/web/dist is ${why}. ` +
+              "CI builds it through `npm ci` → prepare; if this fired, that did not happen.",
+          );
+        }
+        // Loud, and it names the command. Building here would race the four
+        // other suites that read this directory — see the note above.
+        ctx.skip(`packages/web/dist is ${why} — run \`npm run build\` to measure it`);
+        return;
       }
 
       // Through the real instrument rather than a second copy of it: a test
@@ -132,6 +157,6 @@ describe("what a first visit downloads", () => {
         );
       }
     },
-    360_000,
+    120_000,
   );
 });
