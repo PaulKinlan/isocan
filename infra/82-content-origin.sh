@@ -37,17 +37,30 @@
 #                                                   knows who may read a
 #                                                   private canvas's bytes
 #
-# ═══ THE ORDERING, SAME TRAP AS THE APP'S CERTIFICATE ═══
+# ═══ THE ORDERING, AND WHY THE FLIP IS LAST ═══
 #
 #   1. point ${CONTENT_DOMAIN}'s A record at the load balancer's IP  ← YOU,
 #      at the registrar. The same IP the app domain uses; this script prints
 #      it. (Done for isocan.store at Namecheap on 5 September 2026.)
-#   2. run this
+#   2. run this — it creates the certificate and then STOPS, refusing the
+#      flip, because of the trap below.
 #   3. wait for the certificate to leave PROVISIONING (81-cert-status.sh, with
 #      ISOCAN_CERT_NAME set to the content cert, polls it)
-#   4. deploy the service so the daemon receives ISOCAN_CONTENT_HOST
-#      (70-cloud-run.sh) — until then the domain answers with the app, which
-#      is harmless and is what the 5 September redirect was standing in for.
+#   4. deploy a service that KNOWS about this domain: the code that reads
+#      ISOCAN_CONTENT_HOST, with the variable set (70-cloud-run.sh sets it
+#      from CONTENT_DOMAIN). Safe in either order with step 2, because until
+#      the flip nothing reaches the daemon bearing that Host at all.
+#   5. run this again — now it flips the host rule.
+#
+# **THE TRAP, which the first draft of this script walked into.** The daemon
+# accepts its own Host as an allowed origin (`originAllowed` in badges.ts) —
+# that is what keeps the *.run.app URL working. So a host rule pointing at the
+# backend BEFORE the deploy does not serve "the app, harmlessly": it serves the
+# whole app and the whole API, door included, on a second name, where a browser
+# mints its own separate badge. That is the one-origin rule broken by an
+# ordering mistake. Between the redirect and a daemon that refuses this Host
+# there must be no window, so the check below enforces the order rather than
+# this comment asking for it.
 #
 # A certificate created BEFORE the A record resolves records FAILED_NOT_VISIBLE
 # and cannot be revalidated in place — that is the whole story behind
@@ -115,6 +128,36 @@ fi
 # second place to configure CDN, timeouts and health, kept in sync by nobody —
 # and there is nothing to configure differently: the SAME container answers,
 # and which origin a request arrived on is a header it reads.
+#
+# **The order, enforced rather than asked for.** See THE TRAP at the top: a
+# host rule that reaches a daemon which has never heard of this domain serves
+# the whole app and the whole API on a second name. So the flip refuses until
+# the deployed revision actually carries ISOCAN_CONTENT_HOST — which is the
+# same fact as "the daemon will refuse this Host everything but blob bytes",
+# read from the service rather than assumed.
+#
+# ISOCAN_CONTENT_FLIP_ANYWAY=1 skips the check, for the one case it is wrong
+# about: a brand-new home whose app has never been deployed, where there is no
+# app on the second name to expose because there is no app yet.
+step "the deployed service knows this domain"
+DEPLOYED="$(gcloud run services describe "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='yaml(spec.template.spec.containers)' 2>/dev/null || true)"
+if printf '%s' "${DEPLOYED}" | grep -q "ISOCAN_CONTENT_HOST"; then
+  have "the running revision carries ISOCAN_CONTENT_HOST"
+elif [ -n "${ISOCAN_CONTENT_FLIP_ANYWAY:-}" ]; then
+  note "ISOCAN_CONTENT_FLIP_ANYWAY is set — flipping without checking the service"
+else
+  note "the running revision does NOT carry ISOCAN_CONTENT_HOST."
+  note "Flipping now would serve the whole app and API on ${CONTENT_DOMAIN} until"
+  note "the next deploy — see THE TRAP at the top of this script."
+  note ""
+  note "The certificate above is created and provisioning; nothing else was changed."
+  note "Deploy the daemon first, then run this again:"
+  note "    ./infra/70-cloud-run.sh && ./infra/82-content-origin.sh"
+  exit 0
+fi
+
 step "host rule ${CONTENT_DOMAIN} -> ${BACKEND_NAME}"
 MAP_YAML="$(mktemp)"
 gcloud compute url-maps describe "${URLMAP_NAME}" --global \
@@ -162,7 +205,10 @@ gcloud compute backend-services update "${BACKEND_NAME}" \
 made "${BACKEND_NAME}: signature is part of the cache key"
 
 step "done"
-note "next: 81-cert-status.sh (with ISOCAN_CERT_NAME=${CONTENT_CERT_NAME}) until the cert is ACTIVE,"
-note "then re-run 70-cloud-run.sh so the daemon receives ISOCAN_CONTENT_HOST=${CONTENT_DOMAIN}."
-note "until that deploy, ${CONTENT_DOMAIN} serves the app — harmless, and the same"
-note "thing the parked redirect was doing."
+note "${CONTENT_DOMAIN} now reaches the daemon, which serves it blob bytes and 404s"
+note "everything else. Check the certificate is ACTIVE if you have not already:"
+note "    ISOCAN_CERT_NAME=${CONTENT_CERT_NAME} ./infra/81-cert-status.sh"
+note ""
+note "To roll back, deploy without ISOCAN_CONTENT_HOST (unset ISOCAN_CONTENT_DOMAIN"
+note "and re-run 70-cloud-run.sh): frames go back to the app origin and nothing in"
+note "the front door has to change first."
