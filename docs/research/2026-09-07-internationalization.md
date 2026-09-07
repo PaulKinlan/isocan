@@ -2,7 +2,7 @@
 status: designed
 since: 2026-09-07
 issue: 199
-see: copy, personas
+see: personas, ui-refresh
 note: low priority and deliberately not built — the interesting finding is that this codebase has two audiences for its words, and only one of them is human
 ---
 
