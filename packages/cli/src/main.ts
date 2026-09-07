@@ -11330,7 +11330,28 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
        * dispatch exists, so this costs nothing on a settled lap.
        */
       for (const record of Object.values(roster)) {
-        if (!dispatches.has(record.actor.id)) await claimAgent(record.actor.id);
+        if (dispatches.has(record.actor.id)) continue;
+        /**
+         * The SAME two things the enrol branch below does, and the first
+         * version of this did only one of them.
+         *
+         * Claiming a cursor makes the rc dispatch to the agent; `adoptRcAgent`
+         * records where and how it runs. An agent picked up here without the
+         * adoption has a cursor and no record — which is why the test watching
+         * for "· where and how supplied" kept timing out with the fix in
+         * place, and it was right to: the line is missing because the RECORD
+         * is missing, not because the narration is.
+         */
+        const adopted = await adoptRcAgent(ctx.home, {
+          canvasId: p.id,
+          actorId: record.actor.id,
+          name: record.actor.name,
+          harness: null,
+          cwd: rcCwd,
+          sessionId: null,
+        });
+        if (adopted) console.log(rcLine(tag, `${record.actor.name} · where and how supplied — ${rcCwd}`));
+        await claimAgent(record.actor.id);
       }
       for (const entry of batch.entries) {
         const op = entry.envelope.op;
