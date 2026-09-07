@@ -612,7 +612,7 @@ export const JOURNEYS = [
      *  moves you there. The move is an animation and is NOT asserted on —
      *  what is asserted is the state after it: the other canvas's name in
      *  the bar, and a world under it. */
-    what: "Cmd-O and the caret open the switcher; recents lead; fuzzy letters find a canvas; Enter goes",
+    what: "⌘O, the ··· row and ⌘K all open the switcher; recents lead; fuzzy letters find a canvas; Enter goes",
     async run(rig) {
       await makeCanvas(rig, "Lake House");
       await makeCanvas(rig, "Roadmap");
@@ -641,9 +641,20 @@ export const JOURNEYS = [
         `!document.querySelector(".palette") && document.querySelector(".canvas-name .title")?.textContent === "Lake House" && !!document.querySelector(".world")`,
         "Enter to land on Lake House",
       );
-      // Door 2: the caret beside the name, back the other way.
-      await rig.click(".canvas-name .canvas-switch", "the switch caret beside the canvas's name");
-      await until(rig.b, `!!document.querySelector(".palette.palette-canvases")`, "the caret to open the switcher");
+      // Door 2: the ··· menu's row, back the other way. This was the caret
+      // beside the name until 6 Sep 2026 — removed because it and the ···
+      // were two adjacent glyphs meaning different things, and the row that
+      // replaced it carries a word and ⌘O (`menuentries.tsx`).
+      await rig.click('button[aria-label="More"]', "the ··· menu");
+      // The menu is mounted by a click that has just followed a navigation,
+      // so wait for it rather than assuming the frame after the click has it.
+      await until(
+        rig.b,
+        `[...document.querySelectorAll(".menu-entry,[role=menuitem],.ctx-entry")].some(e => e.textContent.trim().startsWith("Switch canvas…"))`,
+        "the ··· menu to hold the Switch canvas row",
+      );
+      await rig.clickText(".menu-entry,[role=menuitem],.ctx-entry", "Switch canvas…", "the Switch canvas row");
+      await until(rig.b, `!!document.querySelector(".palette.palette-canvases")`, "the row to open the switcher");
       await rig.type("rdm");
       await until(rig.b, `document.querySelectorAll(".palette-row").length === 1`, "rdm to find Roadmap");
       await rig.press("Enter");
