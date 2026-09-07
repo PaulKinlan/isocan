@@ -85,3 +85,31 @@ jobs:
             gh pr create --base main --head "personas/$DAY" \
               --title "Persona runs: $DAY" \
               --body "Each persona's numbers, taken and written down. Nothing was changed — not the code, not the personas, not a canvas. A goal marked MISSED is a finding; write \`accepted\` or \`rejected\` beside it in the Findings table when you have decided."
+
+          # **The reports merge themselves, and only the reports.**
+          #
+          # The comment at the top of this file says a pull request rather than
+          # a push, because "a machine writing into main every night is how a
+          # directory quietly fills with things nobody agreed to". That worry
+          # was right and it is now answered somewhere better: a finding sits
+          # `unanswered` for three days and then reddens the suite
+          # (`test/review-queue.test.ts`). Agreement is forced on the FINDINGS,
+          # which is what anybody was ever going to disagree with — not on the
+          # act of filing a dated page.
+          #
+          # Leaving the merge to a person did not work: eight of these piled up
+          # unmerged while the number one of them described grew a hundred
+          # kilobytes, and a report nobody merges is a report nobody wrote. The
+          # queue guard cannot see a finding that never reaches `main`, so
+          # without this the guard is watching an empty room.
+          #
+          # The diff is checked rather than trusted: anything outside
+          # docs/reviews/ and this PR stays for a person, which is also the
+          # backstop if `persona-run.mjs` ever writes somewhere it should not.
+          CHANGED="$(gh pr diff --name-only "personas/$DAY" || true)"
+          if [ -n "$CHANGED" ] && ! printf '%s\n' "$CHANGED" | grep -qv '^docs/reviews/'; then
+            gh pr merge --squash --delete-branch "personas/$DAY" \
+              || echo "could not merge automatically — left for a person"
+          else
+            echo "touches more than docs/reviews/ — left for a person"
+          fi
