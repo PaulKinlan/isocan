@@ -11272,7 +11272,26 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
         });
       }
       const lapTip = batch.cursors[p.id] ?? 0;
-      const snapshot = batch.entries.length > 0 ? await ctx.client.snapshot(p.id) : null;
+      /**
+       * **Also when we are answering for nobody** (7 Sep 2026).
+       *
+       * The roster is otherwise only re-read on a lap that carried entries,
+       * and that leaves the startup window unrecoverable. `opening` is read
+       * four hundred lines before `startTip`; an enrolment landing between
+       * them is absent from `opening` AND at or below the tip, so the
+       * long-poll delivers nothing for it — no entries, no snapshot, and
+       * `lastRoster` stays as the roster that never had them. The reconcile
+       * below then iterates a list that cannot contain the agent it is looking
+       * for, which is why the first attempt at this fix did not stop the
+       * failure it was written for.
+       *
+       * An rc with no dispatches is doing nothing else, so re-reading costs
+       * nothing where it matters, and "nobody is enrolled yet" is exactly the
+       * state that has to be able to heal itself — the line the rc prints
+       * promises it does.
+       */
+      const snapshot =
+        batch.entries.length > 0 || dispatches.size === 0 ? await ctx.client.snapshot(p.id) : null;
       // The roster survives quiet laps. The instrumented CI failure that
       // forced this: both agents mid-turn, both replies landing in ONE lap
       // — consumed into pending — and every later lap empty, so a
