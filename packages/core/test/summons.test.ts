@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ANSWER_WITHIN_MS, summoned, summonsLine, summonsState } from "../src/index.ts";
+import { ANSWER_WITHIN_MS, summonsLine, summonsState, waitingLine, wokenLine } from "../src/index.ts";
 import type { Comment, CommentThread, PresenceSession } from "../src/index.ts";
 
 /**
@@ -23,6 +23,7 @@ const session = (over: Partial<PresenceSession> = {}): PresenceSession =>
     sessionId: "ses_1",
     actor: { id: AGENT, name: "Percy" },
     capability: "edit",
+    onThread: null,
     ...over,
   }) as unknown as PresenceSession;
 
@@ -51,7 +52,7 @@ describe("a summons carries a receipt", () => {
     /* `PresenceActivity` already carried `{ kind: "working", threadId }` — the
        protocol comment calls it "the question the person who asked it is
        waiting on". This phase is that fact, rendered. */
-    const working = session({ activity: { kind: "working", threadId: THREAD } } as never);
+    const working = session({ onThread: THREAD } as never);
     const state = summonsState(ask, { sessions: [working], rcParked: true }, T0 + 4_000);
     expect(state).toEqual({ state: "picked-up", afterMs: 4_000 });
     expect(summonsLine("Percy", state)).toBe("Percy picked it up (4s)");
@@ -60,14 +61,40 @@ describe("a summons carries a receipt", () => {
   it("ignores the same agent working somewhere else", () => {
     // Presence on ANOTHER thread means it is busy, not that it took this. The
     // whole value of the receipt is that it does not flatter.
-    const elsewhere = session({ activity: { kind: "working", threadId: "thr_other" } } as never);
+    const elsewhere = session({ onThread: "thr_other" } as never);
     const state = summonsState(ask, { sessions: [elsewhere], rcParked: true }, T0 + 4_000);
     expect(state.state).toBe("asked");
   });
 
   it("ignores a session for somebody else entirely", () => {
-    const other = session({ actor: { id: "usr_someone", name: "Someone" }, activity: { kind: "working", threadId: THREAD } } as never);
+    const other = session({ actor: { id: "usr_someone", name: "Someone" }, onThread: THREAD } as never);
     expect(summonsState(ask, { sessions: [other], rcParked: true }, T0 + 4_000).state).toBe("asked");
+  });
+
+  it("reads onThread, never activity — the field that means ANSWERING", () => {
+    /**
+     * The guard for a mistake this file made and shipped for twenty minutes.
+     *
+     * The first cut read `activity.threadId`, and the protocol comment on
+     * `onThread` exists to forbid exactly that: `activity` says where a
+     * session is STANDING and moves on every applied op, so an agent
+     * "vanished from the thread the instant it started working, which is
+     * exactly when you most want to see it".
+     *
+     * It passed, because the fixtures were built with `activity` — the test
+     * validating its own wrong assumption rather than the wire (lessons.md
+     * #5). So this session is shaped the way a real one is when an agent is
+     * standing on a thread it has NOT picked up: activity there, onThread
+     * null. The old code called that picked-up.
+     */
+    const standingNotAnswering = session({
+      onThread: null,
+      activity: { kind: "working", threadId: THREAD },
+    } as never);
+    expect(
+      summonsState(ask, { sessions: [standingNotAnswering], rcParked: true }, T0 + 4_000).state,
+      "standing on a thread is not answering it",
+    ).toBe("asked");
   });
 
   it("lets a reply outrank everything, even if presence was never seen", () => {
@@ -120,48 +147,62 @@ describe("a summons carries a receipt", () => {
   });
 });
 
-describe("who a comment actually summons", () => {
-  const percy = { actorId: AGENT, names: [{ id: AGENT, name: "Percy" }] };
-  const sian = { actorId: "usr_sian", names: [{ id: "usr_sian", name: "Sian" }] };
-
-  const side = { id: "thr_side", comments: [] } as unknown as CommentThread;
-  const main = { id: "thr_main", main: true, comments: [] } as unknown as CommentThread;
-
-  it("is the agents named, and only those", () => {
-    expect(summoned({ body: "@Percy have a look" } as never, [percy, sian], side)).toEqual([AGENT]);
-  });
-
-  it("summons nobody for an unaddressed comment on an ordinary thread", () => {
-    expect(summoned({ body: "just thinking out loud" } as never, [percy, sian], side)).toEqual([]);
-  });
-
-  it("summons two when two are named", () => {
-    expect(summoned({ body: "@Percy @Sian both of you" } as never, [percy, sian], side).sort()).toEqual(
-      [AGENT, "usr_sian"].sort(),
+describe("the line for an agent that was woken and has said nothing", () => {
+  /**
+   * The rung that needed a clock. `OnIt` said "Fable was woken — waiting for
+   * them to pick this up" and went on saying it however long the silence ran:
+   * a promise with no deadline, which is what #197 means by silence you cannot
+   * tell apart from thinking.
+   */
+  it("waits patiently while there is reason to", () => {
+    expect(wokenLine(["Fable"], 5_000)).toBe(
+      "Fable was woken — waiting for them to pick this up.",
+    );
+    expect(wokenLine(["Fable", "Percy"], 5_000)).toBe(
+      "Fable, Percy were woken — waiting for one of them to pick this up.",
     );
   });
 
-  it("counts the MAIN thread as an ask, with no mention needed", () => {
-    /* `mainthread.ts`: "anything landing here wakes a parked agent's `isocan
-       wait` with no @-mention needed". A receipt that required an `@` would be
-       silent in the place people most often ask for something — which is the
-       place a receipt is worth the most. Deriving from `reasonFor` is what
-       keeps this true: the receipt and the dispatcher read one rule. */
-    expect(summoned({ body: "can you take a look at the deck" } as never, [percy], main)).toEqual([
-      AGENT,
-    ]);
+  it("stops promising once the promise has expired", () => {
+    expect(wokenLine(["Fable"], ANSWER_WITHIN_MS)).toBe(
+      "Fable was woken 45s ago and has not picked this up.",
+    );
+    expect(wokenLine(["Fable", "Percy"], 60_000)).toBe(
+      "Fable, Percy were woken 60s ago and none has picked this up.",
+    );
   });
 
-  it("does not count a thread the agent merely spoke in before", () => {
-    /* `in-your-thread` wakes an agent but nobody directed it — a conversation
-       continuing, not a request. "asked Percy" under a comment that asked
-       nothing makes the word meaningless where it has to be exact. */
-    const spokenIn = {
-      id: "thr_side",
-      comments: [
-        { id: "c0", body: "earlier", author: { id: AGENT, name: "Percy" }, createdAt: new Date(T0).toISOString() },
-      ],
-    } as unknown as CommentThread;
-    expect(summoned({ body: "hm, interesting" } as never, [percy], spokenIn)).toEqual([]);
+  it("says WOKEN rather than parked, because that is the damning fact", () => {
+    // Not an agent that might have missed it — one the daemon reached.
+    expect(wokenLine(["Fable"], ANSWER_WITHIN_MS)).toContain("woken");
+    expect(wokenLine(["Fable"], ANSWER_WITHIN_MS)).not.toContain("parked");
+  });
+
+  it("holds the boundary on both sides", () => {
+    expect(wokenLine(["Fable"], ANSWER_WITHIN_MS - 1)).toContain("waiting for");
+    expect(wokenLine(["Fable"], ANSWER_WITHIN_MS)).toContain("has not picked this up");
+  });
+});
+
+describe("the line when nothing was woken at all", () => {
+  /**
+   * This one has NO clock, and the first cut got it backwards — the bound was
+   * here, where it would have said "nothing answered" about a comment that
+   * woke nobody. Blaming an agent for not replying to something nobody asked
+   * it is the same lie as claiming somebody was asked when they were not.
+   *
+   * Caught by looking at the running app rather than by reading the code: a
+   * parked `wait` on a real canvas took the branch above instead.
+   */
+  it("names the room, and never ages into an accusation", () => {
+    expect(waitingLine(0)).toBe("Nobody is parked — this waits on the thread for the next agent.");
+    expect(waitingLine(1)).toBe("Sent. One agent is listening.");
+    expect(waitingLine(3)).toBe("Sent. 3 agents are listening.");
+  });
+
+  it("takes no time at all, so it cannot start accusing later", () => {
+    // The signature is the guard: there is no `waitedMs` to thread through, so
+    // a future edit cannot quietly make this branch time out.
+    expect(waitingLine.length).toBe(1);
   });
 });

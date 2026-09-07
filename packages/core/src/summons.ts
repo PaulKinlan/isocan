@@ -1,8 +1,5 @@
-import { reasonFor } from "./inbox.ts";
 import type { ActorJoins } from "./identity.ts";
-import type { MentionCandidate } from "./mentions.ts";
 import type { Comment, CommentThread } from "./model.ts";
-import type { NewComment } from "./ops.ts";
 import type { PresenceSession } from "./protocol.ts";
 
 /**
@@ -65,37 +62,6 @@ export type SummonsState =
   | { state: "unanswered"; waitedMs: number; rcParked: boolean };
 
 /**
- * The agents a comment summons — decided by `reasonFor`, the same function the
- * dispatcher and a parked `wait` use, so a receipt cannot promise a wake-up
- * the rc does not perform.
- *
- * **Two of the three reasons count, and the third does not.** `mentioned` is
- * somebody naming an agent. `main-thread` is somebody using the canvas's
- * direct channel to their emissary — `mainthread.ts` says anything landing
- * there wakes a parked agent with no mention needed, so a receipt that
- * required an `@` would be silent in the place people most often ask for
- * something, which is the place a receipt is worth most.
- *
- * `in-your-thread` is left out on purpose. It wakes an agent, but nobody
- * directed it — it is a conversation continuing, not a request — and putting
- * *asked Percy* under a comment that asked nothing makes the word meaningless
- * exactly where it has to be exact.
- */
-export function summoned(
-  comment: NewComment | Comment,
-  agents: readonly { actorId: string; names: readonly MentionCandidate[] }[],
-  thread?: CommentThread | undefined,
-  joined?: ActorJoins,
-): string[] {
-  return agents
-    .filter((agent) => {
-      const reason = reasonFor(comment, thread, agent.actorId, agent.names, joined);
-      return reason === "mentioned" || reason === "main-thread";
-    })
-    .map((agent) => agent.actorId);
-}
-
-/**
  * Where one summons stands.
  *
  * `askedAt` and `now` are passed rather than read, so this is pure and so a
@@ -133,12 +99,14 @@ export function summonsState(
     return { state: "picked-up", afterMs: Math.max(0, seen.pickedUpAt - summons.askedAt) };
   }
 
+  // `onThread`, NOT `activity`. The protocol comment on that field exists to
+  // stop exactly the mistake this line first made: `activity` says where a
+  // session is STANDING and moves on every applied op, so reading it made an
+  // agent vanish from the thread the instant it started working — "which is
+  // exactly when you most want to see it". `workersOn` in `onit.ts` has always
+  // read the right one.
   const working = seen.sessions.some(
-    (s) =>
-      s.actor.id === summons.actorId &&
-      s.activity != null &&
-      "threadId" in s.activity &&
-      s.activity.threadId === summons.threadId,
+    (s) => s.actor.id === summons.actorId && s.onThread === summons.threadId,
   );
   if (working) return { state: "picked-up", afterMs: waitedMs };
 
@@ -174,4 +142,47 @@ export function summonsLine(name: string, state: SummonsState): string {
         ? `nothing answered — the rc is parked but did not respond`
         : `nothing answered — nothing is listening for ${name} here`;
   }
+}
+
+/**
+ * **What to say when an agent was woken and has said nothing.**
+ *
+ * This is the rung that needed a clock. `OnIt` already told you an agent had
+ * been woken — *"Fable was woken — waiting for them to pick this up"* — and
+ * went on saying it however long the silence ran. That sentence is a promise
+ * with no deadline, and it is the exact thing #197 opens by naming: silence
+ * you cannot tell apart from thinking.
+ *
+ * Past `ANSWER_WITHIN_MS` it stops promising. The wording says *woken* rather
+ * than *parked*, because that is the stronger and more damning fact: this is
+ * not an agent that might have missed it, it is one the daemon reached.
+ */
+export function wokenLine(names: readonly string[], waitedMs: number): string {
+  const who = names.join(", ");
+  const they = names.length === 1 ? "them" : "one of them";
+  if (waitedMs < ANSWER_WITHIN_MS) {
+    return `${who} ${names.length === 1 ? "was" : "were"} woken — waiting for ${they} to pick this up.`;
+  }
+  const secs = Math.round(waitedMs / 1000);
+  return names.length === 1
+    ? `${who} was woken ${secs}s ago and has not picked this up.`
+    : `${who} were woken ${secs}s ago and none has picked this up.`;
+}
+
+/**
+ * **What to say when nothing was woken at all.**
+ *
+ * Deliberately WITHOUT a clock, and the first cut got this wrong. Reaching
+ * here means the last word is yours and the daemon woke nobody for it — so
+ * "nothing answered" would be blaming an agent for not replying to something
+ * nobody asked it. That is the same lie in the other direction: the word
+ * *asked* has to be exact, and so does *answered*.
+ *
+ * Found by looking at the thing rather than by reading it: the bound was on
+ * this branch first, and a parked `wait` on a real canvas showed the states
+ * belong the other way round.
+ */
+export function waitingLine(parked: number): string {
+  if (parked === 0) return "Nobody is parked — this waits on the thread for the next agent.";
+  return parked === 1 ? "Sent. One agent is listening." : `Sent. ${parked} agents are listening.`;
 }
