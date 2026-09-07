@@ -11,17 +11,25 @@ whose only job is that lens.
 | `architect` | The op vocabulary, boundaries, the isomorphism | core's runtime deps, op types |
 | `copy` | The words: labels, errors, tooltips, empty states | greppable copy tells |
 | `design-auditor` | Tokens, both themes, the tells of a generated interface | grader checks, colour literals |
+| `journeys` | Whether it works when somebody actually uses it | journeys that fail — and whether a canvas at rest is idle |
 | `market-researcher` | What else exists and what to take from it | **none, honestly** |
 | `performance` | Whether it still feels fast | largest built chunk |
 | `qa-tester` | Whether the tests mean anything | eslint errors |
 | `reviewer` | Whether the code says true things about itself | unused exports, undocumented exports — both **ratchets** |
 
-**Eight, and the count is the discipline rather than a target.** The design
+**Nine, and the count is the discipline rather than a target.** The design
 says four fit in a head and warns against a persona per concern; the gate it
 sets is stricter and is what these pass: *a persona needs a standing number
 nobody else is watching.* `market-researcher` has none and says so out loud in
 `isocan persona ls` — a lens that cannot state a number is worth keeping and
 worth being honest about, not worth a made-up metric.
+
+`journeys` was the ninth and was missing from this table until 6 Sep 2026,
+which is its own small lesson: a list of the lenses, kept by hand, beside a
+generated index that had been naming the missing one nightly for a week. It
+had no standing number either until the same day — see the goal in
+`.agents/personas/journeys.md` for why a render loop that burned a third of a
+core on every open canvas, for two days, was invisible to 3,700 green tests.
 
 Two roles were considered and NOT added, for the same reason: **security** (the
 jails are real and well-tested, but there is no standing number today, and the

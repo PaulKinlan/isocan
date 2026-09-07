@@ -5,6 +5,27 @@ model: opus
 effort: xhigh
 color: blue
 tools: Read, Write, Edit, Glob, Grep, Bash
+goal:
+  # **This persona had no standing number until 6 September 2026**, and
+  # `docs/reviews/README.md` said so out loud — the gate for being a persona
+  # here is *a standing number nobody else is watching*, and journeys was
+  # carried on the strength of what it finds rather than what it declares.
+  #
+  # What changed is that the run now holds one worth declaring. `idle-at-rest`
+  # asks whether a canvas nobody is touching is doing anything, and the answer
+  # was **no** for two days: a hook returning a fresh array into an effect's
+  # dependency list had every open canvas re-rendering forever, at 76-117% CPU
+  # per tab, with all 3,700 tests green throughout (`lessons.md` #36). Nothing
+  # in the suite asks the question a person asks, because the suite reads
+  # source and a render loop is not visible in source.
+  #
+  # Zero is the standard the persona's own text already set — *"Zero failing
+  # journeys is the standard"* — so this declares what was already true rather
+  # than inventing a target.
+  - name: journeys that fail when the app is actually used
+    at most: 0
+    measured by: node scripts/journeys.mjs --failing
+    baseline: 0, 2026-09-06, 0ca0676
 runs: docs/reviews/
 trigger:
   cron: 17 7 * * 1

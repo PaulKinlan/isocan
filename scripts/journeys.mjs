@@ -16,7 +16,8 @@
  *
  *   node scripts/journeys.mjs              # all of them
  *   node scripts/journeys.mjs --only pen   # one, by name
- *   node scripts/journeys.mjs --json       # for a persona's goal
+ *   node scripts/journeys.mjs --json       # the detail, for a person
+ *   node scripts/journeys.mjs --failing    # one integer, for a persona's goal
  *   node scripts/journeys.mjs --selftest   # prove a journey can fail
  *
  * **It boots its own daemon on its own port with its own temp home**, so it
@@ -305,7 +306,102 @@ async function makeCanvas(rig, title) {
   return id;
 }
 
+/**
+ * **How much of a quiet canvas's time may be spent working.**
+ *
+ * Zero is the honest answer and an unusable bound: a real page has a stray
+ * timer, a font settling, a store notification. Measured on the fixed build,
+ * a canvas at rest reads 0% over six seconds, headless and hosted alike; the
+ * loop this exists to catch read 32%. Fifteen leaves room for noise and still
+ * catches anything looping.
+ *
+ * Raising it is one line with a reason, the same rule as the bundle ceiling —
+ * but note which way that rule runs here: a bound that drifts up is a canvas
+ * that has quietly got busier, which is the thing itself.
+ */
+const IDLE_BOUND = 15;
+
 export const JOURNEYS = [
+  {
+    name: "idle-at-rest",
+    /**
+     * **The bug this exists for cost two days and two firefights.**
+     *
+     * `useCommands` returned a fresh array on every call; `useCanvasTools` had
+     * it in an effect's dependency list, and the effect ended in `setTools`.
+     * Render → new array → deps look changed → effect → setState → render,
+     * forever, on **every open canvas from the moment it loaded** (6 Sep 2026,
+     * `lessons.md` #36). Every isocan tab sat at 76-117% CPU for two days. The
+     * whole suite was green throughout, because nothing anywhere asked the one
+     * question a person would: *is it doing anything?*
+     *
+     * A canvas nobody is touching should be doing nothing. That is the number,
+     * and it is the journeys persona's first standing one.
+     *
+     * ## It proves its own instrument, every run
+     *
+     * The measurement is only meaningful if it can say no, and a profiler that
+     * reports "quiet" because it is broken looks exactly like a quiet page —
+     * `lessons.md` #8 and #14, twice paid for. So this measures a second time
+     * with a spinner deliberately burning the main thread, and fails if THAT
+     * reads quiet too. A run that passes has shown the instrument working on
+     * the machine it just ran on.
+     */
+    what: "a canvas nobody is touching burns no CPU — and the profiler can tell",
+    async run(rig) {
+      await makeCanvas(rig, "A quiet canvas");
+
+      const busy = async (seconds) => {
+        await rig.b.send("Profiler.enable");
+        await rig.b.send("Profiler.setSamplingInterval", { interval: 200 });
+        await rig.b.send("Profiler.start");
+        await new Promise((r) => setTimeout(r, seconds * 1000));
+        const profile = (await rig.b.send("Profiler.stop"))?.profile;
+        if (!profile) throw new Error("the profiler handed back nothing — the instrument is broken");
+        let idle = 0;
+        let total = 0;
+        for (const node of profile.nodes) {
+          const hits = node.hitCount || 0;
+          total += hits;
+          if (node.callFrame.functionName === "(idle)") idle += hits;
+        }
+        if (total === 0) throw new Error("the profiler took no samples — the instrument is broken");
+        return Math.round(((total - idle) / total) * 100);
+      };
+
+      const atRest = await busy(4);
+      if (atRest > IDLE_BOUND) {
+        throw new Error(
+          `a canvas with nobody touching it spent ${atRest}% of 4s working, past ${IDLE_BOUND}%.\n` +
+            `  Something is rendering in a loop. Profile it: the 6 Sep cause was a hook returning\n` +
+            `  a fresh array into an effect's dependency list (lessons.md #36), and the profile\n` +
+            `  named React's render loop with no app function above 2%.`,
+        );
+      }
+
+      // Now make it busy on purpose. If this reads quiet, the reading above
+      // meant nothing — which is the failure mode that let the real loop run
+      // for two days behind a green suite.
+      await rig.b.ev(`(() => {
+        window.__spin = true;
+        const burn = () => {
+          const until = performance.now() + 8;
+          while (performance.now() < until) { /* hold the thread */ }
+          if (window.__spin) requestAnimationFrame(burn);
+        };
+        requestAnimationFrame(burn);
+        return true;
+      })()`);
+      const spinning = await busy(3);
+      await rig.b.ev(`(() => { window.__spin = false; return true; })()`);
+      if (spinning <= IDLE_BOUND) {
+        throw new Error(
+          `the profiler read ${spinning}% while the page was deliberately burning the main thread.\n` +
+            `  The instrument cannot see, so the ${atRest}% above is not evidence of anything.`,
+        );
+      }
+    },
+  },
   {
     name: "make-a-canvas",
     /** The bug: `Create` looked like a button that did nothing, because the
@@ -666,6 +762,12 @@ async function main() {
   }
 
   const failed = results.filter((x) => !x.ok);
+  // One integer and nothing else, which is what a persona's goal can compare
+  // against — `--json` carries the detail a person reads afterwards.
+  if (argv.includes("--failing")) {
+    console.log(String(failed.length));
+    process.exit(0);
+  }
   if (asJson) {
     console.log(JSON.stringify({ failing: failed.length, results }, null, 2));
   } else {
