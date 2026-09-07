@@ -11,7 +11,7 @@ whose only job is that lens.
 | `architect` | The op vocabulary, boundaries, the isomorphism | core's runtime deps, op types |
 | `copy` | The words: labels, errors, tooltips, empty states | greppable copy tells |
 | `design-auditor` | Tokens, both themes, the tells of a generated interface | grader checks, colour literals |
-| `journeys` | Whether it works when somebody actually uses it | journeys that fail — and whether a canvas at rest is idle |
+| `journeys` | Whether it works when somebody actually uses it | **none at push time, deliberately** — it walks weekly |
 | `market-researcher` | What else exists and what to take from it | **none, honestly** |
 | `performance` | Whether it still feels fast | largest built chunk |
 | `qa-tester` | Whether the tests mean anything | eslint errors |
@@ -26,10 +26,18 @@ worth being honest about, not worth a made-up metric.
 
 `journeys` was the ninth and was missing from this table until 6 Sep 2026,
 which is its own small lesson: a list of the lenses, kept by hand, beside a
-generated index that had been naming the missing one nightly for a week. It
-had no standing number either until the same day — see the goal in
-`.agents/personas/journeys.md` for why a render loop that burned a third of a
-core on every open canvas, for two days, was invisible to 3,700 green tests.
+generated index that had been naming the missing one nightly for a week.
+
+It is also the one persona that passes the gate a different way, and the
+reasoning is worth keeping where somebody adding a goal will read it.
+`ratchet.mjs` runs every persona's goals **on every push**, so a goal here
+would buy a ninety-second browser walk per commit — which `test/journeys.test.ts`
+refuses by name. What it measures instead is real and now includes
+`idle-at-rest`: whether a canvas nobody is touching is doing anything, which
+was **no** for two days in September while 3,700 tests stayed green. The open
+question that leaves is cadence, not worth: a weekly walk means up to seven
+days before that kind of fire is seen, and running the journeys on RELEASE —
+not on every push — is the obvious middle. Not done.
 
 Two roles were considered and NOT added, for the same reason: **security** (the
 jails are real and well-tested, but there is no standing number today, and the
