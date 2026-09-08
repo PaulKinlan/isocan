@@ -46,7 +46,11 @@ function tokens(): Map<string, string> {
     if (!rule.selector.startsWith(":root")) continue;
     for (const decl of rule.body.split(";")) {
       const m = /^\s*(--[\w-]+)\s*:\s*(.+?)\s*$/.exec(decl);
-      if (m && !out.has(m[1])) out.set(m[1], m[2]);
+      // `m[1]`/`m[2]` are the groups of a regex that matched, so they exist —
+      // `noUncheckedIndexedAccess` cannot see that and `npm test` cannot see
+      // `noUncheckedIndexedAccess`, which is how this file landed on main
+      // green and red at the same time.
+      if (m && !out.has(m[1]!)) out.set(m[1]!, m[2]!);
     }
   }
   return out;
@@ -60,7 +64,7 @@ function decl(selector: string, prop: string): string | null {
     if (!selectorsOf(rule).includes(selector)) continue;
     for (const one of rule.body.split(";")) {
       const m = new RegExp(`^\\s*${prop}\\s*:\\s*(.+?)\\s*$`).exec(one);
-      if (m) found = m[1];
+      if (m) found = m[1]!;
     }
   }
   return found;
