@@ -104,24 +104,24 @@ again every week is the treadmill, not the fix.
 
 | Asked | Bound | Nights | Now | First asked |
 | --- | --- | --- | --- | --- |
-| CSS rule bodies copied word for word from elsewhere | 47 | **6** | 60 (answered) | 2026-08-31, at 49 |
+| CSS rule bodies copied word for word from elsewhere | 47 | **7** | 59 | 2026-08-31, at 49 |
+| exports with no comment above them | 253 | **5** | 331 | 2026-09-03, at 301 |
+| the entry chunk a first visit downloads | 640000 | **5** | 694503 | 2026-09-03, at 648435 |
 | exports nothing outside their own file uses | 0 | **4** | 52 (answered) | 2026-09-03, at 25 |
-| exports with no comment above them | 253 | **4** | 360 (answered) | 2026-09-03, at 301 |
-| the entry chunk a first visit downloads | 640000 | **4** | 722753 (answered) | 2026-09-03, at 648435 |
 
-**Nine personas, fired by `43 8 * * *`.** 1 declares something else.
+**9 personas, fired by `43 8 * * *` (persona.yml) and `17 7 * * *` (journeys.yml).** Every one declares the cadence that actually runs it.
 
 | Persona | Says | Last ran | |
 | --- | --- | --- | --- |
-| accessibility | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| architect | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| copy | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| design-auditor | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| journeys | `17 7 * * 1` | 2026-09-06 · 2d ago | **declares a cron nothing fires** |
-| market-researcher | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| performance | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| qa-tester | `43 8 * * *` | 2026-09-06 · 2d ago |  |
-| reviewer | `43 8 * * *` | 2026-09-06 · 2d ago |  |
+| accessibility | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| architect | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| copy | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| design-auditor | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| journeys | `17 7 * * *` | 2026-09-07 · 1d ago |  |
+| market-researcher | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| performance | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| qa-tester | `43 8 * * *` | 2026-09-07 · 1d ago |  |
+| reviewer | `43 8 * * *` | 2026-09-07 · 1d ago |  |
 
 | Date | Persona | Goals | Missed | Unanswered |
 | --- | --- | --- | --- | --- |

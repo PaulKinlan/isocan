@@ -15,9 +15,15 @@ name: journeys
 
 on:
   schedule:
-    # 07:17 UTC on Mondays — an hour before the nightly grades, on a day
-    # nothing else here runs, so a slow browser walk never races them.
-    - cron: "17 7 * * 1"
+    # 07:17 UTC nightly — an hour before the grades and ninety minutes before
+    # the personas, so a slow browser walk never races them.
+    #
+    # It was Mondays. Weekly was chosen when this was new and expensive, and
+    # the cost of that showed up in the note's own words: a weekly walk means
+    # up to SEVEN DAYS before a screen that stopped working is noticed, and
+    # `idle-at-rest` was already "no" for two days in September while 3,700
+    # tests stayed green. Nightly on 8 Sep 2026, at Dion's call.
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       only:
