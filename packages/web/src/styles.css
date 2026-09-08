@@ -854,6 +854,17 @@ img { height: auto; }
 .canvas-theme-galaxy {
   background-color: var(--theme-space);
   --stars: none; --stars-size: auto; --stars-pos: 0 0; --star-fade: 0;
+  --clouds: none; --clouds-size: auto; --clouds-pos: 0 0;
+}
+/* The nebulae, under the stars and over the ground. `::before` rather than a
+   fourth star gradient because they want their own tile sizes — thousands of
+   world units against the stars' hundreds — and because a cloud painted over
+   the stars is fog. They share `--star-fade`: the ground going quiet when you
+   stand back is one behaviour, not two curves. */
+.canvas-theme-galaxy::before {
+  content: ""; position: absolute; inset: 0;
+  background-image: var(--clouds); background-size: var(--clouds-size); background-position: var(--clouds-pos);
+  opacity: var(--star-fade, 1);
 }
 /* The stars fade with zoom; the ground does not. Painted as a second layer so
    the fade is one composited opacity rather than three gradients redrawn. */
