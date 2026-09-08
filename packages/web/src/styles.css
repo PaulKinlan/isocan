@@ -5123,10 +5123,7 @@ button.mt-card:hover { border-color: var(--accent); }
 
 /* ---- the right-click menu ----------------------------------------------
    Screen space, above everything, and deliberately plain: a menu is read in
-   the half-second before a click, so it earns nothing from decoration. The
-   frosted ground is the one the app already uses for floating chrome
-   (`--panel`, already paired with a blur in four other places), so this adds
-   no token. */
+   the half-second before a click, so it earns nothing from decoration. */
 .context-menu {
   /* `--z-popover` is documented as "menus, thread popovers, peek cards — a
      click opened it", which is exactly this. `--z-dialog` is reserved for the
@@ -5134,7 +5131,40 @@ button.mt-card:hover { border-color: var(--accent); }
      who-are-you dialog would be that reservation spent for nothing. */
   position: fixed; z-index: var(--z-popover);
   min-width: 208px; padding: 5px;
-  background: var(--panel); backdrop-filter: blur(8px);
+  /**
+   * **A menu carries its own ground** (8 Sep 2026).
+   *
+   * This was `var(--panel)` with a blur — the frosted slab every other
+   * floating surface wears. Dion opened Background ▸ and reported that the
+   * submenu *"doesn't show the same hover color as the main menu so it's hard
+   * to see"*, and the two halves of one menu really were different colours.
+   *
+   * `--panel` is `rgba(255, 255, 255, 0.92)`, so what it RENDERS depends on
+   * what is behind it — and a right-click menu is the one piece of chrome that
+   * can open over anything. His main menu sat over the chat panel and rendered
+   * ~#fdfdfc; the submenu hung 4px past its right edge over a Space Galaxy
+   * ground and rendered ~#ebebeb. `--chip-hover` is opaque `#e9eae4`, chosen
+   * against the first: on the second it is a contrast ratio of **1.02**, which
+   * is not a faint highlight, it is no highlight.
+   *
+   * It is not a submenu bug and it is not only dark grounds. The same menu
+   * opened over a photograph in the dark theme puts `--panel` at ~#2c2f34 and
+   * `--chip-hover` at #2f343d — the same collision, mirrored. Anywhere the
+   * ground is unknowable, an opaque hover token is a coin flip.
+   *
+   * So the fix is not a second hover colour for menus, which would give
+   * "the row you are pointing at" two spellings. It is that a list of rows you
+   * point at must not take its colour from the canvas: `--panel` layered over
+   * an opaque `--card` renders one value everywhere, within a hair of what the
+   * menu already looked like on the app's own chrome. The blur goes with it —
+   * nothing shows through an opaque stack, so it was buying a compositing
+   * layer for an effect nobody could see.
+   *
+   * `.floats` keeps the frost, deliberately. A panel is a surface you read;
+   * a menu is a set of targets you point at, and only the second has a state
+   * that can be cancelled out by whatever it happens to be over.
+   */
+  background: linear-gradient(var(--panel), var(--panel)), var(--card);
   border: 1px solid var(--line); border-radius: 10px;
   box-shadow: var(--shadow-pop);
   display: flex; flex-direction: column; gap: 1px;
