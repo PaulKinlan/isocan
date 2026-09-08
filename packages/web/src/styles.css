@@ -6135,15 +6135,30 @@ button.mt-card:hover { border-color: var(--accent); }
 .fullscreen-notes-toggle.on { border-color: var(--accent); color: var(--accent-text); }
 
 /* ---------- the top fade (lib/hideable.ts, "canvas.topfade") ---------- */
-/* A wash of the page's own ground from the top edge, so the title, the faces
-   and Share read over a busy canvas — white on light, near-black on dark,
-   because it is `--ground` and not a colour of its own. Over the items
-   (`--z-canvas`) and under every piece of chrome; no pointer target, so a
-   drag that starts under it still starts on the canvas. */
+/**
+ * A wash of the ground from the top edge, so the title, the faces and Share
+ * read over a busy canvas. Over the items (`--z-canvas`) and under every
+ * piece of chrome; no pointer target, so a drag that starts under it still
+ * starts on the canvas.
+ *
+ * **The ground it washes is the CANVAS's, not the app's** (8 Sep 2026). This
+ * was `var(--ground)` alone — the page's ground, near-white in the light
+ * theme — and Dion reported it from a canvas standing on Space Galaxy: *"when
+ * the background is dark, the top fade should be dark, and when it's light it
+ * should be light."* A ground is not the app's theme. `.canvas-theme-galaxy`
+ * says so two hundred lines up — *"Space is dark whatever the app's theme
+ * is"* — so in light mode the fade was a white bar dissolving into a
+ * starfield, which is the exact artefact a fade exists to prevent.
+ *
+ * `lib/groundtone.ts` writes `--canvas-ground` as the same token the ground
+ * itself paints with, so the wash and the thing it washes cannot drift; the
+ * fallback here is what a canvas with no ground of its own gets, and is why
+ * this stayed right for every canvas until one wore a sky.
+ */
 .top-fade {
   position: absolute; top: 0; left: 0; right: 0; height: 96px;
   z-index: var(--z-canvas); pointer-events: none;
-  background: linear-gradient(to bottom, var(--ground), transparent);
+  background: linear-gradient(to bottom, var(--canvas-ground, var(--ground)), transparent);
 }
 
 /* ---------- a diagram, drawn from its text (modules/mermaid) ---------- */
