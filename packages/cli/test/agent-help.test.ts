@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { withoutNodeRuntimeWarnings } from "./node-runtime-noise";
 
 /**
  * `isocan --agent-help` is how an agent learns to work a canvas (#75). It has
@@ -50,7 +51,7 @@ async function isocan(...args: string[]): Promise<{ code: number; stdout: string
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => (stderr += chunk));
   return new Promise((resolve) =>
-    child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr })),
+    child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr: withoutNodeRuntimeWarnings(stderr) })),
   );
 }
 

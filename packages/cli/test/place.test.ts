@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { withoutNodeRuntimeWarnings } from "./node-runtime-noise";
 import { promises as fs } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
@@ -54,7 +55,7 @@ function isocan(...args: string[]): Promise<Run> {
   child.stdout!.on("data", (chunk) => (stdout += chunk));
   child.stderr!.setEncoding("utf8");
   child.stderr!.on("data", (chunk) => (stderr += chunk));
-  return new Promise((resolve) => child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr })));
+  return new Promise((resolve) => child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr: withoutNodeRuntimeWarnings(stderr) })));
 }
 
 async function json(...args: string[]): Promise<any> {
