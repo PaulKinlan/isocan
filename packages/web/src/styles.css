@@ -482,14 +482,24 @@ img { height: auto; }
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-float);
   box-shadow: var(--shadow-card);
   display: flex; flex-direction: column;
-  text-align: left; overflow: hidden;
+  text-align: left;
+  /* No `overflow: hidden`: the peek is an overlay that must leave the box
+     (below — and the box would clip it). No child paints a background to the
+     corners, so nothing needed the clip; the just-made sheen rounds its own
+     corners with `border-radius: inherit`. */
   transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
 }
 .canvas-card:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-pop);
   transform: translateY(-2px);
+  /* The hovered card — and the preview hanging off it — reads above the
+     cards it overlays. `--z-popover` names exactly this: peek cards. */
+  z-index: var(--z-popover);
 }
+/* Focus is the second way a preview opens, and a focused card is not
+   necessarily hovered. */
+.canvas-card:focus-within { z-index: var(--z-popover); }
 @media (prefers-reduced-motion: reduce) { .canvas-card:hover { transform: none; } }
 /* The whole card is the way in — the thing you want every time should not be
    one of three equal buttons, one of which deletes. */
@@ -5880,20 +5890,63 @@ button.mt-card:hover { border-color: var(--accent); }
 /**
  * **The card's peek** — what happened here before the last thing.
  *
- * Inside the card rather than floating over it: a popover would need placing
- * against the viewport, and these are three short rows the card has room for.
+ * Attached to the card but floating over its neighbours: in flow it pushed
+ * the whole grid down on every hover, and the page jumped under the pointer.
  * It appears on pointer AND on focus, because a hover-only affordance does not
  * exist for a keyboard or a touch screen.
  */
+/* Only a rendered preview joins the card: an empty history leaves it alone.
+   Both halves use one opaque ground and perimeter, without shadows crossing
+   the join. Keep the card's border widths so its grid footprint never changes. */
+.canvas-card:has(> .card-peek) {
+  background: linear-gradient(var(--panel), var(--panel)), var(--card);
+  box-shadow: none;
+}
+.canvas-card:has(> .card-peek:not(.up)) {
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
+.canvas-card:has(> .card-peek.up) {
+  border-top-left-radius: 0; border-top-right-radius: 0;
+}
 .card-peek {
+  /* Out of flow, over the neighbours. The first version was a plain flex
+     child of the card — "a popover floating outside would need placing, and
+     this is a few short rows that the card has room for" — and every hover
+     grew the card by the peek's height and pushed the whole grid down: the
+     page jumped under the pointer. The card's footprint is fixed now; the
+     preview floats below it, above the rows it covers, placed by the card
+     it belongs to. */
+  position: absolute; top: 100%; left: -1px; right: -1px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 6px 14px 0;
-  padding-top: 6px;
-  border-top: 1px solid var(--line-soft);
+  margin: 0;
+  padding: 8px 14px 10px;
+  /* The menu's ground (8 Sep 2026): `--panel` over opaque `--card` renders
+     one value no matter which cards this opens over — a translucent peek
+     would read differently per row it covered. */
+  background: linear-gradient(var(--panel), var(--panel)), var(--card);
+  border: 1px solid;
+  border-color: inherit;
+  /* top: 100% overlaps the card's existing 1px border with this ground. */
+  border-top-width: 0;
+  border-radius: 0 0 var(--r-float) var(--r-float);
+  box-shadow: none;
+  /* Bounded: five seams is the most a peek ever shows, but on a short
+     window it scrolls rather than running off the screen. 240px is the cap
+     when the room allows it; the component clamps further to the actual
+     room on the chosen side (peekplace.ts) with an inline max-height. */
+  max-height: 240px;
+  overflow-y: auto;
   font-size: 11.5px;
   color: var(--ink-soft);
+}
+/* A card near the bottom edge opens its preview upward instead — the
+   component measures and wears `up` when there is more room above. */
+.card-peek.up {
+  top: auto; bottom: 100%;
+  border-top-width: 1px; border-bottom-width: 0;
+  border-radius: var(--r-float) var(--r-float) 0 0;
 }
 .card-peek-row { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
 /* A row that is a link to its item: the same quiet row, and a hover that

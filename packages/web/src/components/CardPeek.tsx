@@ -1,6 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ago, itemPath, majorWhat, opWords } from "@isocan/core";
 import { useCardPeek } from "../lib/cardpeek.ts";
+import { PEEK_CAP, peekPlacement, type PeekPlacement } from "../lib/peekplace.ts";
 import { ItemThumb } from "./ItemThumb.tsx";
 
 /**
@@ -26,6 +28,33 @@ import { ItemThumb } from "./ItemThumb.tsx";
  */
 export function CardPeek({ canvasId, open }: { canvasId: string; open: boolean }) {
   const peek = useCardPeek(canvasId, open);
+  const ref = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<PeekPlacement>({ up: false, maxHeight: PEEK_CAP });
+
+  /**
+   * **Open toward the room, and take only the room there is.** The peek
+   * hangs below its card — but a card on the last row of a short window
+   * would push its preview past the bottom edge, so when there is more room
+   * above than below and below is tight, it opens upward instead. Either
+   * way the stylesheet's 240px is a guess about the window: the real cap is
+   * the room on the chosen side, so a short window gets a shorter, scrolling
+   * peek rather than one that runs off the screen. Re-measured on open and
+   * on RESIZE — the window can shrink under an open preview — but not on
+   * scroll, which would flip a box somebody is reading.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      const card = ref.current?.closest(".canvas-card");
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      setPlace(peekPlacement(r.top, r.bottom, window.innerHeight));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open]);
+
   if (!open) return null;
   /* Nothing to say is said, briefly. An empty box that appears on hover and
      explains nothing is worse than no box — and "only the one thing" is a
@@ -33,7 +62,7 @@ export function CardPeek({ canvasId, open }: { canvasId: string; open: boolean }
   if (peek !== null && peek.seams.length <= 1) return null;
   const nowMs = Date.now();
   return (
-    <div className="card-peek">
+    <div className={`card-peek${place.up ? " up" : ""}`} ref={ref} style={{ maxHeight: place.maxHeight }}>
       {peek === null ? (
         <span className="card-peek-quiet">reading…</span>
       ) : (
