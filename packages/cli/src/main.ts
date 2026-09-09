@@ -108,7 +108,9 @@ import {
   designUnskipPatch,
   designSkipped,
   registerModule,
-  ISOCAN_VERSION,
+  MODULE_API_VERSION,
+  PROPOSED,
+  unknownProposals,
   enginesSatisfied,
   moduleSlug,
   modulePageUrl,
@@ -9480,7 +9482,10 @@ const moduleCmd = program
 
 function describeManifest(m: ModuleManifest, dir: string): string {
   const lines = [`${m.name} ${m.version}${m.description ? ` — ${m.description}` : ""}`, `  from ${dir}`];
-  lines.push(`  needs isocan ${m.engines ?? "*"} (this is ${ISOCAN_VERSION})`);
+  lines.push(`  needs module API ${m.engines ?? "*"} (this build is ${MODULE_API_VERSION})`);
+  if (m.proposed?.length) {
+    lines.push(`  UNSTABLE: uses ${m.proposed.join(", ")} — parts of the API we intend to change`);
+  }
   for (const k of m.kinds ?? []) {
     lines.push(`  kind ${k.id}: ${k.mimes.join(", ")}${k.extensions?.length ? ` (.${k.extensions.join(", .")})` : ""} — ${k.label}`);
   }
@@ -9525,8 +9530,9 @@ moduleCmd
   .command("add <dir-or-spec>")
   .description("Install a built module from a directory or a git spec (github:owner/repo#ref) — prints what it declares, installs nothing until --yes")
   .option("--yes", "install it, having read what it declares")
+  .option("--proposed", "allow a module that uses parts of the API we intend to change")
   .action(
-    run(async (dirArg: string, opts: { yes?: boolean }, cmd: Command) => {
+    run(async (dirArg: string, opts: { yes?: boolean; proposed?: boolean }, cmd: Command) => {
       const globals = cmd.optsWithGlobals() as { json?: boolean };
       const fetched = await fetchModuleSpec(dirArg);
       try {
@@ -9537,7 +9543,7 @@ moduleCmd
     }),
   );
 
-async function addModuleFrom(dir: string, dirArg: string, opts: { yes?: boolean }, globals: { json?: boolean }): Promise<void> {
+async function addModuleFrom(dir: string, dirArg: string, opts: { yes?: boolean; proposed?: boolean }, globals: { json?: boolean }): Promise<void> {
       const file = path.join(dir, "manifest.json");
       if (!existsSync(file)) throw new Error(`${dir} has no manifest.json — build the module first (scripts/module-build.mjs)`);
       const manifest = JSON.parse(await fs.readFile(file, "utf8")) as ModuleManifest;
@@ -9546,6 +9552,28 @@ async function addModuleFrom(dir: string, dirArg: string, opts: { yes?: boolean 
       }
       const engines = enginesSatisfied(manifest.engines);
       if (!engines.ok) throw new Error(`${manifest.name} refused: ${engines.why}`);
+      /**
+       * **A module using the unstable API says so, and you say yes** (9 Sep
+       * 2026) — VS Code's proposed-API bargain, in the shape this can afford.
+       *
+       * A proposal this build has never heard of is refused by name rather
+       * than dropped: a module that asked for something that no longer exists
+       * would otherwise load without the thing it needed and fail somewhere
+       * far from here.
+       */
+      const unknown = unknownProposals(manifest.proposed);
+      if (unknown.length > 0) {
+        throw new Error(
+          `${manifest.name} refused: it wants ${unknown.join(", ")}, which this build does not offer — ` +
+            `known proposals are ${PROPOSED.join(", ")}`,
+        );
+      }
+      if (manifest.proposed?.length && !opts.proposed) {
+        throw new Error(
+          `${manifest.name} uses ${manifest.proposed.join(", ")}, which we intend to CHANGE — ` +
+            `a module built on it will break. Add it with --proposed if you want it anyway.`,
+        );
+      }
       for (const half of [manifest.web, manifest.cli, manifest.guide]) {
         if (half && !existsSync(path.join(dir, half))) throw new Error(`${manifest.name} declares ${half} and the file is not there`);
       }
