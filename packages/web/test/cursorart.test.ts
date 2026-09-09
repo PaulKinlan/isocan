@@ -3,7 +3,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CURSORS, THEMES, themeCursorName } from "@isocan/core";
 
-import { ARROW, CURSOR_ART } from "../src/lib/cursorart.ts";
+import { ARROW } from "../src/lib/arrow.ts";
+import { CURSOR_ART } from "../src/lib/cursorart.ts";
 
 /**
  * **The drawings, in the surface that draws them** (9 Sep 2026).

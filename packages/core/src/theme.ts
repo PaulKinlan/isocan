@@ -461,7 +461,7 @@ export const CURSOR_PROP = "cursor";
 
 /** The shapes this build can draw. Not a string, for `THEMES`' reason: a
  *  canvas wearing a name nothing can draw is a pointer that vanishes. */
-export const CURSORS = ["arrow", "sparkle", "fish", "flag", "drop", "heart", "crescent"] as const;
+export const CURSORS = ["arrow", "sparkle", "fish", "flag", "drop", "heart", "crescent", "sheep"] as const;
 
 /** One of the shapes this build can draw. Not a string, for `CanvasTheme`'s
  *  reason: a name nothing can draw is a pointer that vanishes. */
@@ -491,6 +491,8 @@ export function cursorLabel(cursor: CanvasCursor): string {
       return "Heart";
     case "crescent":
       return "Crescent";
+    case "sheep":
+      return "Sheep";
   }
 }
 
@@ -552,14 +554,19 @@ export function canvasCursorName(canvas: { properties?: Record<string, string> }
  * library's names are the same names, so a picked "sparkle" and a galaxy's
  * cursor can never become two drawings of one idea.
  *
- * **Farm and desert borrow rather than getting shapes of their own**, and that
- * is stated rather than hidden. A ground arriving without a cursor would leave
- * a farm wearing the same plain arrow as a canvas with no ground at all — two
- * different facts, one pointer. A drop is a seed on a field and a crescent is
- * a desert moon, and both have already survived being looked at at 18, 24 and
- * 32px, which is the only test a cursor has ever passed on here.
+ * **Farm got its sheep on 9 Sep; desert still borrows the crescent.** Dion
+ * asked for both, and only one of them is possible.
  *
- * What they actually want is a SHEEP and a SUN, and neither is drawn.
+ * A sun cannot be a cursor here, and the reason is structural rather than a
+ * failure of drawing: a sun is radially symmetric and a cursor has to point.
+ * Two attempts were drawn and rendered at 18, 24 and 32px — pulling one ray
+ * out to the hotspot makes a spike by construction, and what you get is a
+ * COMET, which also happens to be the sparkle's cousin. A cactus was tried for
+ * the same slot and has no natural top-left tip at all.
+ *
+ * So the crescent stays, and it is not a placeholder: a desert moon is a good
+ * story, and the shape is the sharpest tip in the library. What desert would
+ * actually want is a shape somebody thinks of that nobody has yet.
  */
 export function themeCursorName(theme: CanvasTheme | null): CanvasCursor {
   switch (theme) {
@@ -570,7 +577,7 @@ export function themeCursorName(theme: CanvasTheme | null): CanvasCursor {
     case "mountains":
       return "flag";
     case "farm":
-      return "drop";
+      return "sheep";
     case "desert":
       return "crescent";
     default:

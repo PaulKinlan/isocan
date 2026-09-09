@@ -61,4 +61,20 @@ export const CURSOR_ART: Record<CanvasCursor, string> = {
   // The upper horn is the hotspot, which makes this the sharpest tip of the
   // three — a crescent points better than it has any right to.
   crescent: "M1.5 0.5 C10.5 2.6 15.5 9 14 15.5 C13.4 18.2 10.4 19.4 8.2 18 C12.4 13.6 9.6 5.4 1.5 0.5 Z",
+  /**
+   * **The sheep #195 asked for on day one** (9 Sep 2026). A head that is a
+   * WEDGE, and a fleece that is a ring of scallops.
+   *
+   * Both halves were found by drawing it wrong twice and looking. A fleece
+   * with a tapered spike for a nose reads as a cloud with a stalk — the spike
+   * is what every other cursor uses to point, and on a round body it looks
+   * like a stray hair rather than an animal. Making the head its own wedge,
+   * overlapping the fleece, is what turns the same blob into something with a
+   * front. Seven scallops disappeared at 18px; six survive.
+   *
+   * It is the only shape in the library that is two subpaths meeting rather
+   * than one outline, and that is the point: the join is the neck.
+   */
+  sheep:
+    "M1.5 0.5 L9.9 6.1 L7.1 10.7 Z M10.9 7.7 A2.8 2.8 0 0 1 16.2 8.8 A2.8 2.8 0 0 1 17.9 13.9 A2.8 2.8 0 0 1 14.3 17.9 A2.8 2.8 0 0 1 9 16.8 A2.8 2.8 0 0 1 7.3 11.7 A2.8 2.8 0 0 1 10.9 7.7 Z",
 };

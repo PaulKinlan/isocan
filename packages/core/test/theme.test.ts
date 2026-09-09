@@ -277,11 +277,19 @@ describe("the pointer a canvas wears", () => {
   });
 
   it("refuses a name nothing can draw", () => {
-    // `THEMES`' reason: a canvas wearing a name this build cannot draw would
-    // be a pointer that vanishes.
-    expect(cursorOf(wearing({ [CURSOR_PROP]: "sheep" }))).toBeNull();
-    expect(isCursor("sheep")).toBe(false);
-    expect(canvasCursorName(wearing({ [GROUND_PROP]: hash, [CURSOR_PROP]: "sheep" }))).toBe("arrow");
+    /**
+     * `THEMES`' reason: a canvas wearing a name this build cannot draw would
+     * be a pointer that vanishes.
+     *
+     * **This case used "sheep" as its impossible name until 9 Sep 2026**, when
+     * the sheep was drawn and the fixture became real. Worth a sentence rather
+     * than a silent swap: a negative test whose example can quietly turn
+     * positive is a test that stops asserting anything, and the only reason it
+     * failed loudly here is that `isCursor` is a parse over a closed list.
+     */
+    expect(cursorOf(wearing({ [CURSOR_PROP]: "tractor" }))).toBeNull();
+    expect(isCursor("tractor")).toBe(false);
+    expect(canvasCursorName(wearing({ [GROUND_PROP]: hash, [CURSOR_PROP]: "tractor" }))).toBe("arrow");
   });
 
   it("stores a choice and removes it again", () => {
