@@ -8,7 +8,9 @@ note: measured 9 Sep — isocan.io sends no frame-ancestors and no X-Frame-Optio
 
 # Into somebody else's window
 
-**9 September 2026.** Asked by Dion: *what is the best way to integrate isocan
+**9 September 2026** · [full write-up](https://claude.ai/code/artifact/6e1bd1c5-2446-436b-b423-18bdee77db3a)
+
+Asked by Dion: *what is the best way to integrate isocan
 into Jetski, Antigravity, or any other agent manager or IDE?* Measured on this
 machine and against the live home, on the day dated. External facts were read
 the same day and are dated where they matter.
