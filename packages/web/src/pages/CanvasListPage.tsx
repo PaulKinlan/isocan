@@ -181,6 +181,22 @@ export function CanvasListPage({
   const [peeking, setPeeking] = useState<string | null>(null);
 
   /**
+   * **Escape puts a floating preview away.** The peek is an overlay now —
+   * it covers the cards under the one being read — so it owes the dismissal
+   * every overlay gets. Pointer and keyboard both: the listener is on the
+   * window because a pointer-hovered card may hold no focus at all.
+   */
+  const peekOpen = peeking !== null;
+  useEffect(() => {
+    if (!peekOpen) return;
+    const dismiss = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPeeking(null);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [peekOpen]);
+
+  /**
    * **A clock, because "8m ago" is a lie the moment it is painted.**
    *
    * Coarse on purpose: every 30s is finer than the smallest thing these labels
@@ -512,7 +528,12 @@ export function CanvasListPage({
              * is a child, and listening on the card catches all of them.
              */
             onPointerEnter={() => setPeeking(canvas.id)}
-            onPointerLeave={() => setPeeking((at) => (at === canvas.id ? null : at))}
+            onPointerLeave={(e) => {
+              /* The pointer leaving must not take a preview the keyboard is
+                 still reading: focus within the card is a second hold on it. */
+              if (e.currentTarget.contains(document.activeElement)) return;
+              setPeeking((at) => (at === canvas.id ? null : at));
+            }}
             onFocus={() => setPeeking(canvas.id)}
             onBlur={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -576,9 +597,14 @@ export function CanvasListPage({
                     </span>
                   </div>
                 </Link>
-                {/* Under the meta line, inside the card: a popover floating
-                    outside would need placing, and this is a few short rows
-                    that the card has room for. */}
+                {/* In the card's box but OUT of its flow. This used to sit
+                    in flow between the link and the ··· row — "the card has
+                    room for it" — and every hover grew the card by the peek's
+                    height and pushed the whole grid down: the page jumped
+                    under the pointer. `.card-peek` is absolutely positioned
+                    now and overlays the cards below; the grid never moves.
+                    The DOM position stays, so Tab still reaches the peek's
+                    rows between the open link and the ··· buttons. */}
                 <CardPeek canvasId={canvas.id} open={peeking === canvas.id} />
                 <div className="card-more">
                   {confirmingDelete === canvas.id ? (
