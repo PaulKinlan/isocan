@@ -6,8 +6,8 @@ Every research note and every project, by where it stands. **Derived**: the
 status of a thing lives in that thing's front matter, so it cannot drift from
 what it describes. Run `node scripts/roadmap.mjs` after changing one.
 
-**21 built · 43 still open** — of which 28 partly
-built, 14 designed, 0 blocked, and
+**21 built · 44 still open** — of which 28 partly
+built, 15 designed, 0 blocked, and
 **1 with no verdict recorded at all**, which is the number worth
 watching: an untriaged doc is not a doc nobody needs, it is a doc nobody has
 read lately.
@@ -49,7 +49,7 @@ and the done column should not be flattered by either.
 | research | [The flake family, and the first one caught in the act](research/2026-08-29-the-flake-family.md) | 2026-08-29 | 4 of 5 witnesses diagnosed; on 3 Sep the suite's fetch gained a per-attempt connect deadline (undici `UND_ERR_CONNECT_TIMEOUT`, provably before any bytes), so a lost SYN costs a 1.2 s retry inside the 3 s budget instead of the kernel's 7.8 s — proved against a stopped listener with a full queue · [#146](https://github.com/dglazkov/isocan/issues/146) |
 | research | [The night shift](research/2026-08-24-the-night-shift.md) | 2026-08-29 | steps 1–4 built — nightly grades (29 Aug), convergence (the fold), and on 3 Sep the converge lane one item wide (`scripts/converge-night.mjs`, its verdicts read by `isocan evals converge`) and the morning comment (`npm run night`, posted by the Night actor); the diverge lane and "what changed while you were gone" are open · see evals, personas · [#138](https://github.com/dglazkov/isocan/issues/138) |
 
-## Designed, not built <sub>14</sub>
+## Designed, not built <sub>15</sub>
 
 | | What | Since | |
 | --- | --- | --- | --- |
@@ -62,6 +62,7 @@ and the done column should not be flattered by either.
 | research | [Modules: adding a kind of thing, and taking it away again](research/2026-09-04-modules.md) | 2026-09-04 | the closed registries are counted; recommends internal modules first, Mermaid as the first node type, runtime loading third, sandboxes last. Became the modules project (docs/projects/modules) on 4 Sep; phase 1 built the same night · see modules, extensions, workbench, iso-api, mindmap, atlas · [#156](https://github.com/dglazkov/isocan/issues/156) |
 | research | [Project and canvas: one word each](research/2026-09-06-project-and-canvas.md) | 2026-09-06 | designed 6 Sep — one word each: a CANVAS is the surface, a PROJECT is the directory that holds it (one today, several later), a SPACE is an access grouping. Counted 331 "project" against 4,879 "canvas" in source; every survivor is inventoried and sorted into keep (the wire, the marker), rename (code that names the surface), and reword (help text, README). Nothing renamed yet · see switcher, roles, multiuser · [#135](https://github.com/dglazkov/isocan/issues/135) |
 | research | [Retiring a name](research/2026-08-25-retiring-a-name.md) | 2026-08-29 |  · [#140](https://github.com/dglazkov/isocan/issues/140) |
+| **project** | [roadmap-canvas](projects/roadmap-canvas/journey.md) | 2026-09-10 | designed 10 Sep — a canvas that IS docs/ROADMAP.md, derived from the repository and re-read as the repository moves; journeys written, nothing built · see on-demand, inception, modules, 2026-08-30-repo-admin-canvas.md, 2026-09-02-google-docs-on-the-canvas.md |
 | research | [Semantic zoom: what a canvas becomes when you stand back](research/2026-09-07-semantic-zoom.md) | 2026-09-07 | the canvas already does four kinds of zoom-responsive drawing and every one of them SUBTRACTS — the thing maps actually do is substitute, and that needs a unit to substitute for · see ui-refresh, mindmap · [#203](https://github.com/dglazkov/isocan/issues/203) |
 | research | [Sheep as standing agents](research/2026-09-08-sheep-as-standing-agents.md) | 2026-09-08 | a standing agent's one structural weakness is that `isocan rc` is a process on a MACHINE, and a sheep is a session in a cell that is not. But the obvious join — the summons calling the cell's address — is a shape on-demand's design already withdrew on custody grounds, and the reconciliation is that custody is about who started it and whose credentials it uses, not which computer it is on. Start with personas as the cheap tier: no parking, no summons, no custody question, and a gap that is real today. · see standing-agents, on-demand, personas, agent-custody · [#210](https://github.com/dglazkov/isocan/issues/210) |
 | research | [Small personas: cheap agents, an idle trigger, and a registry of what to explore](research/2026-09-07-small-personas.md) | 2026-09-07 | the cheap tier #197 claims already exists does not — all nine personas are opus at xhigh. This is what a small persona would need: an idle trigger, a cost that is declared, permission to write where a guard already exists, and a registry of what to explore that is not the findings queue. · see personas, standing-agents, on-demand · [#205](https://github.com/dglazkov/isocan/issues/205) |
