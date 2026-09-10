@@ -50,6 +50,16 @@ const PLACEHOLDER: Record<AddKind | "any", string> = {
   canvas: "Search your canvases, or paste an address",
 };
 
+/** What the field is called per pinned kind — screen readers get the same
+ * narrowing the sighted placeholder does, including when a kind is pinned. */
+const ARIA_LABEL: Record<AddKind | "any", string> = {
+  any: "Address or canvas name",
+  file: "Files to add",
+  site: "Site address",
+  doc: "Google Doc address",
+  canvas: "Canvas name or address",
+};
+
 export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; actor: Actor; onFiles: () => void }) {
   const adding = useUiStore((s) => s.adding);
   const setAdding = (next: AddKind | "any" | null) => useUiStore.getState().setAdding(next);
@@ -241,7 +251,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
             className="text-input"
             autoFocus
             placeholder={PLACEHOLDER[adding ?? "any"]}
-            aria-label={adding === "site" ? "Site address" : "Address or canvas name"}
+            aria-label={ARIA_LABEL[adding ?? "any"]}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
             value={query}
