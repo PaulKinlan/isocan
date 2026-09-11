@@ -47,6 +47,7 @@ const CanvasListPage = lazy(() =>
   import("./pages/CanvasListPage.tsx").then((m) => ({ default: m.CanvasListPage })),
 );
 const NotHerePage = lazy(() => import("./pages/NotHerePage.tsx").then((m) => ({ default: m.NotHerePage })));
+const VoiceCheckPage = lazy(() => import("./pages/VoiceCheckPage.tsx").then((m) => ({ default: m.VoiceCheckPage })));
 
 export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
   // A tab holding a pass is not anybody yet, whatever localStorage says: the
@@ -115,6 +116,12 @@ export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
       live = false;
     };
   }, [signIn]);
+
+  // A local capture diagnostic, not a canvas or an identity operation. It must
+  // be usable before sign-in and before any provider is configured.
+  if (window.location.pathname === "/voice-check") {
+    return <Suspense fallback={<div className="page-note">Opening microphone check…</div>}><VoiceCheckPage /></Suspense>;
+  }
 
   // Not a spinner and not a blank page: a sentence, in the door's own
   // language, for the fraction of a second a redemption takes.

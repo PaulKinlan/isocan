@@ -1,22 +1,33 @@
 ---
-status: designed
-since: 2026-09-11
+status: partial
+since: 2026-09-12
 issue: 139
-note: Gemini Live browser UI plan; implementation and live-provider activation remain separate
+note: Local /voice-check capture, meter and playback built; Gemini Live, tokens and canvas voice control not built
 ---
 # Browser voice: permission, a Live session, and ordinary operations
 
 This plan replaces the missing browser capture/playback surface, not the
 reviewed CLI harness. It follows the [revised research note](../../research/2026-08-24-voice.md).
 The source census is against upstream `ed8efe0c`; the note was reviewed at
-`2dd38c54`. Nothing below is a claim that this UI has been implemented.
+`2dd38c54`. **Only the free `/voice-check` page is built on this branch.**
+The Gemini session, issuer and canvas voice-control surface below remain a
+plan. On a running checkout, open `/voice-check` over HTTPS or loopback HTTP;
+an arbitrary LAN HTTP origin cannot request a microphone.
+
+The capture slice was driven in Chrome 152.0.7977.82 with a fake stepped-tone
+device: one audio track, zero video tracks, changing meter, local recording,
+decodable signal, native playback and cleanup. A separate run without
+auto-accept exercised denial. Another headful run captured Chrome's native
+mic-only permission prompt. None used a real microphone or a model. The
+future `<microphone>` branch remains unexercised on this browser.
 
 ## Delivery order: let the person speak into something first
 
 **Step 1 — capture only, free.** Build a small `/voice-check` page in the
-existing web app before integrating the full canvas control. It uses the
-shipped `<usermedia>` element with the JS fallback, a live level meter, a
-short local recording and an explicit Play control. Recording and playback
+existing web app before integrating the full canvas control. It prefers a
+real `<microphone>` when supported, otherwise a mic-only JS fallback (see the
+runtime correction below), a live level meter, a short local recording and
+an explicit Play control. Recording and playback
 stay in this tab's memory; stop tracks and release recording URLs on reset or
 exit. Avoid immediate speaker loopback and its feedback risk. There is no
 provider, key, transcript service, token mint, canvas operation or cloud audio.
@@ -78,14 +89,28 @@ spacing and focus conventions. Do not add a second app shell. The existing
 when a side panel opens; use their existing rail-offset calculation rather
 than placing an unrelated fixed overlay on top of them.
 
-Use supported `HTMLUserMediaElement` as the permission affordance itself,
-configured for **audio only before interaction**, without `autostart`. Respect
-its browser-controlled appearance; an icon-only imitation is not worth losing
-the native permission control. Unsupported browsers get an ordinary labelled
-mic button calling `getUserMedia({audio:true, video:false})` on the click.
-The explainer's `<microphone>` is not the current tested element. The read-only
-scout observed `HTMLUserMediaElement`, not `HTMLMicrophoneElement`, in
-HeadlessChrome 152; acquisition still needs the browser test below.
+**Runtime correction after the plan review:** prefer a real
+`HTMLMicrophoneElement` when implemented; otherwise call
+`getUserMedia({audio:true, video:false})` from an ordinary labelled button.
+The specific element supplies a `track`/`track` event and owns its native
+mute/unmute toggle. Do not use `autostart`.
+
+The first Chrome 152 browser run exposed an incorrect assumption in the
+reviewed plan: modern `<usermedia>` requests **both camera and microphone**.
+Its native label said so despite audio-only `setConstraints`. The
+[Chromium implementation](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/html/html_user_media_element.cc)
+unconditionally constructs both permission descriptors outside legacy mode;
+constraints change preferences, not that permission set. `type="microphone"`
+only takes effect in legacy mode. Do not weaken the audio-only guard or enable
+legacy flags to make the check pass. The UI explains why an available
+usermedia element is skipped. This scope correction was approved before the
+capture implementation was published.
+
+The source article says usermedia shipped in 151 and microphone is roadmap;
+the observed Chrome 152 has `HTMLUserMediaElement`, not
+`HTMLMicrophoneElement`. Record the actual selected path and browser version.
+The native browser permission prompt on the **JS path** remains valid prompt
+evidence; it is not evidence that a microphone element exists.
 
 The states must be visible as words, not color alone:
 

@@ -1,0 +1,24 @@
+.voice-check {
+  max-width: 42rem;
+  height: 100%;
+  margin-inline: auto;
+  padding: clamp(1.25rem, 5vw, 3rem);
+  overflow-y: auto;
+  color: var(--ink);
+}
+.voice-check h1 { font-size: clamp(1.8rem, 5vw, 2.5rem); line-height: 1.15; margin-block: .6rem 1rem; }
+.voice-check h2 { font-size: 1.25rem; margin-block: 0 .75rem; }
+.voice-check p { line-height: 1.5; margin-block: .6rem; }
+.voice-check header { margin-block: 2rem; }
+.voice-check-kicker { color: var(--ink-muted); font-size: .75rem; letter-spacing: .08em; }
+.voice-check section { border-top: 1px solid var(--line); padding-block: 1.5rem; }
+.voice-check-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-block: 1rem; }
+.voice-check button { min-height: 44px; padding-inline: 1rem; }
+.voice-check button:disabled { opacity: .5; cursor: not-allowed; }
+.voice-check button:focus-visible, .voice-check a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.voice-check-link { padding: 0; border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; }
+.voice-check label { display: flex; justify-content: space-between; margin-top: 1.5rem; }
+.voice-check meter, .voice-check audio { display: block; width: 100%; }
+.voice-check meter { height: 1.6rem; }
+.voice-check-detail, .voice-check footer { color: var(--ink-muted); font-size: .875rem; }
+.voice-check [hidden] { display: none !important; }
