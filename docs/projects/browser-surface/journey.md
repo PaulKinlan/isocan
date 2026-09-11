@@ -1,15 +1,16 @@
 ---
 status: designed
 since: 2026-09-11
-see: embed, multiuser, standing-agents
-note: registration seed — the full browser-surface docset is drafted on the track branch and pending its own review; roadmap defined, nothing built
+see: embed, multiuser, standing-agents, inception
+note: registration seed — the full browser-surface docset is drafted on the track branch (8973ae18) and pending its own review; roadmap defined, nothing built
 ---
 
 # Browser surface
 
 **11 September 2026.** Track registration (isocan-chf.1). Thin on purpose:
-the full docset is drafted on the track branch, pending its review; this seed
-registers the project and its ground.
+the full docset is drafted on the track branch (8973ae18), pending its
+review; this seed registers the project and its ground, with the three
+calibrations the full docset carries stated here too.
 
 The thesis in one line: **isocan as a Chrome extension — a bidirectional
 spatial tab strip and a browser agent sharing one trusted session, driven
@@ -18,11 +19,27 @@ through the ACP control loopback.**
 ## What it is
 
 The browser becomes a canvas surface: tabs as items, the agent driving a
-real Chrome through the rc's ACP control loopback, and trusted multiplayer
-co-browsing over strict cookie custody. Grounded in the Chrome Agent
-Platform's browser tools as prior art (attributed in the full design); the
-isocan-native seams are the `text/uri-list` item vocabulary, the rc client,
-and the hosted badge custody model.
+real Chrome through the ACP control loopback, and trusted multiplayer
+co-browsing. Three calibrations from the full docset, stated here so the
+seed and the docset agree:
+
+- **The browser-side ACP server adapter is PROPOSED and unimplemented.** The
+  census confirms the ACP 1 client in `packages/cli/src/acp.ts` is built
+  (`session/new`, `session/prompt`, `session/update`, `session/load`,
+  resumable sessions) — but the adapter that would vend browser control
+  sessions to standing agents does not exist yet.
+- **Two custody facts, deliberately distinguished**: isocan's built CHIPS
+  partitioned cookie custody for embedded iframes
+  (`packages/server/src/badges.ts:117–154`, `SameSite=None; Secure;
+  Partitioned`) is one thing; **owner-profile browser authority** — the
+  owner's Chrome profile holding third-party session cookies and
+  credentials, which never leave the owner's machine — is another. Remote
+  guests co-drive via WebRTC frame projection and synthetic input, never by
+  handling the owner's cookies.
+- **Nested canvases are already implemented** —
+  `packages/core/src/canvasitem.ts` via `properties.kind === "canvas"` and
+  `canvasitemOf`, partly built in the [inception](../inception/) project.
+  The design extends that mechanism rather than inventing a fresh kind.
 
 ## What is owed
 
