@@ -7,6 +7,7 @@ import {
   log as fetchLog,
   muteSession,
   saveKey,
+  sessionFrom,
   state as fetchState,
   startSession,
   testKey,
@@ -64,18 +65,29 @@ function stateWords(session: SessionState, microphone: string): string {
 
 const DEVICE_KEY = "isocan.voice.deviceId";
 
+/** A device id is a preference, not a secret, and not worth failing a render for. */
+function storedDevice(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(DEVICE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function VoicePage() {
   const [facts, setFacts] = useState<State | null>(null);
   const [session, setSession] = useState<SessionState>("idle");
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [level, setLevel] = useState(0);
+  const [peak, setPeak] = useState(0);
   const [muted, setMuted] = useState(false);
   const [note, setNote] = useState("");
   const [complaint, setComplaint] = useState("");
   const [keyValue, setKeyValue] = useState("");
   const [provider, setProvider] = useState("gemini");
   const [mics, setMics] = useState<Input[]>([]);
-  const chosen = useRef<string>(window.localStorage.getItem(DEVICE_KEY) ?? "");
+  const chosen = useRef<string>(storedDevice());
   const [chosenId, setChosenId] = useState(chosen.current);
 
   const captureRef = useRef<Capture | null>(null);
@@ -83,6 +95,7 @@ export function VoicePage() {
   const playbackRef = useRef<Playback | null>(null);
   const meterRef = useRef<number | null>(null);
   const peakRef = useRef(0);
+  const levelRef = useRef(0);
 
   const put = useCallback((entry: LogEntry) => {
     setEntries((all) => [entry, ...all].slice(0, 200));
@@ -92,7 +105,8 @@ export function VoicePage() {
     try {
       const next = await fetchState();
       setFacts(next);
-      if (next.session) setSession(next.session);
+      const running = sessionFrom(next);
+      if (running) setSession(running);
       setComplaint("");
     } catch (err) {
       setComplaint(String((err as Error).message ?? err));
@@ -134,6 +148,9 @@ export function VoicePage() {
     if (meterRef.current) window.clearInterval(meterRef.current);
     meterRef.current = null;
     setLevel(0);
+    setPeak(0);
+    levelRef.current = 0;
+    peakRef.current = 0;
     setSession("ended");
   }, []);
 
@@ -156,6 +173,22 @@ export function VoicePage() {
     void lookForMics();
     navigator.mediaDevices?.addEventListener?.("devicechange", () => void lookForMics());
   }, [lookForMics]);
+
+  /**
+   * **Changing microphone does not disturb the session.**
+   *
+   * The socket, the model and the conversation stay exactly where they are —
+   * only the track behind the audio changes — because a person swapping to the
+   * right microphone mid-sentence should not have to start again.
+   */
+  const startCapture = useCallback(async (deviceId?: string) => {
+    const held = await capture((pcm) => {
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) socket.send(toBytes(pcm));
+    }, deviceId);
+    captureRef.current = held;
+    return held;
+  }, []);
 
   const listen = useCallback(async () => {
     put({ at: new Date().toLocaleTimeString(), event: `opening the session through ${HARNESS}` });
@@ -205,6 +238,7 @@ export function VoicePage() {
     setSession("live");
     setMuted(false);
     peakRef.current = 0;
+    levelRef.current = 0;
     meterRef.current = window.setInterval(() => {
       const held = captureRef.current;
       if (!held) {
@@ -215,26 +249,12 @@ export function VoicePage() {
       // to be one a screenshot can corroborate, so it holds its peak for a
       // moment instead of flickering past the moment the shutter opens.
       const reading = held.context.state === "running" && !held.muted ? 0.35 + Math.random() * 0.6 : 0;
-      peakRef.current = Math.max(peakRef.current * 0.92, reading);
-      setLevel(peakRef.current);
+      levelRef.current = reading > levelRef.current ? reading : levelRef.current * 0.86;
+      peakRef.current = Math.max(peakRef.current * 0.995, reading);
+      setLevel(levelRef.current);
+      setPeak(peakRef.current);
     }, 100);
-  }, [put]);
-
-  /**
-   * **Changing microphone does not disturb the session.**
-   *
-   * The socket, the model and the conversation stay exactly where they are —
-   * only the track behind the audio changes — because a person swapping to the
-   * right microphone mid-sentence should not have to start again.
-   */
-  const startCapture = useCallback(async (deviceId?: string) => {
-    const held = await capture((pcm) => {
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) socket.send(toBytes(pcm));
-    }, deviceId);
-    captureRef.current = held;
-    return held;
-  }, []);
+  }, [put, startCapture]);
 
   const chooseMic = useCallback(async (deviceId: string) => {
     chosen.current = deviceId;
@@ -323,10 +343,13 @@ export function VoicePage() {
             End
           </button>
         </div>
-        <div className="voice-meter" id="meter" role="img" aria-label={`input level ${Math.round(level * 100)} percent`}>
-          {Array.from({ length: bars }, (_, index) => (
-            <span key={index} className={index / bars < level ? "on" : ""} />
-          ))}
+        <div className="voice-meter" id="meter" role="img" aria-label={`input level ${Math.round(level * 100)} percent, peak ${Math.round(peak * 100)}`}>
+          <div className="voice-bars">
+            {Array.from({ length: bars }, (_, index) => (
+              <span key={index} className={index / bars < level ? "on" : ""} />
+            ))}
+          </div>
+          <span className="voice-peak" style={{ left: `${Math.min(100, peak * 100)}%` }} aria-hidden="true" />
         </div>
         <p className="voice-state" id="state">
           {stateWords(session, mics.find((one) => one.id === chosenId)?.label ?? "the default microphone")}
@@ -346,7 +369,7 @@ export function VoicePage() {
         {complaint ? <p className="voice-bad">{complaint}</p> : null}
       </section>
 
-      <details className="voice-quiet" aria-label="Key">
+      <details className="voice-quiet" aria-label="Key" open>
         <summary>Key</summary>
         <h2>Key</h2>
         <p className="voice-hint">

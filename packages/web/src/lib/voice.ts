@@ -31,18 +31,18 @@ export interface State {
   keyPresent?: boolean;
   version?: string;
   updated?: string;
-  session?: SessionState;
+  session?: SessionState | { state?: SessionState };
   [k: string]: unknown;
 }
 
 export interface LogEntry {
-  at?: string;
-  tool?: string;
+  at?: string | undefined;
+  tool?: string | undefined;
   args?: unknown;
-  operation?: string;
-  answered?: string;
-  error?: string;
-  event?: string;
+  operation?: string | undefined;
+  answered?: string | undefined;
+  error?: string | undefined;
+  event?: string | undefined;
   [k: string]: unknown;
 }
 
@@ -59,7 +59,7 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const state = () => json<State>("/state");
-export const log = () => json<LogEntry[] | { entries?: LogEntry[] }>("/log");
+export const log = () => json<LogReply>("/log");
 export const startSession = () => json<{ ok?: boolean; error?: string }>("/session/start", { method: "POST" });
 export const muteSession = () => json<{ ok?: boolean; error?: string }>("/session/mute", { method: "POST" });
 export const unmuteSession = () => json<{ ok?: boolean; error?: string }>("/session/unmute", { method: "POST" });
@@ -74,8 +74,58 @@ export const testKey = () =>
   json<{ ok?: boolean; answer?: string; provider?: string }>("/key/test", { method: "POST" });
 
 /** The entries in whatever shape the endpoint returns today. */
-export function entriesFrom(reply: LogEntry[] | { entries?: LogEntry[] }): LogEntry[] {
-  return Array.isArray(reply) ? reply : (reply.entries ?? []);
+/**
+ * **The harness's field names, mapped once, at the wire.**
+ *
+ * `GET /log` answers `{ timestamp, name, op, result }` and the page renders
+ * `{ at, tool, operation, answered }`. Translating in the renderer is how the
+ * log came out empty for hours while the endpoint was working: every field it
+ * read was `undefined` and every row looked like a blank line.
+ */
+export function entriesFrom(reply: LogReply): LogEntry[] {
+  const raw: RawEntry[] = Array.isArray(reply) ? reply : (reply.entries ?? reply.log ?? []);
+  return raw.map((entry) => ({
+    at: entry.at ?? entry.timestamp ?? entry.time,
+    tool: entry.tool ?? entry.name ?? entry.toolName,
+    args: entry.args ?? entry.arguments ?? entry.input,
+    operation: entry.operation ?? entry.op ?? entry.operationId,
+    answered: entry.answered ?? entry.result ?? entry.answer,
+    error: entry.error ?? entry.failure,
+    event: entry.event ?? entry.message,
+  }));
+}
+
+export interface RawEntry {
+  at?: string;
+  timestamp?: string;
+  time?: string;
+  tool?: string;
+  name?: string;
+  toolName?: string;
+  args?: unknown;
+  arguments?: unknown;
+  input?: unknown;
+  operation?: string;
+  op?: string;
+  operationId?: string;
+  answered?: string;
+  result?: string;
+  answer?: string;
+  error?: string;
+  failure?: string;
+  event?: string;
+  message?: string;
+}
+
+export type LogReply = RawEntry[] | { entries?: RawEntry[]; log?: RawEntry[] };
+
+/** `{ state: "live" }` or `"live"` — the harness has answered both ways. */
+export function sessionFrom(reply: State | null | undefined): SessionState | undefined {
+  const held = reply?.session as unknown;
+  if (!held) return undefined;
+  if (typeof held === "string") return held as SessionState;
+  const state = (held as { state?: string }).state;
+  return state as SessionState | undefined;
 }
 
 export function audioSocket(): WebSocket {

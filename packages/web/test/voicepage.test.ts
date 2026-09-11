@@ -1,0 +1,65 @@
+import { describe, expect, it } from "vitest";
+import { createElement as h } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { entriesFrom, sessionFrom } from "../src/lib/voice.ts";
+import { VoicePage } from "../src/pages/VoicePage.tsx";
+
+/**
+ * **The three things that were broken while the page looked finished.**
+ *
+ * Each of these shipped, was looked at, and passed: the session state was
+ * read off the wire in the wrong shape so every control stayed disabled; the
+ * log's fields were named one way by the harness and read another way by the
+ * page, so a working endpoint rendered as blank rows; and the key controls
+ * were folded into a `<details>` that rendered its summary with nothing under
+ * it — the page's own author reported "I still can't set the API key" and it
+ * was true. A screenshot cannot catch any of them, which is why they are
+ * asserted here rather than looked at.
+ */
+describe("what the harness says, in the shape the page reads", () => {
+  it("unwraps the session state, and also takes it bare", () => {
+    expect(sessionFrom({ session: { state: "live" } })).toBe("live");
+    expect(sessionFrom({ session: "muted" })).toBe("muted");
+    expect(sessionFrom({})).toBeUndefined();
+    expect(sessionFrom(null)).toBeUndefined();
+  });
+
+  it("maps the log's own field names onto the ones the page renders", () => {
+    const [entry] = entriesFrom([
+      { timestamp: "23:10:02", name: "item.update", op: "item.update prj_1", result: "accepted" },
+    ]);
+    expect(entry).toMatchObject({
+      at: "23:10:02",
+      tool: "item.update",
+      operation: "item.update prj_1",
+      answered: "accepted",
+    });
+  });
+
+  it("takes both the bare array and the wrapped envelope", () => {
+    expect(entriesFrom({ entries: [{ name: "say" }] })[0]?.tool).toBe("say");
+    expect(entriesFrom({ log: [{ name: "say" }] })[0]?.tool).toBe("say");
+  });
+});
+
+describe("the page keeps the controls a person has to press", () => {
+  const markup = renderToStaticMarkup(h(VoicePage));
+
+  it("offers the key controls, visible rather than folded away", () => {
+    for (const id of ["key", "save-key", "test-key", "forget-key"]) {
+      expect(markup).toContain(`id="${id}"`);
+    }
+    // The regression: a `<details>` that rendered its summary and hid the rest.
+    expect(markup).toMatch(/<details[^>]*\bopen\b/);
+  });
+
+  it("offers the microphone, the session controls and the device picker", () => {
+    for (const id of ["listen", "mute", "end", "device", "meter", "log"]) {
+      expect(markup).toContain(`id="${id}"`);
+    }
+  });
+
+  it("says which microphone it will listen on", () => {
+    expect(markup).toContain("press Listen to start");
+  });
+});

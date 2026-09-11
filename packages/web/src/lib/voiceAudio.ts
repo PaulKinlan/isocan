@@ -38,6 +38,8 @@ export interface Capture {
   path: string;
   deviceId: string;
   label: string;
+  /** Kept so a device change can swap the track without touching the session. */
+  frames: (pcm: Int16Array) => void;
   stop: () => void;
   muted: boolean;
   context: AudioContext;
@@ -90,7 +92,7 @@ export async function capture(
       // One sample per output step, averaged over the step: dropping samples
       // instead of averaging is what makes a resampled voice sound metallic.
       let sum = 0;
-      for (let j = 0; j < ratio; j++) sum += carry[i * ratio + j];
+      for (let j = 0; j < ratio; j++) sum += carry[i * ratio + j] ?? 0;
       const value = Math.max(-1, Math.min(1, sum / ratio));
       pcm[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
     }
@@ -136,7 +138,7 @@ export class Playback {
     const context = await this.ready();
     const buffer = context.createBuffer(1, pcm.length, 24000);
     const channel = buffer.getChannelData(0);
-    for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 0x8000;
+    for (let i = 0; i < pcm.length; i++) channel[i] = (pcm[i] ?? 0) / 0x8000;
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);
