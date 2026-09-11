@@ -805,6 +805,50 @@ describe("the harness session & tool-call log API", () => {
     expect(uttLog.op.type).toBe("item.update");
     expect(uttLog.result.ok).toBe(true);
   });
+
+  it("mints a one-use pass and redirects to the canvas URL on GET /open", async () => {
+    const server = await serve();
+
+    // 1. JSON mode
+    const jsonRes = await (await fetch(`${server.state.url}open`, {
+      headers: { Accept: "application/json" },
+    })).json();
+    expect(jsonRes).toHaveProperty("url");
+    expect(jsonRes.canvasId).toBe("prj_1");
+    expect(jsonRes.url).toContain("/p/prj_1#pss_");
+
+    // 2. Redirect mode (manual redirect inspection)
+    const redirectRes = await fetch(`${server.state.url}open`, { redirect: "manual" });
+    expect(redirectRes.status).toBe(302);
+    expect(redirectRes.headers.get("location")).toContain("/p/prj_1#pss_");
+  });
+
+  it("publishes enrolled-but-idle presence at start and switches to listening while live", async () => {
+    const server = await serve();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Initially present as enrolled-but-idle
+    const sessions0 = await (await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })).json() as any[];
+    const voiceSession0 = sessions0.find((s) => s.harness === "voice");
+    expect(voiceSession0).toBeDefined();
+    expect(voiceSession0!.status).toBe("enrolled — nobody is listening right now");
+
+    // Start session -> switches to listening
+    await fetch(`${server.state.url}session/start`, { method: "POST" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const sessions1 = await (await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })).json() as any[];
+    const voiceSession1 = sessions1.find((s) => s.harness === "voice");
+    expect(voiceSession1!.status).toBe("listening");
+
+    // End session -> drops back
+    await fetch(`${server.state.url}session/end`, { method: "POST" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const sessions2 = await (await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })).json() as any[];
+    const voiceSession2 = sessions2.find((s) => s.harness === "voice");
+    expect(voiceSession2!.status).toBe("enrolled — nobody is listening right now");
+  });
 });
 
 describe("responsive layout and bounding-box isolation", () => {

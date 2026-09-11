@@ -8,6 +8,7 @@ import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
 import { readConfigFile } from "@isocan/server";
 import { statSync } from "node:fs";
 import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
+import { canvasUrlWithPass } from "@isocan/core";
 import { readRcAgents } from "./rc.ts";
 import { voicePage } from "./voice-harness-page.ts";
 
@@ -1055,6 +1056,27 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const toolLog: ToolLogEntry[] = [];
   const logListeners = new Set<(entry: ToolLogEntry) => void>();
 
+  let presenceSessionId: string | null = null;
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+
+  async function announcePresence(currentStatus: string) {
+    try {
+      if (!presenceSessionId) {
+        const sessionRes = await target.canvas.ctx.client.createSession(
+          target.canvasId,
+          { id: target.actorId, name: target.name },
+          target.name,
+          VOICE_HARNESS,
+          "cli",
+        );
+        presenceSessionId = sessionRes.sessionId;
+      }
+      await target.canvas.ctx.client.updateSession(target.canvasId, presenceSessionId, {
+        status: currentStatus,
+      });
+    } catch {}
+  }
+
   function recordToolLog(entry: Omit<ToolLogEntry, "id" | "timestamp">): ToolLogEntry {
     const item: ToolLogEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1149,12 +1171,31 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         respond(200, { ...(await factsFor()), lines });
         return;
       }
+      if (req.method === "GET" && url.pathname === "/open") {
+        try {
+          const config = await readConfigFile<{ home?: string }>(home).catch(() => ({}) as { home?: string });
+          const origin = config.home ?? target.daemon;
+          const { token } = await target.canvas.ctx.client.mintPass(target.canvasId);
+          const redirectUrl = canvasUrlWithPass(origin, target.canvasId, token);
+          if (req.headers.accept?.includes("application/json")) {
+            respond(200, { url: redirectUrl, canvasId: target.canvasId });
+            return;
+          }
+          res.writeHead(302, { Location: redirectUrl, "Cache-Control": "no-store" });
+          res.end();
+          return;
+        } catch (err) {
+          respond(500, { error: `could not mint pass: ${(err as Error).message}` });
+          return;
+        }
+      }
       if (req.method === "GET" && url.pathname === "/log") {
         respond(200, { entries: toolLog, count: toolLog.length });
         return;
       }
       if (req.method === "POST" && url.pathname === "/session/start") {
         sessionState = "live";
+        void announcePresence("listening");
         recordToolLog({ type: "session_event", event: "opened" });
         respond(200, { ok: true, state: sessionState });
         return;
@@ -1162,6 +1203,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (req.method === "POST" && url.pathname === "/session/mute") {
         if (sessionState === "live") {
           sessionState = "muted";
+          void announcePresence("muted");
           recordToolLog({ type: "session_event", event: "muted" });
         }
         respond(200, { ok: true, state: sessionState });
@@ -1170,6 +1212,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (req.method === "POST" && url.pathname === "/session/unmute") {
         if (sessionState === "muted") {
           sessionState = "live";
+          void announcePresence("listening");
           recordToolLog({ type: "session_event", event: "unmuted" });
         }
         respond(200, { ok: true, state: sessionState });
@@ -1177,6 +1220,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       }
       if (req.method === "POST" && url.pathname === "/session/end") {
         sessionState = "ended";
+        void announcePresence("enrolled — nobody is listening right now");
         recordToolLog({ type: "session_event", event: "closed", reason: "user ended" });
         if (activeLiveSession) {
           try { activeLiveSession.close(); } catch {}
@@ -1511,6 +1555,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       page.on("close", () => {
         logListeners.delete(onLog);
         sessionState = "ended";
+        void announcePresence("enrolled — nobody is listening right now");
         recordToolLog({ type: "session_event", event: "closed", reason: liveFailure || "closed" });
         session.close();
       });
@@ -1549,9 +1594,23 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     `${JSON.stringify({ pid: process.pid, port: listening, url, name: state.name, canvas: state.canvas, at: new Date().toISOString() }, null, 2)}\n`,
     { mode: 0o600 },
   );
+
+  // Announce presence on the canvas so `isocan who` and the canvas facepile
+  // show the voice agent in the room:
+  void announcePresence("enrolled — nobody is listening right now");
+  heartbeatTimer = setInterval(() => {
+    const s = sessionState === "live" ? "listening" : sessionState === "muted" ? "muted" : "enrolled — nobody is listening right now";
+    void announcePresence(s);
+  }, 10000);
+
   return {
     state,
     close: async () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (presenceSessionId) {
+        await target.canvas.ctx.client.endSession(target.canvasId, presenceSessionId).catch(() => {});
+        presenceSessionId = null;
+      }
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await fs.rm(voiceServerFile(home), { force: true });
     },

@@ -1,10 +1,10 @@
 # Voice harness — browser evidence
 
-Run 2026-09-11T23:32:31.772Z in 3.692s.
+Run 2026-09-11T23:36:01.864Z in 3.65s.
 
 - browser: HeadlessChrome 152.0.0.0
-- connected to: canvas “Voice evidence” (prj_voice), daemon http://127.0.0.1:40673, home no home configured — the daemon's default
-- agent: Voice (usr_rpan3UluNu), NOT enrolled
+- connected to: canvas “Voice evidence” (prj_voice), daemon http://127.0.0.1:36889, home no home configured — the daemon's default
+- agent: Voice (usr_OZP1964C00), NOT enrolled
 - audio: no provider models/gemini-3.1-flash-live-preview (no key stored)
 - capture path that ran: capture: getUserMedia, audio only · HeadlessChrome 152.0.0.0
 - meter peak: 28/28 bars (sampled every 25ms for 1.5s; the screenshot was taken at the peak sample, so the picture and the number are the same moment)
@@ -18,8 +18,8 @@ Run 2026-09-11T23:32:31.772Z in 3.692s.
 - last operation: item.update by “Voice”
 
 ## Steps
-- harness: `isocan voice` listening at http://127.0.0.1:7858/ (daemon on 40673, home isocan-voice-evidence-DHpRBN)
-- connected to: canvas “Voice evidence” prj_voice · daemon http://127.0.0.1:40673 · home no home configured — the daemon's default · agent Voice usr_rpan3UluNu (not enrolled) · audio no provider models/gemini-3.1-flash-live-preview, no key
+- harness: `isocan voice` listening at http://127.0.0.1:7955/ (daemon on 36889, home isocan-voice-evidence-HP2cvJ)
+- connected to: canvas “Voice evidence” prj_voice · daemon http://127.0.0.1:36889 · home no home configured — the daemon's default · agent Voice usr_OZP1964C00 (not enrolled) · audio no provider models/gemini-3.1-flash-live-preview, no key
 - page: painted — HeadlessChrome 152.0.0.0; capture: getUserMedia, audio only · HeadlessChrome 152.0.0.0
 - layout: viewport 1440px, document 1440px, key panel right edge 1414px, panels clipped off-window: 0
 - capture: capture: getUserMedia, audio only · HeadlessChrome 152.0.0.0
@@ -31,7 +31,7 @@ Run 2026-09-11T23:32:31.772Z in 3.692s.
 - narrow 420px overlaps: none
 - narrow 420px: columns minmax(0px, 1fr) minmax(0px, 320px), document 420px, aside 392px (right edge 406px), panels clipped: 0 — /home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-harness/04-narrow-420.png
 - canvas: titles now ["Checkout v2","Settings screen"]
-- canvas: last op item.update by Voice (usr_rpan3UluNu), the enrolled agent
+- canvas: last op item.update by Voice (usr_OZP1964C00), the enrolled agent
 
 ## Screenshots
 - 01-meter-live.png — capture running, meter at its peak (/home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-harness/01-meter-live.png)
