@@ -10,6 +10,14 @@ export default defineConfig({
     // spammed EPIPE stacks whenever the daemon restarted mid-write.
     proxy: {
       "/api": "http://127.0.0.1:4441",
+      // The voice harness, same-origin so the daemon needs no CORS header and
+      // the audio socket survives HMR. `ws: true` for /harness/audio.
+      "/harness": {
+        target: "http://127.0.0.1:7654",
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path: string) => path.replace(/^\/harness/, ""),
+      },
     },
   },
 });

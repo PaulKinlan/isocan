@@ -46,6 +46,13 @@ const LensPage = lazy(() => import("./pages/LensPage.tsx").then((m) => ({ defaul
 const CanvasListPage = lazy(() =>
   import("./pages/CanvasListPage.tsx").then((m) => ({ default: m.CanvasListPage })),
 );
+/**
+ * **The voice page is lazy for the same reason the lens is.** Almost every
+ * visit is a canvas; a microphone and a tool-call log are for the visit where
+ * somebody is talking, and the entry chunk has a byte bound that they are not
+ * going to be paid out of.
+ */
+const VoicePage = lazy(() => import("./pages/VoicePage.tsx").then((m) => ({ default: m.VoicePage })));
 const NotHerePage = lazy(() => import("./pages/NotHerePage.tsx").then((m) => ({ default: m.NotHerePage })));
 
 export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
@@ -150,6 +157,11 @@ export function App({ arrival, signIn }: { arrival: Arrival; signIn: SignIn }) {
                 a blank page: no error, no 404, no redirect, nothing to read. */}
             {/* A lens over every canvas — see `LensPage` and `core/lens.ts`
                 for why it is deliberately not called a canvas. */}
+            <Route path="/voice" element={
+              <Suspense fallback={null}>
+                <VoicePage />
+              </Suspense>
+            } />
             <Route path="/lens" element={<LensPage />} />
             <Route path="/lens/:actorId" element={<LensPage />} />
             <Route path="*" element={<NotHerePage />} />

@@ -6390,3 +6390,86 @@ button.mt-card:hover { border-color: var(--accent); }
 }
 .diagram-view svg { max-width: 100%; max-height: 100%; height: auto; }
 .diagram-error small { display: block; margin-top: 6px; color: var(--ink-soft); }
+
+/*
+ * The voice page.
+ *
+ * Two faults this is written against, both of which shipped once already:
+ * grid and flex children refuse to shrink below their content's intrinsic
+ * width unless `min-width: 0` says they may, and a long unbroken token (a
+ * canvas id, a daemon URL, `models/gemini-3.1-flash-live-preview`) will then
+ * walk straight out of its panel unless `overflow-wrap: anywhere` breaks it.
+ * Both are needed; `overflow: hidden` is not a substitute for either.
+ */
+.voice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 16px;
+  padding: 16px;
+  align-content: start;
+}
+.voice > * { min-width: 0; }
+.voice-head { grid-column: 1 / -1; }
+.voice-head h1 { margin: 0 0 4px; font-size: 20px; }
+.voice-sub { margin: 0; color: var(--muted, #666); max-width: 68ch; }
+
+.voice-panel {
+  border: 1px solid var(--line, #ddd);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--panel, #fff);
+  min-width: 0;
+}
+.voice-panel * { overflow-wrap: anywhere; word-break: break-word; }
+.voice-panel h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #666);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.voice-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 0; }
+.voice-facts dt { color: var(--muted, #666); }
+.voice-facts dd { margin: 0; min-width: 0; }
+.voice-id { font-family: ui-monospace, monospace; font-size: 0.85em; color: var(--muted, #666); }
+.voice-ok { color: #2e7d32; }
+.voice-bad { color: #c62828; }
+.voice-hint { color: var(--muted, #666); font-size: 0.88em; margin: 6px 0 0; }
+
+.voice-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.voice-controls button { min-width: 0; }
+.voice-keyrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.voice-keyrow input { flex: 1 1 180px; min-width: 0; }
+
+.voice-meter { display: flex; gap: 2px; align-items: flex-end; height: 40px; margin: 10px 0 6px; }
+.voice-meter span { flex: 1 1 0; min-width: 0; height: 100%; background: var(--line, #e2e2e2); border-radius: 2px; }
+.voice-meter span.on { background: #2a6df4; }
+.voice-state { margin: 0; font-size: 0.9em; color: var(--muted, #666); }
+
+.voice-log-panel { grid-column: 1 / -1; }
+.voice-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  display: grid;
+  gap: 6px;
+}
+.voice-log li { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; border-bottom: 1px solid var(--line, #eee); padding-bottom: 6px; }
+.voice-at { color: var(--muted, #666); }
+.voice-op { color: #2e7d32; }
+.voice-answered { color: #1565c0; }
+.voice-event { color: var(--muted, #666); }
+
+/* One column, in normal flow, with nothing constraining a height. */
+@media (max-width: 900px) {
+  .voice { grid-template-columns: minmax(0, 1fr); }
+  .voice-log { max-height: 260px; }
+}
