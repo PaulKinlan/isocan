@@ -11,7 +11,7 @@
  * `README.md`, `docs/start.md` and friends carry the same addresses in prose;
  * the test reads them back out of the README so the two cannot drift apart.
  */
-export type GuideCanvas = {
+type GuideCanvas = {
   /** The canvas's own title, as its home lists it — the `[isocan]` prefix is how these stand out in a long list. */
   title: string;
   /** Where it is — a full address, so the link works from any origin. */
@@ -20,6 +20,7 @@ export type GuideCanvas = {
   about: string;
 };
 
+/** Public destinations shared by Help and the README; the catalog test keeps their addresses in sync. */
 export const GUIDE_CANVASES: readonly GuideCanvas[] = [
   {
     title: "[isocan] Getting Started",

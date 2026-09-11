@@ -132,7 +132,12 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   bottom of the document it is describing.
 - **Markdown reading**: Read / select text mode, a heading outline, and live
   shared text selections. `isocan session select <item> --quote "words"` points
-  agents to the same saved passage without changing the document.
+  agents to the same saved passage without changing the document. Select words
+  and choose **Comment on selection** to save a discussion on that passage;
+  `comment add --item <item> --quote "words" "feedback"` does the same.
+  Quotes follow unambiguous matches across versions and keep their original
+  wording when a passage disappears. Relative Markdown links open saved files
+  on the canvas; CLI imports bundle local images while preserving the source.
 - **The Pen (`P`)**: draw freehand on the canvas in your identity color — the
   same color your cursor and your face in the pile wear, so ink is signed by
   how it looks; the ink well beside the rail switches to any other color in
@@ -574,7 +579,7 @@ isocan ls · show <item> · mv <item> <x> <y> · set <item> […] · rm · resto
 isocan edit <item> [<file>]        # new version from a file or $EDITOR
 isocan versions <item> · version promote <item> <version>
 isocan comment add (--item <item> | --at x,y) <text> · reply · list · rm
-isocan comment anchor <thread> (<item> | --at x,y)   # re-pin / detach a thread
+isocan comment anchor <thread> (<item> [--quote "words"] | --at x,y)
 isocan comment main [<thread> | --clear]   # the docked agent↔user channel
 isocan undo · redo · trash list|restore|empty --force
 isocan gc [--all] [--dry-run] [--keep-ops N]   # compact the oplog, sweep
@@ -811,3 +816,20 @@ their own; Claude Code reaches the same file through the committed symlink at
 `.claude/skills/isocan-collab` — is the doorway that points there. Adding a
 harness means adding a doorway to that file, never a second copy of it
 (`test/skills.test.ts` holds the line).
+
+### Opt-in sandbox for summoned Codex agents
+
+`isocan rc --codex-sandbox` (also `rc turn <agent> <prompt> --codex-sandbox`)
+uses Codex's native workspace sandbox on macOS and Linux. It requires
+codex-acp 1.11 or newer. Workspace and isocan-state writes are allowed;
+permission escalation is refused. Git metadata remains protected, so reads
+and diffs work but committing does not. This bounds Codex's tools, not the
+adapter process, file reads, or separately configured MCP services.
+
+`codexSandbox: true` in `~/.isocan/config.json` makes this the standing choice;
+`--unsandboxed` overrides it for a run. `codexSandboxDomains` adds exact network
+hostnames, for example `["github.com", "registry.npmjs.org"]`. The daemon's host
+is included automatically and existing Codex domain rules still compose.
+See the [measured network boundary](docs/research/2026-09-10-what-the-rc-hands-over.md#native-codex-opt-in--11-september)
+before choosing it. The separate `--sandbox` flag fences the entire adapter
+with srt; combining the two is refused until nesting has been validated.
