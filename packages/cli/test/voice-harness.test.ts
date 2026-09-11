@@ -801,9 +801,53 @@ describe("the harness session & tool-call log API", () => {
 
     const uttLog = logRes.entries.find((e: any) => e.type === "utterance");
     expect(uttLog).toBeDefined();
+    expect(uttLog.source).toBe("typed");
     expect(uttLog.args.text).toBe("retitle the first thing to Logged Title");
     expect(uttLog.op.type).toBe("item.update");
     expect(uttLog.result.ok).toBe(true);
+  });
+
+  it("handles typed 'add a note' utterances through the same operation vocabulary and logs with source: typed", async () => {
+    const server = await serve();
+
+    const res = await (await fetch(`${server.state.url}utterance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "add a note that says hello from the voice log", source: "typed" }),
+    })).json();
+
+    expect(res.sent.length).toBe(1);
+    expect(res.sent[0]).toContain("hello from the voice log");
+
+    const canvasItems = await items();
+    expect(canvasItems.some((i) => i.title?.includes("hello from the voice log"))).toBe(true);
+
+    const logRes = await (await fetch(`${server.state.url}log`)).json();
+    const addLog = logRes.entries.find((e: any) => e.args?.text?.includes("hello from the voice log"));
+    expect(addLog).toBeDefined();
+    expect(addLog.source).toBe("typed");
+    expect(addLog.op.type).toBe("item.add");
+  });
+
+  it("persists toolLog to ~/.isocan/voice/log.json so it survives harness restarts", async () => {
+    const server1 = await serve();
+
+    await fetch(`${server1.state.url}utterance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "say persist this message", source: "typed" }),
+    });
+
+    // Close server1
+    await server1.close();
+    close = null;
+
+    // Start server2 on same home
+    const server2 = await serve();
+
+    const logRes = await (await fetch(`${server2.state.url}log`)).json();
+    const persistedEntry = logRes.entries.find((e: any) => e.args?.text === "say persist this message");
+    expect(persistedEntry).toBeDefined();
   });
 
   it("mints a one-use pass and redirects to the canvas URL on GET /open", async () => {

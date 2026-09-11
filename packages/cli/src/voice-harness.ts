@@ -57,6 +57,26 @@ export function voiceKeyFile(home: string): string {
 export function voiceServerFile(home: string): string {
   return path.join(voiceDir(home), "server.json");
 }
+export function voiceLogFile(home: string): string {
+  return path.join(voiceDir(home), "log.json");
+}
+
+export async function readVoiceLog(home: string): Promise<ToolLogEntry[]> {
+  try {
+    const file = voiceLogFile(home);
+    const content = await fs.readFile(file, "utf8");
+    return JSON.parse(content) as ToolLogEntry[];
+  } catch {
+    return [];
+  }
+}
+
+export async function writeVoiceLog(home: string, entries: ToolLogEntry[]): Promise<void> {
+  const dir = voiceDir(home);
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = voiceLogFile(home);
+  await fs.writeFile(file, `${JSON.stringify(entries, null, 2)}\n`, { mode: 0o600 });
+}
 
 export interface VoiceKey {
   provider: "gemini" | "openai";
@@ -171,11 +191,67 @@ export function planVoice(text: string, ctx: PlanContext): { plans: PlannedOp[];
 
   // Reads — answered, no operation sent. A voice surface that can only write
   // is a voice surface nobody can aim.
+  if (/\b(?:who\s+is\s+here|who\s+is\s+present|presence)\b/i.test(lower)) {
+    return { plans: [], what: "read_presence" };
+  }
   if (/^(what|who|which)\b/.test(lower) || /\b(list|tell me)\b/.test(lower)) {
     return { plans: [], what: describeCanvas(ctx) };
   }
+  if (/\b(?:read\s+item|show\s+item|open\s+item)\s+(.+)/i.test(lower)) {
+    const targetRef = lower.match(/\b(?:read\s+item|show\s+item|open\s+item)\s+(.+)/i)![1]!.trim();
+    const item = resolveSpokenRef(targetRef, ctx.items);
+    if (item) {
+      return { plans: [], what: `Item “${item.title}” (${item.id}): kind ${item.kind}, position (${item.x}, ${item.y}).` };
+    }
+  }
 
-  let m = said.match(/^(?:please\s+)?(?:re)?(?:name|title|retitle|rename)\s+(.+?)\s+(?:to|as)\s+(.+)$/i);
+  // Add / Create a note, item, card:
+  // e.g. "add a note that says hello from the voice log"
+  // e.g. "add a note called Test that says hello"
+  // e.g. "create a note called Foo saying Bar"
+  // e.g. "add note Hello World"
+  let m = said.match(/^(?:please\s+)?(?:add|create|make|new|post)\s+(?:an?\s+)?(?:note|card|item|doc|document)\s+(?:called|named|titled)\s+["“]?([^"”\n]+?)["”]?\s+(?:that\s+says|saying|with\s+text|containing|content)\s+["“]?([^"”\n]+)["”]?$/i);
+  if (m) {
+    const title = m[1]!.trim();
+    const bodyText = m[2]!.trim();
+    return {
+      plans: [
+        {
+          op: { type: "item.add", title, text: bodyText },
+          said: `added note “${title}” saying “${bodyText}”`,
+        },
+      ],
+    };
+  }
+
+  m = said.match(/^(?:please\s+)?(?:add|create|make|new|post)\s+(?:an?\s+)?(?:note|card|item|doc|document)\s+(?:that\s+says|saying|with\s+text|containing)\s+["“]?([^"”\n]+)["”]?$/i);
+  if (m) {
+    const bodyText = m[1]!.trim();
+    const title = bodyText.length > 25 ? bodyText.slice(0, 22) + "..." : bodyText;
+    return {
+      plans: [
+        {
+          op: { type: "item.add", title, text: bodyText },
+          said: `added note “${title}”`,
+        },
+      ],
+    };
+  }
+
+  m = said.match(/^(?:please\s+)?(?:add|create|make|new)\s+(?:an?\s+)?(?:note|card|item|doc|document)\s+["“]?([^"”\n]+)["”]?$/i);
+  if (m) {
+    const title = m[1]!.trim();
+    return {
+      plans: [
+        {
+          op: { type: "item.add", title, text: "" },
+          said: `added note “${title}”`,
+        },
+      ],
+    };
+  }
+
+  m = said.match(/^(?:please\s+)?(?:re)?(?:name|title|retitle|rename)\s+(.+?)\s+(?:to|as)\s+(.+)$/i);
   if (m) {
     const item = resolveSpokenRef(m[1]!, ctx.items);
     if (!item) return { plans: [], what: `I could not tell which one “${m[1]}” is.` };
@@ -189,6 +265,27 @@ export function planVoice(text: string, ctx: PlanContext): { plans: PlannedOp[];
     const item = resolveSpokenRef(m[1]!, ctx.items);
     if (!item) return { plans: [], what: `I could not tell which one “${m[1]}” is.` };
     return { plans: [{ op: { type: "item.delete", itemId: item.id }, said: `deleted ${quick(item)}` }] };
+  }
+
+  m = said.match(/^(?:please\s+)?restore\s+(.+)$/i);
+  if (m) {
+    const ref = m[1]!.trim();
+    return {
+      plans: [{ op: { type: "item.restore", ref }, said: `restored ${ref}` }],
+    };
+  }
+
+  m = said.match(/^(?:please\s+)?resize\s+(.+?)\s+(?:to\s+)?(\d+)\s*(?:x|by|\s+)\s*(\d+)$/i);
+  if (m) {
+    const item = resolveSpokenRef(m[1]!, ctx.items);
+    if (!item) return { plans: [], what: `I could not tell which one “${m[1]}” is.` };
+    const width = Number(m[2]);
+    const height = Number(m[3]);
+    return {
+      plans: [
+        { op: { type: "item.resize", itemId: item.id, width, height }, said: `resized ${quick(item)} to ${width}x${height}` },
+      ],
+    };
   }
 
   // Move: by a delta, or to a place on the plane. Both are the same op — and
@@ -256,7 +353,7 @@ export function planVoice(text: string, ctx: PlanContext): { plans: PlannedOp[];
   return {
     plans: [],
     what:
-      `I know: rename X to Y, delete X, move X by 60, 0, say …, ask …, comment on X: … . ` +
+      `I know: add a note [called X] [that says Y], rename X to Y, delete X, move X by dx, dy, resize X to WxH, restore X, say …, ask …, comment on X: … . ` +
       `I heard “${said}”.`,
   };
 }
@@ -723,6 +820,7 @@ export interface LiveCallbacks {
   onToolCall?: (name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
   onAudio?: (pcm: Uint8Array) => void;
   onState?: (state: string, bad?: boolean) => void;
+  onEvent?: (event: string, details?: Record<string, unknown>) => void;
 }
 
 export interface LiveSession {
@@ -756,6 +854,11 @@ export function startLiveSession(options: {
   const socket = new Socket(url);
   let settled = false;
   let settle: (value: boolean) => void = () => {};
+  let audioUpFrames = 0;
+  let audioDownFrames = 0;
+
+  callbacks.onEvent?.("socket_opening", { url: url.split("?")[0] });
+
   const ready = new Promise<boolean>((resolve) => {
     settle = (value: boolean) => {
       if (!settled) {
@@ -764,6 +867,7 @@ export function startLiveSession(options: {
       }
     };
     socket.onopen = () => {
+      callbacks.onEvent?.("socket_open", { model: options.model ?? LIVE_MODEL });
       socket.send(JSON.stringify(liveSetup(options.model ?? LIVE_MODEL, options.instructions)));
     };
     socket.onerror = () => {
@@ -773,6 +877,7 @@ export function startLiveSession(options: {
     socket.onclose = (event: any) => {
       const code = event?.code;
       const reason = event?.reason ? String(event.reason) : "";
+      callbacks.onEvent?.("socket_closed", { code, reason, audioUpFrames, audioDownFrames });
       if (code && code !== 1000) {
         const closeMsg = `provider closed socket: code ${code}${reason ? ` — ${reason}` : ""}`;
         callbacks.onState?.(closeMsg, true);
@@ -809,6 +914,7 @@ export function startLiveSession(options: {
       return;
     }
     if (message.setupComplete) {
+      callbacks.onEvent?.("setup_complete", {});
       callbacks.onState?.("live", false);
       settle(true);
       return;
@@ -820,6 +926,7 @@ export function startLiveSession(options: {
       for (const part of content.modelTurn?.parts ?? []) {
         if (part.text) callbacks.onText?.(part.text);
         if (part.inlineData?.data) {
+          audioDownFrames++;
           const bytes = Buffer.from(part.inlineData.data, "base64");
           callbacks.onAudio?.(bytes);
         }
@@ -841,6 +948,7 @@ export function startLiveSession(options: {
   return {
     send(pcm) {
       if (socket.readyState !== 1) return;
+      audioUpFrames++;
       socket.send(
         JSON.stringify({
           realtimeInput: { audio: { data: Buffer.from(pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } },
@@ -907,12 +1015,14 @@ export interface ToolLogEntry {
   id: string;
   timestamp: string;
   type: "tool_call" | "session_event" | "utterance";
+  source?: "live" | "typed" | "system";
   name?: string;
   args?: Record<string, unknown>;
   op?: { type: string; said?: string; target?: string };
   result?: { ok: boolean; answer?: unknown; error?: string };
   event?: string;
   reason?: string;
+  details?: Record<string, unknown> | string;
 }
 
 export interface VoiceServerState {
@@ -1053,7 +1163,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;
-  const toolLog: ToolLogEntry[] = [];
+  const initialLog = await readVoiceLog(home).catch(() => []);
+  const toolLog: ToolLogEntry[] = [...initialLog];
   const logListeners = new Set<(entry: ToolLogEntry) => void>();
 
   let presenceSessionId: string | null = null;
@@ -1081,10 +1192,12 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     const item: ToolLogEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
+      source: entry.source ?? (entry.type === "utterance" ? "typed" : "live"),
       ...entry,
     };
     toolLog.push(item);
     while (toolLog.length > 200) toolLog.shift();
+    void writeVoiceLog(home, toolLog).catch(() => {});
     for (const listener of logListeners) {
       try { listener(item); } catch {}
     }
@@ -1307,6 +1420,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             narrate(`sent: ${plan.said}`);
             recordToolLog({
               type: "utterance",
+              source: source === "spoken" || source === "live" ? "live" : "typed",
               name: "utterance",
               args: { text, source },
               op: { type: plan.op.type, said: plan.said },
@@ -1317,6 +1431,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             narrate(`refused: ${plan.said} — ${(err as Error).message}`);
             recordToolLog({
               type: "utterance",
+              source: source === "spoken" || source === "live" ? "live" : "typed",
               name: "utterance",
               args: { text, source },
               op: { type: plan.op.type, said: plan.said },
@@ -1396,12 +1511,23 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
         ...(options.WebSocketImpl ? { WebSocketImpl: options.WebSocketImpl } : {}),
         callbacks: {
+          onEvent: (event: string, details?: Record<string, unknown>) => {
+            narrate(`live socket: ${event} ${JSON.stringify(details ?? {})}`);
+            recordToolLog({
+              type: "session_event",
+              source: "live",
+              event,
+              args: details,
+              reason: details?.reason ? String(details.reason) : undefined,
+              details,
+            });
+          },
           onState: (state: string, bad?: boolean) => {
             if (bad) liveFailure = state;
             if (state.includes("interrupted")) {
-              recordToolLog({ type: "session_event", event: "interrupted", reason: state });
+              recordToolLog({ type: "session_event", source: "live", event: "interrupted", reason: state });
             } else if (state === "turn_complete") {
-              recordToolLog({ type: "session_event", event: "turn_complete" });
+              recordToolLog({ type: "session_event", source: "live", event: "turn_complete" });
             }
             say({ state, bad });
           },
