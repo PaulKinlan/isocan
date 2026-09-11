@@ -155,10 +155,17 @@ export async function throughTheDoor(b, origin, name, clientId = "browser") {
   })()`);
 }
 
-export async function browser() {
+export async function browser(options = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "isocan-cdp-"));
   const proc = spawn(chromeOrDie(), ["--headless=new", "--remote-debugging-port=0",
-    `--user-data-dir=${dir}`, "--no-first-run", "--hide-scrollbars", "about:blank"], { stdio: "ignore" });
+    `--user-data-dir=${dir}`, "--no-first-run", "--hide-scrollbars",
+    // Extra flags, for the one thing a default browser cannot do: pretend to
+    // have a microphone. `--use-fake-device-for-media-stream` is a synthetic
+    // capture device and `--use-fake-ui-for-media-stream` answers the
+    // permission prompt; together they are what lets a capture surface be
+    // driven and photographed at all. Everything else passes none.
+    ...(options.flags ?? []),
+    "about:blank"], { stdio: "ignore" });
   // Ordinary resolution first, and the explicit path only as the fallback it
   // was meant to be. The hardcoded one alone fails in a git WORKTREE, whose
   // `node_modules` is the main checkout's and not `repo/node_modules` — so the
