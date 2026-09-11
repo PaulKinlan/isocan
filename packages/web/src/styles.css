@@ -6471,7 +6471,7 @@ button.mt-card:hover { border-color: var(--accent); }
   align-items: center;
   gap: var(--s2);
 }
-.voice-hero[data-state="live"] #listen { border-color: var(--accent); color: var(--accent); }
+.voice-hero[data-state="live"] #listen { border-color: var(--accent); color: var(--accent-text); }
 .voice-controls button:disabled { opacity: 0.45; cursor: default; }
 .voice-pick { min-width: 0; flex: 1 1 240px; }
 .voice-pick select {
@@ -6538,7 +6538,7 @@ button.mt-card:hover { border-color: var(--accent); }
 }
 .voice-at { color: var(--ink-muted); }
 .voice-op { color: var(--good); }
-.voice-answered { color: var(--accent); }
+.voice-answered { color: var(--accent-text); }
 .voice-event { color: var(--ink-muted); }
 .voice-keyrow { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
 .voice-keyrow input {

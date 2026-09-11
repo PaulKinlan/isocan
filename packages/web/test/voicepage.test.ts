@@ -36,6 +36,29 @@ describe("what the harness says, in the shape the page reads", () => {
     });
   });
 
+  it("turns the op and result objects into sentences a renderer can hold", () => {
+    // The real harness answers an operation as `{ type, said }` and a result
+    // as `{ ok, answer }`. Rendering either object as a child threw and took
+    // the route down — visible only against the live harness, not here.
+    const [entry] = entriesFrom([
+      {
+        timestamp: "23:25:33.060Z",
+        name: "utterance",
+        args: { text: "retitle voice-demo-card.md to Checkout v2", source: "spoken" },
+        op: { type: "item.update", said: "renamed “voice-demo-card.md” (itm_ei0yNw)" },
+        result: { ok: true, answer: "renamed “voice-demo-card.md” (itm_ei0yNw)" },
+      },
+    ]);
+    expect(entry?.operation).toBe("item.update — renamed “voice-demo-card.md” (itm_ei0yNw)");
+    expect(entry?.answered).toBe("renamed “voice-demo-card.md” (itm_ei0yNw)");
+    expect(typeof entry?.event).not.toBe("object");
+  });
+
+  it("answers a refusal with its reason, not with its object", () => {
+    const [entry] = entriesFrom([{ timestamp: "23:26:00", result: { ok: false, error: "no model configured" } }]);
+    expect(entry?.answered).toBe("no model configured");
+  });
+
   it("takes both the bare array and the wrapped envelope", () => {
     expect(entriesFrom({ entries: [{ name: "say" }] })[0]?.tool).toBe("say");
     expect(entriesFrom({ log: [{ name: "say" }] })[0]?.tool).toBe("say");

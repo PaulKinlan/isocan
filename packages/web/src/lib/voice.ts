@@ -85,14 +85,47 @@ export const testKey = () =>
 export function entriesFrom(reply: LogReply): LogEntry[] {
   const raw: RawEntry[] = Array.isArray(reply) ? reply : (reply.entries ?? reply.log ?? []);
   return raw.map((entry) => ({
-    at: entry.at ?? entry.timestamp ?? entry.time,
-    tool: entry.tool ?? entry.name ?? entry.toolName,
+    at: words(entry.at ?? entry.timestamp ?? entry.time),
+    tool: words(entry.tool ?? entry.name ?? entry.toolName),
     args: entry.args ?? entry.arguments ?? entry.input,
-    operation: entry.operation ?? entry.op ?? entry.operationId,
-    answered: entry.answered ?? entry.result ?? entry.answer,
-    error: entry.error ?? entry.failure,
-    event: entry.event ?? entry.message,
+    operation: words(entry.operation ?? entry.op ?? entry.operationId),
+    answered: words(entry.answered ?? entry.result ?? entry.answer),
+    error: words(entry.error ?? entry.failure),
+    event: words(entry.event ?? entry.message),
   }));
+}
+
+/**
+ * **The same field is a string in one build and an object in the next.**
+ *
+ * The harness's call log records an operation as `{ type, said }` and its
+ * answer as `{ ok, answer }`; the session events log a plain string. A page
+ * that hands the object to JSX throws "Objects are not valid as a React child"
+ * and takes the whole route down — which is what this page did, in a real
+ * browser, against a real harness, after the suite had passed. So the wire
+ * answers a sentence or it answers nothing; never a shape the renderer has to
+ * guess at.
+ */
+function words(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object") {
+    const held = value as Record<string, unknown>;
+    const type = typeof held.type === "string" ? held.type : undefined;
+    const said = typeof held.said === "string" ? held.said : undefined;
+    if (type && said) return `${type} — ${said}`;
+    if (said) return said;
+    if (typeof held.answer === "string") return held.answer;
+    if (typeof held.error === "string") return held.error;
+    if (typeof held.reason === "string") return held.reason;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
 export interface RawEntry {
@@ -105,16 +138,16 @@ export interface RawEntry {
   args?: unknown;
   arguments?: unknown;
   input?: unknown;
-  operation?: string;
-  op?: string;
-  operationId?: string;
-  answered?: string;
-  result?: string;
-  answer?: string;
-  error?: string;
-  failure?: string;
-  event?: string;
-  message?: string;
+  operation?: unknown;
+  op?: unknown;
+  operationId?: unknown;
+  answered?: unknown;
+  result?: unknown;
+  answer?: unknown;
+  error?: unknown;
+  failure?: unknown;
+  event?: unknown;
+  message?: unknown;
 }
 
 export type LogReply = RawEntry[] | { entries?: RawEntry[]; log?: RawEntry[] };
