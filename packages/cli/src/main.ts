@@ -12774,22 +12774,54 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
       for (const d of dispatches.values()) if (d.scannedTip < from) from = d.scannedTip;
       return from;
     };
+    /** Anybody the roster names that this rc is not answering for: adopted
+     * and claimed, the same two things the enrol branch below does. Run on
+     * every lap that reads a roster, and once at start (below). */
+    const takeUp = async (roster: Record<string, import("@isocan/core").EnrolledAgent>): Promise<void> => {
+      for (const record of Object.values(roster)) {
+        if (dispatches.has(record.actor.id)) continue;
+        /**
+         * The SAME two things the enrol branch below does, and the first
+         * version of this did only one of them.
+         *
+         * Claiming a cursor makes the rc dispatch to the agent; `adoptRcAgent`
+         * records where and how it runs. An agent picked up here without the
+         * adoption has a cursor and no record — which is why the test watching
+         * for "· where and how supplied" kept timing out with the fix in
+         * place, and it was right to: the line is missing because the RECORD
+         * is missing, not because the narration is.
+         */
+        const adopted = await adoptRcAgent(ctx.home, {
+          canvasId: p.id,
+          actorId: record.actor.id,
+          name: record.actor.name,
+          harness: null,
+          cwd: rcCwd,
+          sessionId: null,
+        });
+        if (adopted) console.log(rcLine(tag, `${record.actor.name} · where and how supplied — ${rcCwd}`));
+        await claimAgent(record.actor.id);
+      }
+    };
     const startTip = (await ctx.client.watchLog({ only: [p.id] })).cursors[p.id] ?? 0;
     /**
-     * **A withdrawal inside the startup window** (sheep-harness phase 2).
-     * `opening` was read before this tip, and the withdraw branch below only
-     * reads ops above it, so a withdrawal landing between the two was seen
-     * by neither: the row stayed, and for an agent on the sheep harness so
-     * did its sheep. The roster read now includes it, so the reaping half of
-     * the reconcile runs once more, and the cursor claimed for it at start
-     * is let go. An enrolment in the same window is the roster reconcile's,
-     * inside the loop.
+     * **The startup window, closed from both sides** (sheep-harness phase 2).
+     * `opening` was read before this tip, and the enrol and withdraw branches
+     * below only read ops above it, so an enrolment or a withdrawal landing
+     * between the two was seen by neither. A withdrawal left its row, and
+     * for an agent on the sheep harness its sheep. An enrolment waited for
+     * the first lap that read a roster, which on a quiet canvas is the end
+     * of a thirty-second poll: `rc.test.ts`'s "a web add gets its rc half"
+     * failed on CI twice in three runs of phase 2's commit on exactly that.
+     * The roster read now includes both, so it is reaped and taken up here.
      */
     const settled = await rosterOf();
+    for (const [id, row] of Object.entries(settled)) known.set(id, row.actor.name);
     await reap(settled, "as this rc started");
     for (const actorId of [...dispatches.keys()]) if (!settled[actorId]) dispatches.delete(actorId);
+    await takeUp(settled);
     cursors = { [p.id]: lapFrom() };
-    let lastRoster = opening;
+    let lastRoster = settled;
     let offlineSince: number | null = null;
     for (;;) {
       considerUpgrade();
@@ -12885,30 +12917,7 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
        * by which they could have arrived. `claimAgent` returns early when a
        * dispatch exists, so this costs nothing on a settled lap.
        */
-      for (const record of Object.values(roster)) {
-        if (dispatches.has(record.actor.id)) continue;
-        /**
-         * The SAME two things the enrol branch below does, and the first
-         * version of this did only one of them.
-         *
-         * Claiming a cursor makes the rc dispatch to the agent; `adoptRcAgent`
-         * records where and how it runs. An agent picked up here without the
-         * adoption has a cursor and no record — which is why the test watching
-         * for "· where and how supplied" kept timing out with the fix in
-         * place, and it was right to: the line is missing because the RECORD
-         * is missing, not because the narration is.
-         */
-        const adopted = await adoptRcAgent(ctx.home, {
-          canvasId: p.id,
-          actorId: record.actor.id,
-          name: record.actor.name,
-          harness: null,
-          cwd: rcCwd,
-          sessionId: null,
-        });
-        if (adopted) console.log(rcLine(tag, `${record.actor.name} · where and how supplied — ${rcCwd}`));
-        await claimAgent(record.actor.id);
-      }
+      await takeUp(roster);
       for (const entry of batch.entries) {
         const op = entry.envelope.op;
         const by = entry.envelope.actor;

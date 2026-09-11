@@ -777,15 +777,22 @@ describe("both ways of taking up an agent do the same two things", () => {
 describe("a withdrawal is reaped however the rc noticed it", () => {
   const main = readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8");
 
-  it("reaps once more after the start tip, where the withdraw branch cannot see it", () => {
-    // The withdrawal half of the same window (sheep-harness phase 2): an
-    // agent withdrawn between `opening` and `startTip` kept its row, and on
-    // the sheep harness its sheep. Found by the full file under load.
+  it("reaps and takes up once more after the start tip, where neither branch can see it", () => {
+    // Both halves of the same window (sheep-harness phase 2): an agent
+    // withdrawn between `opening` and `startTip` kept its row, and on the
+    // sheep harness its sheep — found by the full file under load; and one
+    // enrolled there waited for the first lap that read a roster, the end of
+    // a thirty-second poll on a quiet canvas — "a web add gets its rc half"
+    // failed on CI twice in three runs on it.
     const tip = main.indexOf("const startTip = ");
     const reaped = main.indexOf('await reap(settled, "as this rc started")');
+    const takenUp = main.indexOf("await takeUp(settled)");
+    const loop = main.indexOf("for (;;)", tip);
     expect(tip).toBeGreaterThan(-1);
     expect(reaped).toBeGreaterThan(tip);
     expect(main.slice(tip, reaped)).toContain("const settled = await rosterOf()");
+    expect(takenUp).toBeGreaterThan(reaped);
+    expect(takenUp).toBeLessThan(loop);
   });
 });
 
