@@ -84,9 +84,11 @@ same operation vocabulary.**
    (spawned native messaging host or loopback) and cleanly separating agent
    turn narration from browser tool dispatch.
 5. **Credential & Visual Exposure Limits**: Acknowledging that visual frame
-   streaming renders visible text on screen; masking password/payment fields
-   prevents credential scraping, but frame sharing remains scoped to trusted
-   peers.
+   streaming renders visible text and DOM pixels on screen; masking password
+   and payment fields mitigates form credential exposure, but visual streaming
+   inherently reveals visible page content, URL tokens, and dashboard data.
+   Frame sharing is therefore proposed only for explicitly authorized peers,
+   with the owner's HTTP session cookies and credentials remaining unexported.
 6. **Detailed Mechanism & Staging**: Deep design and implementation walk
    maintained in companion documents [design.md](design.md) and
    [phases.md](phases.md).

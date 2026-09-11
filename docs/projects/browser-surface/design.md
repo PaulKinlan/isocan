@@ -138,7 +138,7 @@ bidirectional:
 | **Tab Navigated** | Chrome $\rightarrow$ Canvas | `item.addVersion` | `itemId`, `version: { mimeType: "text/uri-list", filename, blobHash, visual?: { blobHash, mimeType: "image/png" } }`. Preserves previous URLs in the version stack; visual face holds optional screenshot thumbnail. |
 | **Tab Title / Favicon Changed**| Chrome $\rightarrow$ Canvas | `item.update` | `itemId`, `patch: { title: tab.title, properties: { favicon: tab.favIconUrl } }`. |
 | **Tab Closed in Chrome** | Chrome $\rightarrow$ Canvas | `item.delete` | `itemId`. Moves item to canvas trash. |
-| **Tab Restored via ⌘Z** | Canvas $\rightarrow$ Chrome | `item.restore` | Restores item from trash. Extension detects restoration and invokes `chrome.tabs.create({ url, active: false })`. Note: re-opens tab at saved URL; closed forward/back session history is not preserved by Chrome. |
+| **Tab Restored via ⌘Z** | Canvas $\rightarrow$ Chrome | `item.restore` | Restores item from trash. Extension detects restoration and invokes `chrome.tabs.create({ url, active: false })`. Note: `tabs.create({ url })` re-opens the tab at the recorded URL, but does not restore closed tab forward/back session history. (Evaluating whether `chrome.sessions.restore` could recover session history across `item.restore` is a separate unmeasured question for Phase 2). |
 | **Card Selected / Focused** | Canvas $\rightarrow$ Chrome | Local UI state | User clicks card on canvas. Extension brings corresponding `tabId` to active window focus via `chrome.tabs.update(tabId, { active: true })`. |
 | **Card Address Edited** | Canvas $\rightarrow$ Chrome | `item.addVersion` | User edits URL on card. Extension receives oplog entry, validates URL via `normalizeSiteUrl`, and calls `chrome.tabs.update(tabId, { url })`. |
 | **Card Closed on Canvas** | Canvas $\rightarrow$ Chrome | `item.delete` | User deletes card on canvas. Extension calls `chrome.tabs.remove(tabId)`. |
@@ -167,6 +167,11 @@ A critical trap in bidirectional synchronization is the infinite feedback loop:
   ephemeral `navigatingTabIds.add(tabId)` flag in the extension so that the
   resulting Chrome `onUpdated` event is ignored rather than re-emitted to the
   canvas.
+- **Historical Replay & Crash Recovery Boundary**: Canvas event correlation and
+  echo suppression prevent immediate loopbacks, but replaying historical oplogs
+  or recovering from a crash must NOT blindly trigger real browser navigations
+  or tab spawns. Programmatic browser driving is gated on active session presence,
+  and canvas membership alone never confers browser-profile execution authority.
 
 ---
 
@@ -244,8 +249,10 @@ tokens, and private browser history.
 2. **Explicit, Scoped, Revocable Grants**:
    - Sharing is **per-item and per-canvas**. Sharing tab `A` grants zero visibility
      into tab `B`, even if both belong to the same browser window.
-   - The owner can click "Revoke Access" at any millisecond; all active guest
-     connections are terminally severed and in-flight actions dropped.
+   - Revocation is evaluated synchronously at the extension's dispatch gate
+     before executing any queued action; revoking access terminates future event
+     reflection and drops un-dispatched queue items, but cannot recall or undo
+     web actions already dispatched to remote servers.
 3. **Guest Roles & Permitted Actions**:
    - **Viewer**: Read-only viewport reflection. Receives visual frames and scroll
      position; cursor visible to others; cannot click, type, or navigate.
@@ -263,12 +270,14 @@ tokens, and private browser history.
      fields of type `password`, autocomplete `cc-number`, `cvc`, and fields with
      `data-private` attributes. These fields are blacked out on visual frames
      and input events targeting them are rejected for guest actors.
-5. **Private Boundaries, Audit Trail & ⌘Z Undo**:
+5. **Private Boundaries, Audit Trail & ⌘Z Undo Limits**:
    - Every reflected click, scroll, and navigation is logged in the isocan
      envelope with the guest's `actorId`, `clientId`, and timestamp.
-   - The workspace owner can hit `⌘Z` on the canvas to invert any action:
-     navigating back, deleting an unwanted generated card, or closing a spawned
-     tab.
+   - The workspace owner can hit `⌘Z` on the canvas to invert canvas item
+     operations (restoring a deleted card or reverting an edited URL); while
+     the extension translates `item.restore` by re-opening the tab via
+     `tabs.create`, oplog undo cannot reverse third-party web server mutations
+     already committed on external websites.
 6. **Per-Person Mic & Screen Sharing (Zero Ambient Grants)**:
    - Voice audio and screen sharing require **explicit browser user gestures**
      (`navigator.mediaDevices.getUserMedia`, `chrome.tabCapture`).
@@ -292,7 +301,7 @@ speculative aspiration across four layers:
 | **DOM Inspection & Automation** | `chrome.debugger` (CDP) and `chrome.scripting` on explicit user grant. | CAP accessibility tree walk and 188 tools provide fast DOM extraction. | Zero-overhead direct DOM access across process boundaries. |
 | **Code Sandboxing** | Manifest `sandbox.pages` (opaque `null` origin, no `chrome.*` access). | CAP script sandbox with pre-execution SHA-256 digest verification (`ovfm.1-3`). | In-SW lightweight isolates (`new Worker()` in SW). |
 | **Import Map Resolution** | Dynamic import maps accepted on tested Chrome 152.0.7977.82. | Offline module resolution via `blob:` URLs in sandbox CSP (`ovfm.2`). | Standardized browser-native agent module registry. |
-| **Agent Control Loopback** | External process communication via Native Messaging or WebSocket. | `packages/cli/src/acp.ts` speaks ACP 1 over stdio/WS with session load/resume. | Standardized W3C `navigator.modelContext` / `chrome.agents` native API. |
+| **Agent Control Loopback** | External process communication via Native Messaging or WebSocket. | `packages/cli/src/acp.ts` speaks ACP 1 over spawned stdio with session load/resume. | Standardized W3C `navigator.modelContext` / `chrome.agents` native API. |
 | **Tab Capture & Streaming** | `chrome.tabCapture` and `getDisplayMedia` produce MediaStreams on user gesture. | `browseritem.ts` (`text/uri-list`) projects URLs as canvas cards. | Zero-latency, multi-tenant interactive DOM remoting over WebRTC data channels. |
 | **Storage & Sharing** | One OPFS root per origin; File System Access API on desktop user gesture. | OPFS multiplexing (`memory/master/`, `memory/origins/`); isocan oplog over WS. | Cloud-synced per-agent isolated storage buckets in Chrome settings. |
 
