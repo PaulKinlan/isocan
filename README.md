@@ -94,6 +94,12 @@ it takes the port from any daemon already there, so you are never quietly
 served by a stale one. `isocan stop` (or `isocan serve --force`) does the same
 from the CLI — both ask the port who it is rather than trusting the pidfile.
 
+**Experimental voice transport demo (checkout only):** `npm run voice -- --help`
+starts a text-driven simulator over the existing canvas API. It can read a canvas
+and move explicitly granted items; **there is no microphone or audio playback**.
+Gemini/OpenAI adapters are wired but live voice is unverified; cloud access is
+opt-in. See [the bounded demo](docs/projects/voice-interface/design.md#bounded-cli-demo).
+
 ## What it does
 
 Every feature below is reachable from both surfaces. Where a person drags,

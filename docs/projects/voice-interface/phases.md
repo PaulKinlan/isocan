@@ -5,9 +5,9 @@ guided by the acceptance criteria in [journey.md](journey.md).
 
 **Where we are: PHASE 1 IN PROGRESS (2026-09-11).**
 - Project docset authored: `journey.md`, `design.md`, `phases.md`.
-- Provider API audit confirmed: Gemini Live API uses stateful bidirectional WebSockets (PCM16 16kHz in, 24kHz out, synchronous function calling); OpenAI Realtime uses WebSockets/WebRTC (PCM16 24kHz).
+- Provider facts and corrections are in [design.md](design.md#provider-contract-checked-11-september-2026): native formats differ, Gemini accepts other declared input rates, and synchronous-only function calling is model-specific. No live provider test has run.
 - Architectural boundaries locked: Subproject inside `isocan`; daemon/CLI process owns cloud sockets and credentials; mic is client-only; exact existing `Operation` vocabulary; `trash.empty` and canvas deletions strictly forbidden.
-- Phase 1 focuses on the provider-agnostic interface, keyless simulation backend, fast-tool mapping, and safety verification.
+- The bounded prototype now overlaps phases 1–3: a checkout-only `npm run voice` CLI, provider WebSocket plumbing and keyless **text** simulation. Its only tools are item/presence reads and explicitly granted moves; it has no microphone, playback or browser endpoint. See [the actual demo](design.md#bounded-cli-demo). The larger walk below is planned scope, not an implementation inventory.
 
 ---
 
@@ -22,13 +22,14 @@ credentials, network egress, or financial spend.
    *Decision:* As `packages/voice` inside the isocan workspace, depending on
    `@isocan/core` and `@isocan/api`.
 2. **How are voice tools defined?**
-   *Decision:* Transformed directly from `@isocan/core` operation schemas into
-   JSON Schema function declarations.
+   *Decision:* A closed capability list calls the existing `CanvasHandle`
+   gestures. Do not expose raw Operation schemas as a model's authority.
 
 ### Steps
 1. Create `packages/voice` workspace with `VoiceBackend` interface and types.
 2. Implement `KeylessSimulationBackend`:
-   - Simulates streaming speech events and transcript emissions.
+   - Parses deterministic text commands and emits labelled synthetic transcripts;
+     it does not recognise or synthesise speech.
    - Dispatches synthetic function calls to verify canvas manipulation.
 3. Map fast operations (<50ms) to voice tool declarations:
    - `item.move`, `items.move`, `item.resize`, `item.update`, `item.setCurrentVersion`.
@@ -91,20 +92,23 @@ Implement the real-time WebSocket adapters for Google Gemini and OpenAI.
 ### Steps
 1. Implement `GeminiLiveBackend` (`packages/voice/src/gemini.ts`):
    - WebSocket connection to Google Multimodal Live API.
-   - Client audio chunk packaging (16kHz PCM16).
+   - Adapter-owned conversion from declared client format to native 16kHz PCM16.
    - Server audio parsing (24kHz PCM16).
-   - Turn-based synchronous function call handling.
+   - Fast calls using the default blocking mode; async is a separately verified,
+     model-dependent option.
 2. Implement `OpenAIRealtimeBackend` (`packages/voice/src/openai.ts`):
    - WebSocket connection to OpenAI Realtime API.
    - Event framing for `input_audio_buffer.append` and `conversation.item.create`.
    - Tool response emission.
 3. Socket lifetime management:
-   - Handle disconnects and session resumption tokens before the 10–15 min timeout.
+   - Verify the selected model's connection/session limits and resumption support
+     before designing reconnect; no universal 10–15 minute timeout is assumed.
 
 ### Acceptance
 - Unit tests verify WebSocket message framing, serialization, and error recovery
   using mock WebSocket fixtures.
-- Live provider test runs only when `ISOCAN_LIVE_VOICE_TEST=1` is explicitly set.
+- Future live provider tests require explicit owner activation. No live-test
+  environment switch or microphone test exists in the bounded prototype.
 
 ---
 

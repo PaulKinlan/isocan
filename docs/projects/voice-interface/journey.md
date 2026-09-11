@@ -2,7 +2,7 @@
 status: designed
 since: 2026-09-11
 see: voice-interface, iso-api, on-demand
-note: Ambient always-connected voice interface over existing operation vocabulary. First demo is a CLI-started companion agent with a provider-agnostic WebSocket seam (Gemini Live / OpenAI Realtime / Keyless Simulation).
+note: Opt-in voice input over existing Operations. The larger voice journeys remain designed; a bounded checkout CLI tests the provider seam and real gestures with keyless text simulation, not live audio.
 ---
 # Voice on the Isomorphic Canvas — the journeys
 
@@ -17,7 +17,10 @@ where a journey seems to force a mechanism, the mechanism is what bends.
 is the active voice emissary in the room — an enrolled agent whose voice
 holds the floor. **Gina** is an implementation agent parked on `isocan rc`.
 
-**`isocan voice`** is the command-line companion you launch: a long-running
+**`isocan voice`** below is the **proposed** installed command, not an available
+command or a completed journey. Today's [bounded demo](design.md#bounded-cli-demo)
+is `npm run voice` in a checkout, with text input and no audio device. The
+future companion is a long-running
 process running on your machine, connected to the local daemon and the
 canvas over the existing operation and presence channels. The daemon holds
 the provider connection and credentials; your microphone and speaker are
@@ -140,7 +143,8 @@ local client capabilities.
    irreversible actions.
 3. Charlie responds: *"Irreversible deletions cannot be commanded by voice.
    Please use the CLI or project dashboard with explicit confirmation."*
-4. The canvas state remains completely protected.
+4. No excluded operation is dispatched through the voice tool boundary.
+   This is not a claim of protection against other authorised canvas clients.
 
 ---
 
@@ -148,22 +152,23 @@ local client capabilities.
 
 *Developing and verifying voice interaction without cloud credentials or material spend.*
 
-1. On a machine without active cloud billing credentials or during automated CI:
+1. From a checkout, after claiming a distinct `isocan-voice` identity:
    ```bash
-   isocan voice --provider simulated
+   npm run voice -- --canvas <canvas-ref> --session demo-voice --provider simulated
    ```
-2. The simulation engine connects to the canvas, provides synthetic audio
-   loopback, parses test speech fixtures, and verifies that operations,
-   transcripts, and presence updates execute with 100% fidelity.
-3. When authorized with valid local credentials (`GEMINI_API_KEY` or
-   `OPENAI_API_KEY`), switching to live cloud voice is a single flag:
+2. The bounded simulator parses deterministic **text** commands and exercises
+   existing Operations and presence. It does not perform audio loopback,
+   recognise speech fixtures or establish voice quality. `--allow-move` names
+   each item whose native move gesture is allowed, including its annotations.
+3. Cloud transport needs separate owner activation, an explicitly verified
+   model, and a host-held key. Only after that approval:
    ```bash
-   isocan voice --provider gemini --model gemini-2.0-flash-exp
+   npm run voice -- --canvas <canvas-ref> --session demo-voice \
+     --provider gemini --enable-cloud --model <verified-model>
    ```
-   Or:
-   ```bash
-   isocan voice --provider openai --model gpt-4o-realtime-preview
-   ```
-4. Keys are read securely from local environment variables or credential stores
-   by the daemon process and are never logged, committed, or transmitted to the
-   browser.
+   `--provider openai` selects the other adapter with its own verified model.
+   The CLI still has no microphone capture or speaker playback. Adapter tests
+   use local WebSocket peers; no live provider session has been validated.
+4. Only the explicitly activated host reads `GEMINI_API_KEY` or
+   `OPENAI_API_KEY`. Neither key belongs in a command argument, log or browser.
+   This prototype does not read a credential store.
