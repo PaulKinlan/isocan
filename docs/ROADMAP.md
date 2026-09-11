@@ -6,6 +6,9 @@ Every research note and every project, by where it stands. **Derived**: the
 status of a thing lives in that thing's front matter, so it cannot drift from
 what it describes. Run `node scripts/roadmap.mjs` after changing one.
 
+The same board lives on a canvas, [\[isocan\] Roadmap](https://isocan.io/p/prj_OE-AuGl119),
+open to anyone with the address — it should say what `main` says.
+
 **21 built · 46 still open** — of which 31 partly
 built, 14 designed, 0 blocked, and
 **1 with no verdict recorded at all**, which is the number worth

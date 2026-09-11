@@ -4561,6 +4561,8 @@ button.mt-card:hover { border-color: var(--accent); }
   border-radius: 4px; background: var(--chip); border: 1px solid var(--chip-line);
 }
 .help-commands .help-keys { flex-basis: 200px; }
+.help-guides .help-keys a { color: var(--accent-text); text-decoration: none; }
+.help-guides .help-keys a:hover { text-decoration: underline; }
 
 /* ---------- who picked this up ---------- */
 /* Under the last thing said in a thread: live, ephemeral, and never a comment.
