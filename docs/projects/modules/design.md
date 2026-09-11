@@ -295,6 +295,128 @@ UNVERIFIED**. This is not a proven no-egress sandbox or an Isocan cross-host
 implementation. Admission, host capability boundaries and the parity fixtures
 are the next design work; this registration activates nothing.
 
+## Transportable compute — usage examples and the exec question (11 Sep 2026)
+
+*Follow-up exploration for bead `isocan-54k.2`. Builds upon the 11 Sep registration
+above without altering its admitted scope.*
+
+### Concrete tool usage: four foundational tools
+
+To ground transportable compute in physical practice, we define four
+foundational project tools, answering four mandatory questions for each:
+**(1) what it does**, **(2) where its input comes from**, **(3) where its output
+lands**, and **(4) what `Operation` it emits** if it mutates project state.
+
+| Tool | (1) What it does | (2) Input source | (3) Output destination | (4) Emitted `Operation` |
+|---|---|---|---|---|
+| **`sqlite.wasm`** | Queryable relational index and analytical search over tabular data, project metadata, and JSON artifacts. | Item version blobs (`text/csv`, `application/json`) or granted project directory tables. | Ephemeral query results (CLI stdout, agent context, UI table inspector) or a materialized artifact. | Pure query compute: **Zero ops**. Materializing a query result or table export as an item emits `item.add` or `item.addVersion`. |
+| **`diff.wasm`** | Deterministic Unified Diff and structural diff generation between text/code versions. | Two content-addressed item version blobs (`v1.blobHash`, `v2.blobHash`) or granted directory file paths. | Transient diff view (workbench `ArtifactStage`, CLI diff output) or saved patch file. | Pure comparison compute: **Zero ops**. Saving a patch artifact to the canvas emits `item.add` (`mimeType: "text/x-diff"`). |
+| **`compress.wasm`** (gzip / zstd) | Byte-level lossless compression and decompression for artifact bundling and cold storage. | An item version blob (`blobHash`) or exported canvas collection. | A compressed blob in the content store, or downloaded archive. | Pure compression: **Zero ops**. Associating a compressed archive with an item emits `item.addVersion` (`mimeType: "application/gzip"` or `"application/zstd"`). |
+| **`hash.wasm`** (SHA-256, BLAKE3) | Cryptographic digest computation for content-addressed identity, tamper detection, and cross-project deduplication. | Any item version blob, uploaded binary, or streaming chunk. | Digest string returned to caller, or attached to item metadata. | Pure computation: **Zero ops**. Storing the verified digest in item properties emits `item.update` (`patch: { properties: { sha256: digest } }`). |
+
+**Core Rule**: Pure computation emits no operations. State-changing tools
+compute their results out-of-band; when the result is admitted to the canvas,
+the host emits standard, existing operations (`item.add`, `item.addVersion`,
+`item.update`). **The tool computes, the op records.**
+
+---
+
+### The `exec` operation exploration: invocation, determinism, and replay
+
+A central architectural question is whether the closed 33-operation vocabulary
+of `@isocan/core` should expand to include an explicit execution record:
+
+```ts
+interface ComputeExecOp {
+  type: "compute.exec";
+  toolId: string;             // e.g. "@isocan/sqlite"
+  toolDigest: string;         // SHA-256 of the admitted WASM binary
+  inputDigests: string[];     // SHA-256 of all input version blobs
+  args: Record<string, unknown>; // Deterministic invocation parameters
+  resultDigest: string;       // SHA-256 of output artifact/blob
+  outputRef?: string;         // Target itemId or URI if stateful
+}
+```
+
+If an `exec` record is introduced, it must adhere to three non-negotiable
+boundaries:
+
+1. **NEVER re-run computation during oplog replay**:
+   - The oplog is an event ledger, not a distributed build execution engine.
+   - When a client or agent joins a workspace and catches up on historical
+     operations, it **never** re-invokes the WASM binary. It reads the recorded
+     `resultDigest` directly from the content store.
+   - Re-running computation during replay would impose unbounded CPU costs,
+     introduce platform flakiness, and risk divergence if host runtime limits
+     differ.
+2. **Undo applies to authorized effects, not computation**:
+   - You cannot "un-compute" spent CPU cycles or hash operations.
+   - Hitting `⌘Z` on the canvas inverts the *effects* produced by the execution
+     (e.g., reverting an `item.addVersion` or restoring a deleted card), which
+     are already handled by standard oplog inverses (`item.delete`, `item.restore`).
+     It does not reverse the historical execution entry.
+3. **Determinism must be verified, not assumed**:
+   - Compiling code to WebAssembly does not guarantee mathematical determinism.
+   - Unseeded pseudo-random number generators, floating-point rounding modes,
+     un-ordered hash map traversals, and ambient WASI clock calls
+     (`clock_time_get`) produce divergent results across architectures.
+   - A tool admitted for `compute.exec` must be certified pure: zero ambient WASI
+     clock/randomness imports, pinned memory growth bounds, and deterministic
+     algorithm constraints. Any dynamic seed or timestamp must be passed
+     explicitly in `args`.
+
+---
+
+### Open design discussion with Dmitry: operator and compute vocabulary
+
+Paul Kinlan proposes raising the operator and compute question with Dmitry
+Glazkov. To frame this discussion without re-deriving fundamentals, we record
+the three key questions:
+
+1. **First-class `exec` op vs out-of-band tool execution**:
+   - *Option A (Pure Out-of-Band)*: Tools run entirely outside the oplog. Only
+     their artifact outputs enter the oplog as normal `item.add` or
+     `item.addVersion` operations. The oplog remains strictly about canvas
+     state.
+   - *Option B (First-Class `compute.exec`)*: The invocation tuple (tool digest,
+     inputs, args, output digest) is committed as an operation. This provides
+     durable provenance ("how was this artifact produced?"), but expands the
+     core vocabulary and ledger size.
+2. **Primary oplog vs secondary execution receipt ledger**:
+   - If execution provenance is valuable, should it live in the primary
+     collaborative canvas oplog (`packages/core/src/ops.ts`), or in a separate,
+     per-node execution receipt log (analogous to CAP's `action-ledger.js` and
+     `durable-runs.js`)?
+3. **Execution authorization and quotas**:
+   - On a shared multi-user canvas, who holds authority to trigger WASM execution
+     on the host daemon? Does an `Editor` grant suffice, or does running
+     compute require explicit local machine operator consent to prevent
+     denial-of-service?
+
+---
+
+### Interlock: content identity and Track D (watched project files)
+
+A critical architectural dependency links transportable compute to file
+watching:
+
+- **Item versions already have content identity**: Every canvas version in
+  `@isocan/core` is content-addressed by its immutable `blobHash`. Diffs between
+  item versions are portable across machines and projects because the inputs
+  are globally identifiable.
+- **Granted directory files lack stable content identity**: Files residing in
+  a granted local directory (e.g. `isocan watch ./src`) can mutate out-of-band
+  on the filesystem. Generating a reproducible diff or checksum over a directory
+  file requires that the file's current state be hashed, snapshotted, and
+  tracked.
+- **Track D Dependency (`isocan-pa5`)**: Providing durable content identity for
+  local filesystem files is the core charter of **Track D** (`isocan-pa5: Watched
+  project files, change operations and shared canvas collections`).
+- **Status**: Track D remains **deferred**. Transportable compute tools operating
+  on raw directory paths operate on transient local snapshots until Track D is
+  activated; cross-project diff portability is strictly guaranteed for canvas
+  item versions today.
+
 ## Open
 
 - **Unions become strings** when the first module kind lands (phase 2):
