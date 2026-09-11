@@ -1,15 +1,15 @@
 # Voice harness — browser evidence
 
-Run 2026-09-11T23:07:29.794Z in 3.546s.
+Run 2026-09-11T23:32:31.772Z in 3.692s.
 
 - browser: HeadlessChrome 152.0.0.0
-- connected to: canvas “Voice evidence” (prj_voice), daemon http://127.0.0.1:43729, home no home configured — the daemon's default
-- agent: Voice (usr_iWNMgM-J84), NOT enrolled
+- connected to: canvas “Voice evidence” (prj_voice), daemon http://127.0.0.1:40673, home no home configured — the daemon's default
+- agent: Voice (usr_rpan3UluNu), NOT enrolled
 - audio: no provider models/gemini-3.1-flash-live-preview (no key stored)
 - capture path that ran: capture: getUserMedia, audio only · HeadlessChrome 152.0.0.0
 - meter peak: 28/28 bars (sampled every 25ms for 1.5s; the screenshot was taken at the peak sample, so the picture and the number are the same moment)
 - held-peak marker: present
-- bars lit immediately after the shutter closed: 11/28 (the level meter has a slow release on purpose; the held-peak marker is what survives a quiet moment)
+- bars lit immediately after the shutter closed: 12/28 (the level meter has a slow release on purpose; the held-peak marker is what survives a quiet moment)
 - layout at 1440: viewport 1440px, document width 1440px, key panel right edge 1414px, panels clipped off-window: 0
 - layout at 420: document 420px in a 420px window, panels clipped: 0, overlapping pairs: none
 - utterance: “retitle the checkout screen to Checkout v2”
@@ -18,8 +18,8 @@ Run 2026-09-11T23:07:29.794Z in 3.546s.
 - last operation: item.update by “Voice”
 
 ## Steps
-- harness: `isocan voice` listening at http://127.0.0.1:7710/ (daemon on 43729, home isocan-voice-evidence-ZXOKqd)
-- connected to: canvas “Voice evidence” prj_voice · daemon http://127.0.0.1:43729 · home no home configured — the daemon's default · agent Voice usr_iWNMgM-J84 (not enrolled) · audio no provider models/gemini-3.1-flash-live-preview, no key
+- harness: `isocan voice` listening at http://127.0.0.1:7858/ (daemon on 40673, home isocan-voice-evidence-DHpRBN)
+- connected to: canvas “Voice evidence” prj_voice · daemon http://127.0.0.1:40673 · home no home configured — the daemon's default · agent Voice usr_rpan3UluNu (not enrolled) · audio no provider models/gemini-3.1-flash-live-preview, no key
 - page: painted — HeadlessChrome 152.0.0.0; capture: getUserMedia, audio only · HeadlessChrome 152.0.0.0
 - layout: viewport 1440px, document 1440px, key panel right edge 1414px, panels clipped off-window: 0
 - capture: capture: getUserMedia, audio only · HeadlessChrome 152.0.0.0
@@ -31,7 +31,7 @@ Run 2026-09-11T23:07:29.794Z in 3.546s.
 - narrow 420px overlaps: none
 - narrow 420px: columns minmax(0px, 1fr) minmax(0px, 320px), document 420px, aside 392px (right edge 406px), panels clipped: 0 — /home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-harness/04-narrow-420.png
 - canvas: titles now ["Checkout v2","Settings screen"]
-- canvas: last op item.update by Voice (usr_iWNMgM-J84), the enrolled agent
+- canvas: last op item.update by Voice (usr_rpan3UluNu), the enrolled agent
 
 ## Screenshots
 - 01-meter-live.png — capture running, meter at its peak (/home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-harness/01-meter-live.png)

@@ -481,6 +481,24 @@ describe("the Live API path", () => {
     expect(answered.toolResponse.functionResponses[0]).toMatchObject({ id: "call-1", response: { ok: true } });
   });
 
+  it("injects project AGENTS.md instructions into the Live session setup", async () => {
+    const { resolveProjectInstructions, liveSetup: makeSetup, LIVE_MODEL: defModel } = await import("../src/voice-harness.ts");
+    const testDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-agents-test-"));
+    await fs.writeFile(path.join(testDir, "AGENTS.md"), "# Project Instructions\nAlways be honest.\n");
+    await fs.writeFile(path.join(home, "dirs.json"), JSON.stringify({ [testDir]: "prj_1" }));
+
+    const resolved = await resolveProjectInstructions(home, "prj_1");
+    expect(resolved).not.toBeNull();
+    expect(resolved!.source).toBe("AGENTS.md");
+    expect(resolved!.text).toContain("Always be honest");
+
+    const setup = makeSetup(defModel, resolved) as any;
+    expect(setup.setup.systemInstruction.parts[0].text).toContain("=== PROJECT INSTRUCTIONS (AGENTS.md) ===");
+    expect(setup.setup.systemInstruction.parts[0].text).toContain("Always be honest.");
+
+    await fs.rm(testDir, { recursive: true, force: true });
+  });
+
   it("surfaces the provider's own words when the session fails", async () => {
     const states: { state: string; bad?: boolean }[] = [];
     let socket!: { emit: (message: unknown) => void };
@@ -541,6 +559,125 @@ describe("the Live API path", () => {
     expect(await session.ready).toBe(false);
     expect(states[0].state).toContain("provider closed socket: code 1007 — The requested combination of response modalities (TEXT)");
     expect(states[0].bad).toBe(true);
+  });
+
+  it("drives live tools end-to-end: read_canvas answers live state, add_item and rename_item land operations in oplog and /log", async () => {
+    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+
+    let providerSocket!: {
+      emit: (message: unknown) => void;
+      sent: string[];
+    };
+    class FakeLiveSocket {
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        providerSocket = this;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+    });
+
+    try {
+      const { WebSocket: WsClient } = await import("ws");
+      const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+      await new Promise<void>((resolve) => {
+        clientWs.on("open", () => resolve());
+      });
+
+      while (!providerSocket) await new Promise(r => setTimeout(r, 10));
+      providerSocket.emit({ setupComplete: {} });
+      await new Promise((r) => setTimeout(r, 50));
+
+      // 1. read_canvas
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [{ id: "call-read", name: "read_canvas", args: {} }],
+        },
+      });
+      while (providerSocket.sent.length < 2) await new Promise(r => setTimeout(r, 10));
+
+      const readReply = JSON.parse(providerSocket.sent.at(-1) ?? "{}");
+      const readResp = readReply.toolResponse?.functionResponses?.[0];
+      expect(readResp.id).toBe("call-read");
+      expect(readResp.response.ok).toBe(true);
+      expect(readResp.response.canvas).toContain("Checkout screen");
+
+      // 2. add_item
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-add",
+              name: "add_item",
+              args: { title: "Spoken Note", text: "Created by voice tool call" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 3) await new Promise(r => setTimeout(r, 10));
+
+      const canvasItems = await items();
+      expect(canvasItems.map((i) => i.title)).toContain("Spoken Note");
+
+      // 3. rename_item
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-rename",
+              name: "rename_item",
+              args: { item_ref: "Spoken Note", title: "Spoken Note Renamed" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 4) await new Promise(r => setTimeout(r, 10));
+
+      const renamedItems = await items();
+      expect(renamedItems.map((i) => i.title)).toContain("Spoken Note Renamed");
+
+      // 4. Assert /log
+      const logRes = await (await fetch(`${server.state.url}log`)).json();
+      expect(logRes.entries.length).toBeGreaterThanOrEqual(3);
+
+      const readLog = logRes.entries.find((e: any) => e.name === "read_canvas");
+      expect(readLog).toBeDefined();
+      expect(readLog.result.ok).toBe(true);
+
+      const addLog = logRes.entries.find((e: any) => e.name === "add_item");
+      expect(addLog).toBeDefined();
+      expect(addLog.result.ok).toBe(true);
+      expect(addLog.op.type).toBe("item.add");
+
+      const renameLog = logRes.entries.find((e: any) => e.name === "rename_item");
+      expect(renameLog).toBeDefined();
+      expect(renameLog.result.ok).toBe(true);
+      expect(renameLog.op.type).toBe("item.update");
+
+      clientWs.close();
+    } finally {
+      await server.close();
+    }
   });
 });
 

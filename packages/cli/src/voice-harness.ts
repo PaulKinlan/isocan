@@ -372,10 +372,27 @@ export function liveUrl(key: string, host = "generativelanguage.googleapis.com")
 
 /** The tool surface: exactly the fast set of operations a sentence can be,
  * declared so the model calls them rather than describing them. */
+/** The tool surface: the canvas's operation vocabulary and read tools,
+ * declared so the model calls them directly and decides what to do. */
 export const LIVE_TOOLS = [
+  // --- Canvas & Project Mutation Operations (Derived from @isocan/core Operation types) ---
+  {
+    name: "add_item",
+    description: "Add a new note, card, or document to the canvas with a title and text content.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        title: { type: "STRING", description: "The title of the new note or card." },
+        text: { type: "STRING", description: "The markdown or text content." },
+        x: { type: "NUMBER", description: "Optional x position on canvas." },
+        y: { type: "NUMBER", description: "Optional y position on canvas." },
+      },
+      required: ["title"],
+    },
+  },
   {
     name: "rename_item",
-    description: "Rename something on the canvas. Use the item's current title or an ordinal like 'the second screen'.",
+    description: "Rename something on the canvas. Use the item's current title, prefix, or ordinal phrase.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -386,11 +403,33 @@ export const LIVE_TOOLS = [
     },
   },
   {
+    name: "update_item",
+    description: "Update an item's title or description on the canvas.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING", description: "The item's title, prefix, or id." },
+        title: { type: "STRING", description: "Optional new title." },
+        description: { type: "STRING", description: "Optional new description." },
+      },
+      required: ["item_ref"],
+    },
+  },
+  {
     name: "delete_item",
     description: "Delete something on the canvas (it goes to the trash, and the person can undo it).",
     parameters: {
       type: "OBJECT",
-      properties: { item_ref: { type: "STRING" } },
+      properties: { item_ref: { type: "STRING", description: "The item to delete." } },
+      required: ["item_ref"],
+    },
+  },
+  {
+    name: "restore_item",
+    description: "Restore an item from the trash back to the canvas.",
+    parameters: {
+      type: "OBJECT",
+      properties: { item_ref: { type: "STRING", description: "The item to restore." } },
       required: ["item_ref"],
     },
   },
@@ -407,6 +446,19 @@ export const LIVE_TOOLS = [
         to_y: { type: "NUMBER" },
       },
       required: ["item_ref"],
+    },
+  },
+  {
+    name: "resize_item",
+    description: "Resize an item on the canvas to width and height.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING" },
+        width: { type: "NUMBER", description: "Width in pixels." },
+        height: { type: "NUMBER", description: "Height in pixels." },
+      },
+      required: ["item_ref", "width", "height"],
     },
   },
   {
@@ -428,15 +480,85 @@ export const LIVE_TOOLS = [
       required: ["item_ref", "text"],
     },
   },
+
+  // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
   {
     name: "read_canvas",
-    description: "Answer what is on the canvas: the items and how many.",
+    description: "Inspect the canvas: list all active items, their titles, kinds, positions, and current versions.",
+    parameters: { type: "OBJECT", properties: {} },
+  },
+  {
+    name: "read_item",
+    description: "Read the full text content and metadata of a specific item on the canvas.",
+    parameters: {
+      type: "OBJECT",
+      properties: { item_ref: { type: "STRING", description: "The item's title, prefix, or id." } },
+      required: ["item_ref"],
+    },
+  },
+  {
+    name: "read_threads",
+    description: "Read discussion threads and comments on the canvas or on a specific item.",
+    parameters: {
+      type: "OBJECT",
+      properties: { item_ref: { type: "STRING", description: "Optional item title or id." } },
+    },
+  },
+  {
+    name: "read_presence",
+    description: "Check who is currently live on this canvas and which agents are enrolled.",
     parameters: { type: "OBJECT", properties: {} },
   },
 ];
 
+/** Find and format project instructions (AGENTS.md / CLAUDE.md) for this canvas's project. */
+export async function resolveProjectInstructions(
+  home: string,
+  canvasId: string,
+): Promise<{ source: string; text: string; capped: boolean } | null> {
+  const dirs = await fs.readFile(path.join(home, "dirs.json"), "utf8").then((t) => JSON.parse(t)).catch(() => ({}));
+  let projectDir: string | null = null;
+  for (const [dir, id] of Object.entries(dirs)) {
+    if (id === canvasId) {
+      projectDir = dir;
+      break;
+    }
+  }
+  if (!projectDir) {
+    const rcRows = await readRcAgents(home).catch(() => []);
+    const match = rcRows.find((r) => r.canvasId === canvasId && r.cwd);
+    if (match) projectDir = match.cwd;
+  }
+  if (!projectDir) projectDir = process.cwd();
+
+  const candidates = [
+    path.join(projectDir, "AGENTS.md"),
+    path.join(projectDir, "CLAUDE.md"),
+  ];
+
+  for (const file of candidates) {
+    try {
+      const content = await fs.readFile(file, "utf8");
+      const maxLen = 12000;
+      const capped = content.length > maxLen;
+      const text = capped
+        ? content.slice(0, maxLen) + "\n\n[... project instructions truncated for Live context budget ...]"
+        : content;
+      return { source: path.basename(file), text, capped };
+    } catch {}
+  }
+  return null;
+}
+
 /** What the setup message is: the whole contract with the API in one object. */
-export function liveSetup(model: string = LIVE_MODEL): object {
+export function liveSetup(
+  model: string = LIVE_MODEL,
+  instructions?: { source: string; text: string } | null,
+): object {
+  const instructionBlock = instructions
+    ? `\n\n=== PROJECT INSTRUCTIONS (${instructions.source}) ===\n${instructions.text}\n=== END PROJECT INSTRUCTIONS ===\n`
+    : "";
+
   return {
     setup: {
       model,
@@ -452,13 +574,15 @@ export function liveSetup(model: string = LIVE_MODEL): object {
         parts: [
           {
             text:
-              "You are Voice, an agent on an isocan canvas, talking out loud with the person who owns it. " +
-              "Keep replies to a sentence: you are a voice in a room, not a report. " +
-              "When the person asks for something the canvas can do, CALL THE TOOL rather than describing it — " +
+              "You are Voice, an enrolled agent on an isocan canvas, talking out loud with the collaborator who owns it. " +
+              "Keep replies concise (1-2 sentences): you are a real-time voice in the room, not a report. " +
+              "When the person asks for something the canvas can do, CALL THE CORRESPONDING TOOL rather than describing it — " +
               "the tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
-              "If a request needs real work (making a screen, writing code, judging a design), say you are " +
-              "putting it in the Chat and use `say` — a team of parked agents is listening there. " +
-              "If you cannot tell which item they mean, ask.",
+              "You have full read access to canvas items, versions, presence, and threads to understand project state. " +
+              "If a request needs heavy asynchronous work (generating large codebases, design critiques), say you are " +
+              "putting it in the Chat and use `say`. " +
+              "If you cannot tell which item they mean, use `read_canvas` first or ask." +
+              instructionBlock,
           },
         ],
       },
@@ -473,10 +597,54 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
   const ref = typeof args.item_ref === "string" ? args.item_ref : "";
   const text = typeof args.text === "string" ? args.text : "";
   switch (name) {
+    case "add_item":
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.add",
+              title: String(args.title ?? "New note"),
+              text: String(args.text ?? ""),
+              x: args.x !== undefined ? Number(args.x) : undefined,
+              y: args.y !== undefined ? Number(args.y) : undefined,
+            },
+            said: `added "${args.title ?? "New note"}"`,
+          },
+        ],
+      };
+    case "update_item":
     case "rename_item":
-      return { plans: [{ op: { type: "item.update", ref, title: String(args.title ?? "") }, said: `renamed ${ref}` }] };
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.update",
+              ref,
+              title: args.title !== undefined ? String(args.title) : undefined,
+              description: args.description !== undefined ? String(args.description) : undefined,
+            },
+            said: `renamed ${ref}`,
+          },
+        ],
+      };
     case "delete_item":
       return { plans: [{ op: { type: "item.delete", ref }, said: `deleted ${ref}` }] };
+    case "restore_item":
+      return { plans: [{ op: { type: "item.restore", ref }, said: `restored ${ref}` }] };
+    case "resize_item":
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.resize",
+              ref,
+              width: Number(args.width ?? 320),
+              height: Number(args.height ?? 240),
+            },
+            said: `resized ${ref}`,
+          },
+        ],
+      };
     case "move_item": {
       const by = args.by_x !== undefined || args.by_y !== undefined;
       return {
@@ -501,7 +669,13 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
     case "comment_on_item":
       return { plans: [{ op: { type: "item.comment", ref, body: text }, said: `commented on ${ref}` }] };
     case "read_canvas":
-      return { plans: [], what: "__read__" };
+      return { plans: [], what: "__read_canvas__" };
+    case "read_item":
+      return { plans: [], what: "__read_item__" };
+    case "read_threads":
+      return { plans: [], what: "__read_threads__" };
+    case "read_presence":
+      return { plans: [], what: "__read_presence__" };
     default:
       return { plans: [], what: `the model called ${name}, which this harness does not have` };
   }
@@ -516,6 +690,10 @@ export function resolveLivePlans(plans: PlannedOp[], items: ListedItem[]): { rea
   const refused: string[] = [];
   for (const plan of plans) {
     const op = { ...plan.op } as { type: string; [key: string]: unknown };
+    if (op.type === "item.add") {
+      ready.push({ op, said: plan.said });
+      continue;
+    }
     const ref = typeof op.ref === "string" ? op.ref : null;
     if (ref !== null) {
       const item = resolveSpokenRef(ref, items);
@@ -531,7 +709,7 @@ export function resolveLivePlans(plans: PlannedOp[], items: ListedItem[]): { rea
       }
       delete op.by;
     }
-    if (op.type === "item.update") op.title = op.title;
+    if (op.type === "item.update" && op.title !== undefined) op.title = op.title;
     ready.push({ op, said: plan.said });
   }
   return { ready, refused };
@@ -562,6 +740,7 @@ export interface LiveSession {
 export function startLiveSession(options: {
   key: VoiceKey;
   model?: string;
+  instructions?: { source: string; text: string } | null;
   callbacks?: LiveCallbacks;
   urlFor?: (key: string) => string;
   WebSocketImpl?: typeof WebSocket;
@@ -584,7 +763,7 @@ export function startLiveSession(options: {
       }
     };
     socket.onopen = () => {
-      socket.send(JSON.stringify(liveSetup(options.model ?? LIVE_MODEL)));
+      socket.send(JSON.stringify(liveSetup(options.model ?? LIVE_MODEL, options.instructions)));
     };
     socket.onerror = () => {
       callbacks.onState?.("the live socket refused", true);
@@ -812,20 +991,45 @@ async function applyPlan(
 ): Promise<void> {
   const op = plan.op as { type: string; [key: string]: unknown };
   switch (op.type) {
+    case "item.add":
+      await canvas.add({
+        title: String(op.title ?? "Note"),
+        content: String(op.text ?? op.content ?? ""),
+        mime: "text/markdown",
+        ...(op.x !== undefined && op.y !== undefined ? { at: { x: Number(op.x), y: Number(op.y), chosen: true } } : {}),
+      });
+      return;
     case "item.update":
       // The title is a `MetaPatch` field, not a property — `set()`'s property
       // bag would write a property NAMED title, which is a different act.
       await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
         type: "item.update",
         itemId: op.itemId as string,
-        patch: { title: op.title as string },
+        patch: {
+          ...(op.title !== undefined ? { title: String(op.title) } : {}),
+          ...(op.description !== undefined ? { description: String(op.description) } : {}),
+        },
+      });
+      return;
+    case "item.move":
+      await canvas.move(op.itemId as string, op.x as number, op.y as number);
+      return;
+    case "item.resize":
+      await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+        type: "item.resize",
+        itemId: op.itemId as string,
+        width: Math.round(Number(op.width ?? 320)),
+        height: Math.round(Number(op.height ?? 240)),
       });
       return;
     case "item.delete":
       await canvas.remove(op.itemId as string);
       return;
-    case "item.move":
-      await canvas.move(op.itemId as string, op.x as number, op.y as number);
+    case "item.restore":
+      await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+        type: "item.restore",
+        itemId: op.itemId as string,
+      });
       return;
     case "thread.reply":
       if (ctx.mainThreadId) await canvas.reply(ctx.mainThreadId, op.body as string);
@@ -1140,10 +1344,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       let liveFailure = "";
+      const instructions = await resolveProjectInstructions(home, target.canvasId);
       const session = startLiveSession({
         key: stored,
+        instructions,
         ...(options.model ? { model: options.model } : {}),
         ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
+        ...(options.WebSocketImpl ? { WebSocketImpl: options.WebSocketImpl } : {}),
         callbacks: {
           onState: (state: string, bad?: boolean) => {
             if (bad) liveFailure = state;
@@ -1161,18 +1368,100 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           },
           onToolCall: async (name, args) => {
             const items = await target.canvas.items();
-            const plan = planForCall(name, args as Record<string, unknown>);
-            if (plan.what === "__read__") {
-              const answer = describeCanvas({ items, mainThreadId: target.mainThreadId });
-              say({ text: answer });
+            // 1. Read & Inspection tools:
+            if (name === "read_canvas") {
+              const summary = items.map((i) => ({
+                id: i.id,
+                title: i.title,
+                kind: i.kind,
+                position: { x: i.x, y: i.y, width: i.width, height: i.height },
+              }));
+              const text = describeCanvas({ items, mainThreadId: target.mainThreadId });
+              say({ text });
+              recordToolLog({
+                type: "tool_call",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, count: items.length, answer: text },
+              });
+              return { ok: true, canvas: text, items: summary };
+            }
+            if (name === "read_item") {
+              const ref = String(args.item_ref ?? "");
+              const item = resolveSpokenRef(ref, items);
+              if (!item) {
+                const err = `could not find an item matching "${ref}" on this canvas`;
+                say({ text: err });
+                recordToolLog({
+                  type: "tool_call",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              }
+              let content = "";
+              try {
+                const currentVersion = item.versions?.find((v) => v.id === item.currentVersionId);
+                if (currentVersion?.blobHash) {
+                  const buf = await target.canvas.ctx.client.downloadBlob(target.canvas.id, currentVersion.blobHash);
+                  content = buf.toString("utf8");
+                }
+              } catch {}
+              const answer = { id: item.id, title: item.title, kind: item.kind, content: content.slice(0, 1000) };
+              say({ text: `Item "${item.title}": ${content.slice(0, 150)}` });
               recordToolLog({
                 type: "tool_call",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: true, answer },
               });
-              return { ok: true, canvas: answer };
+              return { ok: true, item: answer };
             }
+            if (name === "read_threads") {
+              const threads = await target.canvas.threads().catch(() => []);
+              const threadList = threads.map((t) => ({
+                id: t.id,
+                target: t.target,
+                comments: t.comments.map((c) => ({ id: c.id, body: c.body, author: c.author?.name, at: c.createdAt })),
+              }));
+              recordToolLog({
+                type: "tool_call",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, count: threadList.length },
+              });
+              return { ok: true, threads: threadList };
+            }
+            if (name === "read_presence") {
+              const sessions = await target.canvas.ctx.client.listSessions(target.canvas.id).catch(() => []);
+              const rcRows = await readRcAgents(home).catch(() => []);
+              const enrolled = rcRows.filter((r) => r.canvasId === target.canvas.id).map((r) => ({ name: r.name, harness: r.harness }));
+              const liveSessions = sessions.map((s) => ({ who: s.label ?? s.actor.name, kind: s.harness ?? s.kind, status: s.status }));
+              recordToolLog({
+                type: "tool_call",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, liveSessions, enrolled },
+              });
+              return { ok: true, liveSessions, enrolled };
+            }
+
+            // Destructive action confirmation guard
+            if (name === "trash_empty" || name === "project_delete") {
+              const err = "destructive actions require explicit confirmation in the UI; voice agents cannot execute this unattended";
+              say({ text: err });
+              recordToolLog({
+                type: "tool_call",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: false, error: err },
+              });
+              return { ok: false, error: err };
+            }
+
+            // 2. Canvas mutation operations:
+            const plan = planForCall(name, args as Record<string, unknown>);
             const { ready, refused } = resolveLivePlans(plan.plans, items);
             const sent: string[] = [];
             const failed: string[] = [...refused];
