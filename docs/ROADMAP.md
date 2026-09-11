@@ -15,7 +15,7 @@ built, 18 designed, 0 blocked, and
 watching: an untriaged doc is not a doc nobody needs, it is a doc nobody has
 read lately.
 
-7 more are `noted` — read, absorbed, owing nothing — and
+8 more are `noted` — read, absorbed, owing nothing — and
 3 superseded. Neither counts as done: reading is not building,
 and the done column should not be flattered by either.
 
@@ -110,7 +110,7 @@ and the done column should not be flattered by either.
 | **project** | [workbench](projects/workbench/design.md) | 2026-08-29 |  · see workbench |
 | research | [WYSIWYG on the stage](research/2026-08-26-wysiwyg.md) | 2026-08-29 | the text stage built 26–27 Aug (the V0, then the parse5 upgrade — edits name a node by ordinal and splice by source range); element properties built 4 Sep — click an element in the frozen frame, edit its class and inline styles, saved as attribute splices by the same rule · see atlas |
 
-## Noted — read, owing nothing <sub>7</sub>
+## Noted — read, owing nothing <sub>8</sub>
 
 | | What | Since | |
 | --- | --- | --- | --- |
@@ -120,6 +120,7 @@ and the done column should not be flattered by either.
 | research | [Local agents on the canvas](research/2026-08-24-local-agents.md) | 2026-08-30 | the finding IS the answer: isocan hands agents a CLI, so any model that can run one joins |
 | research | [React Flow and tldraw, measured rather than remembered](research/2026-08-31-react-flow-and-tldraw.md) | 2026-08-31 | measured both libraries; React Flow is a real option for the map only, tldraw collides with the oplog · see mindmap, ui-refresh |
 | research | [Skills worth stealing: what the ecosystem has built](research/agent-skills.md) | 2026-08-30 | import/read/skip verdicts recorded per repo |
+| research | [WebAssembly tool inventory & feasibility study](research/2026-09-11-wasm-tools.md) | 2026-09-11 | concrete feasibility study and inventory of WASM project tools; measures exact binary sizes, licenses, WASI compatibility, three-host parity (Browser/CLI/Daemon), and documents unviable traps · see modules, workbench, on-demand, iso-api |
 | research | [What Headlong knows](research/2026-08-24-headlong.md) | 2026-08-30 | its three asks are owned elsewhere: backoff by the night shift, convergence by atlas · see atlas |
 
 ## Superseded <sub>3</sub>
