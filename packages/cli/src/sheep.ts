@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { INSTALL_SPEC } from "@isocan/core";
 import { readConfigFile } from "@isocan/server";
 import type { TurnEvent } from "./acp.ts";
 import type { AdapterSpec } from "./harnesses.ts";
@@ -79,7 +80,7 @@ rm -rf /root/.isocan
 ln -s /workspace/.isocan-home /root/.isocan
 if ! command -v isocan >/dev/null 2>&1; then
   echo "setup: installing isocan" >&2
-  npm install -g github:dglazkov/isocan#release --no-audit --no-fund >/tmp/isocan-install.log 2>&1 || { tail -20 /tmp/isocan-install.log >&2; exit 1; }
+  npm install -g ${INSTALL_SPEC} --no-audit --no-fund >/tmp/isocan-install.log 2>&1 || { tail -20 /tmp/isocan-install.log >&2; exit 1; }
 fi
 if [ ! -f /workspace/.isocan/project.json ]; then
   if [ -z "$ISOCAN_PASS" ]; then echo "setup: no ISOCAN_PASS and no binding" >&2; exit 1; fi
