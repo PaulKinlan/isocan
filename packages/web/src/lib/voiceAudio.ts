@@ -9,8 +9,35 @@
  * which is the path that runs today, and the page says which one ran.
  */
 
+export interface Input {
+  id: string;
+  label: string;
+}
+
+/**
+ * **The microphones, and the trap that makes them look nameless.**
+ *
+ * Device labels are empty until the browser has been given microphone
+ * permission once — so this is called on load AND again after the first
+ * successful capture, which is the moment the names appear. Before that a
+ * person still has to be able to choose, so unnamed inputs are numbered
+ * rather than rendered as blanks.
+ */
+export async function inputs(): Promise<Input[]> {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const found = await navigator.mediaDevices.enumerateDevices();
+  return found
+    .filter((device) => device.kind === "audioinput")
+    .map((device, index) => ({
+      id: device.deviceId,
+      label: device.label || `microphone ${index + 1}`,
+    }));
+}
+
 export interface Capture {
   path: string;
+  deviceId: string;
+  label: string;
   stop: () => void;
   muted: boolean;
   context: AudioContext;
@@ -29,8 +56,19 @@ class Tap extends AudioWorkletProcessor {
 registerProcessor("tap", Tap);
 `;
 
-export async function capture(onFrame: (pcm: Int16Array) => void): Promise<Capture> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+export async function capture(
+  onFrame: (pcm: Int16Array) => void,
+  deviceId?: string,
+  onDone?: (pcm: Int16Array) => void,
+): Promise<Capture> {
+  // `exact` because "prefer this one" silently gives you the system default,
+  // which is the bug being fixed here.
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    video: false,
+  });
+  const track = stream.getAudioTracks()[0];
+  const settings = track?.getSettings?.() ?? {};
   const context = new AudioContext();
   await context.resume();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
@@ -66,10 +104,14 @@ export async function capture(onFrame: (pcm: Int16Array) => void): Promise<Captu
 
   const held: Capture = {
     path: "getUserMedia, audio only",
+    deviceId: settings.deviceId ?? deviceId ?? "default",
+    label: track?.label || "unnamed microphone",
     muted: false,
     context,
+    frames: onFrame,
     stop: () => {
       node.port.onmessage = null;
+      void onDone;
       source.disconnect();
       node.disconnect();
       for (const track of stream.getTracks()) track.stop();

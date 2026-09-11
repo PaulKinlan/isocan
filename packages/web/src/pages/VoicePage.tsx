@@ -15,7 +15,7 @@ import {
   type SessionState,
   type State,
 } from "../lib/voice.ts";
-import { Playback, capture, fromBytes, toBytes, type Capture } from "../lib/voiceAudio.ts";
+import { Playback, capture, fromBytes, inputs, toBytes, type Capture, type Input } from "../lib/voiceAudio.ts";
 
 /**
  * **The voice page: you speak, and the operations land on the canvas.**
@@ -51,12 +51,18 @@ function audioFacts(facts: State | null): { provider: string; model: string; key
   };
 }
 
-const STATE_WORDS: Record<SessionState, string> = {
-  idle: "idle — press Listen to start",
-  live: "live — streaming; the server decides turns",
-  muted: "muted — the session is still open",
-  ended: "ended",
-};
+/**
+ * **The state line says which microphone, because "it is using the wrong one"
+ * is not diagnosable from a word like "live".**
+ */
+function stateWords(session: SessionState, microphone: string): string {
+  if (session === "live") return `live — listening on ${microphone}`;
+  if (session === "muted") return `muted — ${microphone} is still open`;
+  if (session === "ended") return "ended";
+  return "idle — press Listen to start";
+}
+
+const DEVICE_KEY = "isocan.voice.deviceId";
 
 export function VoicePage() {
   const [facts, setFacts] = useState<State | null>(null);
@@ -68,6 +74,9 @@ export function VoicePage() {
   const [complaint, setComplaint] = useState("");
   const [keyValue, setKeyValue] = useState("");
   const [provider, setProvider] = useState("gemini");
+  const [mics, setMics] = useState<Input[]>([]);
+  const chosen = useRef<string>(window.localStorage.getItem(DEVICE_KEY) ?? "");
+  const [chosenId, setChosenId] = useState(chosen.current);
 
   const captureRef = useRef<Capture | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -128,6 +137,26 @@ export function VoicePage() {
     setSession("ended");
   }, []);
 
+  /** Labels arrive only after permission, so this runs on load and after capture. */
+  const lookForMics = useCallback(async () => {
+    try {
+      const found = await inputs();
+      setMics(found);
+      if (!chosen.current && found[0]) {
+        chosen.current = found[0].id;
+        setChosenId(found[0].id);
+      }
+    } catch {
+      // An enumeration failure is not worth a message: the page still works
+      // on the default device, which is what a browser without this does.
+    }
+  }, []);
+
+  useEffect(() => {
+    void lookForMics();
+    navigator.mediaDevices?.addEventListener?.("devicechange", () => void lookForMics());
+  }, [lookForMics]);
+
   const listen = useCallback(async () => {
     put({ at: new Date().toLocaleTimeString(), event: `opening the session through ${HARNESS}` });
     try {
@@ -144,12 +173,8 @@ export function VoicePage() {
 
     playbackRef.current = new Playback();
     try {
-      const held = await capture((pcm) => {
-        const socket = socketRef.current;
-        if (socket?.readyState === WebSocket.OPEN) socket.send(toBytes(pcm));
-      });
-      captureRef.current = held;
-      put({ at: new Date().toLocaleTimeString(), event: `microphone: ${held.path}` });
+      const held = await startCapture(chosen.current || undefined);
+      put({ at: new Date().toLocaleTimeString(), event: `microphone: ${held.label} (${held.path})` });
     } catch (err) {
       const why = `no microphone: ${String((err as Error).message ?? err)}`;
       setComplaint(why);
@@ -195,6 +220,48 @@ export function VoicePage() {
     }, 100);
   }, [put]);
 
+  /**
+   * **Changing microphone does not disturb the session.**
+   *
+   * The socket, the model and the conversation stay exactly where they are —
+   * only the track behind the audio changes — because a person swapping to the
+   * right microphone mid-sentence should not have to start again.
+   */
+  const startCapture = useCallback(async (deviceId?: string) => {
+    const held = await capture((pcm) => {
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) socket.send(toBytes(pcm));
+    }, deviceId);
+    captureRef.current = held;
+    return held;
+  }, []);
+
+  const chooseMic = useCallback(async (deviceId: string) => {
+    chosen.current = deviceId;
+    setChosenId(deviceId);
+    window.localStorage.setItem(DEVICE_KEY, deviceId);
+    if (session !== "live" && session !== "muted") {
+      await lookForMics();
+      return;
+    }
+    try {
+      captureRef.current?.stop();
+      const held = await startCapture(deviceId);
+      put({ at: new Date().toLocaleTimeString(), event: `microphone changed to ${held.label}` });
+      await lookForMics();
+    } catch (err) {
+      // Fall back to the default rather than leaving the session silent.
+      const why = String((err as Error).message ?? err);
+      put({ at: new Date().toLocaleTimeString(), event: `could not use that microphone: ${why}`, error: why });
+      try {
+        const held = await startCapture();
+        put({ at: new Date().toLocaleTimeString(), event: `fell back to ${held.label}` });
+      } catch {
+        setComplaint("no microphone available");
+      }
+    }
+  }, [lookForMics, put, session, startCapture]);
+
   const toggleMute = useCallback(async () => {
     const next = !muted;
     setMuted(next);
@@ -236,33 +303,16 @@ export function VoicePage() {
         </p>
       </header>
 
-      <section className="voice-panel" aria-label="Connection">
-        <h2>Connected to</h2>
-        <dl className="voice-facts">
-          <dt>Canvas</dt>
-          <dd>{facts?.canvas?.title ?? "unknown"} <span className="voice-id">{facts?.canvas?.id ?? "no id"}</span></dd>
-          <dt>Daemon</dt>
-          <dd>{facts?.daemon ?? "unknown"}</dd>
-          <dt>Home</dt>
-          <dd>{facts?.home ?? facts?.service ?? "none configured"}</dd>
-          <dt>Actor</dt>
-          <dd>
-            {facts?.agent?.name ?? "unknown"} <span className="voice-id">{facts?.agent?.id ?? "no id"}</span>{" "}
-            {facts?.agent?.enrolled ? <span className="voice-ok">enrolled</span> : <span className="voice-bad">not enrolled — nothing can summon it</span>}
-          </dd>
-          <dt>Audio</dt>
-          <dd>
-            {audio.provider} · {audio.model} · {audio.key ? "key stored" : "no key stored"}
-          </dd>
-          <dt>Version</dt>
-          <dd>{facts?.version ?? "unknown"} <span className="voice-id">updated {facts?.updated ?? "unknown"}</span></dd>
-        </dl>
-        {complaint ? <p className="voice-bad">{complaint}</p> : null}
-      </section>
-
-      <section className="voice-panel" aria-label="Microphone">
-        <h2>Microphone</h2>
+      <section className="voice-hero" data-state={session} aria-label="Microphone">
         <div className="voice-controls">
+          <label className="voice-pick">
+            <select id="device" aria-label="microphone" value={chosenId} onChange={(event) => void chooseMic(event.target.value)}>
+              {mics.length === 0 ? <option value="">microphone 1</option> : null}
+              {mics.map((one) => (
+                <option key={one.id} value={one.id}>{one.label}</option>
+              ))}
+            </select>
+          </label>
           <button id="listen" onClick={() => void listen()} disabled={session === "live" || session === "muted"}>
             <span aria-hidden="true">🎙</span> Listen
           </button>
@@ -279,11 +329,25 @@ export function VoicePage() {
           ))}
         </div>
         <p className="voice-state" id="state">
-          {STATE_WORDS[session]}
+          {stateWords(session, mics.find((one) => one.id === chosenId)?.label ?? "the default microphone")}
         </p>
       </section>
+      <section className="voice-facts-strip" aria-label="Connection">
+        <h2>Connected to</h2>
+        <dl className="voice-facts">
+          <div><dt>Canvas</dt><dd>{facts?.canvas?.title ?? "unknown"} <span className="voice-id">{facts?.canvas?.id ?? "no id"}</span></dd></div>
+          <div><dt>Daemon</dt><dd>{facts?.daemon ?? "unknown"}</dd></div>
+          <div><dt>Home</dt><dd>{facts?.home ?? facts?.service ?? "none configured"}</dd></div>
+          <div><dt>Actor</dt><dd>{facts?.agent?.name ?? "unknown"} <span className="voice-id">{facts?.agent?.id ?? "no id"}</span>{" "}
+            {facts?.agent?.enrolled ? <span className="voice-ok">enrolled</span> : <span className="voice-bad">not enrolled — nothing can summon it</span>}</dd></div>
+          <div><dt>Audio</dt><dd>{audio.provider} · {audio.model} · {audio.key ? "key stored" : "no key stored"}</dd></div>
+          <div><dt>Version</dt><dd>{facts?.version ?? "unknown"} <span className="voice-id">updated {facts?.updated ?? "unknown"}</span></dd></div>
+        </dl>
+        {complaint ? <p className="voice-bad">{complaint}</p> : null}
+      </section>
 
-      <section className="voice-panel" aria-label="Key">
+      <details className="voice-quiet" aria-label="Key">
+        <summary>Key</summary>
         <h2>Key</h2>
         <p className="voice-hint">
           Stored by the harness at <code>~/.isocan/voice/key.json</code>, mode 0600. Posted once over loopback and never
@@ -344,9 +408,9 @@ export function VoicePage() {
           </button>
         </div>
         {note ? <p className="voice-hint" id="key-note">{note}</p> : null}
-      </section>
+      </details>
 
-      <section className="voice-panel voice-log-panel" aria-label="Tool calls">
+      <section className="voice-quiet voice-log-panel" aria-label="Tool calls">
         <h2>
           Tool calls
           <button id="copy-log" onClick={() => void copyLog()}>

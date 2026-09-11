@@ -6473,3 +6473,130 @@ button.mt-card:hover { border-color: var(--accent); }
   .voice { grid-template-columns: minmax(0, 1fr); }
   .voice-log { max-height: 260px; }
 }
+
+/*
+ * **The voice page, redesigned around the microphone.**
+ *
+ * The previous version was a dashboard of six equal boxes holding one value
+ * each, which is a shape that says "here is some information" rather than
+ * "speak". Three decisions replace it:
+ *
+ *   Type scale     0.72 / 0.8 / 0.95 / 1.35 / 2.1rem — one step per role, no
+ *                  ad-hoc sizes. The hero's state line is 0.95, its label 0.72.
+ *   Spacing        4px unit: 4 / 8 / 12 / 16 / 24 / 32. Every gap and every
+ *                  padding is one of those six numbers, so rhythm is a
+ *                  property of the file rather than of each rule.
+ *   Accent         one blue, `--live`, used ONLY to mean "the session is
+ *                  running": the meter's bars, the listening dot, the Listen
+ *                  button while live. Nothing decorative is that colour, so
+ *                  when it appears it means exactly one thing.
+ *
+ * Everything is subordinate to the microphone: it is first, it is the tallest
+ * thing on the page, its control is the largest, and its state line names the
+ * device it is listening on. The connection facts and the tool log are
+ * supporting information — smaller type, quieter borders, collapsed by default
+ * — because they answer "is this wired up" rather than "am I being heard".
+ */
+.voice {
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --t-xs: 0.72rem; --t-sm: 0.8rem; --t-md: 0.95rem; --t-lg: 1.35rem; --t-xl: 2.1rem;
+  --live: #2a6df4;
+  --ink: #1a1c1f;
+  --quiet: #6b7280;
+  --hair: #e6e8eb;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s5);
+  padding: var(--s5) var(--s5) var(--s6);
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--ink);
+}
+.voice > * { min-width: 0; }
+.voice-head { display: grid; gap: var(--s1); }
+.voice-head h1 { margin: 0; font-size: var(--t-xl); font-weight: 600; letter-spacing: -0.02em; }
+.voice-sub { margin: 0; max-width: 62ch; color: var(--quiet); font-size: var(--t-md); }
+
+/* THE HERO. Everything below it is deliberately quieter than this. */
+.voice-hero {
+  display: grid;
+  gap: var(--s4);
+  border: 1px solid var(--hair);
+  border-top: 2px solid var(--hair);
+  border-radius: 14px;
+  padding: var(--s5);
+  background: #fff;
+}
+.voice-hero[data-state="live"] { border-top-color: var(--live); }
+.voice-hero[data-state="muted"] { border-top-color: #d9a600; }
+.voice-hero h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--quiet); font-weight: 600; }
+.voice-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+.voice-controls button {
+  font: inherit; font-size: var(--t-md);
+  padding: var(--s3) var(--s5);
+  border-radius: 10px; border: 1px solid var(--hair); background: #fff; color: var(--ink);
+  cursor: pointer; min-width: 0;
+}
+.voice-controls #listen {
+  font-size: var(--t-lg); font-weight: 600; padding: var(--s4) var(--s6);
+  border-color: var(--ink); display: inline-flex; align-items: center; gap: var(--s2);
+}
+.voice-hero[data-state="live"] #listen { border-color: var(--live); color: var(--live); }
+.voice-controls button:disabled { opacity: 0.45; cursor: default; }
+.voice-pick { min-width: 0; flex: 1 1 240px; }
+.voice-pick select {
+  font: inherit; font-size: var(--t-sm); width: 100%; min-width: 0;
+  padding: var(--s2) var(--s3); border-radius: 8px; border: 1px solid var(--hair);
+  background: #fff; color: var(--quiet);
+}
+.voice-meter { display: flex; align-items: flex-end; gap: 3px; height: 88px; }
+.voice-meter span { flex: 1 1 0; min-width: 0; height: 100%; border-radius: 3px; background: #eef0f3; transition: background 90ms linear; }
+.voice-meter span.on { background: var(--live); }
+.voice-state { margin: 0; font-size: var(--t-md); color: var(--ink); display: flex; align-items: center; gap: var(--s2); }
+.voice-state::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--hair); flex: none;
+}
+.voice-hero[data-state="live"] .voice-state::before { background: var(--live); }
+.voice-hero[data-state="muted"] .voice-state::before { background: #d9a600; }
+
+/* Supporting information: one strip, one log, both quieter than the hero. */
+.voice-facts-strip {
+  display: grid; gap: var(--s2);
+  padding: var(--s4) 0 0;
+  border-top: 1px solid var(--hair);
+}
+.voice-facts-strip h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--quiet); font-weight: 600; }
+.voice-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s2) var(--s5); margin: 0; font-size: var(--t-sm); }
+.voice-facts div { min-width: 0; display: grid; gap: 2px; }
+.voice-facts dt { color: var(--quiet); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.voice-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.voice-id { font-family: ui-monospace, monospace; color: var(--quiet); font-size: var(--t-xs); }
+.voice-ok { color: #2e7d32; }
+.voice-bad { color: #c62828; }
+.voice-hint { color: var(--quiet); font-size: var(--t-sm); margin: var(--s2) 0 0; overflow-wrap: anywhere; }
+.voice-quiet { border-top: 1px solid var(--hair); padding-top: var(--s3); }
+.voice-quiet > summary, .voice-quiet > h2 {
+  margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--quiet); font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: var(--s2);
+}
+.voice-quiet > h2 { cursor: default; }
+.voice-log { list-style: none; margin: var(--s3) 0 0; padding: 0; max-height: 260px; overflow: auto; display: grid; gap: var(--s2); }
+.voice-log li { display: flex; flex-wrap: wrap; gap: var(--s3); min-width: 0; font-family: ui-monospace, monospace; font-size: var(--t-xs); border-bottom: 1px solid var(--hair); padding-bottom: var(--s2); }
+.voice-at { color: var(--quiet); }
+.voice-op { color: #2e7d32; }
+.voice-answered { color: var(--live); }
+.voice-event { color: var(--quiet); }
+.voice-keyrow { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+.voice-keyrow input { flex: 1 1 200px; min-width: 0; font: inherit; font-size: var(--t-sm); padding: var(--s2) var(--s3); border: 1px solid var(--hair); border-radius: 8px; }
+.voice-keyrow button { font: inherit; font-size: var(--t-sm); padding: var(--s2) var(--s3); border: 1px solid var(--hair); border-radius: 8px; background: #fff; cursor: pointer; }
+
+@media (max-width: 900px) {
+  .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s4); }
+  .voice-head h1 { font-size: var(--t-lg); }
+  .voice-hero { padding: var(--s4); }
+  .voice-controls button { flex: 1 1 auto; }
+  .voice-controls #listen { flex: 1 1 100%; justify-content: center; }
+  .voice-meter { height: 64px; }
+  .voice-facts { grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
+}
