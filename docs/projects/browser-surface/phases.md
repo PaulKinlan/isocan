@@ -13,7 +13,7 @@ and CAP tool capabilities.
 
 ---
 
-**Where we are: DESIGN COMPLETE (Track C roadmap, 11 Sep 2026).** The
+**Where we are: ROADMAP REGISTERED (Track C roadmap, 11 Sep 2026).** The
 architectural design, user journeys, seam census, and authority model are
 specified. Staged implementation phases are defined below.
 
@@ -21,7 +21,7 @@ specified. Staged implementation phases are defined below.
 
 ## Phase 1 — The extension shell & tab projection
 
-**Closes:** `journey.md` Scene 1 (The spatial tab strip).
+**Goal:** The spatial 2D tab strip and item projection.
 
 **Deliverables:**
 1. **Extension Package Structure**:
@@ -49,7 +49,7 @@ specified. Staged implementation phases are defined below.
 
 ## Phase 2 — Bidirectional isomorphism & ⌘Z undo
 
-**Closes:** `journey.md` Scene 2 (The isomorphic loop) and Scene 7 (⌘Z on the real world).
+**Goal:** Bidirectional tab synchronization and ⌘Z item restoration.
 
 **Deliverables:**
 1. **Chrome $\rightarrow$ Canvas Event Bridge**:
@@ -81,7 +81,7 @@ specified. Staged implementation phases are defined below.
 
 ## Phase 3 — Tab groups & nested canvases
 
-**Closes:** `journey.md` Scene 3 (The nested research canvas).
+**Goal:** Tab groups and nested canvas containment (extending `inception`).
 
 **Deliverables:**
 1. **Chrome Tab Group Mapping**:
@@ -106,7 +106,7 @@ specified. Staged implementation phases are defined below.
 
 ## Phase 4 — The ACP browser-control loopback
 
-**Closes:** `journey.md` Scene 4 (Summoning the browser agent over ACP).
+**Goal:** Summoning the browser agent over an ACP adapter.
 
 **Deliverables:**
 1. **Extension ACP Adapter (`isocan-browser-acp`)**:
@@ -134,9 +134,9 @@ specified. Staged implementation phases are defined below.
 
 ---
 
-## 5. Phase 5 — Trusted multiplayer browser sharing
+## Phase 5 — Trusted multiplayer browser sharing
 
-**Closes:** `journey.md` Scene 5 (Trusted multiplayer co-browsing).
+**Goal:** Trusted multiplayer co-browsing and remote input reflection.
 
 **Deliverables:**
 1. **Strict Profile Custody**:
@@ -158,8 +158,11 @@ specified. Staged implementation phases are defined below.
      frames.
    - Remote input events targeting sensitive elements are rejected.
 5. **Real-Time Revocation & Audit**:
-   - One-click access revocation immediately terminates the sharing session.
-   - All guest interactions logged in the oplog with full undoability.
+   - Explicit revocation synchronously halts future event reflection and drops
+     queued input events.
+   - All guest interactions logged in the oplog as attributed operations with
+     canvas-level undoability; third-party web server side-effects cannot be
+     reversed by oplog undo.
 
 **Verification & Acceptance:**
 - Host and remote guest connect to a shared canvas.
@@ -173,7 +176,7 @@ specified. Staged implementation phases are defined below.
 
 ## Phase 6 — Spatial voice & screen collaboration
 
-**Closes:** `journey.md` Scene 6 (Spatial voice and screen cast).
+**Goal:** Spatial voice and screen cast over WebRTC.
 
 **Deliverables:**
 1. **Ephemeral WebRTC Audio Mesh**:
