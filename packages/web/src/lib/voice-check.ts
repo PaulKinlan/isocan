@@ -12,6 +12,7 @@ export function inputLevel(samples: Float32Array): number {
   return rms > 0 ? Math.max(0, Math.min(1, (20 * Math.log10(rms) + 60) / 60)) : 0;
 }
 
+/** Own one page's local media resources; disposal also rejects late permission grants. */
 export function mountVoiceCheck(root: HTMLElement): () => void {
   const find = <T extends HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
   const status = find<HTMLElement>("[data-status]");
