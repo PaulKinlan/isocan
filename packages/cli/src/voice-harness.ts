@@ -662,11 +662,6 @@ export function liveSetup(
       model,
       generationConfig: {
         responseModalities: ["AUDIO"],
-        // Both sides transcribed, so the page can show what was said — and
-        // so a wrong transcript that becomes a comment is visible before it
-        // is believed.
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
       },
       systemInstruction: {
         parts: [
@@ -1099,58 +1094,66 @@ async function applyPlan(
   canvas: CanvasHandle,
   plan: PlannedOp,
   ctx: PlanContext,
+  onIo?: (status: "sent" | "ack" | "err", said: string, err?: string) => void,
 ): Promise<void> {
   const op = plan.op as { type: string; [key: string]: unknown };
-  switch (op.type) {
-    case "item.add":
-      await canvas.add({
-        title: String(op.title ?? "Note"),
-        content: String(op.text ?? op.content ?? ""),
-        mime: "text/markdown",
-        ...(op.x !== undefined && op.y !== undefined ? { at: { x: Number(op.x), y: Number(op.y), chosen: true } } : {}),
-      });
-      return;
-    case "item.update":
-      // The title is a `MetaPatch` field, not a property — `set()`'s property
-      // bag would write a property NAMED title, which is a different act.
-      await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
-        type: "item.update",
-        itemId: op.itemId as string,
-        patch: {
-          ...(op.title !== undefined ? { title: String(op.title) } : {}),
-          ...(op.description !== undefined ? { description: String(op.description) } : {}),
-        },
-      });
-      return;
-    case "item.move":
-      await canvas.move(op.itemId as string, op.x as number, op.y as number);
-      return;
-    case "item.resize":
-      await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
-        type: "item.resize",
-        itemId: op.itemId as string,
-        width: Math.round(Number(op.width ?? 320)),
-        height: Math.round(Number(op.height ?? 240)),
-      });
-      return;
-    case "item.delete":
-      await canvas.remove(op.itemId as string);
-      return;
-    case "item.restore":
-      await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
-        type: "item.restore",
-        itemId: op.itemId as string,
-      });
-      return;
-    case "thread.reply":
-      if (ctx.mainThreadId) await canvas.reply(ctx.mainThreadId, op.body as string);
-      else await canvas.notify(op.body as string);
-      return;
-    case "item.comment":
-      await canvas.comment(op.itemId as string, op.body as string);
-      return;
-    default:
-      throw new Error(`the voice harness has no way to send ${op.type}`);
+  onIo?.("sent", plan.said);
+  try {
+    switch (op.type) {
+      case "item.add":
+        await canvas.add({
+          title: String(op.title ?? "Note"),
+          content: String(op.text ?? op.content ?? ""),
+          mime: "text/markdown",
+          ...(op.x !== undefined && op.y !== undefined ? { at: { x: Number(op.x), y: Number(op.y), chosen: true } } : {}),
+        });
+        break;
+      case "item.update":
+        // The title is a `MetaPatch` field, not a property — `set()`'s property
+        // bag would write a property NAMED title, which is a different act.
+        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "item.update",
+          itemId: op.itemId as string,
+          patch: {
+            ...(op.title !== undefined ? { title: String(op.title) } : {}),
+            ...(op.description !== undefined ? { description: String(op.description) } : {}),
+          },
+        });
+        break;
+      case "item.move":
+        await canvas.move(op.itemId as string, op.x as number, op.y as number);
+        break;
+      case "item.resize":
+        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "item.resize",
+          itemId: op.itemId as string,
+          width: Math.round(Number(op.width ?? 320)),
+          height: Math.round(Number(op.height ?? 240)),
+        });
+        break;
+      case "item.delete":
+        await canvas.remove(op.itemId as string);
+        break;
+      case "item.restore":
+        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "item.restore",
+          itemId: op.itemId as string,
+        });
+        break;
+      case "thread.reply":
+        if (ctx.mainThreadId) await canvas.reply(ctx.mainThreadId, op.body as string);
+        else await canvas.notify(op.body as string);
+        break;
+      case "item.comment":
+        await canvas.comment(op.itemId as string, op.body as string);
+        break;
+      default:
+        throw new Error(`the voice harness has no way to send ${op.type}`);
+    }
+    onIo?.("ack", plan.said);
+  } catch (err) {
+    onIo?.("err", plan.said, (err as Error).message);
+    throw err;
   }
 }
 
@@ -1169,6 +1172,29 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
 
   let presenceSessionId: string | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
+  let audioStatsTimer: NodeJS.Timeout | null = null;
+  let pageAudioInBytes = 0;
+  let pageAudioInFrames = 0;
+  let providerAudioOutFrames = 0;
+  let providerAudioInFrames = 0;
+  let pageAudioOutBytes = 0;
+  let daemonOpsSent = 0;
+  let daemonOpsAck = 0;
+  let daemonOpsErr = 0;
+
+  const harnessLogPath = path.join(voiceDir(home), "harness.log");
+  void fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 }).catch(() => {});
+
+  const logLine = (category: string, message: string, details?: unknown) => {
+    const ts = new Date().toISOString();
+    const det = details !== undefined ? " " + (typeof details === "string" ? details : JSON.stringify(details)) : "";
+    const line = `[${ts}] [${category}] ${message}${det}`;
+    lines.push(line);
+    if (lines.length > 100) lines.shift();
+    console.log(line);
+    options.onLine?.(line);
+    void fs.appendFile(harnessLogPath, line + "\n", { mode: 0o600 }).catch(() => {});
+  };
 
   async function announcePresence(currentStatus: string) {
     try {
@@ -1181,11 +1207,15 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           "cli",
         );
         presenceSessionId = sessionRes.sessionId;
+        logLine("presence", `created session on daemon`, { sessionId: presenceSessionId });
       }
       await target.canvas.ctx.client.updateSession(target.canvasId, presenceSessionId, {
         status: currentStatus,
       });
-    } catch {}
+      logLine("presence", `status updated: "${currentStatus}"`);
+    } catch (e) {
+      logLine("presence", `announcement error: ${(e as Error).message}`);
+    }
   }
 
   function recordToolLog(entry: Omit<ToolLogEntry, "id" | "timestamp">): ToolLogEntry {
@@ -1236,6 +1266,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   };
 
   const server = http.createServer((req, res) => {
+    const t0 = performance.now();
+    let reqBytes = 0;
+    req.on("data", (chunk: Buffer) => { reqBytes += chunk.length; });
+    const url = new URL(req.url ?? "/", `http://127.0.0.1:${options.port || DEFAULT_VOICE_PORT}`);
+    res.on("finish", () => {
+      const dur = (performance.now() - t0).toFixed(1);
+      logLine("http", `${req.method} ${url.pathname} status=${res.statusCode} in=${reqBytes}b duration=${dur}ms`);
+    });
     const respond = (code: number, body: unknown, type = "application/json") => {
       const payload = type === "application/json" ? JSON.stringify(body) : body;
       res.writeHead(code, { "Content-Type": type, "Cache-Control": "no-store" });
@@ -1415,7 +1453,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const failed: string[] = [];
         for (const plan of plans) {
           try {
-            await applyPlan(target.canvas, plan, ctx);
+            await applyPlan(target.canvas, plan, ctx, onIo);
             sent.push(plan.said);
             narrate(`sent: ${plan.said}`);
             recordToolLog({
@@ -1461,6 +1499,19 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     })().catch(() => {});
     void guard;
   });
+
+  const onIo = (status: "sent" | "ack" | "err", said: string, err?: string) => {
+    if (status === "sent") {
+      daemonOpsSent++;
+      logLine("daemon-io", `dispatching op (${daemonOpsSent} sent): ${said}`);
+    } else if (status === "ack") {
+      daemonOpsAck++;
+      logLine("daemon-io", `acknowledged op (${daemonOpsAck} ack): ${said}`);
+    } else {
+      daemonOpsErr++;
+      logLine("daemon-io", `refused op (${daemonOpsErr} errors): ${said} — ${err}`);
+    }
+  };
 
   /**
    * **The live door.** The page streams 16 kHz PCM here; this process holds
@@ -1637,7 +1688,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             const failed: string[] = [...refused];
             for (const one of ready) {
               try {
-                await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId });
+                await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId }, onIo);
                 sent.push(one.said);
                 narrate(`sent: ${one.said}`);
                 recordToolLog({
@@ -1729,14 +1780,36 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     void announcePresence(s);
   }, 10000);
 
+  audioStatsTimer = setInterval(() => {
+    if (sessionState === "live") {
+      logLine("audio-stats", "live streaming throughput", {
+        inFromPage: `${pageAudioInFrames} frames (${pageAudioInBytes}B)`,
+        outToProvider: `${providerAudioOutFrames} frames`,
+        inFromProvider: `${providerAudioInFrames} frames`,
+        outToPage: `${pageAudioOutBytes}B`,
+        totalDaemonOpsAck: daemonOpsAck,
+      });
+    }
+  }, 3000);
+
+  logLine("startup", `Voice harness active on port ${listening}`, {
+    canvas: `${target.canvasLabel} (${target.canvasId})`,
+    agent: `${target.name} (${target.actorId})`,
+    daemon: target.daemon,
+    model: options.model ?? LIVE_MODEL,
+    keyConfigured: (await readVoiceKey(home).catch(() => null)) !== null,
+  });
+
   return {
     state,
     close: async () => {
+      if (audioStatsTimer) clearInterval(audioStatsTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (presenceSessionId) {
         await target.canvas.ctx.client.endSession(target.canvasId, presenceSessionId).catch(() => {});
         presenceSessionId = null;
       }
+      logLine("shutdown", `Voice harness stopped on port ${listening}`);
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await fs.rm(voiceServerFile(home), { force: true });
     },
