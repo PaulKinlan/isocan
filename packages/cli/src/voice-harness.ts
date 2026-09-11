@@ -674,6 +674,27 @@ export function startLiveSession(options: {
  * The standing server: the page, and the operations it sends
  * ------------------------------------------------------------------ */
 
+/** Does the provider accept this key? Its own words, either way. */
+export async function checkKey(
+  key: VoiceKey,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; answer: string; provider: string }> {
+  try {
+    if (key.provider === "openai") {
+      const r = await fetchImpl("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key.key}` } });
+      const body = await r.text();
+      return { ok: r.ok, answer: r.ok ? "accepted" : `${r.status} ${body.slice(0, 300)}`, provider: "openai" };
+    }
+    const r = await fetchImpl(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key.key)}`,
+    );
+    const body = await r.text();
+    return { ok: r.ok, answer: r.ok ? "accepted" : `${r.status} ${body.slice(0, 300)}`, provider: "gemini" };
+  } catch (err) {
+    return { ok: false, answer: `could not reach the provider: ${String((err as Error).message ?? err)}`, provider: key.provider };
+  }
+}
+
 export interface VoiceServerOptions {
   home: string;
   port?: number;
@@ -690,6 +711,8 @@ export interface VoiceServerOptions {
   model?: string;
   /** The socket address, for a test that needs a local stand-in. */
   liveUrl?: (key: string) => string;
+  /** The network, for a test. */
+  fetchImpl?: typeof fetch;
 }
 
 export interface VoiceServerState {
@@ -906,6 +929,21 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         respond(200, { provider, path: voiceKeyFile(home) });
         return;
       }
+      if (url.pathname === "/key/test") {
+        const stored = await readVoiceKey(home);
+        if (!stored) {
+          respond(200, { ok: false, answer: "no key stored" });
+          return;
+        }
+        // One cheap authenticated call, and the provider's answer VERBATIM:
+        // a wrong key is found the moment it is pasted rather than at the
+        // first utterance, which is the difference between a five-second fix
+        // and an hour of debugging the wrong layer.
+        const result = await checkKey(stored, options.fetchImpl);
+        narrate(`key check (${stored.provider}): ${result.ok ? "accepted" : result.answer}`);
+        respond(200, result);
+        return;
+      }
       if (url.pathname === "/audio") {
         const stored = await readVoiceKey(home);
         if (!stored) {
@@ -992,12 +1030,16 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         });
         return;
       }
+      let liveFailure = "";
       const session = startLiveSession({
         key: stored,
         ...(options.model ? { model: options.model } : {}),
         ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
         callbacks: {
-          onState: (state: string, bad?: boolean) => say({ state, bad }),
+          onState: (state: string, bad?: boolean) => {
+            if (bad) liveFailure = state;
+            say({ state, bad });
+          },
           onHeard: (text: string) => say({ heard: text }),
           onText: (text: string) => say({ text }),
           onAudio: (pcm: Uint8Array) => {
@@ -1035,7 +1077,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       page.on("close", () => session.close());
       const ok = await session.ready;
       if (!ok && page.readyState === page.OPEN) {
-        say({ state: "the Live session did not open — the provider's own message is above", bad: true });
+        // Loud, and never a silent fallback: a quiet failure here is what made
+        // a credential problem look like a grammar problem.
+        say({ state: "Live session could not start — " + (liveFailure || "the provider refused, see above"), bad: true, live: false });
       }
     })().catch((err) => say({ state: String((err as Error).message ?? err), bad: true }));
   });

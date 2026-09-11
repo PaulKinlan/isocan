@@ -256,7 +256,29 @@ try {
       clipped: [...document.querySelectorAll("aside .panel")].filter((p) => p.getBoundingClientRect().right > window.innerWidth + 1).length,
     };
   })()`);
+  // OVERLAP, not clipping: a layout can be inside the window and still be
+  // unreadable, with cards painted on top of one another. Measured as
+  // pairwise intersection, which is the property that actually matters.
+  const overlaps = await b.ev(`(() => {
+    const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock")]
+      .map((el) => ({ el, r: el.getBoundingClientRect() }));
+    const hits = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].r, b = boxes[j].r;
+        const x = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (x > 2 && y > 2) {
+          hits.push((boxes[i].el.querySelector("h2")?.textContent || boxes[i].el.className || boxes[i].el.id) + " overlaps " +
+                    (boxes[j].el.querySelector("h2")?.textContent || boxes[j].el.className || boxes[j].el.id) +
+                    " by " + Math.round(x) + "x" + Math.round(y) + "px");
+        }
+      }
+    }
+    return hits;
+  })()`);
   const narrowShot = await shot("04-narrow-420");
+  step(`narrow 420px overlaps: ${overlaps.length === 0 ? "none" : overlaps.join("; ")}`);
   step(`narrow 420px: columns ${narrow.columns}, document ${narrow.scrollWidth}px, aside ${narrow.asideWidth}px (right edge ${narrow.asideRight}px), panels clipped: ${narrow.clipped} — ${narrowShot}`);
   await b.send("Emulation.clearDeviceMetricsOverride");
 
@@ -287,7 +309,7 @@ try {
     `- held-peak marker: ${held ? "present" : "absent"}`,
     `- bars lit immediately after the shutter closed: ${litAfterShot}/28 (the level meter has a slow release on purpose; the held-peak marker is what survives a quiet moment)`,
     `- layout at 1440: viewport ${layout.viewport}px, document width ${layout.scrollWidth}px, key panel right edge ${layout.asideRight}px, panels clipped off-window: ${layout.clippedPanels}`,
-    `- layout at 420: columns ${narrow.columns}, document ${narrow.scrollWidth}px, panels clipped: ${narrow.clipped}`,
+    `- layout at 420: document ${narrow.scrollWidth}px in a ${narrow.viewport}px window, panels clipped: ${narrow.clipped}, overlapping pairs: ${overlaps.length === 0 ? "none" : overlaps.join("; ")}`,
     `- utterance: “${utterance}”`,
     `- operations sent: ${sent}`,
     `- canvas titles after: ${JSON.stringify(titles)}`,

@@ -79,6 +79,7 @@ const els = {
   keyState: document.getElementById("key-state"),
   saveKey: document.getElementById("save-key"),
   forgetKey: document.getElementById("forget-key"),
+  testKey: document.getElementById("test-key"),
   provider: document.getElementById("provider"),
   version: document.getElementById("version"),
 };
@@ -367,6 +368,11 @@ async function start() {
     for (const line of message.sent || []) say(els.log, line, "op");
     for (const line of message.failed || []) say(els.log, line, "bad");
     if (message.state) status(message.state, message.bad ? "warn" : "");
+    if (message.live === false) {
+      // Said on the face of it: no silent serving of the grammar path behind a
+      // credential problem.
+      say(els.transcript, "Live session could not start — " + message.state, "bad");
+    }
   };
   socket.onclose = () => { if (listening) status("the live session closed", "warn"); };
   socket.onerror = () => status("the live socket could not open — is the harness still running?", "warn");
@@ -423,6 +429,15 @@ els.saveKey.onclick = async () => {
     els.key.value = "";
     els.keyState.textContent = "a " + out.provider + " key is stored (" + out.path + ")";
     say(els.log, "key stored by the harness: " + out.provider, "note");
+  } catch (err) {
+    els.keyState.textContent = String(err.message || err);
+  }
+};
+els.testKey.onclick = async () => {
+  els.keyState.textContent = "asking the provider…";
+  try {
+    const out = await post("/key/test", {});
+    els.keyState.textContent = out.ok ? "the provider accepted the key" : "the provider said: " + out.answer;
   } catch (err) {
     els.keyState.textContent = String(err.message || err);
   }
@@ -491,20 +506,27 @@ export function voicePage(facts: VoicePageFacts): string {
    * than shrinking the bars.
    */
   @media (max-width: 820px) {
-    body {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: auto auto auto minmax(0, 1fr);
-      padding: 16px 14px 20px;
-      gap: 14px;
-    }
-    main { order: 2; }
-    aside { order: 1; display: grid; grid-template-columns: minmax(0, 1fr); overflow: visible; }
-    aside > .panel { }
-    .dock { flex-wrap: wrap; row-gap: 10px; }
-    #meter { min-width: 100%; }
-    #bars { height: 40px; }
+    /*
+     * ONE column, and NORMAL FLOW rather than a grid inside a grid. The first
+     * attempt kept the two-column grid and re-declared rows, and the aside's
+     * three panels painted on top of each other (caught by the vision check on
+     * the 420px screenshot, not by me). Nothing here constrains a height:
+     * height: auto on the body, display: block on the aside, and the page
+     * scrolls like a document. There is nothing left to collapse.
+     */
+    html, body { height: auto; min-height: 100%; }
+    body { display: block; padding: 16px 14px 20px; }
+    header { flex-wrap: wrap; gap: 8px 14px; }
+    aside { display: block; }
+    aside > .panel { margin-bottom: 14px; }
+    main { display: block; }
+    main > .panel, main > .composer, main > .dock { margin-bottom: 14px; }
+    .dock { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; }
     #mic-slot { min-width: 96px; }
+    #meter { flex: 1 1 100%; }
+    #bars { height: 40px; }
   }
+
   header { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 14px; }
   header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .2px; }
   header .canvas { color: var(--dim); font-size: 13px; }
@@ -648,6 +670,7 @@ export function voicePage(facts: VoicePageFacts): string {
     <input id="key" type="password" placeholder="paste a Gemini or OpenAI API key" autocomplete="off">
     <div class="keyrow" style="margin-top:8px">
       <button id="save-key">Save key</button>
+      <button id="test-key">Test key</button>
       <button id="forget-key">Forget</button>
     </div>
     <div class="hint" id="key-state"></div>
