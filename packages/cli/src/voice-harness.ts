@@ -1,10 +1,14 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
+import { readConfigFile } from "@isocan/server";
+import { statSync } from "node:fs";
 import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
+import { readRcAgents } from "./rc.ts";
 import { voicePage } from "./voice-harness-page.ts";
 
 /**
@@ -59,25 +63,19 @@ export interface VoiceKey {
 }
 
 /**
- * **A key's shape is its provider** — and when it is not, the person says so.
- * `AIza…` is Gemini's, `sk-…` is OpenAI's; anything else is stored with the
- * provider that was named in the form, or refused naming both shapes. Guessing
- * wrong sends a working key to a provider that answers 401, which reads as a
- * dead key rather than a wrong address.
+ * **The provider, guessed only when nobody said — and never a refusal.**
+ *
+ * This used to reject a key whose prefix was not `AIza…` or `sk-…`, which is a
+ * client-side guess about a format that changes, failing closed on the one
+ * person who knows better. Paul pasted a real key, the page said no, and the
+ * feature looked broken before it had run. There is no validation here now:
+ * any non-empty key is stored, the provider is taken from the form when it is
+ * named and guessed from the prefix only as a default, and **the provider is
+ * the judge** — its error is surfaced verbatim, in its own words.
  */
-export function providerFor(key: string, named?: string): VoiceKey["provider"] | null {
-  const shape = key.startsWith("AIza")
-    ? "gemini"
-    : key.startsWith("sk-")
-      ? "openai"
-      : null;
-  if (named === "gemini" || named === "openai") {
-    // A named provider with an unrecognised shape is still honoured — the
-    // person knows what they pasted; only the AUTO guess needs a shape.
-    if (!shape || shape === named) return named;
-    return null;
-  }
-  return shape;
+export function providerFor(key: string, named?: string): VoiceKey["provider"] {
+  if (named === "gemini" || named === "openai") return named;
+  return key.startsWith("sk-") ? "openai" : "gemini";
 }
 
 /** The stored key, or null. A file that is not 0600 is refused rather than
@@ -337,6 +335,342 @@ function base64(bytes: Uint8Array): string {
 }
 
 /* ------------------------------------------------------------------ *
+ * The Live API: the socket, the model, and the tools
+ * ------------------------------------------------------------------ */
+
+/**
+ * **Gemini's Live API, not transcribe-then-act** (Paul, 11 Sep 2026: *"it
+ * should just be sending to the Gemini live api (or whatever the latest
+ * is)"*). A stateful bidirectional WebSocket — `BidiGenerateContent` — where
+ * audio goes up as 16 kHz PCM and comes back as 24 kHz PCM plus text, and
+ * where the model can call the canvas's operations as tools.
+ *
+ * The custody rule does not change with the protocol: **the harness opens the
+ * socket and holds the key; the page only ever sends audio to loopback.** The
+ * page capture is already 16 kHz PCM, so nothing here resamples — the page
+ * knows its own `AudioContext.sampleRate`, which is the side that has to.
+ *
+ * Function calling is synchronous: a tool call blocks the conversation until
+ * it is answered, which is the right shape for canvas operations — they are
+ * one local round trip — and the wrong shape for making a screen. Slow asks
+ * belong in the Chat, as the research note says; the tool list here is the
+ * fast set.
+ *
+ * `gemini-3.1-flash-live-preview` verified current on 11 Sep 2026 against
+ * Google's Live API docs. It is a preview name and will move; `--model` and
+ * `LiveSessionOptions.model` exist so a person can move with it without a
+ * release.
+ */
+export const LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
+
+export function liveUrl(key: string, host = "generativelanguage.googleapis.com"): string {
+  return (
+    `wss://${host}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` +
+    `?key=${encodeURIComponent(key)}`
+  );
+}
+
+/** The tool surface: exactly the fast set of operations a sentence can be,
+ * declared so the model calls them rather than describing them. */
+export const LIVE_TOOLS = [
+  {
+    name: "rename_item",
+    description: "Rename something on the canvas. Use the item's current title or an ordinal like 'the second screen'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING", description: "The item's title, a prefix of it, or an ordinal phrase." },
+        title: { type: "STRING", description: "The new title." },
+      },
+      required: ["item_ref", "title"],
+    },
+  },
+  {
+    name: "delete_item",
+    description: "Delete something on the canvas (it goes to the trash, and the person can undo it).",
+    parameters: {
+      type: "OBJECT",
+      properties: { item_ref: { type: "STRING" } },
+      required: ["item_ref"],
+    },
+  },
+  {
+    name: "move_item",
+    description: "Move something on the canvas, either by a delta or to a place.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING" },
+        by_x: { type: "NUMBER" },
+        by_y: { type: "NUMBER" },
+        to_x: { type: "NUMBER" },
+        to_y: { type: "NUMBER" },
+      },
+      required: ["item_ref"],
+    },
+  },
+  {
+    name: "say",
+    description: "Say something in the canvas Chat, where every parked agent hears it.",
+    parameters: { type: "OBJECT", properties: { text: { type: "STRING" } }, required: ["text"] },
+  },
+  {
+    name: "ask",
+    description: "Ask the person a question on the canvas, pinned to the Chat.",
+    parameters: { type: "OBJECT", properties: { text: { type: "STRING" } }, required: ["text"] },
+  },
+  {
+    name: "comment_on_item",
+    description: "Leave a comment on one item, where the conversation about that item belongs.",
+    parameters: {
+      type: "OBJECT",
+      properties: { item_ref: { type: "STRING" }, text: { type: "STRING" } },
+      required: ["item_ref", "text"],
+    },
+  },
+  {
+    name: "read_canvas",
+    description: "Answer what is on the canvas: the items and how many.",
+    parameters: { type: "OBJECT", properties: {} },
+  },
+];
+
+/** What the setup message is: the whole contract with the API in one object. */
+export function liveSetup(model: string = LIVE_MODEL): object {
+  return {
+    setup: {
+      model,
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        // Both sides transcribed, so the page can show what was said — and
+        // so a wrong transcript that becomes a comment is visible before it
+        // is believed.
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+      },
+      systemInstruction: {
+        parts: [
+          {
+            text:
+              "You are Voice, an agent on an isocan canvas, talking out loud with the person who owns it. " +
+              "Keep replies to a sentence: you are a voice in a room, not a report. " +
+              "When the person asks for something the canvas can do, CALL THE TOOL rather than describing it — " +
+              "the tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
+              "If a request needs real work (making a screen, writing code, judging a design), say you are " +
+              "putting it in the Chat and use `say` — a team of parked agents is listening there. " +
+              "If you cannot tell which item they mean, ask.",
+          },
+        ],
+      },
+      tools: [{ functionDeclarations: LIVE_TOOLS }],
+    },
+  };
+}
+
+/** A tool call, as a plan: the same vocabulary the typed grammar produces, so
+ * a spoken `move` and a typed one are one implementation. */
+export function planForCall(name: string, args: Record<string, unknown>): { plans: PlannedOp[]; what?: string } {
+  const ref = typeof args.item_ref === "string" ? args.item_ref : "";
+  const text = typeof args.text === "string" ? args.text : "";
+  switch (name) {
+    case "rename_item":
+      return { plans: [{ op: { type: "item.update", ref, title: String(args.title ?? "") }, said: `renamed ${ref}` }] };
+    case "delete_item":
+      return { plans: [{ op: { type: "item.delete", ref }, said: `deleted ${ref}` }] };
+    case "move_item": {
+      const by = args.by_x !== undefined || args.by_y !== undefined;
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.move",
+              ref,
+              by,
+              x: by ? Number(args.by_x ?? 0) : Number(args.to_x ?? 0),
+              y: by ? Number(args.by_y ?? 0) : Number(args.to_y ?? 0),
+            },
+            said: `moved ${ref}`,
+          },
+        ],
+      };
+    }
+    case "say":
+      return { plans: [{ op: { type: "thread.reply", body: text }, said: `said: ${text}` }] };
+    case "ask":
+      return { plans: [{ op: { type: "thread.reply", body: `? ${text}` }, said: `asked: ${text}` }] };
+    case "comment_on_item":
+      return { plans: [{ op: { type: "item.comment", ref, body: text }, said: `commented on ${ref}` }] };
+    case "read_canvas":
+      return { plans: [], what: "__read__" };
+    default:
+      return { plans: [], what: `the model called ${name}, which this harness does not have` };
+  }
+}
+
+/** What the model asked for, turned into operations the canvas can apply:
+ * a spoken reference resolved against what is actually here, and a delta
+ * turned into the absolute position `item.move` takes. A reference nobody can
+ * resolve is REFUSED in words rather than guessed at. */
+export function resolveLivePlans(plans: PlannedOp[], items: ListedItem[]): { ready: PlannedOp[]; refused: string[] } {
+  const ready: PlannedOp[] = [];
+  const refused: string[] = [];
+  for (const plan of plans) {
+    const op = { ...plan.op } as { type: string; [key: string]: unknown };
+    const ref = typeof op.ref === "string" ? op.ref : null;
+    if (ref !== null) {
+      const item = resolveSpokenRef(ref, items);
+      if (!item) {
+        refused.push(`${plan.said} — I could not tell which one “${ref}” is`);
+        continue;
+      }
+      delete op.ref;
+      op.itemId = item.id;
+      if (op.type === "item.move" && op.by === true) {
+        op.x = Number(item.x ?? 0) + Number(op.x ?? 0);
+        op.y = Number(item.y ?? 0) + Number(op.y ?? 0);
+      }
+      delete op.by;
+    }
+    if (op.type === "item.update") op.title = op.title;
+    ready.push({ op, said: plan.said });
+  }
+  return { ready, refused };
+}
+
+export interface LiveCallbacks {
+  onHeard?: (text: string) => void;
+  onText?: (text: string) => void;
+  /** The model asked for an operation. Answers with what to say back to it. */
+  onToolCall?: (name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  onAudio?: (pcm: Uint8Array) => void;
+  onState?: (state: string, bad?: boolean) => void;
+}
+
+export interface LiveSession {
+  send(pcm: Uint8Array): void;
+  close(): void;
+  readonly ready: Promise<boolean>;
+}
+
+/**
+ * **One live session.** Opened by the harness, fed by the page, and closed
+ * when either side says so. A failure is reported in the provider's own
+ * words: a key the provider rejects, a model it does not have, a quota — the
+ * message is the message, and guessing at its cause on this side is how the
+ * key panel came to refuse a real key.
+ */
+export function startLiveSession(options: {
+  key: VoiceKey;
+  model?: string;
+  callbacks?: LiveCallbacks;
+  urlFor?: (key: string) => string;
+  WebSocketImpl?: typeof WebSocket;
+}): LiveSession {
+  const Socket = options.WebSocketImpl ?? WebSocket;
+  const callbacks = options.callbacks ?? {};
+  const url = options.urlFor
+    ? options.urlFor(options.key.key)
+    : options.key.provider === "gemini"
+      ? liveUrl(options.key.key)
+      : liveUrl(options.key.key);
+  const socket = new Socket(url);
+  let settled = false;
+  let settle: (value: boolean) => void = () => {};
+  const ready = new Promise<boolean>((resolve) => {
+    settle = (value: boolean) => {
+      if (!settled) {
+        settled = true;
+        resolve(value);
+      }
+    };
+    socket.onopen = () => {
+      socket.send(JSON.stringify(liveSetup(options.model ?? LIVE_MODEL)));
+    };
+    socket.onerror = () => {
+      callbacks.onState?.("the live socket refused", true);
+      settle(false);
+    };
+    socket.onclose = () => settle(false);
+    socket.onmessage = (event: { data: unknown }) => {
+      void handleMessage(event.data);
+    };
+  });
+
+  async function handleMessage(raw: unknown): Promise<void> {
+    let text: string;
+    if (typeof raw === "string") text = raw;
+    else if (raw instanceof Uint8Array || raw instanceof ArrayBuffer) {
+      text = new TextDecoder().decode(raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw);
+    } else if (raw && typeof (raw as { text?: () => Promise<string> }).text === "function") {
+      text = await (raw as { text: () => Promise<string> }).text();
+    } else {
+      return;
+    }
+    let message: Record<string, any>;
+    try {
+      message = JSON.parse(text) as Record<string, any>;
+    } catch {
+      return;
+    }
+    if (message.error) {
+      // The provider's own words, verbatim: it is the judge of the key, the
+      // model and the quota, and a paraphrase here is how a real key came to
+      // be called invalid.
+      callbacks.onState?.(String(message.error.message ?? JSON.stringify(message.error)), true);
+      settle(false);
+      return;
+    }
+    if (message.setupComplete) {
+      callbacks.onState?.("live", false);
+      settle(true);
+      return;
+    }
+    const content = message.serverContent;
+    if (content) {
+      if (content.inputTranscription?.text) callbacks.onHeard?.(content.inputTranscription.text);
+      if (content.outputTranscription?.text) callbacks.onText?.(content.outputTranscription.text);
+      for (const part of content.modelTurn?.parts ?? []) {
+        if (part.text) callbacks.onText?.(part.text);
+        if (part.inlineData?.data) {
+          const bytes = Buffer.from(part.inlineData.data, "base64");
+          callbacks.onAudio?.(bytes);
+        }
+      }
+      if (content.interrupted) callbacks.onState?.("the model was interrupted", false);
+    }
+    if (message.toolCall?.functionCalls) {
+      const responses: Record<string, unknown>[] = [];
+      for (const call of message.toolCall.functionCalls) {
+        const answer = await (callbacks.onToolCall?.(call.name, call.args ?? {}) ?? Promise.resolve({ ok: true }));
+        responses.push({ id: call.id, name: call.name, response: answer });
+      }
+      // Function calling is synchronous: the conversation waits for this, so
+      // it carries the RESULT of the operation, not a promise of one.
+      socket.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
+    }
+  }
+
+  return {
+    send(pcm) {
+      if (socket.readyState !== 1) return;
+      socket.send(
+        JSON.stringify({
+          realtimeInput: { audio: { data: Buffer.from(pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } },
+        }),
+      );
+    },
+    close() {
+      try {
+        socket.close();
+      } catch {
+        // already gone
+      }
+    },
+    ready,
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * The standing server: the page, and the operations it sends
  * ------------------------------------------------------------------ */
 
@@ -352,6 +686,10 @@ export interface VoiceServerOptions {
    * ambient environment names. */
   daemonPort?: number;
   onLine?: (line: string) => void;
+  /** The Live model, when it is not the current default. */
+  model?: string;
+  /** The socket address, for a test that needs a local stand-in. */
+  liveUrl?: (key: string) => string;
 }
 
 export interface VoiceServerState {
@@ -393,17 +731,29 @@ async function withHome<T>(home: string, port: number | undefined, work: () => P
  * by hand speak as the same collaborator when they are given the same
  * identity.
  */
-async function handleFor(options: VoiceServerOptions): Promise<{ canvas: CanvasHandle; name: string; canvasLabel: string; mainThreadId: string | null }> {
+async function handleFor(options: VoiceServerOptions): Promise<{
+  canvas: CanvasHandle;
+  name: string;
+  actorId: string;
+  canvasLabel: string;
+  canvasId: string;
+  daemon: string;
+  mainThreadId: string | null;
+}> {
   const home = await withHome(options.home, options.daemonPort, async () =>
     connect(options.identity ? { identity: options.identity } : {}),
   );
   const canvas = await home.canvas(options.canvas);
   const threads = await canvas.threads();
   const main = threads.find((t) => t.main) ?? null;
+  const daemon = canvas.ctx.client.base;
   return {
     canvas,
     name: home.actor.name,
+    actorId: home.actor.id,
     canvasLabel: canvas.title,
+    canvasId: canvas.id,
+    daemon,
     mainThreadId: main?.id ?? null,
   };
 }
@@ -457,13 +807,37 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     options.onLine?.(line);
   };
 
+  /** Everything the page — and a check — needs to say what this harness is
+   * connected to: the canvas by title AND id, the daemon, the home it answers
+   * to, the actor and whether it is enrolled, and the provider and model the
+   * audio goes to. Paul: "I also have no clue what project or isocan service
+   * the isocan voice agent is connected to." */
+  const factsFor = async () => {
+    const stored = await readVoiceKey(home).catch(() => null);
+    const config = await readConfigFile<{ home?: string }>(home).catch(() => ({}) as { home?: string });
+    const enrolled = (await readRcAgents(home).catch(() => [])).some(
+      (row) => row.canvasId === target.canvasId && row.name === target.name && row.harness === VOICE_HARNESS,
+    );
+    return {
+      name: target.name,
+      port: options.port ?? DEFAULT_VOICE_PORT,
+      version: voiceVersion(),
+      updated: voiceUpdated(),
+      canvas: { title: target.canvasLabel, id: target.canvasId },
+      daemon: target.daemon,
+      home: config.home ?? "no home configured — the daemon's default",
+      agent: { name: target.name, id: target.actorId, enrolled },
+      provider: { name: stored?.provider ?? null, model: options.model ?? LIVE_MODEL, key: stored !== null },
+    };
+  };
+
   const server = http.createServer((req, res) => {
     const respond = (code: number, body: unknown, type = "application/json") => {
       const payload = type === "application/json" ? JSON.stringify(body) : body;
       res.writeHead(code, { "Content-Type": type, "Cache-Control": "no-store" });
       res.end(payload);
     };
-    const readBody = async (): Promise<Record<string, unknown>> => {
+    const readBody = async (): Promise<Record<string, unknown> | string> => {
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of req) {
@@ -477,6 +851,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (raw.length === 0) return {};
       const text = raw.toString("utf8");
       if (text.trimStart().startsWith("{")) return JSON.parse(text) as Record<string, unknown>;
+      if (text.trimStart().startsWith('"')) return JSON.parse(text) as string;
       return { raw };
     };
     const guard = (work: () => Promise<void>) => {
@@ -485,21 +860,24 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     void (async () => {
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${options.port || DEFAULT_VOICE_PORT}`);
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
-        const stored = await readVoiceKey(home).catch(() => null);
-        respond(
-          200,
-          voicePage({
-            name: target.name,
-            canvas: target.canvasLabel,
-            key: stored ? { provider: stored.provider } : null,
-            port: options.port ?? DEFAULT_VOICE_PORT,
-          }),
-          "text/html; charset=utf-8",
-        );
+        respond(200, voicePage(await factsFor()), "text/html; charset=utf-8");
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/connection") {
+        // Machine-readable, because "what is this agent connected to" is a
+        // question a check should be able to ask without a screenshot.
+        respond(200, await factsFor());
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/favicon.ico") {
+        // A browser asks by itself. Answering 405 made the console look broken
+        // for a page that is working.
+        res.writeHead(204, { "Cache-Control": "no-store" });
+        res.end();
         return;
       }
       if (req.method === "GET" && url.pathname === "/state") {
-        respond(200, { name: target.name, canvas: target.canvasLabel, lines });
+        respond(200, { ...(await factsFor()), lines });
         return;
       }
       if (req.method !== "POST") {
@@ -508,22 +886,21 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       }
       const body = await readBody();
       if (url.pathname === "/key") {
-        if (body.forget === true) {
+        if (typeof body === "object" && body.forget === true) {
           await forgetVoiceKey(home);
           narrate("key forgotten");
           respond(200, { provider: null });
           return;
         }
-        const key = String(body.key ?? "").trim();
+        // Either shape: the form posts `{key, provider}`, and a bare string is
+        // tolerated because a hand-made request is not a mistake worth a 400.
+        const posted: Record<string, unknown> = typeof body === "string" ? { key: body } : body;
+        const key = String(posted.key ?? "").trim();
         if (!key) {
           respond(400, { error: "no key in that body" });
           return;
         }
-        const provider = providerFor(key, typeof body.provider === "string" ? body.provider : undefined);
-        if (!provider) {
-          respond(400, { error: "that does not look like a Gemini (AIza…) or OpenAI (sk-…) key — name the provider if it is one anyway" });
-          return;
-        }
+        const provider = providerFor(key, typeof posted["provider"] === "string" ? (posted["provider"] as string) : undefined);
         await writeVoiceKey(home, { provider, key });
         narrate(`key stored for ${provider}`);
         respond(200, { provider, path: voiceKeyFile(home) });
@@ -535,7 +912,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           respond(200, { text: "", reason: "no key stored, so the harness cannot transcribe — set one in the panel, or use the browser's own recogniser" });
           return;
         }
-        const wav = body.wav;
+        const wav = typeof body === "string" ? undefined : body.wav;
         if (!(wav instanceof Buffer) && !(wav instanceof Uint8Array)) {
           respond(400, { error: "expected raw audio bytes" });
           return;
@@ -544,15 +921,16 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const out = await transcribe({
           wav: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
           key: stored,
-          ...(typeof body.model === "string" ? { model: body.model } : {}),
+          ...(typeof body === "object" && typeof body.model === "string" ? { model: body.model } : {}),
         });
         narrate(`heard (${out.provider}): ${out.text || "nothing"}`);
         respond(200, { text: out.text, provider: out.provider });
         return;
       }
       if (url.pathname === "/utterance") {
-        const text = String(body.text ?? "");
-        const source = String(body.source ?? "spoken");
+        const asObject = typeof body === "string" ? {} : body;
+        const text = String(asObject.text ?? "");
+        const source = String(asObject.source ?? "spoken");
         const items = await target.canvas.items();
         const ctx: PlanContext = { items, mainThreadId: target.mainThreadId };
         const { plans, what } = planVoice(text, ctx);
@@ -578,8 +956,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (url.pathname === "/summons") {
-        const who = String(body.name ?? "an agent");
-        const prompt = String(body.prompt ?? "");
+        const summons = typeof body === "string" ? {} : body;
+        const who = String(summons.name ?? "an agent");
+        const prompt = String(summons.prompt ?? "");
         narrate(`summoned by ${who}: ${prompt.slice(0, 300)}`);
         respond(200, { lines });
         return;
@@ -588,6 +967,77 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       return;
     })().catch(() => {});
     void guard;
+  });
+
+  /**
+   * **The live door.** The page streams 16 kHz PCM here; this process holds
+   * the provider socket and the key. Everything the model does comes back
+   * through the callbacks below, and a tool call is answered with the RESULT
+   * of the operation because function calling is synchronous.
+   */
+  const live = new WebSocketServer({ server, path: "/live" });
+  live.on("connection", (page: NodeSocket) => {
+    const say = (message: unknown) => {
+      if (page.readyState === page.OPEN) page.send(JSON.stringify(message));
+    };
+    void (async () => {
+      const stored = await readVoiceKey(home).catch((err) => {
+        say({ state: String((err as Error).message), bad: true });
+        return null;
+      });
+      if (!stored) {
+        say({
+          state: "no key stored — set one in the panel and the microphone will use the Live API",
+          bad: true,
+        });
+        return;
+      }
+      const session = startLiveSession({
+        key: stored,
+        ...(options.model ? { model: options.model } : {}),
+        ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
+        callbacks: {
+          onState: (state: string, bad?: boolean) => say({ state, bad }),
+          onHeard: (text: string) => say({ heard: text }),
+          onText: (text: string) => say({ text }),
+          onAudio: (pcm: Uint8Array) => {
+            if (page.readyState === page.OPEN) page.send(pcm);
+          },
+          onToolCall: async (name, args) => {
+            const items = await target.canvas.items();
+            const plan = planForCall(name, args as Record<string, unknown>);
+            if (plan.what === "__read__") {
+              const answer = describeCanvas({ items, mainThreadId: target.mainThreadId });
+              say({ text: answer });
+              return { ok: true, canvas: answer };
+            }
+            const { ready, refused } = resolveLivePlans(plan.plans, items);
+            const sent: string[] = [];
+            const failed: string[] = [...refused];
+            for (const one of ready) {
+              try {
+                await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId });
+                sent.push(one.said);
+                narrate(`sent: ${one.said}`);
+              } catch (err) {
+                failed.push(`${one.said} — ${(err as Error).message}`);
+                narrate(`refused: ${one.said} — ${(err as Error).message}`);
+              }
+            }
+            say({ sent, failed, state: failed.length ? "some operations were refused" : "live", bad: failed.length > 0 });
+            return { ok: failed.length === 0, ...(failed.length ? { failed } : {}), ...(plan.what ? { note: plan.what } : {}) };
+          },
+        },
+      });
+      page.on("message", (data: Buffer, isBinary: boolean) => {
+        if (isBinary || Buffer.isBuffer(data)) session.send(new Uint8Array(data as Buffer));
+      });
+      page.on("close", () => session.close());
+      const ok = await session.ready;
+      if (!ok && page.readyState === page.OPEN) {
+        say({ state: "the Live session did not open — the provider's own message is above", bad: true });
+      }
+    })().catch((err) => say({ state: String((err as Error).message ?? err), bad: true }));
   });
 
   const port = options.port ?? DEFAULT_VOICE_PORT;
@@ -807,6 +1257,34 @@ async function startDetachedServer(options: { home: string; name: string; canvas
     await new Promise((r) => setTimeout(r, 150));
   }
   return null;
+}
+
+/**
+ * **Which build is running, and when the code behind it was last written.**
+ * The evening's confusion was not knowing whether the page in front of you was
+ * the old one or the new one, and a page that cannot answer that is a page
+ * somebody tests the wrong version of. The version is the CLI's own; the time
+ * is the newest modification of this feature's source, read from disk, so it
+ * says when the RUNNING code was written rather than when it was released.
+ */
+function voiceVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(path.join(here, "..", "package.json"), "utf8")) as { version?: string };
+    return pkg.version ?? "unreleased";
+  } catch {
+    return "unreleased";
+  }
+}
+
+function voiceUpdated(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const files = ["voice-harness.ts", "voice-harness-page.ts"].map((name) => statSync(path.join(here, name)).mtimeMs);
+    return new Date(Math.max(...files)).toISOString().replace("T", " ").slice(0, 16) + "Z";
+  } catch {
+    return "unknown";
+  }
 }
 
 /** `~/.isocan` for the process, the way every other CLI command finds it. */

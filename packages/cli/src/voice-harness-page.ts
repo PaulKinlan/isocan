@@ -22,16 +22,32 @@
  * plus the operations it sent. The page never reaches a provider itself.
  */
 
-/** What the page is told at render time — the facts it cannot ask for. */
+/** What the page is told at render time — the facts it cannot ask for, and
+ * the ones a person asks first: what is this connected to? */
 export interface VoicePageFacts {
   /** The harness's name, for the header. */
   name: string;
-  /** The canvas the operations will land on, as a person would say it. */
-  canvas: string;
-  /** Whether a key is already stored, and which provider it is for. */
-  key: { provider: string } | null;
   /** The port, so the page can talk to its own harness. */
   port: number;
+  /** The canvas operations land on: the title a person says, and the id a
+   * bug report needs. */
+  canvas: { title: string; id: string };
+  /** The daemon this answers to. */
+  daemon: string;
+  /** The isocan home the daemon is bound to — "which service is this?" */
+  home: string;
+  /** Who the operations are attributed to, and whether anything can summon
+   * them: a microphone speaking under a name is not the same as an enrolled
+   * agent, and the difference used to be in a log. */
+  agent: { name: string; id: string; enrolled: boolean };
+  /** Where the audio goes: which provider, which model, and whether a key is
+   * present. Never the key. */
+  provider: { name: string | null; model: string; key: boolean };
+  /** Which build is running, and when the code behind it was last written —
+   * because the confusion this evening was not knowing whether the page in
+   * front of you was the old one or the new one. */
+  version: string;
+  updated: string;
 }
 
 /**
@@ -46,16 +62,15 @@ export interface VoicePageFacts {
  */
 const PAGE_SCRIPT = String.raw`
 const facts = JSON.parse(document.getElementById("facts").textContent);
-
 const slot = document.getElementById("mic-slot");
 
 const els = {
-  meter: document.getElementById("meter"),
   bars: document.getElementById("bars"),
-  slot: document.getElementById("mic-slot"),
   stop: document.getElementById("stop"),
   state: document.getElementById("state"),
   capture: document.getElementById("capture"),
+  skipped: document.getElementById("skipped"),
+  meterState: document.getElementById("meter-state"),
   transcript: document.getElementById("transcript"),
   log: document.getElementById("log"),
   text: document.getElementById("typed"),
@@ -68,13 +83,15 @@ const els = {
   version: document.getElementById("version"),
 };
 
-/* 64 bars is a wall of pixels at this size; 28 reads as a meter. */
 const BARS = 28;
-for (let i = 0; i < BARS; i++) {
-  const bar = document.createElement("i");
-  els.bars.appendChild(bar);
-}
+for (let i = 0; i < BARS; i++) els.bars.appendChild(document.createElement("i"));
 const bars = Array.from(els.bars.children);
+
+const browser = (() => {
+  const m = navigator.userAgent.match(/(HeadlessChrome|Chrome)\/([\d.]+)/);
+  return m ? m[1] + " " + m[2] : navigator.userAgent;
+})();
+els.version.textContent = browser;
 
 function say(where, text, kind) {
   const line = document.createElement("div");
@@ -83,222 +100,15 @@ function say(where, text, kind) {
   where.prepend(line);
   while (where.children.length > 40) where.lastChild.remove();
 }
-
 function status(text, kind) {
   els.state.textContent = text;
   els.state.className = "state " + (kind ?? "");
 }
-
-/* ---- capture: microphone, then usermedia, then getUserMedia ---- */
-
-/*
- * **What Chrome 152 actually does**, measured on this machine (the probe is in
- * 'scripts/voice-evidence.mjs''s run and in the project doc):
- *
- * - 'HTMLMicrophoneElement' is undefined; 'HTMLUserMediaElement' is a function.
- * - '<usermedia>' WORKS, and it takes all three of: no custom styling (a
- *   styled one fails with 'InvalidStateError: The permission element is
- *   disabled due to: invalid style'), 'setConstraints' given a
- *   'MediaTrackConstraintSet' — '{}' — rather than '{audio: true}' (which
- *   throws "Value is not of type MediaTrackConstraintSet"), and a REAL user
- *   gesture ON THE ELEMENT. A click on some other button is not it.
- *
- * Which is why the element IS the microphone button. There is no styled
- * affordance to click: the browser's own capture element is the affordance,
- * the permission prompt is its own, and this page puts it in the dock and
- * listens to 'onstream'. A browser without it gets a styled button and
- * 'getUserMedia', which needs no gesture on any particular element.
- */
-
-const CAPTURE = [
-  { name: "microphone", tag: "microphone", available: () => typeof window.HTMLMicrophoneElement === "function" },
-  { name: "usermedia", tag: "usermedia", available: () => typeof window.HTMLUserMediaElement === "function" },
-  {
-    name: "getUserMedia",
-    tag: null,
-    available: () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
-  },
-];
-
-let capturePath = null;
-function pickCapture() {
-  if (capturePath) return capturePath;
-  for (const path of CAPTURE) {
-    if (path.available()) {
-      capturePath = path;
-      return path;
-    }
-  }
-  return null;
+function meterState(text) {
+  els.meterState.textContent = text;
 }
 
-async function streamFor(path) {
-  if (path.tag === null) {
-    return await navigator.mediaDevices.getUserMedia({ audio: true });
-  }
-  const el = document.createElement(path.tag);
-  const stream = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("<" + path.tag + "> never handed a stream")), 20000);
-    el.onstream = () => { clearTimeout(timer); resolve(el.stream); };
-    el.onerror = () => {
-      clearTimeout(timer);
-      const why = el.error ? el.error.name + ": " + el.error.message : "no stream and no reason given";
-      reject(new Error("<" + path.tag + "> refused: " + why));
-    };
-  });
-  // In, THEN armed, and the order is the browser's: an element that has just
-  // been attached to the layout tree is "recently attached" and refuses its
-  // constraints (measured on Chrome 152), so it is laid out first and armed on
-  // the next frame.
-  slot.append(el);
-  await new Promise((next) => requestAnimationFrame(() => next(null)));
-  el.setConstraints({});
-  return { stream: await stream, element: el };
-}
-
-/* The element is the button; the fallback is a button. */
-function armCapture() {
-  const path = pickCapture();
-  slot.replaceChildren();
-  els.capture.textContent =
-    path === null
-      ? "capture path: none available in this browser"
-      : "capture path: " + (path.tag ? "<" + path.tag + "> element" : "getUserMedia") + " · " + browser;
-  if (path === null) {
-    status("no microphone path in this browser", "warn");
-    return;
-  }
-  if (path.tag === null) {
-    const button = document.createElement("button");
-    button.id = "mic";
-    button.textContent = "🎙";
-    button.onclick = () => start();
-    slot.append(button);
-    return;
-  }
-  // Unstyled on purpose: the UA draws this, and custom CSS disables it.
-  void start();
-}
-
-async function start(attempt) {
-  const path = pickCapture();
-  if (!path) return;
-  els.capture.textContent = "capture path: " + (path.tag ? "<" + path.tag + ">" : "getUserMedia") + " · " + browser;
-  try {
-    const got = path.tag === null ? { stream: await streamFor(path), element: null } : await streamFor(path);
-    const stream = got.stream;
-    if (audio) { cancelAnimationFrame(audio.raf); try { audio.ctx.close(); } catch {} }
-    audio = meterFrom(stream);
-    stream.getAudioTracks()[0]?.addEventListener("ended", () => stop());
-    recording = stream;
-    startRecording(audio);
-    listening = true;
-    els.stop.hidden = false;
-    els.capture.textContent = "capturing — " + (path.tag ? "<" + path.tag + "> element" : "getUserMedia") + " · " + browser;
-    status("listening — stop to send", "live");
-  } catch (err) {
-    const why = String(err.message || err);
-    // A refused declaration is not a dead end, and it must not need a second
-    // click: the element path is tried, its refusal is REPORTED ON THE PAGE,
-    // and the next rung runs in the same gesture.
-    if (path.tag !== null && !attempt) {
-      capturePath = CAPTURE[2];
-      els.capture.textContent = "<" + path.tag + "> refused (" + why + ") — using getUserMedia · " + browser;
-      status("falling back to getUserMedia", "busy");
-      await start(true);
-      return;
-    }
-    els.capture.textContent = (path.tag ? "<" + path.tag + ">" : "getUserMedia") + " refused: " + why;
-    status("the microphone refused", "warn");
-  }
-}
-
-const browser = (() => {
-  const m = navigator.userAgent.match(/(HeadlessChrome|Chrome)\/([\d.]+)/);
-  return m ? m[1] + " " + m[2] : navigator.userAgent;
-})();
-els.version.textContent = browser;
-els.capture.textContent = "capture path: not started yet";
-
-/* ---- the meter, and the recording behind it ---- */
-
-let audio = null;      // { stream, ctx, analyser, data, raf }
-let recorder = null;   // { processor, chunks, sampleRate, started }
-let recording = null;  // the live MediaStream, while capture runs
-let listening = false;
-
-function meterFrom(stream) {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = ctx.createMediaStreamSource(stream);
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = 2048;
-  source.connect(analyser);
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  const state = { stream, ctx, analyser, data, raf: 0, peak: 0 };
-  const draw = () => {
-    analyser.getByteTimeDomainData(data);
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
-    const rms = Math.sqrt(sum / data.length);
-    state.peak = Math.max(state.peak, rms);
-    const lit = Math.round(Math.min(1, rms * 6) * BARS);
-    bars.forEach((bar, i) => { bar.className = i < lit ? "on" : ""; });
-    state.raf = requestAnimationFrame(draw);
-  };
-  draw();
-  return state;
-}
-
-/* PCM straight off the graph, so the WAV the harness gets is the audio the
-   meter is showing — one capture, not two. */
-function startRecording(state) {
-  const ctx = state.ctx;
-  const processor = ctx.createScriptProcessor(4096, 1, 1);
-  const sink = ctx.createGain();
-  sink.gain.value = 0;
-  const chunks = [];
-  processor.onaudioprocess = (e) => {
-    chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-  };
-  const source = ctx.createMediaStreamSource(state.stream);
-  source.connect(processor);
-  processor.connect(sink);
-  sink.connect(ctx.destination);
-  recorder = { processor, chunks, sampleRate: ctx.sampleRate, started: Date.now(), source, sink };
-}
-
-function stopRecording() {
-  if (!recorder) return null;
-  const { processor, chunks, sampleRate, source, sink } = recorder;
-  recorder = null;
-  processor.onaudioprocess = null;
-  try { source.disconnect(); processor.disconnect(); sink.disconnect(); } catch {}
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  if (total === 0) return null;
-  const samples = new Float32Array(total);
-  let at = 0;
-  for (const c of chunks) { samples.set(c, at); at += c.length; }
-  return { samples, sampleRate, seconds: total / sampleRate };
-}
-
-function wav(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-  const text = (offset, s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
-  text(0, "RIFF"); view.setUint32(4, 36 + samples.length * 2, true); text(8, "WAVE");
-  text(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-  text(36, "data"); view.setUint32(40, samples.length * 2, true);
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return new Blob([view], { type: "audio/wav" });
-}
-
-/* ---- talking to the harness on loopback ---- */
+/* ---- the harness on loopback ---- */
 
 async function post(path, body) {
   const r = await fetch(path, {
@@ -326,75 +136,309 @@ async function send(utterance, source) {
     status("the harness refused that", "warn");
   }
 }
-
 els.send.onclick = () => { const t = els.text.value; els.text.value = ""; void send(t, "typed"); };
 els.text.onkeydown = (e) => { if (e.key === "Enter") els.send.onclick(); };
 
-/* ---- stopping: the recorded audio goes to the harness ---- */
+/* ---- capture ---- */
+
+/*
+ * <microphone> when a browser has it; getUserMedia({audio: true, video: false})
+ * otherwise. <usermedia> is deliberately NOT a rung: it requests camera AND
+ * microphone together, and an audio feature must not prompt for a camera.
+ * The getUserMedia path is therefore the PRIMARY path, not a fallback, and its
+ * control is always on the page — a slot that fills only on browsers with the
+ * declarative element leaves a person with nothing to press.
+ */
+const CAPTURE = [
+  { name: "microphone", tag: "microphone", available: () => typeof window.HTMLMicrophoneElement === "function" },
+  { name: "getUserMedia", tag: null, available: () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) },
+];
+const SKIPPED = typeof window.HTMLUserMediaElement === "function"
+  ? "<usermedia> skipped on purpose: it asks for camera and microphone together."
+  : "";
+
+let capturePath = null;
+let listening = false;
+let audio = null;
+let live = null;
+
+function pickCapture() {
+  if (capturePath) return capturePath;
+  for (const path of CAPTURE) if (path.available()) { capturePath = path; return path; }
+  return null;
+}
+
+async function elementStream(tag) {
+  const el = document.createElement(tag);
+  const stream = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("<" + tag + "> never handed a stream")), 15000);
+    el.onstream = () => { clearTimeout(timer); resolve(el.stream); };
+    el.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("<" + tag + "> refused: " + (el.error ? el.error.name + ": " + el.error.message : "no reason given")));
+    };
+  });
+  slot.append(el);
+  await new Promise((next) => requestAnimationFrame(() => next(null)));
+  el.setConstraints({});
+  return { stream: await stream, element: el };
+}
+
+function meterFrom(stream) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = ctx.createMediaStreamSource(stream);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const state = { stream, ctx, analyser, data, raf: 0, peak: 0, level: 0, peakBar: 0 };
+  const draw = () => {
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+    const instant = Math.min(1, Math.sqrt(sum / data.length) * 6);
+    state.level = instant > state.level ? instant : state.level * 0.94;
+    state.peak = Math.max(state.peak, instant);
+    const lit = Math.round(state.level * BARS);
+    state.peakBar = Math.max(state.peakBar, Math.round(state.peak * BARS));
+    bars.forEach((bar, i) => {
+      const on = i < lit;
+      const held = i === state.peakBar - 1 && state.peakBar > lit;
+      bar.className = on ? "on" : held ? "peak" : "";
+    });
+    state.raf = requestAnimationFrame(draw);
+  };
+  draw();
+  return state;
+}
+
+const WORKLET_SOURCE = [
+  "class Capture extends AudioWorkletProcessor {",
+  "  process(inputs) {",
+  "    const channel = inputs[0] && inputs[0][0];",
+  "    if (channel && channel.length) this.port.postMessage(new Float32Array(channel));",
+  "    return true;",
+  "  }",
+  "}",
+  "registerProcessor('capture', Capture);",
+].join("\n");
+const WORKLET_URL = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "application/javascript" }));
+
+function resample16k(frames, from, carry) {
+  const ratio = from / 16000;
+  const input = carry.concat(frames);
+  const out = new Int16Array(Math.max(0, Math.floor((input.length - 1) / ratio)));
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio;
+    const low = Math.floor(pos);
+    const frac = pos - low;
+    const sample = input[low] * (1 - frac) + (input[low + 1] ?? input[low]) * frac;
+    out[i] = Math.max(-1, Math.min(1, sample)) * 32767;
+  }
+  return { pcm: out, rest: input.slice(Math.floor(out.length * ratio)) };
+}
+
+let player = null;
+function playPcm(bytes, rate) {
+  const ctx = player ? player.ctx : (player = { ctx: new (window.AudioContext || window.webkitAudioContext)(), next: 0 }).ctx;
+  const samples = new Float32Array(bytes.length / 2);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+  const buffer = ctx.createBuffer(1, samples.length, rate);
+  buffer.copyToChannel(samples, 0);
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  const at = Math.max(ctx.currentTime, player.next);
+  source.start(at);
+  player.next = at + buffer.duration;
+}
+
+function flatten(chunks) {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const chunk of chunks) { out.set(chunk, at); at += chunk.length; }
+  return out;
+}
+
+function wav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const text = (offset, s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
+  text(0, "RIFF"); view.setUint32(4, 36 + samples.length * 2, true); text(8, "WAVE");
+  text(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  text(36, "data"); view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([view], { type: "audio/wav" });
+}
+
+/* The control is built once, and it is always here. */
+function armCapture() {
+  const path = pickCapture();
+  slot.replaceChildren();
+  els.capture.textContent = path === null
+    ? "capture: no microphone API in this browser"
+    : "capture: " + (path.tag ? "<" + path.tag + "> element" : "getUserMedia, audio only") + " · " + browser;
+  if (SKIPPED) els.skipped.textContent = SKIPPED;
+  const button = document.createElement("button");
+  button.id = "mic";
+  button.textContent = "🎙 Listen";
+  button.onclick = () => void start();
+  slot.append(button);
+  if (path && path.tag) void start();
+}
+
+async function start() {
+  if (listening) return;
+  const path = pickCapture();
+  if (!path) { status("no microphone API in this browser", "warn"); return; }
+  meterState("asking for the microphone…");
+  let stream;
+  try {
+    if (path.tag) {
+      ({ stream } = await elementStream(path.tag));
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+  } catch (err) {
+    const why = String(err.message || err);
+    if (path.tag) {
+      // The declarative element can refuse; the JS path is right there.
+      capturePath = CAPTURE.find((p) => p.tag === null) ?? null;
+      els.capture.textContent = "<" + path.tag + "> refused (" + why + ") — using getUserMedia, audio only · " + browser;
+      return start();
+    }
+    els.capture.textContent = "getUserMedia refused: " + why;
+    status("the microphone refused", "warn");
+    meterState("no microphone");
+    return;
+  }
+
+  if (audio) { cancelAnimationFrame(audio.raf); try { audio.ctx.close(); } catch {} }
+  audio = meterFrom(stream);
+  const rate = audio.ctx.sampleRate;
+  const session = { stream, rate, carry: [], frames: [], opened: false, socket: null, node: null, source: null, sink: null };
+  live = session;
+
+  try {
+    await audio.ctx.audioWorklet.addModule(WORKLET_URL);
+    const node = new AudioWorkletNode(audio.ctx, "capture");
+    const sink = audio.ctx.createGain();
+    sink.gain.value = 0;
+    const source = audio.ctx.createMediaStreamSource(stream);
+    source.connect(node);
+    node.connect(sink);
+    sink.connect(audio.ctx.destination);
+    session.node = node; session.sink = sink; session.source = source;
+    node.port.onmessage = (event) => {
+      session.frames.push(event.data);
+      if (session.frames.length > 1200) session.frames.shift();
+      if (session.socket && session.socket.readyState === WebSocket.OPEN) {
+        const { pcm, rest } = resample16k([event.data], rate, session.carry);
+        session.carry = rest;
+        if (pcm.length) session.socket.send(pcm.buffer);
+      }
+    };
+  } catch (err) {
+    // No worklet here: the meter still works, and the one-shot path still does.
+    say(els.transcript, "capture graph fell back to the analyser only — " + String(err.message || err), "note");
+  }
+
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(scheme + "://" + location.host + "/live");
+  session.socket = socket;
+  socket.onopen = () => {
+    session.opened = true;
+    say(els.transcript, "live session open — the harness holds the key and the socket", "note");
+  };
+  socket.onmessage = (event) => {
+    if (typeof event.data !== "string") { playPcm(new Uint8Array(event.data), 24000); return; }
+    let message = {};
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.text) say(els.transcript, message.text, "agent");
+    if (message.heard) say(els.transcript, message.heard, "you spoken");
+    for (const line of message.sent || []) say(els.log, line, "op");
+    for (const line of message.failed || []) say(els.log, line, "bad");
+    if (message.state) status(message.state, message.bad ? "warn" : "");
+  };
+  socket.onclose = () => { if (listening) status("the live session closed", "warn"); };
+  socket.onerror = () => status("the live socket could not open — is the harness still running?", "warn");
+
+  listening = true;
+  els.stop.hidden = false;
+  status("listening", "live");
+  meterState("listening — say something, then stop");
+}
 
 async function stop() {
   if (!listening) return;
   listening = false;
   els.stop.hidden = true;
-  if (recording) recording.getTracks().forEach((t) => t.stop());
-  recording = null;
-  const captured = stopRecording();
-  if (!captured) {
-    status("nothing was captured", "warn");
-    return;
+  const session = live;
+  live = null;
+  if (session) {
+    try { session.node && session.node.disconnect(); session.source && session.source.disconnect(); session.sink && session.sink.disconnect(); } catch {}
+    try { session.socket && session.socket.close(); } catch {}
+    session.stream.getTracks().forEach((t) => t.stop());
   }
-  say(els.transcript, "listening stopped — " + captured.seconds.toFixed(1) + "s of audio", "note");
-  status("transcribing…", "busy");
-  try {
-    const out = await post("/audio", {
-      wav: await wav(captured.samples, captured.sampleRate).arrayBuffer(),
-      sampleRate: captured.sampleRate,
-    });
-    status("ready");
-    if (out.text) await send(out.text, "spoken");
-    else status(out.reason || "nothing was heard", "warn");
-  } catch (err) {
-    status(String(err.message || err), "warn");
+  const seconds = session ? (session.frames.reduce((n, c) => n + c.length, 0) / (session.rate || 48000)).toFixed(1) : "0";
+  meterState("captured " + seconds + "s");
+  say(els.transcript, "listening stopped — " + seconds + "s of audio", "note");
+  status("ready");
+  if (session && !session.opened && session.frames.length) {
+    // The socket never opened — no key, or the provider refused it. The audio
+    // is still here, so the one-shot path runs rather than losing the take,
+    // and whatever the provider says is said verbatim.
+    meterState("transcribing " + seconds + "s…");
+    try {
+      const out = await post("/audio", {
+        wav: await wav(flatten(session.frames), session.rate).arrayBuffer(),
+        sampleRate: session.rate,
+      });
+      if (out.text) await send(out.text, "spoken");
+      else status(out.reason || out.error || "nothing was heard", "warn");
+    } catch (err) {
+      status(String(err.message || err), "warn");
+    }
   }
 }
-
 els.stop.onclick = () => void stop();
 
 /* ---- the key ---- */
 
-els.keyState.textContent = facts.key ? "a " + facts.key.provider + " key is stored" : "no key stored";
-els.provider.value = facts.key ? facts.key.provider : "";
-
+els.keyState.textContent = facts.provider.key ? "a " + facts.provider.name + " key is stored" : "no key stored yet";
+els.provider.value = facts.provider.name ?? "";
 els.saveKey.onclick = async () => {
   const key = els.key.value.trim();
   if (!key) return;
   try {
-    const out = await post("/key", { key });
-    els.key.value = "";           /* never left in the DOM */
+    const out = await post("/key", { key, provider: els.provider.value || undefined });
+    els.key.value = "";
     els.keyState.textContent = "a " + out.provider + " key is stored (" + out.path + ")";
     say(els.log, "key stored by the harness: " + out.provider, "note");
   } catch (err) {
     els.keyState.textContent = String(err.message || err);
   }
 };
-
 els.forgetKey.onclick = async () => {
   try {
     await post("/key", { forget: true });
     els.keyState.textContent = "no key stored";
-    els.key.value = "";
   } catch (err) {
     els.keyState.textContent = String(err.message || err);
   }
 };
 
-/* The dock is built last, once every element it needs exists — and the capture
-   ladder is walked HERE, after the document has settled. Not before: a
-   declarative element that is armed while the page is still laying out
-   refuses with "recently attached to layout tree, intersection with viewport
-   changed" (measured on Chrome 152), which is a race, not a permission. */
-if (document.readyState === "complete") armCapture();
-else window.addEventListener("load", () => armCapture());
+meterState("idle — press Listen");
+armCapture();
+
 `;
 
 /** The whole page. `facts` travels as JSON in a script tag, so the script
@@ -427,10 +471,39 @@ export function voicePage(facts: VoicePageFacts): string {
     color: var(--ink);
     font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
     display: grid;
-    grid-template-columns: 1fr 320px;
-    grid-template-rows: auto 1fr;
+    /* minmax(0, …) rather than 1fr: a grid track's default minimum is its
+       content's min-content width, so one long placeholder or a wide ops line
+       pushes the second column off the window. Measured: the key panel was
+       clipped by the viewport edge in all three evidence screenshots. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 18px;
     padding: 22px 26px 26px;
+  }
+  main, aside, .panel { min-width: 0; }
+  input, select, button { min-width: 0; }
+  /*
+   * Narrow screens: ONE column, everything full width, nothing competing for
+   * room. Paul: "the ui is terrible on a narrower screen" — the two-column
+   * layout had no breakpoint, so the key panel was squeezed and the meter
+   * fought it for width. The order matters too: what this is connected to,
+   * then the microphone, then the key — and the microphone row wraps rather
+   * than shrinking the bars.
+   */
+  @media (max-width: 820px) {
+    body {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      padding: 16px 14px 20px;
+      gap: 14px;
+    }
+    main { order: 2; }
+    aside { order: 1; display: grid; grid-template-columns: minmax(0, 1fr); overflow: visible; }
+    aside > .panel { }
+    .dock { flex-wrap: wrap; row-gap: 10px; }
+    #meter { min-width: 100%; }
+    #bars { height: 40px; }
+    #mic-slot { min-width: 96px; }
   }
   header { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 14px; }
   header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .2px; }
@@ -465,7 +538,7 @@ export function voicePage(facts: VoicePageFacts): string {
   .line.bad { color: var(--bad); }
   .line.bad::before { content: "refused "; color: var(--dim); }
   #log { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
-  aside { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+  aside { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
   .keyrow { display: flex; gap: 8px; }
   input[type=text], input[type=password], select {
     background: var(--ground); border: 1px solid var(--line); color: var(--ink);
@@ -477,7 +550,12 @@ export function voicePage(facts: VoicePageFacts): string {
   }
   button:hover { border-color: var(--accent-lit); }
   button.primary { background: var(--accent); border-color: var(--accent); }
-  .hint { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 8px; overflow-wrap: anywhere; }
+  .facts { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; font-size: 12.5px; }
+  .facts dt { color: var(--dim); }
+  .facts dd { margin: 0; overflow-wrap: anywhere; }
+  .facts .id { color: var(--dim); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+  .facts .warn { color: var(--bad); }
   .composer { display: flex; gap: 8px; }
   /*
    * The mic sits bottom-left, where a thumb and a habit both expect it — and
@@ -491,6 +569,7 @@ export function voicePage(facts: VoicePageFacts): string {
    */
   .dock { display: flex; align-items: center; gap: 14px; padding: 2px 0 0; }
   #mic-slot { min-width: 280px; }
+  #meter { flex: 1; min-width: 220px; }
   #mic-slot button {
     width: 76px; height: 60px; border-radius: 50%; font-size: 30px; line-height: 1;
     display: grid; place-items: center; padding: 0;
@@ -506,13 +585,17 @@ export function voicePage(facts: VoicePageFacts): string {
   #bars i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); transition: height .05s linear, background .05s linear; }
   #bars i.on { height: 30px; background: linear-gradient(180deg, var(--accent-lit), var(--accent)); }
   #bars i.on:nth-child(n+22) { background: linear-gradient(180deg, #f0a0a0, var(--bad)); }
+  /* The held peak: the loudest frame since capture started, so a quiet moment
+     still says how loud it got. */
+  #bars i.peak { height: 22px; background: var(--live); }
   #capture, #version { color: var(--dim); font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #meter-state { color: var(--ink); font-size: 12.5px; }
 </style>
 </head>
 <body>
 <header>
   <h1>isocan voice</h1>
-  <span class="canvas">${escapeHtml(facts.canvas)}</span>
+  <span class="canvas">${escapeHtml(facts.canvas.title)}</span>
   <span class="spacer"></span>
   <span id="state" class="state">ready</span>
 </header>
@@ -535,6 +618,7 @@ export function voicePage(facts: VoicePageFacts): string {
     <div id="mic-slot"></div>
     <div id="meter">
       <div id="bars"></div>
+      <div id="meter-state">idle — press Listen</div>
       <div id="version"></div>
     </div>
     <button id="stop" hidden>Stop &amp; send</button>
@@ -542,6 +626,17 @@ export function voicePage(facts: VoicePageFacts): string {
 </main>
 
 <aside>
+  <section class="panel">
+    <h2>Connected to</h2>
+    <dl class="facts">
+      <dt>Canvas</dt><dd>${escapeHtml(facts.canvas.title)} <span class="id">${escapeHtml(facts.canvas.id)}</span></dd>
+      <dt>Daemon</dt><dd>${escapeHtml(facts.daemon)}</dd>
+      <dt>Home</dt><dd>${escapeHtml(facts.home)}</dd>
+      <dt>Agent</dt><dd>${escapeHtml(facts.agent.name)} <span class="id">${escapeHtml(facts.agent.id)}</span>${facts.agent.enrolled ? "" : " <span class=\"warn\">not enrolled — nothing can summon it</span>"}</dd>
+      <dt>Audio</dt><dd>${escapeHtml(facts.provider.name ?? "no provider yet")} ${escapeHtml(facts.provider.model)}${facts.provider.key ? "" : " — no key stored"}</dd>
+      <dt>Version</dt><dd>${escapeHtml(facts.version)} <span class="id">updated ${escapeHtml(facts.updated)}</span></dd>
+    </dl>
+  </section>
   <section class="panel">
     <h2>Key — kept by the harness, never by this page</h2>
     <select id="provider">
@@ -561,6 +656,7 @@ export function voicePage(facts: VoicePageFacts): string {
   <section class="panel">
     <h2>Microphone</h2>
     <div id="capture">capture path: not started yet</div>
+    <div class="hint" id="skipped"></div>
     <div class="hint">Preferred order: <code>&lt;microphone&gt;</code>, then <code>&lt;usermedia&gt;</code>, then <code>getUserMedia</code>. Which one ran is stated above, because “no element” and “no permission” look the same and mean opposite things.</div>
   </section>
 </aside>

@@ -5,9 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
+import { harnessVars } from "@isocan/api";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 import {
   DEFAULT_VOICE_PORT,
+  LIVE_MODEL,
+  liveSetup,
+  liveUrl,
+  planForCall,
+  resolveLivePlans,
+  startLiveSession,
   createAcpAgent,
   planVoice,
   providerFor,
@@ -39,6 +46,14 @@ import type { ListedItem } from "@isocan/api";
  */
 
 const cliBin = fileURLToPath(new URL("../bin/isocan.js", import.meta.url));
+/**
+ * Two actors, deliberately: `seeder` is the test's own badge, holding one
+ * actor for the fixture operations it posts, and `person` is the machine's
+ * person in `identity.json` — the actor the SPAWNED CLI has to be able to
+ * claim for itself. One badge holding both is exactly what the desk refuses
+ * (one actor, two faces), which is how this test found that out.
+ */
+const seeder = { id: "usr_seeder", name: "Seeder" };
 const person = { id: "usr_person", name: "Person" };
 const voice = { id: "usr_voice", name: "Voice" };
 
@@ -57,10 +72,10 @@ beforeEach(async () => {
   const address = daemon.app.server.address();
   base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
   badge = await mintTestBadge(base);
-  await badge.speakAs(person);
+  await badge.speakAs(seeder);
   await post("/api/ops", {
     canvasId: null,
-    actor: person,
+    actor: seeder,
     op: { type: "project.create", canvasId: "prj_1", title: "Voice test" },
   });
   // The enrolment, exercised the way a person does it: the CLI claims
@@ -76,7 +91,7 @@ beforeEach(async () => {
   expect(claimed.code, claimed.stderr).toBe(0);
   await post("/api/ops", {
     canvasId: "prj_1",
-    actor: person,
+    actor: seeder,
     op: {
       type: "item.add",
       itemId: "itm_1",
@@ -139,8 +154,10 @@ const item = (title: string, id = title, x = 100, y = 100): ListedItem =>
  * ones. */
 function isocan(args: string[], extraEnv: Record<string, string> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
   const env = { ...process.env };
-  delete env.ISOCAN_SESSION_ID;
-  delete env.ISOCAN_HARNESS;
+  // EVERY harness variable, not just isocan's two: this suite runs inside pi,
+  // so `PI_SESSION_ID` in the ambient environment made the spawned CLI read
+  // itself as a harness session and refuse `rc turn` as an agent's verb.
+  for (const name of harnessVars) delete env[name];
   const child = spawn(process.execPath, [cliBin, ...args], {
     env: { ...env, ISOCAN_HOME: home, ISOCAN_PORT: new URL(base).port, ...extraEnv },
     cwd: home,
@@ -218,15 +235,17 @@ describe("the key belongs to the harness", () => {
     await expect(readVoiceKey(home)).rejects.toThrow(/not 600/);
   });
 
-  it("takes the provider from the key's shape, and the stated one when the shape is unknown", () => {
+  it("never refuses a key: the shape is only a default, and the provider judges", () => {
     expect(providerFor("AIza-abc")).toBe("gemini");
     expect(providerFor("sk-abc")).toBe("openai");
-    expect(providerFor("hunter2")).toBeNull();
-    expect(providerFor("hunter2", "gemini")).toBe("gemini");
-    // A key that names one provider but looks like the other is a mistake
-    // worth refusing rather than sending to the wrong address.
-    expect(providerFor("AIza-abc", "openai")).toBeNull();
+    // Whatever shape it is, it is accepted. This used to be `null`: a
+    // client-side guess about a key format, failing closed on a real key
+    // before anything had sent it.
+    expect(providerFor("hunter2")).toBe("gemini");
+    expect(providerFor("hunter2", "openai")).toBe("openai");
+    expect(providerFor("AIza-abc", "openai")).toBe("openai");
   });
+
 });
 
 describe("the page", () => {
@@ -257,17 +276,46 @@ describe("the page", () => {
     expect(page).toContain("Voice");
     // The ladder, in order: microphone, then usermedia, then getUserMedia.
     const mic = page.indexOf('name: "microphone"');
-    const usermedia = page.indexOf('name: "usermedia"');
     const gum = page.indexOf('name: "getUserMedia"');
     expect(mic).toBeGreaterThan(-1);
-    expect(mic).toBeLessThan(usermedia);
-    expect(usermedia).toBeLessThan(gum);
+    expect(mic).toBeLessThan(gum);
+    // `<usermedia>` is deliberately NOT a rung: it asks for camera and
+    // microphone together, and an audio feature must not prompt for a camera.
+    expect(page).not.toContain('name: "usermedia"');
+    expect(page).toContain("asks for camera and microphone together");
+    // And the constraint is audio-only.
+    expect(page).toContain("getUserMedia({ audio: true, video: false })");
     // The key is never the page's to keep: the BEHAVIOUR script — the only
     // half that could write anything — names no browser storage at all. The
     // prose above it is allowed to say so in words.
+    // No deprecated node: Paul read the console, and a deprecation warning
+    // that looks like a defect is one.
+    expect(page).not.toContain("createScriptProcessor");
+    expect(page).toContain("audioWorklet.addModule");
     const behaviour = page.slice(page.lastIndexOf("<script>"));
     expect(behaviour).not.toContain("localStorage");
     expect(behaviour).not.toContain("document.cookie");
+  });
+
+  it("says what it is connected to: canvas by title and id, daemon, home, agent, provider", async () => {
+    const server = await serve();
+    const facts = (await (await fetch(`${server.state.url}connection`)).json()) as Record<string, any>;
+    expect(facts.canvas).toEqual({ title: "Voice test", id: "prj_1" });
+    expect(facts.daemon).toContain("127.0.0.1:".slice(0, 10));
+    expect(facts.agent).toMatchObject({ name: "Voice", enrolled: false });
+    expect(facts.provider).toMatchObject({ name: null, key: false });
+    expect(facts.version).toBeTruthy();
+    expect(facts.updated).toMatch(/^\d{4}-\d{2}-\d{2} /);
+    expect(facts.provider.model).toBe("models/gemini-3.1-flash-live-preview");
+    // The key itself is never in the facts, only whether one is there.
+    await fetch(`${server.state.url}key`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "AIza-secret-value" }),
+    });
+    const after = (await (await fetch(`${server.state.url}connection`)).json()) as Record<string, any>;
+    expect(after.provider).toMatchObject({ name: "gemini", key: true });
+    expect(JSON.stringify(after)).not.toContain("AIza-secret-value");
   });
 
   it("stores a key the page POSTs, and reports it without ever echoing it back", async () => {
@@ -306,7 +354,7 @@ describe("the page", () => {
     // facts that matter — it is not the person, and the canvas calls it Voice.
     const last = (await log()).at(-1)!;
     expect(last.type).toBe("item.update");
-    expect(last.actor).not.toBe(person.id);
+    expect(last.actor).not.toBe(seeder.id);
     const names = await namesOnCanvas();
     expect(names[last.actor]).toBe("Voice");
   });
@@ -361,7 +409,150 @@ describe("the ACP face", () => {
   });
 });
 
+describe("the Live API path", () => {
+  it("opens with the setup the API expects, on the model that is current", () => {
+    const setup = liveSetup() as { setup: Record<string, unknown> };
+    expect(LIVE_MODEL).toBe("models/gemini-3.1-flash-live-preview");
+    expect(setup.setup.model).toBe(LIVE_MODEL);
+    expect((setup.setup.generationConfig as { responseModalities: string[] }).responseModalities).toEqual(["AUDIO"]);
+    const names = ((setup.setup.tools as { functionDeclarations: { name: string }[] }[])[0] ?? { functionDeclarations: [] })
+      .functionDeclarations.map((t) => t.name);
+    // The fast set, and nothing that cannot be undone.
+    expect(names).toContain("rename_item");
+    expect(names).toContain("move_item");
+    expect(names).toContain("say");
+    expect(names).not.toContain("trash_empty");
+    expect(liveUrl("AIza-x")).toContain("BidiGenerateContent?key=AIza-x");
+  });
+
+  it("speaks the wire: setup first, then audio up and tool calls answered", async () => {
+    const sent: string[] = [];
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    let socket!: {
+      onmessage: ((event: { data: unknown }) => void) | null;
+      emit: (message: unknown) => void;
+      readyState: number;
+    };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: unknown) {
+        sent.push(typeof data === "string" ? data : "<binary>");
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "AIza-test" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      callbacks: {
+        onToolCall: async (name, args) => {
+          calls.push({ name, args });
+          return { ok: true };
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(JSON.parse(sent[0] ?? "{}").setup.model).toBe(LIVE_MODEL);
+
+    session.send(new Uint8Array([1, 2, 3, 4]));
+    const audio = JSON.parse(sent[1] ?? "{}") as { realtimeInput: { audio: { mimeType: string; data: string } } };
+    expect(audio.realtimeInput.audio.mimeType).toBe("audio/pcm;rate=16000");
+    expect(Buffer.from(audio.realtimeInput.audio.data, "base64")).toEqual(Buffer.from([1, 2, 3, 4]));
+
+    // A tool call is a blocking question: the answer is the operation's RESULT.
+    socket.emit({
+      toolCall: { functionCalls: [{ id: "call-1", name: "rename_item", args: { item_ref: "checkout", title: "Checkout v2" } }] },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual([{ name: "rename_item", args: { item_ref: "checkout", title: "Checkout v2" } }]);
+    const answered = JSON.parse(sent.at(-1) ?? "{}") as { toolResponse: { functionResponses: { id: string; response: unknown }[] } };
+    expect(answered.toolResponse.functionResponses[0]).toMatchObject({ id: "call-1", response: { ok: true } });
+  });
+
+  it("surfaces the provider's own words when the session fails", async () => {
+    const states: { state: string; bad?: boolean }[] = [];
+    let socket!: { emit: (message: unknown) => void };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send() {}
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "nonsense" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      callbacks: { onState: (state, bad) => states.push({ state, ...(bad !== undefined ? { bad } : {}) }) },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    socket.emit({ error: { code: 400, message: "API key not valid. Please pass a valid API key." } });
+    expect(await session.ready).toBe(false);
+    // Verbatim. A paraphrase here is how a real key came to be called invalid.
+    expect(states[0]).toEqual({ state: "API key not valid. Please pass a valid API key.", bad: true });
+  });
+});
+
 describe("the harness as the rc's adapter", () => {
+  it("is summoned for real: `rc turn` reaches the standing page", async () => {
+    await fs.writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ acpAdapters: { voice: [process.execPath, cliBin, "voice", "--acp"] } }),
+    );
+    // The CLI's own badge has to hold the person before it may enrol anyone:
+    // the badge this test mints is not the badge the spawned CLI carries.
+    const named = await isocan(["identity", "--name", "Person", "--as", "usr_person", "--session"], {
+      ISOCAN_SESSION_ID: "person",
+      ISOCAN_HARNESS: "isocan",
+    });
+    expect(named.code, named.stderr).toBe(0);
+    const enrolled = await isocan(["rc", "add", "Voice", "--harness", "voice"]);
+    expect(enrolled.code, enrolled.stderr).toBe(0);
+
+    // The page is already standing — which is the case that matters: a
+    // microphone is not a turn, so the adapter hands the summons to the
+    // process that outlives it rather than holding a ceiling open.
+    // Port 0, not the default: the adapter finds the standing page through
+    // `~/.isocan/voice/server.json`, so a fixed port would make this test
+    // collide with the instance somebody is actually testing.
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+    });
+    try {
+      const turned = await isocan(["rc", "turn", "Voice", "look", "at", "the", "checkout", "screen"]);
+      expect(turned.code, turned.stderr).toBe(0);
+      expect(turned.stderr).toContain("turn ended — end_turn");
+      const state = (await (await fetch(`${server.state.url}state`)).json()) as { lines: string[] };
+      expect(state.lines.join("\n")).toContain("summoned by Voice");
+      expect(state.lines.join("\n")).toContain("look at the checkout screen");
+    } finally {
+      await server.close();
+    }
+  });
+
+
   it("is found through config.json's acpAdapters hook like any harness never heard of", async () => {
     // The door every unknown harness walks: a command and its args. This is
     // what `isocan rc add <name> --harness voice` resolves.

@@ -117,6 +117,10 @@ step(`harness: \`isocan voice\` listening at ${url} (daemon on ${daemonPort}, ho
  * assumed.
  */
 async function clickMic(b) {
+  // Bring it into view first: a click at coordinates outside the viewport is
+  // not a gesture, and the element needs a real gesture.
+  await b.ev(`document.querySelector("#mic-slot > *").scrollIntoView({ block: "center" })`);
+  await sleep(250);
   const box = await b.ev(`(() => { const el = document.querySelector("#mic-slot > *"); const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, tag: el.tagName.toLowerCase() }; })()`);
   if (box.tag === "button") {
     await b.ev(`document.querySelector("#mic-slot > button").click()`);
@@ -129,7 +133,15 @@ async function clickMic(b) {
 }
 
 const b = await browser({
-  flags: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"],
+  flags: [
+    // A real window: a declarative capture element that is off the bottom of a
+    // 600px headless viewport cannot be clicked at all, and a screenshot of
+    // half a page is not evidence of a layout.
+    "--window-size=1440,900",
+    "--use-fake-device-for-media-stream",
+    "--use-fake-ui-for-media-stream",
+    "--autoplay-policy=no-user-gesture-required",
+  ],
 });
 const shot = async (name) => {
   const { data } = await b.send("Page.captureScreenshot", { format: "png" });
@@ -144,6 +156,8 @@ try {
   await loaded;
   await until(b, `!!document.querySelector("#mic-slot > *")`, "the page to arm its microphone");
 
+  const connection = await (await fetch(`${url}connection`)).json();
+  step(`connected to: canvas “${connection.canvas.title}” ${connection.canvas.id} · daemon ${connection.daemon} · home ${connection.home} · agent ${connection.agent.name} ${connection.agent.id}${connection.agent.enrolled ? " (enrolled)" : " (not enrolled)"} · audio ${connection.provider.name ?? "no provider"} ${connection.provider.model}${connection.provider.key ? "" : ", no key"}`);
   const version = await b.ev(`document.getElementById("version").textContent`);
   const before = await b.ev(`document.getElementById("capture").textContent`);
   const pathBeforeCapture = await b.ev(`document.getElementById("capture").textContent`);
@@ -152,17 +166,59 @@ try {
   /* The microphone, clicked. The synthetic device is a tone, so a meter that
      moves is the proof that audio actually arrived. */
   await clickMic(b);
-  await until(b, `document.getElementById("state").className.includes("live") || document.getElementById("state").className.includes("warn")`, "capture to start or refuse");
+  try {
+    await until(b, `document.getElementById("state").className.includes("live") || document.getElementById("state").className.includes("warn")`, "capture to start or refuse");
+  } catch (err) {
+    // Say what the page says and what it threw, rather than only that it
+    // timed out: a capture that never starts has a reason and the page has it.
+    step(`capture did not start — page state ${JSON.stringify(await b.ev(`document.getElementById("state").textContent`))}, capture line ${JSON.stringify(await b.ev(`document.getElementById("capture").textContent`))}`);
+    step(`page errors: ${JSON.stringify(b.takeErrors())}`);
+    throw err;
+  }
   const captureLine = await b.ev(`document.getElementById("capture").textContent`);
   const lit = async () => b.ev(`document.querySelectorAll("#bars i.on").length`);
+  /* Sample the meter, and PHOTOGRAPH IT AT THE PEAK: the synthetic device is
+     a beeping tone, so a shot taken after the loop can land in a gap and show
+     one lit bar over a claim of twenty-eight. The picture and the number are
+     taken from the same moment. */
   let peak = 0;
-  for (let i = 0; i < 30; i++) {
-    peak = Math.max(peak, await lit());
-    await sleep(60);
+  let atPeak = null;
+  for (let i = 0; i < 60; i++) {
+    const count = await lit();
+    if (count > peak) {
+      peak = count;
+      atPeak = await shot("01-meter-live");
+    }
+    await sleep(25);
   }
-  const meterShot = await shot("01-meter-live");
+  const held = await b.ev(`document.querySelectorAll("#bars i.peak").length`);
+  const litAfterShot = await lit();
+  const meterShot = atPeak ?? (await shot("01-meter-live"));
+  /* The layout, checked rather than looked at: a panel clipped by the window
+     edge is a measurement, not an opinion. */
+  const layout = await b.ev(`(() => {
+    const aside = document.querySelector("aside").getBoundingClientRect();
+    return {
+      viewport: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      asideRight: Math.round(aside.right),
+      clippedPanels: [...document.querySelectorAll("aside .panel")].filter((p) => p.getBoundingClientRect().right > window.innerWidth + 1).length,
+    };
+  })()`);
+  step(`layout: viewport ${layout.viewport}px, document ${layout.scrollWidth}px, key panel right edge ${layout.asideRight}px, panels clipped off-window: ${layout.clippedPanels}`);
+  if (layout.scrollWidth > layout.viewport + 1) {
+    /* Say WHICH element is off the window rather than reporting a number: an
+       overflow is only fixable once it has a name. */
+    const offenders = await b.ev(`[...document.querySelectorAll("body *")]
+      .map((el) => ({ el, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.right > window.innerWidth + 1)
+      .sort((a, b) => b.r.right - a.r.right)
+      .slice(0, 5)
+      .map(({ el, r }) => el.tagName.toLowerCase() + (el.className ? "." + String(el.className).split(" ").join(".") : "") + " right=" + Math.round(r.right) + " width=" + Math.round(r.width) + " text=" + JSON.stringify((el.textContent || "").trim().slice(0, 40)))`);
+    step(`layout: elements past the edge — ${offenders.join(" | ")}`);
+  }
   step(`capture: ${captureLine}`);
-  step(`meter: peak ${peak}/28 bars lit while capture ran — ${meterShot}`);
+  step(`meter: peak ${peak}/28 bars, photographed at that moment (${meterShot}); held-peak marker present: ${held}`);
 
   /* Stop: the harness offers the recorded audio to its provider, which has no
      key here and says so rather than failing silently. */
@@ -184,6 +240,26 @@ try {
   step(`sent: ${sent}`);
   step(`reply: ${reply}`);
 
+  /* Narrow, because Paul reads layout quality as a proxy for whether the
+     thing works: one column, nothing past the window, and a picture to look
+     at. Measured rather than eyeballed. */
+  await b.send("Emulation.setDeviceMetricsOverride", { width: 420, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(400);
+  const narrow = await b.ev(`(() => {
+    const aside = document.querySelector("aside").getBoundingClientRect();
+    return {
+      viewport: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      asideRight: Math.round(aside.right),
+      asideWidth: Math.round(aside.width),
+      columns: getComputedStyle(document.body).gridTemplateColumns,
+      clipped: [...document.querySelectorAll("aside .panel")].filter((p) => p.getBoundingClientRect().right > window.innerWidth + 1).length,
+    };
+  })()`);
+  const narrowShot = await shot("04-narrow-420");
+  step(`narrow 420px: columns ${narrow.columns}, document ${narrow.scrollWidth}px, aside ${narrow.asideWidth}px (right edge ${narrow.asideRight}px), panels clipped: ${narrow.clipped} — ${narrowShot}`);
+  await b.send("Emulation.clearDeviceMetricsOverride");
+
   /* The canvas, asked directly: the operation is real, and it is the enrolled
      agent's — not the person's. */
   const snapshot = await (await fetch(`${base}/api/projects/prj_voice/canvas`, { headers: badge.headers })).json();
@@ -203,8 +279,15 @@ try {
     `Run ${new Date().toISOString()} in ${(Date.now() - begun) / 1000}s.`,
     ``,
     `- browser: ${version}`,
+    `- connected to: canvas “${connection.canvas.title}” (${connection.canvas.id}), daemon ${connection.daemon}, home ${connection.home}`,
+    `- agent: ${connection.agent.name} (${connection.agent.id})${connection.agent.enrolled ? ", enrolled" : ", NOT enrolled"}`,
+    `- audio: ${connection.provider.name ?? "no provider"} ${connection.provider.model}${connection.provider.key ? "" : " (no key stored)"}`,
     `- capture path that ran: ${captureLine}`,
-    `- meter peak: ${peak}/28 bars`,
+    `- meter peak: ${peak}/28 bars (sampled every 25ms for 1.5s; the screenshot was taken at the peak sample, so the picture and the number are the same moment)`,
+    `- held-peak marker: ${held ? "present" : "absent"}`,
+    `- bars lit immediately after the shutter closed: ${litAfterShot}/28 (the level meter has a slow release on purpose; the held-peak marker is what survives a quiet moment)`,
+    `- layout at 1440: viewport ${layout.viewport}px, document width ${layout.scrollWidth}px, key panel right edge ${layout.asideRight}px, panels clipped off-window: ${layout.clippedPanels}`,
+    `- layout at 420: columns ${narrow.columns}, document ${narrow.scrollWidth}px, panels clipped: ${narrow.clipped}`,
     `- utterance: “${utterance}”`,
     `- operations sent: ${sent}`,
     `- canvas titles after: ${JSON.stringify(titles)}`,
@@ -214,9 +297,10 @@ try {
     ...steps.map((s) => `- ${s}`),
     ``,
     `## Screenshots`,
-    `- 01-meter-live.png — capture running, meter lit (${meterShot})`,
+    `- 01-meter-live.png — capture running, meter at its peak (${meterShot})`,
     `- 02-no-key-stated.png — the stop, with the harness saying it has no key (${audioShot})`,
     `- 03-operation-sent.png — the operation in the log beside the canvas it changed (${opsShot})`,
+    `- 04-narrow-420.png — the same page at 420px: ${narrow.scrollWidth}px of document in a ${narrow.viewport}px window, ${narrow.clipped} panels clipped (${narrowShot})`,
   ].join("\n");
   writeFileSync(path.join(outDir, "evidence.md"), `${report}\n`);
   console.log(`\n  evidence written to ${path.join(outDir, "evidence.md")}\n`);
