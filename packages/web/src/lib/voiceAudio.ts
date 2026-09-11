@@ -34,6 +34,117 @@ export async function inputs(): Promise<Input[]> {
     }));
 }
 
+/**
+ * **A level meter, not a peak display and not a random number.**
+ *
+ * Three things were wrong at once and this is all three:
+ *
+ *   - the reading was `0.35 + Math.random() * 0.6`, so every tick pinned the
+ *     top half of the bars on any sound and on no sound at all;
+ *   - amplitude is linear where loudness is logarithmic — normal speech sits
+ *     near −20 dBFS, which on a linear scale is already 90% of the way up, so
+ *     "everything above a whisper pins the top" is arithmetic, not taste;
+ *   - a peak meter jumps to full on one transient and reads as broken.
+ *
+ * So: RMS over the block (`sqrt(mean(x²))`), converted with `20·log10`, floored
+ * at −60 dBFS, gated below −55 so a quiet room reads zero rather than one
+ * twitching bar, mapped −60…0 → 0…bars, and smoothed in dB — a release
+ * measured in dB per tick is visible at the top and not sluggish at the bottom,
+ * which a multiplicative decay on raw amplitude is not.
+ */
+export const METER_FLOOR_DB = -60;
+/** Under this, the room is silent: zero bars, not one that twitches. */
+export const METER_GATE_DB = -55;
+const METER_BARS = 28;
+/** How much of the gap to a louder reading is closed per 100 ms tick. */
+const ATTACK = 0.55;
+/** Decay, in dB per tick — 60 dB/s. */
+const RELEASE_DB = 6;
+/** The held peak falls this much per tick, so a word stays visible. */
+const PEAK_DROP_DB = 1.5;
+
+/** `mean(x²)`, the step before the square root. Int16 is normalised first. */
+export function meanSquareOf(pcm: Int16Array | Float32Array): number {
+  if (pcm.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const sample = pcm instanceof Int16Array ? pcm[i]! / 0x8000 : pcm[i]!;
+    sum += sample * sample;
+  }
+  return sum / pcm.length;
+}
+
+export function rmsOf(pcm: Int16Array | Float32Array): number {
+  return Math.sqrt(meanSquareOf(pcm));
+}
+
+/** Mean square → dBFS, floored. Silence answers `-Infinity`, not `-Infinity` dB. */
+export function dbFromMeanSquare(meanSquare: number): number {
+  if (!(meanSquare > 0)) return -Infinity;
+  return Math.max(METER_FLOOR_DB, 20 * Math.log10(Math.sqrt(meanSquare)));
+}
+
+export function dbfs(pcm: Int16Array | Float32Array): number {
+  return dbFromMeanSquare(meanSquareOf(pcm));
+}
+
+/** −60…0 dBFS → 0…count bars. Everything under the gate is silence. */
+export function barsFromDb(db: number, count = METER_BARS): number {
+  if (!Number.isFinite(db) || db <= METER_GATE_DB) return 0;
+  const level = Math.min(0, db) - METER_FLOOR_DB;
+  return Math.max(0, Math.min(count, Math.round((level / -METER_FLOOR_DB) * count)));
+}
+
+/**
+ * **What the meter remembers between frames.**
+ *
+ * `feed` takes blocks as they arrive (about 8 ms each) and accumulates their
+ * energy; `tick` runs on the display interval, turns the window into one dBFS
+ * reading, and applies attack, release and the held peak. Keeping the two
+ * apart is what makes this testable without a microphone: a test can feed a
+ * synthetic sine of a known level and read the same numbers the page shows.
+ */
+export class LevelMeter {
+  private db = METER_FLOOR_DB;
+  private peakDb = METER_FLOOR_DB;
+  private sum = 0;
+  private samples = 0;
+
+  constructor(readonly bars: number = METER_BARS) {}
+
+  /** One block of PCM: Float32 from the worklet, Int16 off the wire. */
+  feed(pcm: Int16Array | Float32Array): void {
+    this.sum += meanSquareOf(pcm) * pcm.length;
+    this.samples += pcm.length;
+  }
+
+  /** One display frame: 0…1 for the bars, 0…1 for the held peak, and the dB. */
+  tick(): { level: number; peak: number; db: number } {
+    const mean = this.samples > 0 ? this.sum / this.samples : 0;
+    this.sum = 0;
+    this.samples = 0;
+    const raw = dbFromMeanSquare(mean);
+    const gated = raw > METER_GATE_DB ? raw : -Infinity;
+    const next =
+      gated > this.db ? this.db + (gated - this.db) * ATTACK : Math.max(gated, this.db - RELEASE_DB);
+    this.db = Math.max(METER_FLOOR_DB, next);
+    this.peakDb = Math.max(this.peakDb - PEAK_DROP_DB, this.db);
+    return {
+      level: barsFromDb(this.db, this.bars) / this.bars,
+      peak: barsFromDb(this.peakDb, this.bars) / this.bars,
+      db: this.db,
+    };
+  }
+
+  /** A new session starts at rest rather than holding the last one's peak. */
+  reset(): void {
+    this.db = METER_FLOOR_DB;
+    this.peakDb = METER_FLOOR_DB;
+    this.sum = 0;
+    this.samples = 0;
+  }
+}
+
 export interface Capture {
   path: string;
   deviceId: string;

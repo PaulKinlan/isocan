@@ -6450,7 +6450,7 @@ button.mt-card:hover { border-color: var(--accent); }
 .voice-hero[data-state="live"] { border-top-color: var(--accent); }
 .voice-hero[data-state="muted"] { border-top-color: var(--warn); }
 .voice-hero h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); font-weight: 600; }
-.voice-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+.voice-controls { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--s3); }
 .voice-controls button {
   font: inherit;
   font-size: var(--t-md);
@@ -6462,18 +6462,29 @@ button.mt-card:hover { border-color: var(--accent); }
   cursor: pointer;
   min-width: 0;
 }
+/* The one thing a person presses is the largest element in the hero, so the
+   meter can be an instrument beside it rather than the page's centre of mass
+   — a 57,000px² empty field in front of a 9,400px² button was the dashboard
+   the design was trying to leave behind. */
 .voice-controls #listen {
-  font-size: var(--t-lg);
+  flex: 1 1 320px;
+  min-height: 88px;
+  font-size: var(--t-xl);
   font-weight: 600;
   padding: var(--s4) var(--s6);
   border-color: var(--ink);
   display: inline-flex;
   align-items: center;
-  gap: var(--s2);
+  justify-content: center;
+  gap: var(--s3);
 }
+.voice-controls #mute,
+.voice-controls #end { flex: 0 0 auto; min-width: 96px; }
 .voice-hero[data-state="live"] #listen { border-color: var(--accent); color: var(--accent-text); }
 .voice-controls button:disabled { opacity: 0.45; cursor: default; }
-.voice-pick { min-width: 0; flex: 1 1 240px; }
+.voice-instrument { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s4) var(--s5); }
+.voice-pick { min-width: 0; flex: 0 1 260px; display: grid; gap: var(--s1); }
+.voice-pick-label { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
 .voice-pick select {
   font: inherit;
   font-size: var(--t-sm);
@@ -6486,14 +6497,23 @@ button.mt-card:hover { border-color: var(--accent); }
   color: var(--ink-muted);
 }
 
-/* An instrument, not texture: a baseline, lit bars, and a peak that holds. */
-.voice-meter { position: relative; height: 56px; border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
+/* An instrument, not texture: a labelled scale, lit bars, and a peak that
+   holds. The track is the muted ink at 65% on the card because `--line-soft`
+   measured about 1.2:1 on graphite — a meter whose off state is invisible says
+   nothing until it moves, which reads as broken rather than as zero. */
+.voice-meter-wrap { flex: 1 1 320px; max-width: 460px; min-width: 0; }
+.voice-meter { position: relative; height: 44px; border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
 .voice-bars { display: flex; align-items: flex-end; gap: var(--s1); height: 100%; }
-.voice-bars span { flex: 1 1 0; min-width: 0; height: 100%; border-radius: var(--radius); background: var(--line-soft); transition: background 90ms linear; }
+.voice-bars span { flex: 1 1 0; min-width: 0; height: 100%; border-radius: var(--radius); background: color-mix(in srgb, var(--ink-muted) 65%, var(--card)); transition: background 90ms linear; }
 .voice-bars span.on { background: var(--accent); }
 .voice-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); border-radius: var(--radius); }
-.voice-state { margin: 0; font-size: var(--t-md); color: var(--ink); display: flex; align-items: center; gap: var(--s2); }
-.voice-state::before { content: ""; width: 8px; height: 8px; border-radius: var(--radius); background: var(--line); flex: none; }
+.voice-scale { position: relative; height: 1.4em; margin-top: var(--s1); color: var(--ink-muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.voice-scale span { position: absolute; top: 0; }
+.voice-scale span:nth-child(1) { left: 0; }
+.voice-scale span:nth-child(2) { left: 66.667%; transform: translateX(-50%); }
+.voice-scale span:nth-child(3) { right: 0; }
+.voice-state { margin: 0; font-size: var(--t-lg); font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: var(--s2); }
+.voice-state::before { content: ""; width: 10px; height: 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--ink-muted) 65%, var(--card)); flex: none; }
 .voice-hero[data-state="live"] .voice-state::before { background: var(--accent); }
 .voice-hero[data-state="muted"] .voice-state::before { background: var(--warn); }
 
@@ -6504,6 +6524,18 @@ button.mt-card:hover { border-color: var(--accent); }
 .voice-facts div { min-width: 0; display: grid; gap: var(--s1); }
 .voice-facts dt { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
 .voice-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.voice-open {
+  font: inherit;
+  font-size: var(--t-xs);
+  margin-left: var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+.voice-open:hover { border-color: var(--accent); }
 .voice-id { font-family: ui-monospace, monospace; color: var(--ink-muted); font-size: var(--t-xs); }
 .voice-ok { color: var(--good); }
 .voice-bad { color: var(--danger); }
@@ -6550,6 +6582,11 @@ button.mt-card:hover { border-color: var(--accent); }
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
+/* The key panel's buttons all wear the same outline: nothing there is the
+   page's main action, and Save is only pressable once there is a key to
+   save — the loudest thing in the panel must not be the one that does
+   nothing. */
+.voice-keyrow button:disabled { opacity: 0.45; cursor: default; }
 .voice-keyrow button {
   font: inherit;
   font-size: var(--t-sm);
@@ -6564,8 +6601,9 @@ button.mt-card:hover { border-color: var(--accent); }
   .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s4); }
   .voice-head h1 { font-size: var(--t-lg); }
   .voice-hero { padding: var(--s4); }
-  .voice-controls button { flex: 1 1 auto; }
-  .voice-controls #listen { flex: 1 1 100%; justify-content: center; }
-  .voice-meter { height: 44px; }
+  .voice-controls #listen { flex: 1 1 100%; }
+  .voice-controls #mute, .voice-controls #end { flex: 1 1 auto; }
+  .voice-meter-wrap { flex: 1 1 100%; max-width: none; }
+  .voice-meter { height: 40px; }
   .voice-facts { grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
 }
