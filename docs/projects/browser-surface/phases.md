@@ -35,7 +35,7 @@ specified. Staged implementation phases are defined below.
      `text/uri-list` MIME (`packages/core/src/browseritem.ts`).
    - Title and favicon metadata mapped to item properties.
 3. **Interactive Focus Link**:
-   - Clicking a browser card on the canvas emits an ephemeral presence event.
+   - Clicking a browser card on the canvas triggers selection in the UI.
    - The extension brings the corresponding `tabId` to active focus via
      `chrome.tabs.update(tabId, { active: true })`.
 
@@ -65,7 +65,10 @@ specified. Staged implementation phases are defined below.
    - User hits `⌘Z` on canvas after closing a tab $\rightarrow$ canvas reducer
      applies `item.restore`.
    - Extension detects restoration of a `text/uri-list` item and re-opens the
-     tab in Chrome (`chrome.tabs.create({ url, active: false })`).
+     tab in Chrome (`chrome.tabs.create({ url, active: false })`). Note: tab is
+     re-opened at the recorded URL; closed forward/back browser session history
+     is not preserved by Chrome. Oplog undo reverses canvas mutations, but
+     cannot reverse arbitrary third-party web server mutations.
 
 **Verification & Acceptance:**
 - Automated test driving Chrome via CDP:
@@ -106,11 +109,11 @@ specified. Staged implementation phases are defined below.
 **Closes:** `journey.md` Scene 4 (Summoning the browser agent over ACP).
 
 **Deliverables:**
-1. **Extension ACP Server (`isocan-browser-acp`)**:
-   - Extension runs an internal ACP 1 server endpoint over local loopback
-     WebSocket (or Native Messaging host).
+1. **Extension ACP Adapter (`isocan-browser-acp`)**:
+   - Extension provides an ACP 1 adapter communicating over stdio (via a native
+     messaging host or local loopback connection) matching `packages/cli/src/acp.ts`.
    - Implements ACP methods: `session/new`, `session/prompt`, `session/update`,
-     `session/load`, matching `packages/cli/src/acp.ts`.
+     `session/load`.
 2. **CAP Tool Dispatch Bridge**:
    - Translates incoming ACP tool calls to CAP's internal browser tools
      (`extension/lib/browser-tools.js`): DOM accessibility tree, element click,

@@ -66,11 +66,13 @@ flowchart TB
    - **Durability**: Completely durable, replicated, and logged to disk/Firestore.
 2. **The Control Plane (Agent Control Protocol)**:
    - **Protocol**: Agent Control Protocol (ACP 1, integer protocol version 1)
-     over a local loopback WebSocket or Native Messaging host.
+     via a locally spawned adapter process (`packages/cli/src/acp.ts`) communicating
+     over stdio pipes (or an extension Native Messaging host).
    - **Payload**: JSON-RPC 2.0 (`session/new`, `session/prompt`, `session/update`,
-     `session/load`, tool calling) matching `packages/cli/src/acp.ts`.
-   - **Authority**: Governed by the active agent session grant. Commands can only
-     touch browser tabs explicitly bound to the session.
+     `session/load`) matching `packages/cli/src/acp.ts`.
+   - **Authority**: Governed by the active agent session grant. Turns are initiated
+     by `isocan rc` prompting the agent; the agent emits updates and narration,
+     executing browser actions strictly within its explicit tab grant.
    - **Durability**: Session-scoped; turn history preserved in ACP session handles.
 3. **The Ephemeral Plane (Presence & Media)**:
    - **Protocol**: Ephemeral presence frames over `/api/ws` and direct WebRTC peer
@@ -131,15 +133,38 @@ bidirectional:
 | Browser Event / State | Trigger Direction | Target `Operation` | Operation Payload & Details |
 |---|---|---|---|
 | **Tab Created** | Chrome $\rightarrow$ Canvas | `item.add` | `itemId: newId("item")`, `version: { mimeType: "text/uri-list", filename: siteFilename(url), blobHash }`, `placement: { x, y, chosen: false }`, `title: tab.title`. |
-| **Tab Navigated** | Chrome $\rightarrow$ Canvas | `item.addVersion` | `itemId`, `version: { mimeType: "text/uri-list", filename, blobHash, visual: { kind: "iframe", url } }`. Preserves previous URLs in the version stack. |
+| **Tab Navigated** | Chrome $\rightarrow$ Canvas | `item.addVersion` | `itemId`, `version: { mimeType: "text/uri-list", filename, blobHash, visual?: { blobHash, mimeType: "image/png" } }`. Preserves previous URLs in the version stack; visual face holds optional screenshot thumbnail. |
 | **Tab Title / Favicon Changed**| Chrome $\rightarrow$ Canvas | `item.update` | `itemId`, `patch: { title: tab.title, properties: { favicon: tab.favIconUrl } }`. |
 | **Tab Closed in Chrome** | Chrome $\rightarrow$ Canvas | `item.delete` | `itemId`. Moves item to canvas trash. |
-| **Tab Restored via ⌘Z** | Canvas $\rightarrow$ Chrome | `item.restore` | Restores item from trash. Extension detects restoration and invokes `chrome.tabs.create({ url, active: false })`. |
-| **Card Selected / Focused** | Canvas $\rightarrow$ Chrome | Ephemeral presence | Client emits `presence.select`. Extension brings corresponding `tabId` to active window focus via `chrome.tabs.update(tabId, { active: true })`. |
+| **Tab Restored via ⌘Z** | Canvas $\rightarrow$ Chrome | `item.restore` | Restores item from trash. Extension detects restoration and invokes `chrome.tabs.create({ url, active: false })`. Note: re-opens tab at saved URL; closed forward/back session history is not preserved by Chrome. |
+| **Card Selected / Focused** | Canvas $\rightarrow$ Chrome | Local UI state | User clicks card on canvas. Extension brings corresponding `tabId` to active window focus via `chrome.tabs.update(tabId, { active: true })`. |
 | **Card Address Edited** | Canvas $\rightarrow$ Chrome | `item.addVersion` | User edits URL on card. Extension receives oplog entry, validates URL via `normalizeSiteUrl`, and calls `chrome.tabs.update(tabId, { url })`. |
 | **Card Closed on Canvas** | Canvas $\rightarrow$ Chrome | `item.delete` | User deletes card on canvas. Extension calls `chrome.tabs.remove(tabId)`. |
 | **Tab Group Created** | Chrome $\rightarrow$ Canvas | `item.add` (area) | Creates bounding `area` item enclosing grouped cards, or nests them into a child canvas (`kind: "canvas"`). |
-| **Agent Page Action** | Canvas $\rightarrow$ Chrome | Tool call via ACP | Agent dispatches click/scroll/type. Extension executes action via CAP's accessibility/DOM tools and emits `thread.reply` with outcome. |
+| **Agent Page Action** | Canvas $\rightarrow$ Chrome | Tool turn via ACP | Agent dispatches click/scroll/type. Extension executes action via CAP's accessibility/DOM tools and emits `thread.reply` with outcome. Note: oplog undo reverses canvas item state, but cannot undo arbitrary third-party web server mutations. |
+
+---
+
+### 3.2 Echo suppression & origin attribution
+
+A critical trap in bidirectional synchronization is the infinite feedback loop:
+1. Chrome tab navigates $\rightarrow$ Extension emits `item.addVersion`.
+2. Daemon broadcasts `item.addVersion` to all clients, including the extension.
+3. If the extension reacts blindly to `item.addVersion`, it commands Chrome to
+   navigate to that URL again $\rightarrow$ Chrome triggers another navigation
+   event $\rightarrow$ Infinite ping-pong loop.
+
+**The Echo Suppression Rule**:
+- Every operation emitted by the extension carries its unique `clientId` in the
+  `OpEnvelope` (`packages/core/src/ops.ts:383`).
+- When the extension receives an applied operation from the daemon's WebSocket
+  feed, it inspects `envelope.clientId`.
+- If `envelope.clientId === localClientId`, the extension recognizes the mutation
+  as its own echoed event and suppresses re-navigating Chrome.
+- In addition, programmatic navigations initiated by canvas actions set an
+  ephemeral `navigatingTabIds.add(tabId)` flag in the extension so that the
+  resulting Chrome `onUpdated` event is ignored rather than re-emitted to the
+  canvas.
 
 ---
 
@@ -203,6 +228,13 @@ tokens, and private browser history.
      CHIPS cookies (`SameSite=None; Secure; Partitioned`) to let an embedded
      iframe maintain its own badge session, browser session sharing across
      multiplayer peers never shares the host origin's credentials.
+   - **Visual Streaming Realism**: Visual frame streaming renders visible DOM
+     text and pixels on screen (including visible account names or dashboard data).
+     Sensitive password and payment fields are masked by content script heuristics,
+     but visual streaming inherently exposes visible rendered text to trusted viewers.
+     Cookie and session token custody is absolute (never transmitted), but visual
+     data is visible. Revocation halts future event reflection and stream frames,
+     but cannot undo already-dispatched remote web server mutations.
 2. **Explicit, Scoped, Revocable Grants**:
    - Sharing is **per-item and per-canvas**. Sharing tab `A` grants zero visibility
      into tab `B`, even if both belong to the same browser window.
