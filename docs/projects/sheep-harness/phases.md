@@ -5,9 +5,8 @@ phase ends with **Trajectory**: only what the phase discovered that
 changes the project's course.
 
 **Where we are: phases 0 to 2 closed, 10 and 11 September. Phase 3,
-the week with the bill, is next and needs the shepherd (⚑); so does
-redeploying sheep-2, which predates `sheep rm` and cannot end a sheep
-until it is.** Three steps below wait on the sheep side and
+the week with the bill, is next and needs the shepherd (⚑). sheep-2 was
+redeployed on 11 September and now ends a sheep.** Three steps below wait on the sheep side and
 are marked ⇢ with the journey filed there. Three more journeys are filed
 for findings phase 1 works around rather than waits on, and one for what
 phase 1 found:
@@ -134,7 +133,8 @@ station's phase-1 agent, whose row had no pass, was withdrawn with the
 sentence naming `isocan badges --kill`. That walk found the aborted turn
 exiting cleanly, which the parked rc logged as "turn ended"; it now
 reads as a withdrawal, with a test. The walk left Timmy's and Shirley's
-sheep, and a probe, idle on sheep-2 until it can end them.
+sheep, and a probe, on sheep-2; they were ended with `sheep rm` once the
+station was redeployed.
 
 **Outcome:** `agent.withdraw` for a sheep-harnessed agent aborts a
 running turn, ends the sheep for good, leaves the pasture and says so,
