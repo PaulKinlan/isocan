@@ -24,10 +24,14 @@ same operation vocabulary.**
   ordinary `item.add` whose version blob is `text/uri-list` holding the
   projected URL, with `normalizeSiteUrl`, `siteLabel`, and `siteFilename`.
   Undo is `item.delete`; changing the URL is `item.addVersion`. No new op type.
+- **`packages/core/src/canvasitem.ts`** — nested canvases on a canvas: already
+  implemented via `properties.kind === "canvas"` and `canvasitemOf`, partly built
+  in the [inception](../inception/) project.
 - **`packages/cli/src/acp.ts`** — the ACP 1 client in `isocan rc`
   ([on-demand](../on-demand/)): speaks Agent Control Protocol over stdio with
   `session/new`, `session/prompt`, `session/update`, `session/load`, and
-  resumable sessions.
+  resumable sessions. Note: the browser-side ACP server adapter is **PROPOSED**
+  and unimplemented; only the client exists today.
 - **`packages/server/src/badges.ts:117–154`** — partitioned cookies
   (`SameSite=None; Secure; Partitioned`) for iframe embedding
   ([embed](../embed/phases.md)) and actor badge claims.
@@ -47,12 +51,18 @@ same operation vocabulary.**
      `item.addVersion`, `item.delete`).
    - Canvas card interactions $\rightarrow$ Chrome tab actions (`tabs.update`,
      `tabs.remove`, `tabs.create`).
-3. **Browser-as-Agent over ACP**: The extension provides an ACP adapter so
-   `isocan rc` can vend browser control sessions to standing agents (`@browser`)
-   without ad-hoc RPC channels.
-4. **Trusted Multiplayer Co-Browsing**: Profile cookie custody (cookies never
-   leave the owner machine); remote guests interact via WebRTC visual frame
-   streaming and synthetic event reflection with sensitive field masking.
+3. **Browser-as-Agent over ACP (PROPOSED)**: The extension proposes an internal
+   ACP 1 adapter so `isocan rc` can vend browser control sessions to standing
+   agents (`@browser`) without ad-hoc RPC channels. The census confirms the ACP
+   client in `packages/cli/src/acp.ts` is built, but the browser-side ACP adapter
+   is **PROPOSED** and does not yet exist.
+4. **Trusted Multiplayer Co-Browsing & Authority Model**: Distinguishes between
+   isocan's built CHIPS partitioned cookie custody for embedded iframes
+   (`packages/server/src/badges.ts:117–154`, `SameSite=None; Secure; Partitioned`)
+   and **owner-profile browser authority** (the owner's Chrome profile holds
+   third-party session cookies and credentials, which NEVER leave the owner's
+   machine). Remote guests co-drive via WebRTC frame projection and synthetic
+   event reflection without credential replication.
 
 ---
 
@@ -64,9 +74,12 @@ same operation vocabulary.**
 2. **Reversibility Truth**: Clarifying that `tabs.create` restores closed tabs
    to their URL, but Chrome cannot restore closed tab back/forward history;
    oplog undo cannot reverse third-party web server mutations.
-3. **Model Alignment**: Preserving `@isocan/core` data models strictly: browser
-   items use `text/uri-list` source and optional screenshot blob
-   `VisualFace: { blobHash, mimeType: "image/png" }`; no invented visual kinds.
+3. **Model Alignment & Inception Reuse**: Preserving `@isocan/core` data
+   models strictly: browser items use `text/uri-list` source and optional
+   screenshot blob `VisualFace: { blobHash, mimeType: "image/png" }`. Nested
+   canvases must extend existing `packages/core/src/canvasitem.ts`
+   (`properties.kind === "canvas"`) and the partly built [inception](../inception/)
+   project, rather than inventing an ad-hoc item kind.
 4. **ACP Adapter Boundary**: Designing the extension's ACP server transport
    (spawned native messaging host or loopback) and cleanly separating agent
    turn narration from browser tool dispatch.
