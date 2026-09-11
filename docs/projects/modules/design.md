@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-04
 see: modules, extensions, workbench, mindmap, iso-api, atlas
-note: designed 4 Sep from the research note's counts; phases 1 (the registries, the mind map as the first internal module), 2 (Mermaid, the first node-type module — the union paid), 3 (runtime loading — module add/rm/ls, a host object, no import map) and 4 (documents — the inspector, page and command slots; the prose editor deferred) built 4–5 Sep; phase 4.5 (WebHost, overlays, drops, the module API's own version and a PROPOSED list) built 9 Sep from #156's field report. Phase 5, sandboxes, waits on three gates: the content origin (CLEARED 6 Sep, live on prod), extension actors (which extensions stage 4 found has no subject to attribute until a panel ACTS, so it waits on that rather than on the calendar) and compute consent
+note: designed 4 Sep from the research note's counts; phases 1 (the registries, the mind map as the first internal module), 2 (Mermaid, the first node-type module — the union paid), 3 (runtime loading — module add/rm/ls, a host object, no import map) and 4 (documents — the inspector, page and command slots; the prose editor deferred) built 4–5 Sep; phase 4.5 (WebHost, overlays, drops, the module API's own version and a PROPOSED list) built 9 Sep from #156's field report. Phase 5, sandboxes, waits on three gates: the content origin (CLEARED 6 Sep, live on prod), extension actors (which extensions stage 4 found has no subject to attribute until a panel ACTS, so it waits on that rather than on the calendar) and compute consent. Transportable compute registered 11 Sep as future work, not implemented: one digest-pinned project tool suite, pure by default, with cross-host parity and authorised Operation effects
 ---
 # Modules — a package that contributes to both surfaces, and can be taken away
 
@@ -221,6 +221,79 @@ build and not a design:
 - **Letting a module add an op.** Once, for a good reason, and the vocabulary
   is no longer closed. The mind map, the sprint, areas, context and personas
   each added zero; that is the standard.
+
+## Transportable compute — roadmap registration, 11 Sep 2026
+
+**Future work, not implemented or a complete design.** A person checksums a
+file in the browser; an agent repeats it through the CLI and gets the same
+answer. Diff and gzip/compression behave the same way. Changing machines does
+not change the project's tools, and a missing or changed module refuses to run
+rather than substituting a local version.
+
+This extends modules, not a second plugin system. Today's
+[`ModuleManifest`](../../../packages/core/src/modules.ts) and
+[CLI](../../../packages/cli/src/runtime-modules.ts)/[web](../../../packages/web/src/lib/runtimeModules.ts)
+loaders deliver separate, operator-trusted JavaScript halves from a
+[machine-local installation](../../../packages/server/src/modules.ts). They
+are not a digest-pinned project compute suite. The
+[extensions](../extensions/design.md) project's `role=tool` buttons ask for
+slash commands; [iso-api](../iso-api/journey.md) is a daemon client. Neither
+establishes compute portability. Phase 5's [sandbox gates](phases.md#phase-5--sandboxes)
+remain; bounded local computation is not permission to launch agent harnesses
+or spend somebody's hosted compute.
+
+### What this scene forces
+
+- **Operations and tools differ.** An `Operation` is the ordered canvas record
+  vocabulary. A tool computes a result; it does not extend that vocabulary.
+  Every participant uses the identical project suite and pins. An agent's
+  private tools are separate and cannot silently substitute for that suite.
+- **Admission is separate from download.** Modules may come from project or
+  third-party authors, but only project-authorised maintainers may admit them
+  or add/replace their pins, after reviewing source/build provenance, licence,
+  imports and fixtures. Exact role mapping and the project declaration belong
+  in the follow-on design; a participant or module cannot self-authorise a pin
+  change. Every host must resolve the same project revision, refusing missing,
+  stale or conflicting pins rather than silently upgrading. A digest proves
+  byte integrity, not publisher identity, review or safety; admission must
+  establish authenticity through a trusted source/release, not a claimed hash.
+- **Verify exact pinned bytes BEFORE loading or executing, fail closed.**
+  Include executable dependencies; no unchecked URL imports, mutable version
+  aliases or host-specific rebuilds masquerading as the admitted module.
+- **Pure compute by default, no ambient filesystem, network or state.** Wasm
+  is not inherently pure: host imports, WASI preopens and linker capabilities
+  determine authority. Exclude credentials, process spawning, DOM access,
+  arbitrary host calls and implicit clock/randomness; bound memory, execution
+  time, input and output. Failure or exhaustion must not publish partial state.
+- **Stateful results/effects land through an authorised Operation**, not a
+  second record or hidden store. Rename computes a plan; actual renaming needs
+  an authorised host effect and its Operation, never magic Wasm filesystem
+  authority. An oplog entry alone cannot undo arbitrary external changes:
+  define effect failure/recovery and valid inverse boundaries before enabling
+  them, or refuse the effect.
+- **SAME module bytes, SAME fixtures and results across CLI, agent host and
+  browser, or the portability claim is false.** An agent invoking the CLI is
+  a caller of that host, not proof of a third runtime. A genuinely separate
+  agent host must run the same fixtures independently. Include corrupt-byte,
+  forbidden-import, pin-change and resource-exhaustion refusals in that proof.
+
+### Reuse, without importing another product's protocol
+
+CAP provides source precedents at
+[`32ea6822`](https://github.com/PaulKinlan/chrome-agent-platform/tree/32ea6822d893c4267104ef1f5792ee014b60f109):
+[package authority](https://github.com/PaulKinlan/chrome-agent-platform/blob/32ea6822d893c4267104ef1f5792ee014b60f109/extension/lib/wasm-package-authority.js)
+checks inventory bytes, digests, imports and memory;
+[the Wasm host](https://github.com/PaulKinlan/chrome-agent-platform/blob/32ea6822d893c4267104ef1f5792ee014b60f109/extension/lib/wasm-offscreen-host.js#L124-L138)
+rehashes before worker creation. Its
+[JS sandbox](https://github.com/PaulKinlan/chrome-agent-platform/blob/32ea6822d893c4267104ef1f5792ee014b60f109/extension/sandbox/script-sandbox.js#L208-L307)
+verifies all host-supplied dependencies before minting Blob URLs and cleans up
+failed loads, with an
+[actual-source second-mint regression](https://github.com/PaulKinlan/chrome-agent-platform/blob/32ea6822d893c4267104ef1f5792ee014b60f109/tests/script-sandbox-execution.test.ts#L67-L172).
+Reuse that discipline, not its registry protocol. CAP's `ovfm.3` integrity and
+cleanup work landed; `ovfm.4` ambient-network confinement is **OPEN and
+UNVERIFIED**. This is not a proven no-egress sandbox or an Isocan cross-host
+implementation. Admission, host capability boundaries and the parity fixtures
+are the next design work; this registration activates nothing.
 
 ## Open
 
