@@ -417,6 +417,160 @@ watching:
   activated; cross-project diff portability is strictly guaranteed for canvas
   item versions today.
 
+---
+
+## Transportable compute — canvas code editor and isolated Python compute host (11 Sep 2026)
+
+*Follow-up architectural design for bead `isocan-54k.3`. Integrates the canvas
+code editor and an isolated, single-instance Python compute host across web, CLI,
+and agents.*
+
+### 1. Existing source census & research reality
+
+Before designing new compute primitives, we audit the existing repository for
+workers, editors, and compute runtimes:
+
+| Capability | Source Census in `isocan` | Measured Finding & Boundary |
+|---|---|---|
+| **Web Workers / SharedWorkers** | `rg -i "worker" packages/` | **Zero compute workers exist**. The word "worker" appears only in Vitest parallel test runners, the offline service worker shell (`packages/web/public/sw.js`), and collaborative presence sessions (`packages/core/src/onit.ts: Worker`). No Web Workers or SharedWorkers exist in application code. |
+| **Code Editors** | `rg -i "editor" packages/` | CodeMirror 6 is mounted in `StageEditor.tsx` / `ArtifactStage.tsx`. It is an artifact text editor for saving item versions (`item.addVersion`). It contains **no code evaluation**, no REPL, no terminal, and no execution runner. |
+| **Iodide Status** | External primary audit | **Archived and dormant**. Created by Mozilla in 2018 as an experimental in-browser scientific notebook; officially abandoned and archived in December 2020 (`github.com/iodide-project/iodide`). |
+| **Pyodide Status & Size** | External primary audit | **Active and maintained** (`pyodide.org`). However, Pyodide core (`pyodide.asm.wasm` + `python_stdlib.zip`) is **~10–12 MB compressed** and **~25–35 MB uncompressed** in memory. Scientific packages (NumPy, Pandas) add 15–35 MB each. Loading Pyodide per-page or per-card is prohibitive; it must load **per-project lazily**. |
+
+---
+
+### 2. The single-instance architecture: daemon host vs browser SharedWorker
+
+Paul Kinlan specifies that code execution must run in an **isolated, single-instance
+runtime**: "if you have multiple windows open, you only want the one instance running",
+with equal access across browser windows, the CLI, and autonomous agents.
+
+#### Why a browser `SharedWorker` is insufficient
+1. **Violates the Isomorphism Rule**: A browser `SharedWorker` is confined to a
+   browser origin. It cannot be called by `isocan run` in the terminal or by an
+   agent running via `isocan rc`.
+2. **Fragile Lifecycle**: A `SharedWorker` terminates when all browser tabs are
+   closed, discarding in-memory kernel state (e.g. loaded datasets, defined
+   functions) even if a background CLI command or agent turn is active.
+3. **Platform Variance**: `SharedWorker` support varies across browser engines
+   and webview contexts.
+
+#### The Architecture: Daemon-Owned Compute Host
+Instead of placing the singleton in a browser thread, the **local `isocan`
+daemon** (`packages/server/src/compute/`) owns and supervises the project's
+compute isolate:
+
+```
+┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+│ Browser Window  │   │   Terminal CLI  │   │ Autonomous Agent│
+│ (Canvas / Stage)│   │  (`isocan run`) │   │  (`isocan rc`)  │
+└────────┬────────┘   └────────┬────────┘   └────────┬────────┘
+         │ WebSocket           │ stdio / IPC         │ ACP turn
+         ▼                     ▼                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    isocan local daemon                      │
+│                  (packages/server/src/)                     │
+│                                                             │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │           Project Compute Host Supervisor           │   │
+│   │   - One isolated instance per project workspace     │   │
+│   │   - Execution queue (FIFO, serialized turns)        │   │
+│   │   - Output stream muxing (stdout, stderr, MIME)     │   │
+│   │   - Memory & execution timeouts                     │   │
+│   └──────────────────────────┬──────────────────────────┘   │
+│                              │ stdio / WASI pipe            │
+│                              ▼                              │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │             Isolated Compute Runtime                │   │
+│   │      (WASM Host / Pyodide Python Kernel)            │   │
+│   │   - Pinned WASM binary & stdlib digest              │   │
+│   │   - Zero ambient network or filesystem access       │   │
+│   │   - Granted input buffers only; bounded memory      │   │
+│   └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Definition of "Single Instance"**:
+- Exactly **one stateful compute runtime per project workspace**, managed by
+  the local daemon.
+- Multiple browser windows, canvas views, CLI commands, and agents attach to
+  the same running project session.
+- State (variables, imported modules, defined functions) persists across turns
+  within the workspace session, but remains completely isolated between
+  different project workspaces.
+
+---
+
+### 3. Isolation, resource ceilings, and capability boundaries
+
+WebAssembly and Python runtimes are not inherently pure; safety requires strict
+containment enforced by the daemon supervisor:
+
+1. **Zero Ambient Authority**:
+   - **No Ambient Network**: The isolate has no access to sockets, `fetch`, or
+     network interfaces. Any external data must be fetched by the host upon
+     explicit user grant and passed into the runtime as an input buffer.
+   - **No Ambient Filesystem**: The isolate cannot walk the host filesystem or
+     arbitrary paths. Access is strictly limited to an in-memory virtual
+     filesystem (MEMFS) populated only with granted project item versions.
+2. **Resource Ceilings**:
+   - **Memory**: Hard ceiling enforced at 512 MB per project isolate.
+   - **CPU Time**: Execution deadline (default 30 seconds per cell/invocation).
+     If exceeded, the daemon forcibly interrupts or terminates the isolate.
+   - **Output Buffer**: stdout/stderr output capped at 2 MB per execution turn
+     to prevent buffer exhaustion.
+3. **Execution Concurrency & Cancellation**:
+   - Computations are queued serially per project isolate, matching standard
+     Jupyter / notebook execution semantics.
+   - The user or agent can issue an explicit `compute.interrupt` signal. The
+     daemon cancels the running turn, flushes remaining queues, and returns an
+     `interrupted: true` receipt.
+4. **Crash Recovery**:
+   - If the compute isolate crashes (due to out-of-memory or a runtime trap),
+     the daemon catches the exit, marks the kernel as restarted, and spawns a
+     fresh isolate.
+   - The oplog is untouched, preventing workspace corruption.
+
+---
+
+### 4. Canvas code-editor module specification
+
+The compute environment is delivered as a first-class project module
+(`@isocan/compute`), following the established three-entry module pattern:
+
+1. **`core.ts`**:
+   - Declares new MIME kinds: `application/x-ipynb+json` (notebook) and
+     `text/x-python` (executable script).
+   - Exports property keys for cell execution counts and output digests.
+2. **`web.tsx`**:
+   - Extends the workbench stage with an interactive **Code Stage**:
+     - Code input cells powered by CodeMirror 6 with syntax highlighting and
+       keybindings (`Shift-Enter` to execute).
+     - Cell output cards supporting rich MIME representations: plain text,
+       Markdown, SVG, and PNG plots (using `@isocan/core`'s `VisualFace`).
+     - Live execution status badge: `idle`, `running (1.2s)`, `interrupted`, or
+       `error`.
+3. **`cli.ts`**:
+   - Implements `isocan run <itemId>`: evaluates a notebook or script through
+     the daemon's compute host from the terminal, streaming stdout/stderr to the
+     console and saving output versions if requested.
+   - Implements `isocan compute status`: displays active isolates, memory usage,
+     and loaded packages.
+
+---
+
+### 5. Replay-safe effect boundary
+
+In alignment with `isocan-54k.2`:
+- Interactive code execution in the notebook is an **ephemeral exploration**.
+- Running a code cell emits **zero oplog operations**.
+- When the user or agent chooses to commit a computation (e.g. saving an
+  analyzed table, a generated chart, or an updated script), the host emits
+  standard `item.addVersion` or `item.add` operations containing the resulting
+  artifact.
+- Replaying the oplog never re-executes Python code; it simply renders the
+  saved version artifacts.
+
 ## Open
 
 - **Unions become strings** when the first module kind lands (phase 2):
