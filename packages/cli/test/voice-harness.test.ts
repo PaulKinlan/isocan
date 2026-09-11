@@ -462,7 +462,9 @@ describe("the Live API path", () => {
       },
     });
     await new Promise((r) => setTimeout(r, 0));
-    expect(JSON.parse(sent[0] ?? "{}").setup.model).toBe(LIVE_MODEL);
+    const setup = JSON.parse(sent[0] ?? "{}").setup;
+    expect(setup.model).toBe(LIVE_MODEL);
+    expect(setup.generationConfig.responseModalities).toEqual(["AUDIO"]);
 
     session.send(new Uint8Array([1, 2, 3, 4]));
     const audio = JSON.parse(sent[1] ?? "{}") as { realtimeInput: { audio: { mimeType: string; data: string } } };
@@ -508,6 +510,37 @@ describe("the Live API path", () => {
     expect(await session.ready).toBe(false);
     // Verbatim. A paraphrase here is how a real key came to be called invalid.
     expect(states[0]).toEqual({ state: "API key not valid. Please pass a valid API key.", bad: true });
+  });
+
+  it("surfaces provider socket close code and reason inline when socket closes abnormally", async () => {
+    const states: { state: string; bad?: boolean }[] = [];
+    let socket!: { closeWith: (code: number, reason: string) => void };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send() {}
+      close() {}
+      closeWith(code: number, reason: string) {
+        this.onclose?.({ code, reason });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "nonsense" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+      callbacks: { onState: (state, bad) => states.push({ state, ...(bad !== undefined ? { bad } : {}) }) },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    socket.closeWith(1007, "The requested combination of response modalities (TEXT) is not supported by the model");
+    expect(await session.ready).toBe(false);
+    expect(states[0].state).toContain("provider closed socket: code 1007 — The requested combination of response modalities (TEXT)");
+    expect(states[0].bad).toBe(true);
   });
 });
 
@@ -571,4 +604,160 @@ describe("the harness as the rc's adapter", () => {
   it("defaults its port to the one the docs name", () => {
     expect(DEFAULT_VOICE_PORT).toBe(7654);
   });
+});
+
+describe("the harness session & tool-call log API", () => {
+  let close: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    await close?.();
+    close = null;
+  });
+
+  async function serve() {
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+    });
+    close = server.close;
+    return server;
+  }
+
+  it("exposes session state and transitions through /session/start, /session/mute, /session/unmute, /session/end", async () => {
+    const server = await serve();
+    const state0 = await (await fetch(`${server.state.url}state`)).json();
+    expect(state0).toMatchObject({ session: { state: "idle" } });
+
+    const startRes = await (await fetch(`${server.state.url}session/start`, { method: "POST" })).json();
+    expect(startRes).toEqual({ ok: true, state: "live" });
+
+    const state1 = await (await fetch(`${server.state.url}state`)).json();
+    expect(state1.session.state).toBe("live");
+
+    const muteRes = await (await fetch(`${server.state.url}session/mute`, { method: "POST" })).json();
+    expect(muteRes).toEqual({ ok: true, state: "muted" });
+
+    const unmuteRes = await (await fetch(`${server.state.url}session/unmute`, { method: "POST" })).json();
+    expect(unmuteRes).toEqual({ ok: true, state: "live" });
+
+    const endRes = await (await fetch(`${server.state.url}session/end`, { method: "POST" })).json();
+    expect(endRes).toEqual({ ok: true, state: "ended" });
+  });
+
+  it("logs tool calls, utterances, and session events in machine-readable GET /log", async () => {
+    const server = await serve();
+
+    // Trigger an utterance
+    await fetch(`${server.state.url}utterance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "retitle the first thing to Logged Title", source: "test" }),
+    });
+
+    // Check /log
+    const logRes = await (await fetch(`${server.state.url}log`)).json();
+    expect(logRes).toHaveProperty("entries");
+    expect(logRes.entries.length).toBeGreaterThan(0);
+
+    const uttLog = logRes.entries.find((e: any) => e.type === "utterance");
+    expect(uttLog).toBeDefined();
+    expect(uttLog.args.text).toBe("retitle the first thing to Logged Title");
+    expect(uttLog.op.type).toBe("item.update");
+    expect(uttLog.result.ok).toBe(true);
+  });
+});
+
+describe("responsive layout and bounding-box isolation", () => {
+  let close: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    await close?.();
+    close = null;
+  });
+
+  for (const width of [1440, 420]) {
+    it(`guarantees zero panel overlaps and zero text overflow at ${width}px`, async () => {
+      const server = await startVoiceServer({
+        home,
+        port: 0,
+        identity: { session: "Voice", harness: "agent" },
+        canvas: "prj_1",
+        daemonPort: Number(new URL(base).port),
+      });
+      close = server.close;
+
+      const { browser } = await import("../../../scripts/lib/browser.mjs");
+      const b = await browser({
+        flags: [
+          `--window-size=${width},900`,
+          "--use-fake-device-for-media-stream",
+          "--use-fake-ui-for-media-stream",
+          "--autoplay-policy=no-user-gesture-required",
+        ],
+      });
+
+      try {
+        const loaded = b.once("Page.loadEventFired");
+        await b.send("Page.navigate", { url: server.state.url });
+        await loaded;
+        await b.send("Emulation.setDeviceMetricsOverride", {
+          width,
+          height: 900,
+          deviceScaleFactor: 1,
+          mobile: width <= 500,
+        });
+        await new Promise((r) => setTimeout(r, 300));
+
+        // 1. Document width <= viewport width + 1
+        const docWidth = await b.ev<number>(`document.documentElement.scrollWidth`);
+        expect(docWidth).toBeLessThanOrEqual(width + 1);
+
+        // 2. Zero pairwise bounding-box intersection between panels
+        const overlaps = await b.ev<string[]>(`(() => {
+          const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock")]
+            .map((el) => ({ el, r: el.getBoundingClientRect() }));
+          const hits = [];
+          for (let i = 0; i < boxes.length; i++) {
+            for (let j = i + 1; j < boxes.length; j++) {
+              const a = boxes[i].r, b = boxes[j].r;
+              const x = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+              const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+              if (x > 2 && y > 2) {
+                hits.push((boxes[i].el.querySelector("h2")?.textContent || boxes[i].el.className || boxes[i].el.id) + " overlaps " +
+                          (boxes[j].el.querySelector("h2")?.textContent || boxes[j].el.className || boxes[j].el.id) +
+                          " by " + Math.round(x) + "x" + Math.round(y) + "px");
+              }
+            }
+          }
+          return hits;
+        })()`);
+        expect(overlaps, `Overlapping panels at ${width}px: ${overlaps.join("; ")}`).toEqual([]);
+
+        // 3. scrollWidth <= clientWidth + 1 for every text element
+        const overflows = await b.ev<string[]>(`(() => {
+          const elements = [...document.querySelectorAll("body *")];
+          const offenders = [];
+          for (const el of elements) {
+            if (el.scrollWidth > el.clientWidth + 1) {
+              const style = window.getComputedStyle(el);
+              if (style.overflowX !== "auto" && style.overflowX !== "scroll") {
+                offenders.push(
+                  (el.tagName.toLowerCase() + (el.className ? "." + String(el.className).split(" ").join(".") : "")) +
+                  " scrollWidth=" + el.scrollWidth + " > clientWidth=" + el.clientWidth +
+                  " text=" + JSON.stringify((el.textContent || "").trim().slice(0, 30))
+                );
+              }
+            }
+          }
+          return offenders;
+        })()`);
+        expect(overflows, `Text overflow at ${width}px: ${overflows.join("; ")}`).toEqual([]);
+      } finally {
+        await b.close();
+      }
+    });
+  }
 });

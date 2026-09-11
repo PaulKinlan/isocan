@@ -454,6 +454,18 @@ els.forgetKey.onclick = async () => {
 meterState("idle — press Listen");
 armCapture();
 
+/* ---- auto-reload on source update ---- */
+setInterval(async () => {
+  try {
+    const r = await fetch("/state", { cache: "no-store" });
+    if (!r.ok) return;
+    const s = await r.json();
+    if (s.updated && facts.updated && s.updated !== facts.updated) {
+      location.reload();
+    }
+  } catch {}
+}, 2500);
+
 `;
 
 /** The whole page. `facts` travels as JSON in a script tag, so the script
@@ -593,8 +605,8 @@ export function voicePage(facts: VoicePageFacts): string {
   #mic-slot { min-width: 280px; }
   #meter { flex: 1; min-width: 220px; }
   #mic-slot button {
-    width: 76px; height: 60px; border-radius: 50%; font-size: 30px; line-height: 1;
-    display: grid; place-items: center; padding: 0;
+    min-width: 96px; height: 50px; border-radius: 25px; font-size: 14px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; gap: 6px;
     background: linear-gradient(180deg, #262b34, #1b1e24);
     transition: box-shadow .18s ease, transform .12s ease;
   }

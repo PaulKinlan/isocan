@@ -590,7 +590,15 @@ export function startLiveSession(options: {
       callbacks.onState?.("the live socket refused", true);
       settle(false);
     };
-    socket.onclose = () => settle(false);
+    socket.onclose = (event: any) => {
+      const code = event?.code;
+      const reason = event?.reason ? String(event.reason) : "";
+      if (code && code !== 1000) {
+        const closeMsg = `provider closed socket: code ${code}${reason ? ` — ${reason}` : ""}`;
+        callbacks.onState?.(closeMsg, true);
+      }
+      settle(false);
+    };
     socket.onmessage = (event: { data: unknown }) => {
       void handleMessage(event.data);
     };
@@ -715,12 +723,26 @@ export interface VoiceServerOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface ToolLogEntry {
+  id: string;
+  timestamp: string;
+  type: "tool_call" | "session_event" | "utterance";
+  name?: string;
+  args?: Record<string, unknown>;
+  op?: { type: string; said?: string; target?: string };
+  result?: { ok: boolean; answer?: unknown; error?: string };
+  event?: string;
+  reason?: string;
+}
+
 export interface VoiceServerState {
   port: number;
   url: string;
   name: string;
   canvas: string;
   lines: string[];
+  session: { state: "idle" | "live" | "muted" | "ended" };
+  toolLog: ToolLogEntry[];
 }
 
 /**
@@ -824,6 +846,25 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const home = options.home;
   const target = await handleFor(options);
   const lines: string[] = [];
+  let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
+  let activeLiveSession: LiveSession | null = null;
+  const toolLog: ToolLogEntry[] = [];
+  const logListeners = new Set<(entry: ToolLogEntry) => void>();
+
+  function recordToolLog(entry: Omit<ToolLogEntry, "id" | "timestamp">): ToolLogEntry {
+    const item: ToolLogEntry = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      ...entry,
+    };
+    toolLog.push(item);
+    while (toolLog.length > 200) toolLog.shift();
+    for (const listener of logListeners) {
+      try { listener(item); } catch {}
+    }
+    return item;
+  }
+
   const narrate = (line: string) => {
     lines.push(line);
     if (lines.length > 50) lines.shift();
@@ -851,6 +892,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       home: config.home ?? "no home configured — the daemon's default",
       agent: { name: target.name, id: target.actorId, enrolled },
       provider: { name: stored?.provider ?? null, model: options.model ?? LIVE_MODEL, key: stored !== null },
+      session: { state: sessionState },
     };
   };
 
@@ -903,8 +945,44 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         respond(200, { ...(await factsFor()), lines });
         return;
       }
+      if (req.method === "GET" && url.pathname === "/log") {
+        respond(200, { entries: toolLog, count: toolLog.length });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/session/start") {
+        sessionState = "live";
+        recordToolLog({ type: "session_event", event: "opened" });
+        respond(200, { ok: true, state: sessionState });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/session/mute") {
+        if (sessionState === "live") {
+          sessionState = "muted";
+          recordToolLog({ type: "session_event", event: "muted" });
+        }
+        respond(200, { ok: true, state: sessionState });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/session/unmute") {
+        if (sessionState === "muted") {
+          sessionState = "live";
+          recordToolLog({ type: "session_event", event: "unmuted" });
+        }
+        respond(200, { ok: true, state: sessionState });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/session/end") {
+        sessionState = "ended";
+        recordToolLog({ type: "session_event", event: "closed", reason: "user ended" });
+        if (activeLiveSession) {
+          try { activeLiveSession.close(); } catch {}
+          activeLiveSession = null;
+        }
+        respond(200, { ok: true, state: sessionState });
+        return;
+      }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state and POST /key, /audio, /utterance, /summons" });
+        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log and POST /key, /audio, /utterance, /summons, /session/*" });
         return;
       }
       const body = await readBody();
@@ -979,9 +1057,23 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             await applyPlan(target.canvas, plan, ctx);
             sent.push(plan.said);
             narrate(`sent: ${plan.said}`);
+            recordToolLog({
+              type: "utterance",
+              name: "utterance",
+              args: { text, source },
+              op: { type: plan.op.type, said: plan.said },
+              result: { ok: true, answer: plan.said },
+            });
           } catch (err) {
             failed.push(`${plan.said} — ${(err as Error).message}`);
             narrate(`refused: ${plan.said} — ${(err as Error).message}`);
+            recordToolLog({
+              type: "utterance",
+              name: "utterance",
+              args: { text, source },
+              op: { type: plan.op.type, said: plan.said },
+              result: { ok: false, error: (err as Error).message },
+            });
           }
         }
         respond(200, {
@@ -1009,15 +1101,32 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
 
   /**
    * **The live door.** The page streams 16 kHz PCM here; this process holds
-   * the provider socket and the key. Everything the model does comes back
-   * through the callbacks below, and a tool call is answered with the RESULT
-   * of the operation because function calling is synchronous.
+   * the provider socket and the key. Supports both /live and /audio paths.
+   * Everything the model does comes back through the callbacks below, and a
+   * tool call is answered with the RESULT of the operation because function
+   * calling is synchronous.
    */
-  const live = new WebSocketServer({ server, path: "/live" });
+  const live = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (pathname === "/live" || pathname === "/audio") {
+      live.handleUpgrade(request, socket, head, (ws) => {
+        live.emit("connection", ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
   live.on("connection", (page: NodeSocket) => {
+    sessionState = "live";
+    recordToolLog({ type: "session_event", event: "opened" });
     const say = (message: unknown) => {
       if (page.readyState === page.OPEN) page.send(JSON.stringify(message));
     };
+    const onLog = (entry: ToolLogEntry) => {
+      say({ type: "tool_log", entry });
+    };
+    logListeners.add(onLog);
     void (async () => {
       const stored = await readVoiceKey(home).catch((err) => {
         say({ state: String((err as Error).message), bad: true });
@@ -1038,6 +1147,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         callbacks: {
           onState: (state: string, bad?: boolean) => {
             if (bad) liveFailure = state;
+            if (state.includes("interrupted")) {
+              recordToolLog({ type: "session_event", event: "interrupted", reason: state });
+            } else if (state === "turn_complete") {
+              recordToolLog({ type: "session_event", event: "turn_complete" });
+            }
             say({ state, bad });
           },
           onHeard: (text: string) => say({ heard: text }),
@@ -1051,6 +1165,12 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             if (plan.what === "__read__") {
               const answer = describeCanvas({ items, mainThreadId: target.mainThreadId });
               say({ text: answer });
+              recordToolLog({
+                type: "tool_call",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, answer },
+              });
               return { ok: true, canvas: answer };
             }
             const { ready, refused } = resolveLivePlans(plan.plans, items);
@@ -1061,20 +1181,50 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId });
                 sent.push(one.said);
                 narrate(`sent: ${one.said}`);
+                recordToolLog({
+                  type: "tool_call",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: one.op.type, said: one.said, target: "target" in one.op ? String((one.op as any).target ?? (one.op as any).itemId ?? "") : undefined },
+                  result: { ok: true, answer: one.said },
+                });
               } catch (err) {
-                failed.push(`${one.said} — ${(err as Error).message}`);
-                narrate(`refused: ${one.said} — ${(err as Error).message}`);
+                const msg = (err as Error).message;
+                failed.push(`${one.said} — ${msg}`);
+                narrate(`refused: ${one.said} — ${msg}`);
+                recordToolLog({
+                  type: "tool_call",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: one.op.type, said: one.said },
+                  result: { ok: false, error: msg },
+                });
               }
+            }
+            for (const r of refused) {
+              recordToolLog({
+                type: "tool_call",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: false, error: r },
+              });
             }
             say({ sent, failed, state: failed.length ? "some operations were refused" : "live", bad: failed.length > 0 });
             return { ok: failed.length === 0, ...(failed.length ? { failed } : {}), ...(plan.what ? { note: plan.what } : {}) };
           },
         },
       });
+      activeLiveSession = session;
       page.on("message", (data: Buffer, isBinary: boolean) => {
+        if (sessionState === "muted") return; // muted: suppress audio
         if (isBinary || Buffer.isBuffer(data)) session.send(new Uint8Array(data as Buffer));
       });
-      page.on("close", () => session.close());
+      page.on("close", () => {
+        logListeners.delete(onLog);
+        sessionState = "ended";
+        recordToolLog({ type: "session_event", event: "closed", reason: liveFailure || "closed" });
+        session.close();
+      });
       const ok = await session.ready;
       if (!ok && page.readyState === page.OPEN) {
         // Loud, and never a silent fallback: a quiet failure here is what made
@@ -1095,7 +1245,15 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const bound = server.address();
   const listening = typeof bound === "object" && bound ? bound.port : port;
   const url = `http://127.0.0.1:${listening}/`;
-  const state: VoiceServerState = { port: listening, url, name: target.name, canvas: target.canvasLabel, lines };
+  const state: VoiceServerState = {
+    port: listening,
+    url,
+    name: target.name,
+    canvas: target.canvasLabel,
+    lines,
+    session: { state: sessionState },
+    toolLog,
+  };
   await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
   await fs.writeFile(
     voiceServerFile(home),
