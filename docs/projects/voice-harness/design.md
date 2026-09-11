@@ -40,36 +40,54 @@ loopback. A browser never talks to a provider.
 
 ## What was measured about capture (Chrome 152.0.7977.82)
 
-The microphone ladder is `<microphone>`, then `<usermedia>`, then
-`getUserMedia`, and which rung ran is printed on the page with the browser
-version beside it — because "no element" and "no permission" look identical in a
-screenshot and mean opposite things. What the rungs actually do here:
+The ladder is **`<microphone>` → `getUserMedia({audio: true, video: false})`**,
+and which rung ran is printed on the page with the browser version beside it —
+because "no element" and "no permission" look identical in a screenshot and
+mean opposite things.
 
-| | |
-| --- | --- |
-| `HTMLMicrophoneElement` | **undefined** on 152 |
-| `HTMLUserMediaElement` | **a function**, and a real element: `stream`, `error`, `onstream`, `onerror`, `oncancel`, `setConstraints` |
-| `setConstraints` | takes a **`MediaTrackConstraintSet`** — `{}` is accepted, `{audio: true}` throws "Value is not of type MediaTrackConstraintSet" |
-| What it needs | no custom styling (a styled one fails `InvalidStateError: The permission element is disabled due to: invalid style`), a stable layout (armed while the page was still laying out: *"recently attached to layout tree, intersection with viewport changed"*), and a **real user gesture on the element** — a click on another button is not it |
-| In a `position: fixed` dock | fails `InvalidStateError: … intersection occluded or distorted`. In normal flow the same element delivers a stream |
+**`<usermedia>` is deliberately not a rung**, and the page says why. Astra
+proved it from Chromium's source and photographed the result:
+`html_user_media_element.cc` adds **both** capture descriptors outside legacy
+mode, so the element requests camera AND microphone unconditionally and
+`setConstraints` changes preferences, not permission descriptors. An audio
+feature must not prompt for a camera. (Measured on 152 anyway, for the record:
+it exists and is real — `stream`, `error`, `onstream`, `onerror`, `oncancel`,
+`setConstraints` — but it refuses styled *"invalid style"*, refuses while the
+layout is settling *"recently attached to layout tree, intersection with
+viewport changed"*, refuses inside a `position: fixed` dock *"intersection
+occluded or distorted"*, and takes a `MediaTrackConstraintSet`, so
+`setConstraints({})` rather than `{audio: true}`.)
 
-So in this build the element is **armed and tried, refuses in the page's own
-layout, and the page falls back to `getUserMedia` inside the same gesture** —
-and says so on the face of it. That is the honest reading of 152: present,
-plausibly useful, not yet load-bearing. When a browser ships a `<microphone>`
-that works, the ladder prefers it with no code change, and the page will say
-which one ran.
+Since `<microphone>` does not exist on 152, **the JS path is the primary path
+and its control is always on the page** — a real button. The first build filled
+a slot only when the declarative element was available, which left the person
+who mattered with nothing to press.
+
+## The Live API is the path
+
+`BidiGenerateContent` against **`models/gemini-3.1-flash-live-preview`**
+(verified current against Google's Live docs on 11 Sep 2026; a preview name
+that will move, which is why `--model` exists). The harness opens the socket
+and holds the key; the page streams 16 kHz PCM up over loopback and plays the
+24 kHz PCM back, so the key still never reaches a page. Tool calls are
+**synchronous**, which is the right shape here: a canvas operation is one local
+round trip, and the tool list is the fast set — rename, delete, move, say, ask,
+comment, read. A slow ask belongs in the Chat, where the parked agents already
+listen. The typed grammar remains as the deterministic second path, and
+`transcribe()` plus `POST /audio` remain as the one-shot fallback when the live
+socket never opens.
 
 ## What is not built yet
 
-- **The provider path has not been driven with a real key.** Transcription
-  (`transcribe()`) is implemented for Gemini (inline `audio/wav`) and OpenAI
-  (`/v1/audio/transcriptions`), and the harness falls back to saying it has no
-  key rather than failing silently — but no spend was authorised, so it is
-  unit-tested, not measured.
-- **A real summon has not been driven end to end.** The ACP face answers the
-  wire, unit-tested; `isocan rc turn <name> …` against a live enrolled voice
-  agent is the next thing to run.
+- **The Live session has never run against Google.** No key in the test home
+  and no spend authorised, so everything up to the socket is proven and the
+  socket itself is not: the setup message, 16 kHz frames, tool→operation→result
+  and verbatim provider errors are unit-tested against a fake socket. The first
+  real model turn is Paul's.
+- **`<microphone>` is unproven** — no browser here has it.
+- **A summon has been driven**: `isocan rc turn <name> …` reaches the standing
+  page, asserted in the suite (the turn ends `end_turn` and the summons appears
+  in the page's own log).
 - **The grammar is deliberately small** — rename, delete, move, say, ask,
   comment, and a read that answers "what is on this canvas". It is deterministic
   on purpose: the first build has to be provable with no key and no spend. A
