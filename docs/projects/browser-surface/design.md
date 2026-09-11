@@ -64,7 +64,7 @@ flowchart TB
      by the single engine reducer.
    - **Authority**: Stamped with the presenting actor's badge and client ID.
    - **Durability**: Completely durable, replicated, and logged to disk/Firestore.
-2. **The Control Plane (Agent Control Protocol)**:
+2. **The Control Plane (Agent Control Protocol — PROPOSED)**:
    - **Protocol**: Agent Control Protocol (ACP 1, integer protocol version 1)
      via a locally spawned adapter process (`packages/cli/src/acp.ts`) communicating
      over stdio pipes (or an extension Native Messaging host).
@@ -73,6 +73,8 @@ flowchart TB
    - **Authority**: Governed by the active agent session grant. Turns are initiated
      by `isocan rc` prompting the agent; the agent emits updates and narration,
      executing browser actions strictly within its explicit tab grant.
+   - **Status**: The ACP client in `packages/cli/src/acp.ts` is **BUILT** and tested;
+     the extension-side ACP server adapter is **PROPOSED** and unimplemented.
    - **Durability**: Session-scoped; turn history preserved in ACP session handles.
 3. **The Ephemeral Plane (Presence & Media)**:
    - **Protocol**: Ephemeral presence frames over `/api/ws` and direct WebRTC peer
@@ -140,7 +142,7 @@ bidirectional:
 | **Card Selected / Focused** | Canvas $\rightarrow$ Chrome | Local UI state | User clicks card on canvas. Extension brings corresponding `tabId` to active window focus via `chrome.tabs.update(tabId, { active: true })`. |
 | **Card Address Edited** | Canvas $\rightarrow$ Chrome | `item.addVersion` | User edits URL on card. Extension receives oplog entry, validates URL via `normalizeSiteUrl`, and calls `chrome.tabs.update(tabId, { url })`. |
 | **Card Closed on Canvas** | Canvas $\rightarrow$ Chrome | `item.delete` | User deletes card on canvas. Extension calls `chrome.tabs.remove(tabId)`. |
-| **Tab Group Created** | Chrome $\rightarrow$ Canvas | `item.add` (area) | Creates bounding `area` item enclosing grouped cards, or nests them into a child canvas (`kind: "canvas"`). |
+| **Tab Group Created** | Chrome $\rightarrow$ Canvas | `item.add` (area) | Creates bounding `area` item enclosing grouped cards, or nests them into a child canvas item extending existing `packages/core/src/canvasitem.ts` (`properties.kind = "canvas"`, `canvasitemOf`) and the partly built `docs/projects/inception/` project. |
 | **Agent Page Action** | Canvas $\rightarrow$ Chrome | Tool turn via ACP | Agent dispatches click/scroll/type. Extension executes action via CAP's accessibility/DOM tools and emits `thread.reply` with outcome. Note: oplog undo reverses canvas item state, but cannot undo arbitrary third-party web server mutations. |
 
 ---
@@ -177,7 +179,7 @@ identify the precise delta required for isocan:
 | Subsystem | CAP Measured Capability (v0.3.394) | Isocan Need in Track C | Seam Resolution |
 |---|---|---|---|
 | **Browser Tools** | 188 granular tools declared in `extension/lib/chrome-tool-capabilities.js` (`browserTools: 138, managementTools: 50, totalTools: 188`; implementation in `browser-tools.js`) covering tabs, windows, cookies, navigation, screenshots, accessibility trees, and devtools. | High-level operations to manipulate tabs, capture visual faces, and inspect DOM nodes. | Direct reuse of CAP tool implementations inside the extension service worker. |
-| **Tool Calling Protocol** | Lazy catalog protocol (`lazy-tool-protocol.js`) and pipeline execution engine (`tool-pipeline.js`, 200 step bound). | ACP (Agent Control Protocol) 1 loopback to answer `isocan rc` turns. | Implement `packages/server/src/acp-bridge.ts`: bridges ACP JSON-RPC requests into CAP's internal tool dispatcher. |
+| **Tool Calling Protocol** | Lazy catalog protocol (`lazy-tool-protocol.js`) and pipeline execution engine (`tool-pipeline.js`, 200 step bound). | ACP (Agent Control Protocol) 1 loopback to answer `isocan rc` turns. Note: client in `packages/cli/src/acp.ts` is BUILT; extension ACP server adapter is PROPOSED. | Implement `packages/server/src/acp-bridge.ts`: bridges ACP JSON-RPC requests into CAP's internal tool dispatcher. |
 | **Agent Principals** | Synthetic logical principals (`named:<slug>`, `site:<origin>`, owner-direct) with 258 dispatch routes (`docs/SW-DISPATCH-AUTHORITY-CENSUS.md`). | Isocan actors (`actor.claim`, `packages/core/src/model.ts`) with durable names, colors, and marks. | Map Isocan actor identities (`actorId`) directly to CAP's principal attribution ledger on dispatch. |
 | **Approval Fences** | Strict 32 `DESTRUCTIVE_ACTIONS` requiring owner inline approval; `OWNER_DIRECT_ACTIONS` reserved for owner UI. | Explicit human-in-the-loop permission model for co-driving and autonomous agent execution. | Reuse CAP's approval store and pending cards in extension UI before executing mutating browser actions. |
 | **Sandboxed Code Execution** | Manifest sandbox page (`null` origin, no `chrome.*`) with host-bridged fetch and digest-verified JS modules via import maps (`ovfm.1-3`). | Safe execution of user-authored scrapers, data transforms, and DOM visualizers. | Extension routes canvas code execution to CAP's script-sandbox host (`script-host.js`). |
@@ -223,11 +225,15 @@ tokens, and private browser history.
    - Remote guests interact via **frame projection and synthetic event
      reflection**, exactly as in remote desktop systems, but scoped to a
      single DOM tab.
-   - Grounded in existing isocan badge architecture (`packages/server/src/badges.ts:117–154`
-     and `docs/projects/embed/phases.md`): while embedding uses partitioned
-     CHIPS cookies (`SameSite=None; Secure; Partitioned`) to let an embedded
-     iframe maintain its own badge session, browser session sharing across
-     multiplayer peers never shares the host origin's credentials.
+   - **Distinguishing Cookie Custody Models**:
+     - *CHIPS Partitioned Cookies*: Built in `packages/server/src/badges.ts:117–154`
+       and `docs/projects/embed/phases.md` using `SameSite=None; Secure; Partitioned`
+       so that an embedded isocan canvas iframe can maintain its own independent
+       isocan badge session inside an IDE or manager.
+     - *Owner-Profile Browser Authority*: In browser sharing, third-party session
+       cookies and credentials belong exclusively to the owner's Chrome profile.
+       Unlike canvas badge cookies, these third-party web credentials are never
+       partitioned, serialized, or transmitted to peers.
    - **Visual Streaming Realism**: Visual frame streaming renders visible DOM
      text and pixels on screen (including visible account names or dashboard data).
      Sensitive password and payment fields are masked by content script heuristics,
