@@ -182,7 +182,6 @@ export function wireVoice(doc: Document = document): VoicePage {
   const confirmDeny = required<HTMLButtonElement>("confirm-deny", doc);
   const openButton = required<HTMLButtonElement>("open-project", doc);
   const keyInput = required<HTMLInputElement>("key", doc);
-  const providerSelect = required<HTMLSelectElement>("provider", doc);
   const saveKeyButton = required<HTMLButtonElement>("save-key", doc);
   const testKeyButton = required<HTMLButtonElement>("test-key", doc);
   const forgetKeyButton = required<HTMLButtonElement>("forget-key", doc);
@@ -203,7 +202,18 @@ export function wireVoice(doc: Document = document): VoicePage {
   let entries: LogEntry[] = [];
   let mics: Input[] = [];
   let chosenId = storedDevice();
-  let provider = providerSelect.value || "gemini";
+  /**
+   * **The key is a Gemini Live key, and the page says so by not offering a
+   * choice.**
+   *
+   * The panel used to carry a provider dropdown with two options, which was a
+   * small lie: only Gemini Live holds the conversation. The harness still
+   * accepts an `sk-` key for its transcription fallback, so pasting one by
+   * hand keeps working — it is just not advertised as a peer of the thing that
+   * actually does the talking. The provider posted with the key is the one the
+   * page means.
+   */
+  const provider = "gemini";
   let complaint = "";
   let note = "";
   /** True only while the state poll is the thing that failed. */
@@ -1183,9 +1193,6 @@ export function wireVoice(doc: Document = document): VoicePage {
   endButton.addEventListener("click", () => void end());
   deviceSelect.addEventListener("change", () => void chooseMic(deviceSelect.value));
   keyInput.addEventListener("input", renderSave);
-  providerSelect.addEventListener("change", () => {
-    provider = providerSelect.value;
-  });
   saveKeyButton.addEventListener("click", () => void save());
   testKeyButton.addEventListener("click", () => void test());
   forgetKeyButton.addEventListener("click", () => void forget());
