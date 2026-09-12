@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { entriesFrom, sessionFrom } from "../src/lib/voice.ts";
-import { wireVoice, type VoicePage } from "../src/voice/main.ts";
+import { buildWords, wireVoice, type VoicePage } from "../src/voice/main.ts";
 
 /**
  * **The standalone page, driven as a page.**
@@ -57,6 +57,11 @@ beforeEach(() => {
       if (url.endsWith("/open")) {
         if (openThrows) throw new TypeError("Failed to fetch");
         return answer(openReply);
+      }
+      // The session and setup verbs: `{ ok: true }` is what a harness that
+      // has them answers, and a test that wants a refusal stubs its own.
+      if (/\/(session\/(start|mute|unmute|end)|key|key\/test|daemon|canvas|actor|enrol|confirm|open_url\/result)$/.test(url)) {
+        return answer({ ok: true });
       }
       throw new Error(`unexpected fetch ${url}`);
     }),
@@ -124,6 +129,106 @@ const element = <T extends HTMLElement>(id: string): T => {
   if (!found) throw new Error(`missing #${id}`);
   return found as T;
 };
+
+/**
+ * **A page that is really live, without a microphone.**
+ *
+ * The state model, the permission gate and `open_url` all live behind the
+ * socket, and a test that cannot open one cannot see the states Paul asked
+ * for. So capture is faked at its four seams — permission, context, worklet,
+ * worklet node — and the socket is a class the test holds and feeds. Nothing
+ * about the page changes for it: this is the same `wireVoice` a browser gets.
+ */
+class FakeSocket {
+  static latest: FakeSocket | null = null;
+  readyState = 1;
+  binaryType = "";
+  sent: unknown[] = [];
+  onopen: (() => void) | null = null;
+  onmessage: ((message: { data: unknown }) => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor() {
+    FakeSocket.latest = this;
+  }
+  send(data: unknown): void {
+    this.sent.push(data);
+  }
+  close(): void {
+    this.readyState = 3;
+  }
+  /** One string frame from the harness, as it arrives. */
+  event(message: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(message) });
+  }
+  /** One binary frame: the model's own 24 kHz PCM. */
+  audio(samples = 4800): void {
+    this.onmessage?.({ data: new Int16Array(samples).fill(1200).buffer });
+  }
+}
+
+function fakeCapture(): void {
+  class FakeContext {
+    sampleRate = 48000;
+    currentTime = 0;
+    state = "running";
+    destination = {};
+    audioWorklet = { addModule: async () => undefined };
+    createMediaStreamSource() {
+      return { connect: () => undefined, disconnect: () => undefined };
+    }
+    // Playback needs these the moment output audio arrives, and an
+    // unhandled rejection here would be a test that lies about passing.
+    createBuffer(_channels: number, length: number, rate: number) {
+      return { duration: length / rate, getChannelData: () => new Float32Array(length) };
+    }
+    createBufferSource() {
+      return { buffer: null, onended: null, connect: () => undefined, start: () => undefined, stop: () => undefined };
+    }
+    async resume() {}
+    async close() {}
+  }
+  class FakeWorklet {
+    port = { onmessage: null as unknown, postMessage: () => undefined };
+    connect(): void {}
+    disconnect(): void {}
+  }
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: {
+      enumerateDevices: async () => [
+        { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+        { kind: "audioinput", deviceId: "mic-2", label: "Headset" },
+      ],
+      getUserMedia: async () => ({
+        getAudioTracks: () => [{ label: "Fake microphone", getSettings: () => ({}) }],
+        getTracks: () => [{ stop: () => undefined }],
+      }),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    },
+  });
+  vi.stubGlobal("AudioContext", FakeContext);
+  vi.stubGlobal("AudioWorkletNode", FakeWorklet);
+  vi.stubGlobal("WebSocket", FakeSocket);
+  // Only the two statics: replacing URL itself takes away `new URL(...)`,
+  // which is how the page builds the socket address.
+  (URL as unknown as { createObjectURL: () => string }).createObjectURL = () => "blob:worklet";
+  (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => undefined;
+}
+
+/** Start a session and hand back the socket the page opened. */
+async function goLive(): Promise<FakeSocket> {
+  await element<HTMLButtonElement>("listen").click();
+  await flush();
+  await flush();
+  const socket = FakeSocket.latest;
+  if (!socket) {
+    const seen = [...document.querySelectorAll("#log li")].map((li) => li.textContent).join(" | ");
+    throw new Error(`the page never opened a socket — complaint: ${element("complaint").textContent} — log: ${seen}`);
+  }
+  return socket;
+}
 
 describe("what the harness says, in the shape the page reads", () => {
   it("unwraps the session state, and also takes it bare", () => {
@@ -297,5 +402,164 @@ describe("devices, keys and the project link", () => {
     element<HTMLButtonElement>("open-project").click();
     await flush();
     expect(fakeTab.location.replace).toHaveBeenCalledWith("/harness/open");
+  });
+});
+
+describe("the states Paul asked for, from the wire that carries them", () => {
+  it("says listening, then thinking when the utterance lands, then speaking", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable
+    await wire();
+    const socket = await goLive();
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("listening");
+
+    socket.event({ type: "tool_log", entry: { details: { kind: "heard", text: "read the canvas and" } } });
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("thinking");
+    expect(element<HTMLElement>("state").textContent).toBe("thinking…");
+    expect(element("transcript").textContent).toContain("read the canvas and");
+
+    // The provider sends input transcription as partials that grow; the
+    // transcript must not glue one to the next ("andread" was the bug).
+    socket.event({ type: "tool_log", entry: { details: { kind: "heard", text: "read the canvas and tell me" } } });
+    expect(element("transcript").textContent).not.toContain("andread");
+    expect(element("transcript").textContent).toContain("read the canvas and tell me");
+
+    // Output audio: the model is speaking, and the waveform follows ITS audio.
+    socket.audio();
+    await flush();
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("speaking");
+    // The ticker is what writes the meter, so let it tick once: the waveform
+    // now reads the model's own output, not the microphone.
+    await vi.advanceTimersByTimeAsync(150);
+    expect(element<HTMLElement>("meter").getAttribute("aria-label")).toContain("output level");
+
+    // The reply, as the harness tags it: the transcript shows both sides.
+    socket.event({ type: "tool_log", entry: { details: { kind: "reply", text: "I've read the canvas." } } });
+    expect(element("transcript").textContent).toContain("Voice");
+    expect(element("transcript").textContent).toContain("I've read the canvas.");
+
+    // A quiet tail returns to listening without anyone saying so.
+    await vi.advanceTimersByTimeAsync(900);
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("listening");
+    expect(element<HTMLElement>("meter").getAttribute("aria-label")).toContain("input level");
+  });
+
+  it("stops the model and goes back to listening when it is interrupted", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable
+    await wire();
+    const socket = await goLive();
+    socket.audio();
+    await flush();
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("speaking");
+    socket.event({ state: "the model was interrupted" });
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("listening");
+  });
+
+  it("a muted session never renders as listening", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable
+    await wire();
+    await goLive();
+    element<HTMLButtonElement>("mute").click();
+    await flush();
+    expect(element<HTMLElement>("hero").dataset.state).toBe("muted");
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("muted");
+    expect(element<HTMLElement>("state").textContent).toContain("muted");
+  });
+});
+
+describe("the permission gate and open_url, as the page renders them", () => {
+  it("asks a person before a destructive operation, and posts their answer", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable
+    await wire();
+    const socket = await goLive();
+    expect(element<HTMLElement>("confirm").hidden).toBe(true);
+
+    socket.event({ confirm: { id: "cfm_1", name: "trash_empty", what: "empty the trash (3 items)" } });
+    expect(element<HTMLElement>("confirm").hidden).toBe(false);
+    expect(element("confirm-what").textContent).toContain("empty the trash (3 items)");
+
+    element<HTMLButtonElement>("confirm-allow").click();
+    await flush();
+    expect(element<HTMLElement>("confirm").hidden).toBe(true);
+    const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/confirm"));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ id: "cfm_1", allow: true });
+  });
+
+  it("refuses a scheme the page will not open, and logs that it blocked it", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable
+    await wire();
+    const socket = await goLive();
+    socket.event({ open_url: { callId: "opn_1", url: "javascript:alert(1)", target: "tab" } });
+    await flush();
+    expect(window.open).not.toHaveBeenCalled();
+    const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/open_url/result"));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ callId: "opn_1", ok: false, opened: "blocked" });
+  });
+
+  it("opens a tab when the page has a gesture, and says the tab path ran", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable
+    await wire();
+    const socket = await goLive();
+    socket.event({ open_url: { callId: "opn_2", url: "https://isocan.io/", target: "tab" } });
+    await flush();
+    const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/open_url/result"));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ callId: "opn_2", ok: true, opened: "tab" });
+    expect([...document.querySelectorAll("#log li")].some((li) => (li.textContent ?? "").includes("open_url: tab"))).toBe(true);
+  });
+});
+
+describe("the setup panel says what this harness cannot do", () => {
+  it("names the command when the build has no /enrol endpoint", async () => {
+    await wire();
+    // The list of steps is built from facts; with none, the panel is open.
+    expect(element<HTMLElement>("setup").hidden).toBe(false);
+    const steps = [...element("setup-steps").querySelectorAll("li")].map((li) => li.textContent ?? "");
+    expect(steps.join("\n")).toContain("isocan rc add");
+    expect(steps.join("\n")).toContain("acpAdapters");
+  });
+
+  it("shows a canvas picker that works when the harness answers /canvases", async () => {
+    const original = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/canvases")) {
+        return answer({ current: "prj_1", canvases: [{ id: "prj_1", title: "First" }, { id: "prj_2", title: "Second" }] });
+      }
+      if (url.endsWith("/canvas")) return answer({ ok: true, canvas: { id: "prj_2", title: "Second" } });
+      return original!(input, init);
+    });
+    await wire();
+    const select = element("setup-steps").querySelector("select");
+    expect(select).toBeTruthy();
+    expect([...select!.options].map((o) => o.textContent)).toEqual(["First", "Second"]);
+    select!.value = "prj_2";
+    [...element("setup-steps").querySelectorAll("button")].find((b) => b.textContent === "Use this canvas")!.click();
+    await flush();
+    const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/canvas"));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ id: "prj_2" });
+  });
+});
+
+describe("the build tag tells the truth about what is being tested", () => {
+  it("says the tag was not injected rather than inventing one", () => {
+    expect(buildWords()).toBe("build tag not injected");
+  });
+
+  it("names the branch and the short commit when the build injects them", () => {
+    (globalThis as Record<string, unknown>).__VOICE_BUILD_INFO__ = {
+      branch: "feat/voice-ui-vite",
+      commit: "57dd1b50c0ffee",
+    };
+    try {
+      expect(buildWords()).toBe("feat/voice-ui-vite @ 57dd1b50");
+      expect(element("build-tag")).toBeTruthy();
+    } finally {
+      delete (globalThis as Record<string, unknown>).__VOICE_BUILD_INFO__;
+    }
   });
 });

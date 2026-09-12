@@ -6435,7 +6435,7 @@ button.mt-card:hover { border-color: var(--accent); }
   --s6: 32px;
 
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--s4);
   min-block-size: 100dvb;
   max-width: 640px;
@@ -6444,6 +6444,9 @@ button.mt-card:hover { border-color: var(--accent); }
   color: var(--ink);
 }
 .voice > * { min-width: 0; }
+/* `hidden` loses to a display declaration; the setup block shipped visible
+   with no session to set up. Say it once, for everything in the page. */
+.voice [hidden] { display: none; }
 .voice-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
 .voice-head h1 {
   margin: 0;
@@ -6452,6 +6455,17 @@ button.mt-card:hover { border-color: var(--accent); }
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-muted);
+}
+/* The build tag: which branch and commit this page was served from, quiet
+   enough not to compete with the microphone but present enough to read. */
+.voice-build {
+  font-family: ui-monospace, monospace;
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* THE HERO. Empty space is the design: the microphone sits in the middle of
@@ -6481,14 +6495,15 @@ button.mt-card:hover { border-color: var(--accent); }
   height: 112px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 50%;
-  background: var(--card);
+  background: color-mix(in srgb, var(--ink-muted) 12%, var(--card));
   color: var(--ink-muted);
   cursor: pointer;
-  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition: color 160ms ease, background 160ms ease;
 }
 .voice-mic #listen:hover:not(:disabled) { color: var(--ink); }
+.voice-mic #listen:disabled { background: var(--card); }
 .voice-mic #listen:disabled { cursor: default; }
 .voice-glyph {
   width: 44px;
@@ -6505,13 +6520,16 @@ button.mt-card:hover { border-color: var(--accent); }
    colour. Idle is none of them — a still ring that says nothing is happening,
    which is true. */
 .voice-hero[data-activity="listening"] .voice-ring { border-color: var(--accent); animation: voice-breathe 2.8s ease-in-out infinite; }
-.voice-hero[data-activity="listening"] #listen { color: var(--accent-text); border-color: var(--accent); }
-.voice-hero[data-activity="thinking"] .voice-ring { border-style: dashed; border-color: var(--accent); animation: voice-spin 2.4s linear infinite; }
-.voice-hero[data-activity="thinking"] #listen { color: var(--accent-text); border-color: var(--accent); }
+.voice-hero[data-activity="listening"] #listen { color: var(--accent-text); }
+.voice-hero[data-activity="thinking"] .voice-ring {
+  border: 2px dashed var(--warn);
+  animation: voice-spin 2.4s linear infinite;
+}
+.voice-hero[data-activity="thinking"] #listen { color: var(--warn); }
 .voice-hero[data-activity="speaking"] .voice-ring { border-color: var(--good); animation: voice-breathe 1.1s ease-in-out infinite; }
-.voice-hero[data-activity="speaking"] #listen { color: var(--good); border-color: var(--good); }
+.voice-hero[data-activity="speaking"] #listen { color: var(--good); }
 .voice-hero[data-activity="muted"] .voice-ring { border-color: var(--warn); }
-.voice-hero[data-activity="muted"] #listen { color: var(--warn); border-color: var(--warn); }
+.voice-hero[data-activity="muted"] #listen { color: var(--warn); }
 
 @keyframes voice-breathe {
   0%, 100% { transform: scale(1); opacity: 0.6; }
@@ -6522,24 +6540,28 @@ button.mt-card:hover { border-color: var(--accent); }
 }
 
 .voice-state {
+  display: block;
+  max-width: 100%;
   margin: 0;
   font-size: var(--t-md);
   font-weight: 600;
   color: var(--ink);
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .voice-state::before {
   content: "";
+  display: inline-block;
+  vertical-align: middle;
   width: 8px;
   height: 8px;
+  margin-right: var(--s2);
   border-radius: 50%;
   background: color-mix(in srgb, var(--ink-muted) 65%, var(--card));
-  flex: none;
 }
 .voice-hero[data-activity="listening"] .voice-state::before { background: var(--accent); }
-.voice-hero[data-activity="thinking"] .voice-state::before { background: var(--accent); }
+.voice-hero[data-activity="thinking"] .voice-state::before { background: var(--warn); }
 .voice-hero[data-activity="speaking"] .voice-state::before { background: var(--good); }
 .voice-hero[data-activity="muted"] .voice-state::before { background: var(--warn); }
 
@@ -6556,7 +6578,7 @@ button.mt-card:hover { border-color: var(--accent); }
   min-width: 0;
   height: 100%;
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--ink-muted) 50%, var(--card));
+  background: color-mix(in srgb, var(--ink-muted) 60%, var(--card));
   transform: scaleY(0.12);
   transition: transform 90ms linear, background 90ms linear;
 }
@@ -6591,6 +6613,28 @@ button.mt-card:hover { border-color: var(--accent); }
   text-align: left;
 }
 .voice-transcript:empty { display: none; }
+.voice-confirm {
+  display: grid;
+  gap: var(--s2);
+  width: min(100%, 520px);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  background: color-mix(in srgb, var(--warn) 8%, var(--card));
+}
+.voice-confirm-what { margin: 0; font-size: var(--t-md); color: var(--ink); }
+.voice-confirm-acts { display: flex; gap: var(--s2); justify-content: center; }
+.voice-confirm-acts button {
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s2) var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+#confirm-allow { border-color: var(--warn); color: var(--warn); }
 .voice-turn { margin: 0; font-size: var(--t-sm); line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
 .voice-turn b {
   display: block;
@@ -6618,7 +6662,16 @@ button.mt-card:hover { border-color: var(--accent); }
 
 /* Everything else, in drawers at the bottom: present, reachable, and none of
    it asking to be looked at first. */
-.voice-drawers { display: grid; gap: var(--s1); border-top: 1px solid var(--line); padding-top: var(--s3); }
+.voice-drawers {
+  display: grid;
+  align-content: start;
+  gap: var(--s1);
+  max-height: 46dvb;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--line);
+  padding-top: var(--s3);
+}
 .voice-quiet { border: 0; padding: 0; }
 .voice-quiet > summary {
   display: flex;
@@ -6636,8 +6689,19 @@ button.mt-card:hover { border-color: var(--accent); }
   list-style: none;
 }
 .voice-quiet > summary::-webkit-details-marker { display: none; }
-.voice-quiet > summary::after { content: "+"; font-size: var(--t-sm); line-height: 1; }
+.voice-quiet > summary::after { content: "+"; font-size: var(--t-sm); line-height: 1; margin-left: var(--s2); }
 .voice-quiet[open] > summary::after { content: "−"; }
+.voice-quiet > summary button {
+  font: inherit;
+  font-size: var(--t-xs);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.voice-summary-first { flex: 1 1 auto; min-width: 0; }
 .voice-summary {
   flex: 1 1 auto;
   min-width: 0;
@@ -6770,6 +6834,8 @@ button.mt-card:hover { border-color: var(--accent); }
   .voice-glyph { width: 38px; height: 38px; }
   .voice-facts { grid-template-columns: minmax(0, 1fr); }
   .voice-transcript { max-height: 84px; }
+  .voice-scale { display: none; }
+  .voice-drawers { max-height: 40dvb; }
 }
 
 @media (prefers-reduced-motion: reduce) {

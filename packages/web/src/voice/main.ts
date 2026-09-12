@@ -109,6 +109,25 @@ function stateWords(activity: Activity, session: SessionState, microphone: strin
   return "idle — press Listen to start";
 }
 
+/**
+ * **The build tag, and what it says when there is no build to tag.**
+ *
+ * The integration build injects `{ branch, commit }` through Vite's `define`,
+ * because Paul uses that line to know which branch he is looking at. A build
+ * without the define must not borrow a plausible-looking string: it says the
+ * tag was not injected, which is the one true thing it knows.
+ */
+declare const __VOICE_BUILD_INFO__: { branch?: string; commit?: string } | string | undefined;
+
+export function buildWords(): string {
+  const info = typeof __VOICE_BUILD_INFO__ === "undefined" ? undefined : __VOICE_BUILD_INFO__;
+  if (!info) return "build tag not injected";
+  if (typeof info === "string") return info;
+  const branch = info.branch ?? "unknown branch";
+  const commit = (info.commit ?? "").slice(0, 8);
+  return commit ? `${branch} @ ${commit}` : branch;
+}
+
 /** A device id is a preference, not a secret, and not worth failing a render for. */
 function storedDevice(): string {
   if (typeof localStorage === "undefined") return "";
@@ -139,6 +158,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const bars = required<HTMLElement>("bars", doc);
   const peakMark = required<HTMLElement>("peak", doc);
   const stateLine = required<HTMLElement>("state", doc);
+  const buildTag = required<HTMLElement>("build-tag", doc);
   const transcript = required<HTMLElement>("transcript", doc);
   const canvasTitle = required<HTMLElement>("canvas-title", doc);
   const canvasId = required<HTMLElement>("canvas-id", doc);
@@ -153,6 +173,13 @@ export function wireVoice(doc: Document = document): VoicePage {
   const complaintLine = required<HTMLElement>("complaint", doc);
   const connectionPanel = required<HTMLDetailsElement>("connection-panel", doc);
   const connectionSummary = required<HTMLElement>("connection-summary", doc);
+  const setupBox = required<HTMLElement>("setup", doc);
+  const setupNote = required<HTMLElement>("setup-note", doc);
+  const setupSteps = required<HTMLElement>("setup-steps", doc);
+  const confirmBox = required<HTMLElement>("confirm", doc);
+  const confirmWhat = required<HTMLElement>("confirm-what", doc);
+  const confirmAllow = required<HTMLButtonElement>("confirm-allow", doc);
+  const confirmDeny = required<HTMLButtonElement>("confirm-deny", doc);
   const openButton = required<HTMLButtonElement>("open-project", doc);
   const keyInput = required<HTMLInputElement>("key", doc);
   const providerSelect = required<HTMLSelectElement>("provider", doc);
@@ -194,6 +221,15 @@ export function wireVoice(doc: Document = document): VoicePage {
   let turns: { who: "you" | "voice"; text: string }[] = [];
   /** True once a tagged reply has been seen, so the untagged copy is ignored. */
   let sawTagged = false;
+  /** The confirmation the harness is waiting on, if any. */
+  let pendingConfirm: { id: string } | null = null;
+  /**
+   * What the harness offered when asked, so the panel can choose between a
+   * working control and the command that does the same thing by hand. Absent
+   * keys mean the build does not answer that verb yet — which is said out
+   * loud rather than rendered as a dead button.
+   */
+  const offered: { daemons?: unknown[]; canvases?: unknown[]; actors?: unknown[] } = {};
 
   /**
    * The session's word and the page's word, side by side. `data-state` is the
@@ -244,8 +280,18 @@ export function wireVoice(doc: Document = document): VoicePage {
   function addTurn(who: "you" | "voice", text: string): void {
     if (!text) return;
     const last = turns[turns.length - 1];
-    if (last && last.who === who) last.text += text;
-    else turns.push({ who, text });
+    if (last && last.who === who) {
+      // Input transcription arrives as partials that grow — "read the canvas
+      // and" and then the same phrase, longer. Replacing the extension rather
+      // than appending is what stops the transcript saying "andread".
+      if (who === "you" && (text.startsWith(last.text) || last.text.startsWith(text))) {
+        last.text = text.length >= last.text.length ? text : last.text;
+      } else {
+        last.text += text;
+      }
+    } else {
+      turns.push({ who, text });
+    }
     turns = turns.slice(-6);
     renderTranscript();
   }
@@ -308,6 +354,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     // drawer as a working session's logs: the drawer opens itself, and says
     // what is missing, until there is nothing missing.
     if (missing.length > 0) connectionPanel.open = true;
+    renderSetup();
   }
 
   function renderComplaint(): void {
@@ -553,6 +600,14 @@ export function wireVoice(doc: Document = document): VoicePage {
    * state machine must not be the thing that decides which one is canonical.
    */
   function handleEvent(event: Record<string, unknown>): void {
+    if (event.confirm && typeof event.confirm === "object") {
+      showConfirm(event.confirm as Record<string, unknown>);
+      return;
+    }
+    if (event.open_url && typeof event.open_url === "object") {
+      void handleOpenUrl(event.open_url as Record<string, unknown>);
+      return;
+    }
     const tagged = event.type === "tool_log" ? (event.entry as Record<string, unknown> | undefined) : undefined;
     if (tagged) {
       const details = tagged.details as { kind?: string; text?: string } | undefined;
@@ -600,6 +655,12 @@ export function wireVoice(doc: Document = document): VoicePage {
       return;
     }
     if (typeof event.text === "string") {
+      // A refusal to act unattended is the harness's gate speaking, and it is
+      // said in the page's own words rather than left in a log nobody opened.
+      if (/destructive actions require explicit confirmation/i.test(event.text)) {
+        complaint = "the harness refuses destructive actions outright — this build has no Allow/Deny round-trip yet";
+        renderComplaint();
+      }
       // The untagged copy of a reply. It is used only when the harness never
       // sends the tagged one (an older build), so a reply is never doubled.
       if (!sawTagged) addTurn("voice", event.text);
@@ -819,6 +880,274 @@ export function wireVoice(doc: Document = document): VoicePage {
    * harness that does not negotiate yet — a top-level navigation can follow
    * it, fragment and all.
    */
+  /**
+   * **A setup verb, answered honestly when the harness does not have it yet.**
+   *
+   * The harness half of the setup surface is a frozen contract (bead
+   * `isocan-xsh.8`): `GET /daemons`, `GET /canvases`, `POST /canvas`,
+   * `POST /actor`, `POST /enrol`. Until that lands, an older harness answers
+   * the unknown path with its 405 list — and the answer here is a sentence
+   * naming the verb and the command that does it by hand, never a control that
+   * looks broken. A 405/404 is not an error to swallow: it is the build saying
+   * what it is.
+   */
+  async function callSetup(
+    path: string,
+    init?: RequestInit,
+  ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> | null; error?: string }> {
+    try {
+      const response = await fetch(HARNESS + path, init);
+      const text = await response.text();
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+      } catch {
+        body = null;
+      }
+      if (!response.ok) {
+        const said = typeof body?.error === "string" ? body.error : `${response.status} ${text.slice(0, 160)}`;
+        return { ok: false, status: response.status, body, error: said };
+      }
+      return { ok: true, status: response.status, body };
+    } catch (err) {
+      return { ok: false, status: 0, body: null, error: String((err as Error).message ?? err) };
+    }
+  }
+
+  /** Ask the harness what it can do, once, so the panel can tell the truth. */
+  async function probeSetup(): Promise<void> {
+    const [daemons, canvases] = await Promise.all([callSetup("/daemons"), callSetup("/canvases")]);
+    if (daemons.ok && Array.isArray(daemons.body?.found)) offered.daemons = daemons.body.found as unknown[];
+    if (canvases.ok && Array.isArray(canvases.body?.canvases)) offered.canvases = canvases.body.canvases as unknown[];
+    renderSetup();
+  }
+
+  /** One step of the setup: a sentence, and either a control or the command. */
+  function setupStep(text: string): HTMLElement {
+    const li = doc.createElement("li");
+    const line = doc.createElement("span");
+    line.textContent = text;
+    li.appendChild(line);
+    setupSteps.appendChild(li);
+    return li;
+  }
+
+  function setupCode(li: HTMLElement, command: string): void {
+    const code = doc.createElement("code");
+    code.textContent = command;
+    li.appendChild(code);
+  }
+
+  function setupAction(li: HTMLElement, label: string, run: () => void): void {
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", run);
+    li.appendChild(button);
+  }
+
+  /**
+   * **What is missing, what the harness can do about it, and what to type.**
+   *
+   * The three setup failures from tonight — "no identity yet", "Voice is
+   * taken", and "which project?" — were all environment variables nobody
+   * could discover. So each step here is either a control the page can press
+   * (when the harness answers the contract) or the exact command, and nothing
+   * is ever left as a dead end.
+   */
+  function renderSetup(): void {
+    setupSteps.replaceChildren();
+    const audio = audioFacts(facts);
+    const enrolled = Boolean(facts?.agent?.enrolled);
+    const hasCanvas = Boolean(facts?.canvas?.id);
+    const unreachable = !facts && Boolean(complaint);
+    const needed = unreachable || !hasCanvas || !enrolled || !audio.key;
+    setupBox.hidden = !needed;
+    if (!needed) return;
+    setupNote.textContent = unreachable
+      ? "Nothing answered at /harness. Start a harness, then reload this page."
+      : "These are the harness's to set, not this page's. What this build cannot do is named here, with the command that does it by hand.";
+
+    if (offered.daemons) {
+      const li = setupStep(`Daemon: ${facts?.daemon ?? "unknown"}. Choose another one:`);
+      const select = doc.createElement("select");
+      for (const one of offered.daemons as { url?: string }[]) {
+        const option = doc.createElement("option");
+        option.value = String(one.url ?? "");
+        option.textContent = String(one.url ?? "");
+        select.appendChild(option);
+      }
+      li.appendChild(select);
+      setupAction(li, "Use this daemon", () => void setupPost("/daemon", { url: select.value }));
+    } else {
+      const li = setupStep(`Daemon: ${facts?.daemon ?? "unknown"} — this harness build cannot change it from here.`);
+      setupCode(li, "isocan --port <port> voice --canvas \"<name>\"");
+    }
+
+    if (offered.canvases) {
+      const li = setupStep(`Canvas: ${facts?.canvas?.title ?? "none"}. Choose another one:`);
+      const select = doc.createElement("select");
+      for (const one of offered.canvases as { id?: string; title?: string }[]) {
+        const option = doc.createElement("option");
+        option.value = String(one.id ?? "");
+        option.textContent = String(one.title ?? one.id ?? "");
+        select.appendChild(option);
+      }
+      li.appendChild(select);
+      setupAction(li, "Use this canvas", () => void setupPost("/canvas", { id: select.value }));
+    } else {
+      const li = setupStep(`Canvas: ${facts?.canvas?.title ?? "none bound"} — this harness build cannot list or change it from here.`);
+      setupCode(li, "isocan voice --canvas \"<name>\"");
+    }
+
+    const actor = setupStep(
+      `Actor: ${facts?.agent?.name ?? "none"}${facts?.agent?.id ? ` (${facts.agent.id})` : ""} — the microphone speaks as this actor.`,
+    );
+    const nameInput = doc.createElement("input");
+    nameInput.type = "text";
+    nameInput.placeholder = "a name, e.g. Voice";
+    nameInput.setAttribute("aria-label", "actor name");
+    actor.appendChild(nameInput);
+    setupAction(actor, "Claim this name", () => void setupPost("/actor", { name: nameInput.value.trim() }));
+
+    if (enrolled) {
+      setupStep("Enrolled: this actor is invited to the canvas as a voice harness.");
+    } else {
+      const li = setupStep("Not enrolled: nothing can summon it, and the roster has no voice harness for this canvas.");
+      setupAction(li, "Enrol from here", () => void setupPost("/enrol", { name: facts?.agent?.name ?? undefined }));
+      setupCode(li, `isocan rc add ${facts?.agent?.name ?? "Voice"} --harness voice`);
+      setupCode(
+        li,
+        `"acpAdapters": {"voice": ["node", "<isocan.js>", "voice", "--acp"]} in ~/.isocan/config.json`,
+      );
+    }
+
+    if (!audio.key) {
+      const li = setupStep(`No ${audio.provider === "no provider" ? "provider" : audio.provider} key is stored — the harness cannot open a Live session without one.`);
+      setupAction(li, "Add a key", () => {
+        connectionPanel.open = false;
+        const keyPanel = doc.getElementById("key-panel") as HTMLDetailsElement | null;
+        if (keyPanel) keyPanel.open = true;
+        keyInput.focus();
+      });
+    }
+  }
+
+  /** A setup verb posted, with the answer — or the reason — shown in place. */
+  async function setupPost(path: string, body: Record<string, unknown>): Promise<void> {
+    const answer = await callSetup(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const at = new Date().toLocaleTimeString();
+    if (answer.ok) {
+      complaint = "";
+      renderComplaint();
+      put({ at, event: `${path}: ${JSON.stringify(answer.body ?? {}).slice(0, 200)}` });
+      await refresh();
+      await probeSetup();
+      return;
+    }
+    // The refusal verbatim, plus what this build is: a 405 is not a mystery.
+    const missing = answer.status === 404 || answer.status === 405;
+    complaint = missing
+      ? `this harness build does not offer ${path} yet — the command above does it by hand`
+      : `${path} refused: ${answer.error ?? "no reason given"}`;
+    renderComplaint();
+    put({ at, event: complaint, error: complaint });
+  }
+
+  /**
+   * **The permission gate, as the page half: the harness asks, a person
+   * answers.**
+   *
+   * The model can never satisfy this — a `force: true` from the model is the
+   * harness's to refuse, and this page only ever posts what a button press
+   * said. If the harness never asks (no confirmation round-trip in the build),
+   * the refusal it does send is surfaced rather than swallowed.
+   */
+  function showConfirm(ask: Record<string, unknown>): void {
+    const id = String(ask.id ?? "");
+    if (!id) return;
+    pendingConfirm = { id };
+    const what = typeof ask.what === "string" ? ask.what : String(ask.name ?? "an operation");
+    confirmWhat.textContent = `The agent wants to ${what}. Nothing happens until you answer.`;
+    confirmBox.hidden = false;
+    put({ at: new Date().toLocaleTimeString(), event: `confirmation asked: ${what}` });
+  }
+
+  async function answerConfirm(allow: boolean): Promise<void> {
+    const held = pendingConfirm;
+    if (!held) return;
+    pendingConfirm = null;
+    confirmBox.hidden = true;
+    const answer = await callSetup("/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: held.id, allow }),
+    });
+    const at = new Date().toLocaleTimeString();
+    if (answer.ok) {
+      put({ at, event: allow ? "allowed — the agent may act once" : "denied — nothing was changed" });
+      return;
+    }
+    complaint =
+      answer.status === 404 || answer.status === 405
+        ? "this harness build asked nothing the page can answer — the gate is not in it yet"
+        : `the harness could not take that answer: ${answer.error ?? "no reason"}`;
+    renderComplaint();
+    put({ at, event: complaint, error: complaint });
+  }
+
+  /**
+   * **`open_url` is a surface capability, so the page owns the tab.**
+   *
+   * A canvas item is the harness's to add; a TAB needs a user gesture, which
+   * a websocket tool call is not. So the page tries, and when the browser
+   * refuses the popup it says so and leaves a button — the "Open the project"
+   * pattern, where the press is the gesture.
+   */
+  async function handleOpenUrl(request: Record<string, unknown>): Promise<void> {
+    const callId = String(request.callId ?? "");
+    const url = String(request.url ?? "");
+    const target = String(request.target ?? "tab");
+    const answer = (ok: boolean, opened: string, error?: string) =>
+      callSetup("/open_url/result", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ callId, ok, opened, ...(error ? { error } : {}) }),
+      });
+    const scheme = (() => {
+      try {
+        return new URL(url).protocol;
+      } catch {
+        return "";
+      }
+    })();
+    if (scheme !== "http:" && scheme !== "https:") {
+      const why = `that is not a URL the page will open: ${url}`;
+      put({ at: new Date().toLocaleTimeString(), event: `open_url refused — ${why}`, error: why });
+      await answer(false, "blocked", why);
+      return;
+    }
+    if (target === "canvas") {
+      const why = "adding a canvas item is the harness's half — this build does not offer it yet";
+      put({ at: new Date().toLocaleTimeString(), event: `open_url: canvas — ${why}`, error: why });
+      await answer(false, "blocked", why);
+      return;
+    }
+    const tab = window.open(url, "_blank");
+    if (tab) {
+      put({ at: new Date().toLocaleTimeString(), event: `open_url: tab (press) ${url}` });
+      await answer(true, "tab");
+      return;
+    }
+    const why = "a tab needs a press — the person must press Open";
+    put({ at: new Date().toLocaleTimeString(), event: `open_url: tab blocked — ${url}` });
+    await answer(false, "blocked", why);
+  }
+
   async function openProject(): Promise<void> {
     const tab = window.open("about:blank", "_blank");
     const go = (url: string) => {
@@ -860,7 +1189,15 @@ export function wireVoice(doc: Document = document): VoicePage {
   saveKeyButton.addEventListener("click", () => void save());
   testKeyButton.addEventListener("click", () => void test());
   forgetKeyButton.addEventListener("click", () => void forget());
-  copyLogButton.addEventListener("click", () => void copyLog());
+  copyLogButton.addEventListener("click", (event) => {
+    // Copying is not opening: the button lives inside the summary, and without
+    // this the drawer toggles under the press.
+    event.preventDefault();
+    event.stopPropagation();
+    void copyLog();
+  });
+  confirmAllow.addEventListener("click", () => void answerConfirm(true));
+  confirmDeny.addEventListener("click", () => void answerConfirm(false));
   openButton.addEventListener("click", () => void openProject());
 
   const onDeviceChange = () => void lookForMics();
@@ -871,8 +1208,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   void refresh();
   void pollLog();
   void lookForMics();
+  // What the harness can do is asked once, so the setup panel can choose
+  // between a working control and the command that does the same thing.
+  void probeSetup();
   renderHero();
   renderSave();
+  buildTag.textContent = buildWords();
 
   return {
     stop(): void {
