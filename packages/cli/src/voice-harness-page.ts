@@ -342,9 +342,20 @@ async function start() {
       session.frames.push(event.data);
       if (session.frames.length > 1200) session.frames.shift();
       if (session.socket && session.socket.readyState === WebSocket.OPEN) {
-        const { pcm, rest } = resample16k([event.data], rate, session.carry);
-        session.carry = rest;
-        if (pcm.length) session.socket.send(pcm.buffer);
+        const ratio = rate / 16000;
+        session.carry.push(...event.data);
+        const whole = Math.floor(session.carry.length / ratio) * ratio;
+        if (whole > 0) {
+          const pcm = new Int16Array(whole / ratio);
+          for (let i = 0; i < pcm.length; i++) {
+            let sum = 0;
+            for (let j = 0; j < ratio; j++) sum += session.carry[i * ratio + j] ?? 0;
+            const value = Math.max(-1, Math.min(1, sum / ratio));
+            pcm[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+          }
+          session.carry.splice(0, whole);
+          if (pcm.length) session.socket.send(pcm.buffer);
+        }
       }
     };
   } catch (err) {

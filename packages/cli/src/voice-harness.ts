@@ -531,10 +531,10 @@ export const LIVE_TOOLS = [
   },
   {
     name: "delete_item",
-    description: "Delete something on the canvas (it goes to the trash, and the person can undo it).",
+    description: "Delete or remove an item from the canvas (e.g. 'delete the Greeting', 'remove that card'). Sends item to trash.",
     parameters: {
       type: "OBJECT",
-      properties: { item_ref: { type: "STRING", description: "The item to delete." } },
+      properties: { item_ref: { type: "STRING", description: "The item title, prefix, or id to delete." } },
       required: ["item_ref"],
     },
   },
@@ -549,15 +549,15 @@ export const LIVE_TOOLS = [
   },
   {
     name: "move_item",
-    description: "Move something on the canvas, either by a delta or to a place.",
+    description: "Move an item across the canvas (e.g. 'move Checkout screen right 50', 'move the note up 100'). Supports by_x/by_y or to_x/to_y.",
     parameters: {
       type: "OBJECT",
       properties: {
-        item_ref: { type: "STRING" },
-        by_x: { type: "NUMBER" },
-        by_y: { type: "NUMBER" },
-        to_x: { type: "NUMBER" },
-        to_y: { type: "NUMBER" },
+        item_ref: { type: "STRING", description: "Item title, prefix, or id." },
+        by_x: { type: "NUMBER", description: "Relative horizontal shift in pixels." },
+        by_y: { type: "NUMBER", description: "Relative vertical shift in pixels." },
+        to_x: { type: "NUMBER", description: "Absolute target x coordinate." },
+        to_y: { type: "NUMBER", description: "Absolute target y coordinate." },
       },
       required: ["item_ref"],
     },
@@ -587,10 +587,10 @@ export const LIVE_TOOLS = [
   },
   {
     name: "comment_on_item",
-    description: "Leave a comment on one item, where the conversation about that item belongs.",
+    description: "Add a comment or note to an existing canvas item (e.g. 'comment on Checkout that we need a button', 'add comment to Greeting').",
     parameters: {
       type: "OBJECT",
-      properties: { item_ref: { type: "STRING" }, text: { type: "STRING" } },
+      properties: { item_ref: { type: "STRING", description: "The item title, prefix, or id to comment on." }, text: { type: "STRING", description: "The comment text." } },
       required: ["item_ref", "text"],
     },
   },
@@ -618,7 +618,7 @@ export const LIVE_TOOLS = [
   },
   {
     name: "item_react",
-    description: "Add or remove an emoji mark/reaction on an item, like 👍, ❤️, 🔥, or a vote dot (maps to core 'item.react').",
+    description: "Add or remove an emoji mark/reaction on an item (e.g. 'thumbs up on Checkout', 'react with ❤️ on Greeting', 'vote dot').",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -846,8 +846,16 @@ export function liveSetup(
             text:
               "You are Voice, an enrolled agent on an isocan canvas, talking out loud with the collaborator who owns it. " +
               "Keep replies concise (1-2 sentences): you are a real-time voice in the room, not a report. " +
-              "When the person asks for something the canvas can do, CALL THE CORRESPONDING TOOL rather than describing it — " +
-              "the tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
+              "MANDATORY: When the collaborator asks to create, modify, rename, delete, move, comment on, or react to anything on the canvas, " +
+              "YOU MUST IMMEDIATELY CALL THE CORRESPONDING TOOL. NEVER reply in speech that you will do it, or that you did it, without calling the tool first.\n" +
+              "Tool mapping rules:\n" +
+              "- 'delete <item>' or 'remove <item>' -> call delete_item\n" +
+              "- 'comment on <item> ...' or 'add comment ...' -> call comment_on_item\n" +
+              "- 'react to <item> ...' or 'add reaction ...' or 'thumbs up on <item>' -> call item_react\n" +
+              "- 'move <item> ...' -> call move_item\n" +
+              "- 'rename <item> to <title>' or 'update <item> description to <desc>' -> call update_item\n" +
+              "- 'draw ...' or 'sketch ...' -> call drawing_add\n" +
+              "The tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
               "You have full read access to canvas items, versions, presence, and threads to understand project state. " +
               "If a request needs heavy asynchronous work (generating large codebases, design critiques), say you are " +
               "putting it in the Chat and use `say`. " +
@@ -883,20 +891,33 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
         ],
       };
     case "update_item":
-    case "rename_item":
+    case "rename_item": {
+      const hasTitle = args.title !== undefined && args.title !== null;
+      const hasDesc = args.description !== undefined && args.description !== null;
+      let label: string;
+      if (hasTitle && hasDesc) {
+        label = `renamed "${ref}" to "${args.title}" and updated description`;
+      } else if (hasTitle) {
+        label = `renamed "${ref}" to "${args.title}"`;
+      } else if (hasDesc) {
+        label = `description updated on "${ref}"`;
+      } else {
+        label = `updated "${ref}"`;
+      }
       return {
         plans: [
           {
             op: {
               type: "item.update",
               ref,
-              title: args.title !== undefined ? String(args.title) : undefined,
-              description: args.description !== undefined ? String(args.description) : undefined,
+              title: hasTitle ? String(args.title) : undefined,
+              description: hasDesc ? String(args.description) : undefined,
             },
-            said: `renamed ${ref}`,
+            said: label,
           },
         ],
       };
+    }
     case "delete_item":
       return { plans: [{ op: { type: "item.delete", ref }, said: `deleted ${ref}` }] };
     case "restore_item":
@@ -1041,6 +1062,48 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
   }
 }
 
+/** Human-readable description derived strictly from the minted operation and its actual arguments. */
+export function describeMintedOp(op: { type: string; [key: string]: unknown }, targetName?: string): string {
+  const ref = targetName || (op.ref as string) || (op.itemId as string) || "item";
+  switch (op.type) {
+    case "item.add":
+      return `added "${op.title ?? "Note"}"`;
+    case "item.update": {
+      const hasTitle = op.title !== undefined && op.title !== null;
+      const hasDesc = op.description !== undefined && op.description !== null;
+      if (hasTitle && hasDesc) {
+        return `renamed "${ref}" to "${op.title}" and updated description`;
+      } else if (hasTitle) {
+        return `renamed "${ref}" to "${op.title}"`;
+      } else if (hasDesc) {
+        return `description updated on "${ref}"`;
+      }
+      return `updated "${ref}"`;
+    }
+    case "item.delete":
+      return `deleted "${ref}"`;
+    case "item.restore":
+      return `restored "${ref}"`;
+    case "item.move":
+      return `moved "${ref}" to ${op.x}, ${op.y}`;
+    case "item.resize":
+      return `resized "${ref}" to ${op.width}x${op.height}`;
+    case "item.setCurrentVersion":
+      return `switched version of "${ref}" to ${op.versionId ?? op.versionRef}`;
+    case "item.react":
+      return `${op.on === false ? "removed" : "added"} reaction ${op.emoji ?? ""} on "${ref}"`;
+    case "thread.comment":
+    case "item.comment":
+      return `commented on "${ref}"`;
+    case "drawing.add":
+      return `drew "${op.title ?? "Drawing"}" with the pen tool`;
+    case "trash.empty":
+      return `emptied canvas trash`;
+    default:
+      return `${op.type} on "${ref}"`;
+  }
+}
+
 /** What the model asked for, turned into operations the canvas can apply:
  * a spoken reference resolved against what is actually here, and a delta
  * turned into the absolute position `item.move` takes. A reference nobody can
@@ -1063,7 +1126,7 @@ export function resolveLivePlans(
       const candidateList = op.type === "item.restore" ? [...trashItems, ...items] : items;
       const item = resolveSpokenRef(ref, candidateList);
       if (!item) {
-        refused.push(`${plan.said} — I could not tell which one “${ref}” is`);
+        refused.push(`${op.type} failed — could not resolve “${ref}”`);
         continue;
       }
       delete op.ref;
@@ -1087,8 +1150,9 @@ export function resolveLivePlans(
         op.versionId = verId;
         delete op.versionRef;
       }
+      const targetLabel = item.title || item.id;
+      plan.said = describeMintedOp(op, targetLabel);
     }
-    if (op.type === "item.update" && op.title !== undefined) op.title = op.title;
     ready.push({ op, said: plan.said });
   }
   return { ready, refused };
@@ -1232,7 +1296,14 @@ export function startLiveSession(options: {
       audioUpFrames++;
       socket.send(
         JSON.stringify({
-          realtimeInput: { audio: { data: Buffer.from(pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } },
+          realtimeInput: {
+            mediaChunks: [
+              {
+                mimeType: "audio/pcm;rate=16000",
+                data: Buffer.from(pcm).toString("base64"),
+              },
+            ],
+          },
         }),
       );
     },
@@ -1563,6 +1634,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     return item;
   }
 
+  recordToolLog({
+    type: "session_event",
+    source: "live",
+    event: "harness_restarted",
+    message: "— harness restarted —",
+    details: { message: "— harness restarted —", port: options.port },
+  });
+
   const narrate = (line: string) => {
     lines.push(line);
     if (lines.length > 50) lines.shift();
@@ -1670,7 +1749,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         }
       }
       if (req.method === "GET" && url.pathname === "/log") {
-        respond(200, { entries: toolLog, count: toolLog.length });
+        const diskLog = await readVoiceLog(home).catch(() => []);
+        const map = new Map<string, ToolLogEntry>();
+        for (const e of diskLog) if (e && e.id) map.set(e.id, e);
+        for (const e of toolLog) if (e && e.id) map.set(e.id, e);
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+        respond(200, { entries: merged, count: merged.length });
         return;
       }
       if (req.method === "POST" && url.pathname === "/session/start") {
@@ -1862,7 +1947,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   });
   live.on("connection", (page: NodeSocket) => {
     sessionState = "live";
-    recordToolLog({ type: "session_event", event: "opened" });
+    recordToolLog({
+      type: "session_event",
+      source: "live",
+      event: "session_opened",
+      message: "— session opened —",
+      details: { message: "— session opened —" },
+    });
     const say = (message: unknown) => {
       if (page.readyState === page.OPEN) page.send(JSON.stringify(message));
     };
@@ -2149,8 +2240,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             for (const one of ready) {
               try {
                 const applied = await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId }, onIo);
-                sent.push(one.said);
-                narrate(`sent: ${one.said}`);
+                const actionLabel = `${one.op.type} — ${one.said}`;
+                sent.push(actionLabel);
+                narrate(`sent: ${actionLabel}`);
                 recordToolLog({
                   type: "tool_call",
                   source: "live",
@@ -2158,12 +2250,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   args: args as Record<string, unknown>,
                   op: {
                     type: one.op.type,
-                    said: one.said,
+                    said: actionLabel,
                     ...(applied.target ? { target: applied.target } : {}),
+                    ...(applied.seq !== undefined ? { seq: applied.seq } : {}),
                   },
                   result: {
                     ok: true,
-                    answer: one.said,
+                    answer: actionLabel,
                     ack: applied.ack,
                     ...(applied.seq !== undefined ? { seq: applied.seq } : {}),
                     ...(applied.target ? { target: applied.target } : {}),
@@ -2171,29 +2264,37 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 });
               } catch (err) {
                 const msg = (err as Error).message;
-                failed.push(`${one.said} — ${msg}`);
-                narrate(`refused: ${one.said} — ${msg}`);
+                const failureMsg = `${one.op.type} failed — ${msg}`;
+                failed.push(failureMsg);
+                narrate(`refused: ${failureMsg}`);
                 recordToolLog({
                   type: "tool_call",
                   source: "live",
                   name,
                   args: args as Record<string, unknown>,
-                  op: { type: one.op.type, said: one.said },
-                  result: { ok: false, error: msg },
+                  op: { type: one.op.type, said: failureMsg },
+                  result: { ok: false, error: failureMsg },
                 });
               }
             }
             for (const r of refused) {
+              narrate(`refused: ${r}`);
               recordToolLog({
                 type: "tool_call",
                 source: "live",
                 name,
                 args: args as Record<string, unknown>,
+                op: { type: plan.plans[0]?.op.type ?? "operation", said: r },
                 result: { ok: false, error: r },
               });
             }
             say({ sent, failed, state: failed.length ? "some operations were refused" : "live", bad: failed.length > 0 });
-            return { ok: failed.length === 0, ...(failed.length ? { failed } : {}), ...(plan.what ? { note: plan.what } : {}) };
+            return {
+              ok: failed.length === 0,
+              ...(sent.length ? { sent } : {}),
+              ...(failed.length ? { failed, error: failed.join("; ") } : {}),
+              ...(plan.what ? { note: plan.what } : {}),
+            };
           },
         },
       });
