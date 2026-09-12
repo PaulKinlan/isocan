@@ -6775,6 +6775,16 @@ button.mt-card:hover { border-color: var(--accent); }
 .voice-steps { display: grid; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
 .voice-steps li { display: grid; gap: var(--s1); font-size: var(--t-sm); }
 .voice-steps code { font-family: ui-monospace, monospace; font-size: var(--t-xs); color: var(--ink-muted); overflow-wrap: anywhere; }
+.voice-steps input {
+  font: inherit;
+  font-size: var(--t-sm);
+  min-width: 0;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
 .voice-steps button {
   justify-self: start;
   font: inherit;
@@ -6824,7 +6834,9 @@ button.mt-card:hover { border-color: var(--accent); }
   gap: var(--s2);
   min-width: 0;
   /* A websocket URL or a serialised event is one long token; without this it
-     pushes a horizontal scrollbar across the whole drawer. */
+     pushes a horizontal scrollbar across the whole drawer. The row is a flex
+     container, so the rule has to reach its CHILDREN too — wrapping the parent
+     alone left the token sticking out. */
   overflow-wrap: anywhere;
   font-family: ui-monospace, monospace;
   font-size: var(--t-xs);
@@ -6832,6 +6844,7 @@ button.mt-card:hover { border-color: var(--accent); }
   border-bottom: 1px solid var(--line-soft);
   padding: var(--s1) 0;
 }
+.voice-log li > * { min-width: 0; overflow-wrap: anywhere; }
 .voice-at { color: var(--ink-muted); }
 .voice-op { color: var(--good); }
 .voice-answered { color: var(--accent-text); }

@@ -36,6 +36,45 @@ import { LevelMeter, Playback, capture, fromBytes, inputs, toBytes, type Capture
 /** The meter's resolution: 28 bars across −60…0 dBFS. */
 export const BARS = 28;
 const DEVICE_KEY = "isocan.voice.deviceId";
+/**
+ * **The daemon the person asked for, remembered in this browser.**
+ *
+ * Same pattern as the microphone's id, and for the same reason: a choice made
+ * once should not have to be made again. It is a preference, not a secret, and
+ * a wrong value must not be a trap — hence the reset in the setup panel, which
+ * is the only way out of a bad `localStorage` value without devtools.
+ *
+ * What it is NOT is a way to point the page at another host: the page reaches
+ * the harness through the same-origin `/harness` proxy (deliberately — no CORS
+ * header on the daemon, and the audio socket survives HMR). This is about
+ * which daemon the HARNESS attaches to, so the page can only ask the harness
+ * to switch, and say so honestly when that build cannot.
+ */
+const DAEMON_KEY = "isocan.voice.daemon";
+
+/**
+ * The daemon's own answer is the only validation worth having: a URL that
+ * looks right and answers wrong is the failure this avoids. Until the harness
+ * offers `POST /daemon`, the honest answer is "stored, not yet applied".
+ */
+function storedDaemon(): string {
+  if (typeof localStorage === "undefined") return "";
+  try {
+    return localStorage.getItem(DAEMON_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function storeDaemon(value: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (value) localStorage.setItem(DAEMON_KEY, value);
+    else localStorage.removeItem(DAEMON_KEY);
+  } catch {
+    // A preference that cannot be stored is not worth failing the page for.
+  }
+}
 
 /** The page is markup, so a missing element is a broken page, not a blank. */
 function required<T extends HTMLElement>(id: string, doc: Document): T {
@@ -164,6 +203,10 @@ export function wireVoice(doc: Document = document): VoicePage {
   const canvasTitle = required<HTMLElement>("canvas-title", doc);
   const canvasId = required<HTMLElement>("canvas-id", doc);
   const daemonLine = required<HTMLElement>("daemon", doc);
+  const daemonNoteLine = required<HTMLElement>("daemon-note", doc);
+  const daemonField = required<HTMLInputElement>("daemon-field", doc);
+  const daemonUse = required<HTMLButtonElement>("daemon-use", doc);
+  const daemonReset = required<HTMLButtonElement>("daemon-reset", doc);
   const homeLine = required<HTMLElement>("home", doc);
   const actorName = required<HTMLElement>("actor-name", doc);
   const actorId = required<HTMLElement>("actor-id", doc);
@@ -214,6 +257,12 @@ export function wireVoice(doc: Document = document): VoicePage {
    * page means.
    */
   const provider = "gemini";
+  /** Read once, before any request goes out: the stored value wins. */
+  let daemonWant = storedDaemon();
+  /** The honest sentence about whether the harness took it. */
+  let daemonNote = daemonWant ? "stored, not yet applied" : "";
+  /** One attempt per value, so a returning person is not asked to press again. */
+  let daemonTried = "";
   let complaint = "";
   let note = "";
   /** True only while the state poll is the thing that failed. */
@@ -335,6 +384,16 @@ export function wireVoice(doc: Document = document): VoicePage {
     canvasTitle.textContent = facts?.canvas?.title ?? "unknown";
     canvasId.textContent = facts?.canvas?.id ?? "no id";
     daemonLine.textContent = facts?.daemon ?? "unknown";
+    // Prefilled with what the page resolved, and never overwritten while a
+    // person is typing in it: the two-second poll must not fight the cursor.
+    if (doc.activeElement !== daemonField) daemonField.value = daemonWant || facts?.daemon || "";
+    daemonReset.hidden = !daemonWant;
+    const wanted = daemonWant && daemonWant !== facts?.daemon;
+    daemonNoteLine.textContent = wanted
+      ? ` — wanted: ${daemonWant} (${daemonNote || "stored, not yet applied"})`
+      : daemonNote && !daemonWant
+        ? ` — ${daemonNote}`
+        : "";
     homeLine.textContent = facts?.home ?? facts?.service ?? "none configured";
     actorName.textContent = facts?.agent?.name ?? "unknown";
     actorId.textContent = facts?.agent?.id ?? "no id";
@@ -484,6 +543,13 @@ export function wireVoice(doc: Document = document): VoicePage {
       const next = await fetchState();
       facts = next;
       renderFacts();
+      // Applied on load: a stored choice that differs from what the harness
+      // reports is offered to it once, so a returning person does not have to
+      // press anything. Failure is already a sentence, not a silent no.
+      if (daemonWant && daemonWant !== next.daemon && daemonTried !== daemonWant) {
+        daemonTried = daemonWant;
+        void chooseDaemon(daemonWant);
+      }
       const running = sessionFrom(next);
       if (running) {
         session = running;
@@ -978,21 +1044,6 @@ export function wireVoice(doc: Document = document): VoicePage {
       ? "Nothing answered at /harness. Start a harness, then reload this page."
       : "These are the harness's to set, not this page's. What this build cannot do is named here, with the command that does it by hand.";
 
-    if (offered.daemons) {
-      const li = setupStep(`Daemon: ${facts?.daemon ?? "unknown"}. Choose another one:`);
-      const select = doc.createElement("select");
-      for (const one of offered.daemons as { url?: string }[]) {
-        const option = doc.createElement("option");
-        option.value = String(one.url ?? "");
-        option.textContent = String(one.url ?? "");
-        select.appendChild(option);
-      }
-      li.appendChild(select);
-      setupAction(li, "Use this daemon", () => void setupPost("/daemon", { url: select.value }));
-    } else {
-      const li = setupStep(`Daemon: ${facts?.daemon ?? "unknown"} — this harness build cannot change it from here.`);
-      setupCode(li, "isocan --port <port> voice --canvas \"<name>\"");
-    }
 
     if (offered.canvases) {
       const li = setupStep(`Canvas: ${facts?.canvas?.title ?? "none"}. Choose another one:`);
@@ -1041,6 +1092,69 @@ export function wireVoice(doc: Document = document): VoicePage {
         keyInput.focus();
       });
     }
+  }
+
+  /**
+   * **Store the daemon, then ask the harness to take it.**
+   *
+   * The store happens first and unconditionally: the page can always keep a
+   * person's choice, even when it cannot apply it. What it must never do is
+   * pretend. So the harness is asked, its answer decides the sentence, and a
+   * build without the verb is named — "stored, not yet applied; this harness
+   * build fixes its daemon at start" — rather than shown as live.
+   */
+  async function chooseDaemon(value: string): Promise<void> {
+    const wanted = value.trim();
+    if (!wanted) {
+      daemonNote = "empty — nothing stored";
+      renderFacts();
+      renderSetup();
+      return;
+    }
+    daemonWant = wanted;
+    storeDaemon(wanted);
+    daemonNote = "stored, not yet applied";
+    renderFacts();
+    renderSetup();
+    const answer = await callSetup("/daemon", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: wanted }),
+    });
+    const at = new Date().toLocaleTimeString();
+    if (answer.ok) {
+      daemonNote = "";
+      daemonTried = wanted;
+      complaint = "";
+      renderComplaint();
+      put({ at, event: `daemon: ${JSON.stringify(answer.body ?? {}).slice(0, 160)}` });
+      await refresh();
+      renderFacts();
+      renderSetup();
+      return;
+    }
+    if (answer.status === 404 || answer.status === 405) {
+      daemonNote = "stored, not yet applied — this harness build fixes its daemon when it starts";
+      put({ at, event: `daemon: ${daemonNote}`, error: daemonNote });
+    } else {
+      // The harness answered with the daemon's own refusal: that is the
+      // validation, and it is worth more than any pattern the page could run.
+      daemonNote = `refused: ${answer.error ?? "no reason given"}`;
+      put({ at, event: `daemon: ${daemonNote}`, error: daemonNote });
+    }
+    renderFacts();
+    renderSetup();
+  }
+
+  /** The way out of a bad stored value — the reason the reset exists. */
+  async function resetDaemon(): Promise<void> {
+    daemonWant = "";
+    daemonNote = "";
+    daemonTried = "";
+    storeDaemon("");
+    renderFacts();
+    renderSetup();
+    put({ at: new Date().toLocaleTimeString(), event: "daemon preference cleared — the harness's own value is back" });
   }
 
   /** A setup verb posted, with the answer — or the reason — shown in place. */
@@ -1203,6 +1317,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     event.stopPropagation();
     void copyLog();
   });
+  daemonUse.addEventListener("click", () => void chooseDaemon(daemonField.value));
+  daemonReset.addEventListener("click", () => void resetDaemon());
   confirmAllow.addEventListener("click", () => void answerConfirm(true));
   confirmDeny.addEventListener("click", () => void answerConfirm(false));
   openButton.addEventListener("click", () => void openProject());

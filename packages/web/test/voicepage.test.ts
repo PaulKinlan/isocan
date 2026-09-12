@@ -563,3 +563,61 @@ describe("the build tag tells the truth about what is being tested", () => {
     }
   });
 });
+
+describe("the daemon is a stored preference, like the microphone", () => {
+  it("prefills the field with the daemon the page resolved", async () => {
+    stateReply = LIVE;
+    await wire();
+    const field = element<HTMLInputElement>("daemon-field");
+    expect(field.value).toBe("http://127.0.0.1:4441");
+    expect(localStorage.getItem("isocan.voice.daemon")).toBeNull();
+  });
+
+  it("stores what a person types, asks the harness, and says plainly when it cannot take it", async () => {
+    stateReply = LIVE;
+    await wire();
+    const original = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/daemon")) {
+        return { ok: false, status: 405, url: "", text: async () => JSON.stringify({ error: "not here" }) } as unknown as Response;
+      }
+      return original!(input, init);
+    });
+    const field = element<HTMLInputElement>("daemon-field");
+    field.value = "http://127.0.0.1:4442";
+    element<HTMLButtonElement>("daemon-use").click();
+    await flush();
+    // Stored regardless: the page can always keep a choice, never pretend it applied it.
+    expect(localStorage.getItem("isocan.voice.daemon")).toBe("http://127.0.0.1:4442");
+    expect(element("daemon-note").textContent).toContain("not yet applied");
+    const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/daemon"));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ url: "http://127.0.0.1:4442" });
+  });
+
+  it("reads a stored daemon before the first request, and offers it to the harness once", async () => {
+    localStorage.setItem("isocan.voice.daemon", "http://127.0.0.1:4442");
+    stateReply = LIVE;
+    await wire();
+    const calls = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/daemon"));
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String((calls[0]?.[1] as RequestInit).body))).toEqual({ url: "http://127.0.0.1:4442" });
+    // The daemon line states both facts: what it is talking to, and what is wanted.
+    expect(element("daemon").textContent).toBe("http://127.0.0.1:4441");
+    expect(element("daemon-note").textContent).toContain("wanted: http://127.0.0.1:4442");
+    // A second poll must not ask again.
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/daemon"))).toHaveLength(1);
+  });
+
+  it("has a way out of a wrong stored value", async () => {
+    localStorage.setItem("isocan.voice.daemon", "http://127.0.0.1:9");
+    stateReply = LIVE;
+    await wire();
+    const reset = element<HTMLButtonElement>("daemon-reset");
+    expect(reset.hidden).toBe(false);
+    reset.click();
+    await flush();
+    expect(localStorage.getItem("isocan.voice.daemon")).toBeNull();
+    expect(element<HTMLInputElement>("daemon-field").value).toBe("http://127.0.0.1:4441");
+  });
+});
