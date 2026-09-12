@@ -501,6 +501,45 @@ describe("the Live API path", () => {
     await fs.rm(testDir, { recursive: true, force: true });
   });
 
+  it("verifies native writeMarker round-trip, rejects mismatched markers, and prefers valid over stale rows", async () => {
+    const { resolveProjectInstructions } = await import("../src/voice-harness.ts");
+    const { writeMarker } = await import("@isocan/server");
+
+    // 1. Native writeMarker for target canvas prj_1 (which writes projectId: "prj_1" on disk)
+    const validDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-valid-marker-"));
+    await fs.writeFile(path.join(validDir, "AGENTS.md"), "# Valid Project Instructions\n");
+    await writeMarker(validDir, { canvasId: "prj_1", title: "Valid Target" });
+
+    // 2. Mismatched marker for another canvas prj_other
+    const staleDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-stale-marker-"));
+    await fs.writeFile(path.join(staleDir, "AGENTS.md"), "# Stale Wrong Instructions\n");
+    await writeMarker(staleDir, { canvasId: "prj_other", title: "Wrong Target" });
+
+    // Test dirs.json carrying BOTH: stale row pointing to prj_1, followed by valid row
+    await fs.writeFile(
+      path.join(home, "dirs.json"),
+      JSON.stringify({ [staleDir]: "prj_1", [validDir]: "prj_1" }),
+    );
+
+    // Assert stale directory is rejected because its disk marker has projectId: "prj_other"
+    // And valid directory is accepted because its disk marker has projectId: "prj_1"
+    const resolved = await resolveProjectInstructions(home, "prj_1");
+    expect(resolved).not.toBeNull();
+    expect(resolved!.text).toContain("Valid Project Instructions");
+    expect(resolved!.text).not.toContain("Stale Wrong Instructions");
+
+    // Test complete mismatch: if only staleDir exists, returns null
+    await fs.writeFile(
+      path.join(home, "dirs.json"),
+      JSON.stringify({ [staleDir]: "prj_1" }),
+    );
+    const refused = await resolveProjectInstructions(home, "prj_1");
+    expect(refused).toBeNull();
+
+    await fs.rm(validDir, { recursive: true, force: true });
+    await fs.rm(staleDir, { recursive: true, force: true });
+  });
+
   it("surfaces the provider's own words when the session fails", async () => {
     const states: { state: string; bad?: boolean }[] = [];
     let socket!: { emit: (message: unknown) => void };

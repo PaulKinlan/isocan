@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
-import { readConfigFile } from "@isocan/server";
+import { readConfigFile, readMarker } from "@isocan/server";
 import { statSync } from "node:fs";
 import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
 import {
@@ -785,30 +785,24 @@ export async function resolveProjectInstructions(
   let projectDir: string | null = null;
   for (const [dir, id] of Object.entries(dirs)) {
     if (id === canvasId) {
-      try {
-        const marker = JSON.parse(await fs.readFile(path.join(dir, ".isocan", "project.json"), "utf8"));
-        if (marker.canvasId === canvasId) {
-          projectDir = dir;
-          break;
-        }
-      } catch {}
+      const marker = await readMarker(dir).catch(() => null);
+      if (marker && marker.canvasId === canvasId) {
+        projectDir = dir;
+        break;
+      }
     }
   }
   if (!projectDir) {
     const rcRows = await readRcAgents(home).catch(() => []);
     const match = rcRows.find((r) => r.canvasId === canvasId && r.cwd);
     if (match) {
-      try {
-        const marker = JSON.parse(await fs.readFile(path.join(match.cwd, ".isocan", "project.json"), "utf8"));
-        if (marker.canvasId === canvasId) projectDir = match.cwd;
-      } catch {}
+      const marker = await readMarker(match.cwd).catch(() => null);
+      if (marker && marker.canvasId === canvasId) projectDir = match.cwd;
     }
   }
   if (!projectDir) {
-    try {
-      const marker = JSON.parse(await fs.readFile(path.join(process.cwd(), ".isocan", "project.json"), "utf8"));
-      if (marker.canvasId === canvasId) projectDir = process.cwd();
-    } catch {}
+    const marker = await readMarker(process.cwd()).catch(() => null);
+    if (marker && marker.canvasId === canvasId) projectDir = process.cwd();
   }
   if (!projectDir) return null;
 
