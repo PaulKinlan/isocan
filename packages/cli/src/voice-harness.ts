@@ -1296,14 +1296,10 @@ export function startLiveSession(options: {
       audioUpFrames++;
       socket.send(
         JSON.stringify({
-          realtimeInput: {
-            mediaChunks: [
-              {
-                mimeType: "audio/pcm;rate=16000",
-                data: Buffer.from(pcm).toString("base64"),
-              },
-            ],
-          },
+          // `realtimeInput.audio` is the current field. `mediaChunks` is marked
+          // "DEPRECATED: Use one of `audio`, `video`, or `text` instead" in
+          // ai.google.dev/api/live, and this tree once carried it by accident.
+          realtimeInput: { audio: { data: Buffer.from(pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } },
         }),
       );
     },
