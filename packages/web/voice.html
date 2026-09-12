@@ -97,7 +97,23 @@
                   <button id="open-project" class="voice-open" type="button">Open the project ↗</button>
                 </dd>
               </div>
-              <div><dt>Daemon</dt><dd id="daemon">unknown</dd></div>
+              <div>
+                <dt>Daemon</dt>
+                <dd>
+                  <span id="daemon">unknown</span>
+                  <span class="voice-id" id="daemon-note"></span>
+                  <!-- The microphone picker's pattern, for the daemon: a
+                       choice remembered in this browser, with a way out of a
+                       bad value. The page reaches the harness through the
+                       same-origin /harness proxy, so this is the daemon the
+                       SESSION attaches to, not a new address for the page. -->
+                  <div class="voice-keyrow">
+                    <input id="daemon-field" type="text" aria-label="daemon address" placeholder="http://127.0.0.1:4441" autocomplete="off" />
+                    <button id="daemon-use" type="button">Use this daemon</button>
+                    <button id="daemon-reset" type="button" hidden>Reset</button>
+                  </div>
+                </dd>
+              </div>
               <div><dt>Home</dt><dd id="home">none configured</dd></div>
               <div>
                 <dt>Actor</dt>

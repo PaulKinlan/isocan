@@ -6775,6 +6775,16 @@ button.mt-card:hover { border-color: var(--accent); }
 .voice-steps { display: grid; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
 .voice-steps li { display: grid; gap: var(--s1); font-size: var(--t-sm); }
 .voice-steps code { font-family: ui-monospace, monospace; font-size: var(--t-xs); color: var(--ink-muted); overflow-wrap: anywhere; }
+.voice-steps input {
+  font: inherit;
+  font-size: var(--t-sm);
+  min-width: 0;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
 .voice-steps button {
   justify-self: start;
   font: inherit;
