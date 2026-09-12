@@ -1,0 +1,262 @@
+{
+  "snapshot": {
+    "project": {
+      "id": "prj_voice_drive",
+      "title": "Voice drive",
+      "description": "",
+      "properties": {},
+      "createdAt": "2026-09-12T21:55:37.754Z",
+      "createdBy": {
+        "id": "usr_seeder",
+        "name": "Seeder"
+      },
+      "updatedAt": "2026-09-12T21:55:42.892Z",
+      "updatedBy": {
+        "id": "usr_5W4Q36mvOr",
+        "name": "Voice"
+      },
+      "lastOp": "item.add"
+    },
+    "canvas": {
+      "items": {
+        "itm_alpha": {
+          "id": "itm_alpha",
+          "x": 100,
+          "y": 100,
+          "width": 320,
+          "height": 240,
+          "title": "Alpha note",
+          "description": "",
+          "properties": {},
+          "versions": [
+            {
+              "id": "ver_itm_alpha",
+              "blobHash": "h_itm_alpha",
+              "mimeType": "text/markdown",
+              "filename": "itm_alpha.md",
+              "size": 3,
+              "createdAt": "2026-09-12T21:55:37.757Z",
+              "createdBy": {
+                "id": "usr_seeder",
+                "name": "Seeder"
+              }
+            }
+          ],
+          "currentVersionId": "ver_itm_alpha",
+          "createdAt": "2026-09-12T21:55:37.757Z",
+          "createdBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          },
+          "updatedAt": "2026-09-12T21:55:37.757Z",
+          "updatedBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          }
+        },
+        "itm_beta": {
+          "id": "itm_beta",
+          "x": 520,
+          "y": 100,
+          "width": 320,
+          "height": 240,
+          "title": "Beta note",
+          "description": "",
+          "properties": {},
+          "versions": [
+            {
+              "id": "ver_itm_beta",
+              "blobHash": "h_itm_beta",
+              "mimeType": "text/markdown",
+              "filename": "itm_beta.md",
+              "size": 3,
+              "createdAt": "2026-09-12T21:55:37.759Z",
+              "createdBy": {
+                "id": "usr_seeder",
+                "name": "Seeder"
+              }
+            }
+          ],
+          "currentVersionId": "ver_itm_beta",
+          "createdAt": "2026-09-12T21:55:37.759Z",
+          "createdBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          },
+          "updatedAt": "2026-09-12T21:55:37.759Z",
+          "updatedBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          }
+        },
+        "itm_Gcu7QKH31f": {
+          "id": "itm_Gcu7QKH31f",
+          "x": -420,
+          "y": 100,
+          "width": 480,
+          "height": 360,
+          "title": "Greeting",
+          "description": "",
+          "properties": {},
+          "versions": [
+            {
+              "id": "ver_awZf0XWOVy",
+              "blobHash": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+              "mimeType": "text/markdown",
+              "filename": "greeting.md",
+              "size": 11,
+              "createdAt": "2026-09-12T21:55:42.892Z",
+              "createdBy": {
+                "id": "usr_5W4Q36mvOr",
+                "name": "Voice"
+              }
+            }
+          ],
+          "currentVersionId": "ver_awZf0XWOVy",
+          "createdAt": "2026-09-12T21:55:42.892Z",
+          "createdBy": {
+            "id": "usr_5W4Q36mvOr",
+            "name": "Voice"
+          },
+          "updatedAt": "2026-09-12T21:55:42.892Z",
+          "updatedBy": {
+            "id": "usr_5W4Q36mvOr",
+            "name": "Voice"
+          }
+        }
+      },
+      "threads": {},
+      "trash": [],
+      "agents": {}
+    },
+    "lastSeq": 4,
+    "colors": {},
+    "names": {
+      "usr_seeder": "Seeder",
+      "usr_5W4Q36mvOr": "Voice"
+    },
+    "joined": {}
+  },
+  "oplog": [
+    {
+      "seq": 1,
+      "envelope": {
+        "id": "op_HEm2cardWw",
+        "canvasId": null,
+        "actor": {
+          "id": "usr_seeder",
+          "name": "Seeder"
+        },
+        "ts": "2026-09-12T21:55:37.754Z",
+        "op": {
+          "type": "project.create",
+          "canvasId": "prj_voice_drive",
+          "title": "Voice drive"
+        }
+      },
+      "inverse": null
+    },
+    {
+      "seq": 2,
+      "envelope": {
+        "id": "op_mzAu8sgzyi",
+        "canvasId": "prj_voice_drive",
+        "actor": {
+          "id": "usr_seeder",
+          "name": "Seeder"
+        },
+        "ts": "2026-09-12T21:55:37.757Z",
+        "op": {
+          "type": "item.add",
+          "itemId": "itm_alpha",
+          "version": {
+            "id": "ver_itm_alpha",
+            "blobHash": "h_itm_alpha",
+            "mimeType": "text/markdown",
+            "filename": "itm_alpha.md",
+            "size": 3
+          },
+          "width": 320,
+          "height": 240,
+          "placement": {
+            "x": 100,
+            "y": 100
+          },
+          "title": "Alpha note"
+        }
+      },
+      "inverse": {
+        "type": "item.delete",
+        "itemId": "itm_alpha"
+      }
+    },
+    {
+      "seq": 3,
+      "envelope": {
+        "id": "op_mPwbnxXY_z",
+        "canvasId": "prj_voice_drive",
+        "actor": {
+          "id": "usr_seeder",
+          "name": "Seeder"
+        },
+        "ts": "2026-09-12T21:55:37.759Z",
+        "op": {
+          "type": "item.add",
+          "itemId": "itm_beta",
+          "version": {
+            "id": "ver_itm_beta",
+            "blobHash": "h_itm_beta",
+            "mimeType": "text/markdown",
+            "filename": "itm_beta.md",
+            "size": 3
+          },
+          "width": 320,
+          "height": 240,
+          "placement": {
+            "x": 520,
+            "y": 100
+          },
+          "title": "Beta note"
+        }
+      },
+      "inverse": {
+        "type": "item.delete",
+        "itemId": "itm_beta"
+      }
+    },
+    {
+      "seq": 4,
+      "envelope": {
+        "id": "op_Lp_ljBA0uB",
+        "canvasId": "prj_voice_drive",
+        "actor": {
+          "id": "usr_5W4Q36mvOr",
+          "name": "Voice"
+        },
+        "ts": "2026-09-12T21:55:42.892Z",
+        "op": {
+          "type": "item.add",
+          "itemId": "itm_Gcu7QKH31f",
+          "version": {
+            "id": "ver_awZf0XWOVy",
+            "blobHash": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+            "mimeType": "text/markdown",
+            "filename": "greeting.md",
+            "size": 11
+          },
+          "width": 480,
+          "height": 360,
+          "placement": {
+            "x": -420,
+            "y": 100
+          },
+          "title": "Greeting"
+        }
+      },
+      "inverse": {
+        "type": "item.delete",
+        "itemId": "itm_Gcu7QKH31f"
+      }
+    }
+  ]
+}

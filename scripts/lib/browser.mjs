@@ -203,12 +203,15 @@ export async function browser(options = {}) {
   let id = 0; const pending = new Map(); let errors = [];
   /** Callers waiting on a CDP EVENT rather than a reply — see `once`. */
   const waiters = new Map();
+  /** Callers watching EVERY occurrence of an event — see `on`. */
+  const watchers = new Map();
   ws.on("message", (d) => {
     const m = JSON.parse(d.toString());
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
     if (m.method === "Runtime.exceptionThrown") errors.push((m.params.exceptionDetails?.exception?.description ?? "").split("\n")[0]);
     const w = waiters.get(m.method);
     if (w) { waiters.delete(m.method); w(m.params); }
+    for (const cb of watchers.get(m.method) ?? []) cb(m.params);
   });
   const send = (method, params = {}) => {
     const mid = ++id; ws.send(JSON.stringify({ id: mid, method, params }));
@@ -225,6 +228,17 @@ export async function browser(options = {}) {
      * never ends. So callers arm, then act, then await.
      */
     once: (method) => new Promise((res) => waiters.set(method, res)),
+    /**
+     * **Watch every occurrence, for a stream rather than a moment.** `once`
+     * is the right tool for "the page loaded"; a run that has to measure
+     * *every* frame on a socket needs this one, because arming a second
+     * `once` after the first frame is a race the first frame always wins.
+     */
+    on: (method, cb) => {
+      const all = watchers.get(method) ?? [];
+      all.push(cb);
+      watchers.set(method, all);
+    },
     ev: async (e) => {
       const r = await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true });
       if (r.exceptionDetails) {

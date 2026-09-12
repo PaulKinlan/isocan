@@ -1,0 +1,511 @@
+{
+  "at": "2026-09-12T21:44:16.937Z",
+  "run": "/home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-live/write",
+  "real": {
+    "page": "/tmp/voice-ui-pin @ ",
+    "harness": "/home/paulkinlan/worktrees/isocan-voice-harness",
+    "daemon": "http://127.0.0.1:40291",
+    "provider": "gemini live",
+    "key": "~/.isocan/voice/key.json (never printed)"
+  },
+  "synthetic": {
+    "speech": "reports/voice-live/write/speech.wav",
+    "sha256": "0d95cccadd6f8cb28f0547afe2e20432630071fc46cd89a80b77be62983af6d7",
+    "microphone": "chrome fake capture device"
+  },
+  "pageAudio": {
+    "frames": 2272,
+    "bytes": 193876,
+    "secondsAt16k": 6.058625,
+    "zeroFraction": 0.5752955497328189,
+    "rms": 0.08554836573717396
+  },
+  "speechWindow": {
+    "frames": 1312,
+    "bytes": 111958,
+    "secondsAt16k": 3.4986875,
+    "zeroFraction": 0.26640347273084547,
+    "rms": 0.11257609383913202
+  },
+  "pageState": "ended",
+  "turn": "2026-09-12T21:44:15.391Z",
+  "toolCall": {
+    "id": "log_1789249453477_oqc5y2",
+    "timestamp": "2026-09-12T21:44:13.477Z",
+    "source": "live",
+    "type": "tool_call",
+    "name": "add_item",
+    "args": {
+      "text": "hello world",
+      "title": "Message"
+    },
+    "op": {
+      "type": "item.add",
+      "said": "add \"Message\"",
+      "target": "itm_tbgG5O7NWp"
+    },
+    "result": {
+      "ok": true,
+      "answer": "added Message",
+      "target": "itm_tbgG5O7NWp"
+    }
+  },
+  "canvas": {
+    "items": []
+  },
+  "oplogAsVoice": [],
+  "providerWire": {
+    "records": 2280,
+    "sentByKind": {
+      "setup": 1,
+      "audio": 2252,
+      "toolResponse": 1
+    },
+    "audioSamples": 96086,
+    "received": [
+      {
+        "at": 1789249449747,
+        "bytes": 26
+      },
+      {
+        "at": 1789249450745,
+        "bytes": 118
+      },
+      {
+        "at": 1789249451605,
+        "bytes": 110
+      },
+      {
+        "at": 1789249451909,
+        "bytes": 118
+      },
+      {
+        "at": 1789249452868,
+        "bytes": 102
+      },
+      {
+        "at": 1789249452869,
+        "bytes": 108
+      },
+      {
+        "at": 1789249452928,
+        "bytes": 118
+      },
+      {
+        "at": 1789249453468,
+        "bytes": 26
+      },
+      {
+        "at": 1789249453468,
+        "bytes": 228
+      },
+      {
+        "at": 1789249453827,
+        "bytes": 26
+      },
+      {
+        "at": 1789249454074,
+        "bytes": 26
+      },
+      {
+        "at": 1789249454077,
+        "bytes": 275
+      },
+      {
+        "at": 1789249454120,
+        "bytes": 10448
+      },
+      {
+        "at": 1789249454159,
+        "bytes": 10448
+      },
+      {
+        "at": 1789249454201,
+        "bytes": 10448
+      },
+      {
+        "at": 1789249454220,
+        "bytes": 2768
+      },
+      {
+        "at": 1789249454342,
+        "bytes": 15634
+      },
+      {
+        "at": 1789249454389,
+        "bytes": 13008
+      },
+      {
+        "at": 1789249454389,
+        "bytes": 118
+      },
+      {
+        "at": 1789249454410,
+        "bytes": 15568
+      },
+      {
+        "at": 1789249454433,
+        "bytes": 5328
+      },
+      {
+        "at": 1789249454479,
+        "bytes": 60
+      },
+      {
+        "at": 1789249455384,
+        "bytes": 118
+      },
+      {
+        "at": 1789249455391,
+        "bytes": 454
+      }
+    ],
+    "setup": {
+      "at": 1789249449443,
+      "event": "sent",
+      "kind": "setup",
+      "model": "models/gemini-3.1-flash-live-preview",
+      "tools": 37
+    },
+    "closed": {
+      "at": 1789249455458,
+      "event": "closed",
+      "code": 1000,
+      "reason": ""
+    }
+  },
+  "harnessLines": [
+    {
+      "at": 1789249448213,
+      "line": "[2026-09-12T21:44:08.213Z] [startup] Voice harness active on port 7738 {\"canvas\":\"Voice drive (prj_voice_drive)\",\"agent\":\"Voice (usr_AnzESgoJt2)\",\"daemon\":\"http://127.0.0.1:40291\",\"model\":\"models/gemini-3.1-flash-live-preview\",\"keyConfigured\":true}"
+    },
+    {
+      "at": 1789249448213,
+      "line": "22:44:08  voice [2026-09-12T21:44:08.213Z] [startup] Voice harness active on port 7738 {\"canvas\":\"Voice drive (prj_voice_drive)\",\"agent\":\"Voice (usr_AnzESgoJt2)\",\"daemon\":\"http://127.0.0.1:40291\",\"model\":\"models/gemini-3.1-flash-live-preview\",\"keyConfigured\":true}"
+    },
+    {
+      "at": 1789249448213,
+      "line": "Voice is listening on the canvas — talk at http://127.0.0.1:7738/"
+    },
+    {
+      "at": 1789249448213,
+      "line": "not enrolled as a harness yet — the microphone speaks as Voice either way, but nothing can summon it."
+    },
+    {
+      "at": 1789249448213,
+      "line": "to invite it:  isocan rc add Voice --harness voice"
+    },
+    {
+      "at": 1789249448213,
+      "line": "(which needs \"acpAdapters\": {\"voice\": [\"node\", \"<this isocan.js>\", \"voice\", \"--acp\"]} in ~/.isocan/config.json)"
+    },
+    {
+      "at": 1789249448214,
+      "line": "[2026-09-12T21:44:08.213Z] [presence] created session on daemon {\"sessionId\":\"ses_B53gUem9dT\"}"
+    },
+    {
+      "at": 1789249448214,
+      "line": "22:44:08  voice [2026-09-12T21:44:08.213Z] [presence] created session on daemon {\"sessionId\":\"ses_B53gUem9dT\"}"
+    },
+    {
+      "at": 1789249448215,
+      "line": "[2026-09-12T21:44:08.215Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789249448215,
+      "line": "22:44:08  voice [2026-09-12T21:44:08.215Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789249448710,
+      "line": "22:44:08  voice key check (gemini): accepted"
+    },
+    {
+      "at": 1789249448873,
+      "line": "[2026-09-12T21:44:08.710Z] [http] POST /key/test status=200 in=0b duration=483.6ms"
+    },
+    {
+      "at": 1789249448873,
+      "line": "22:44:08  voice [2026-09-12T21:44:08.710Z] [http] POST /key/test status=200 in=0b duration=483.6ms"
+    },
+    {
+      "at": 1789249449239,
+      "line": "[2026-09-12T21:44:09.237Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789249449239,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.237Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789249449239,
+      "line": "[2026-09-12T21:44:09.239Z] [http] GET /state status=200 in=0b duration=2.3ms"
+    },
+    {
+      "at": 1789249449239,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.239Z] [http] GET /state status=200 in=0b duration=2.3ms"
+    },
+    {
+      "at": 1789249449376,
+      "line": "[2026-09-12T21:44:09.375Z] [http] POST /session/start status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249449376,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.375Z] [http] POST /session/start status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249449377,
+      "line": "[2026-09-12T21:44:09.377Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249449377,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.377Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249449377,
+      "line": "[2026-09-12T21:44:09.377Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789249449377,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.377Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789249449419,
+      "line": "22:44:09  voice live socket: socket_opening {\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\"}"
+    },
+    {
+      "at": 1789249449442,
+      "line": "22:44:09  voice live socket: socket_open {\"model\":\"models/gemini-3.1-flash-live-preview\"}"
+    },
+    {
+      "at": 1789249449747,
+      "line": "22:44:09  voice live socket: setup_complete {}"
+    },
+    {
+      "at": 1789249449880,
+      "line": "[2026-09-12T21:44:09.879Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249449880,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.879Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249449881,
+      "line": "[2026-09-12T21:44:09.880Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249449881,
+      "line": "22:44:09  voice [2026-09-12T21:44:09.880Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249450382,
+      "line": "[2026-09-12T21:44:10.382Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789249450382,
+      "line": "22:44:10  voice [2026-09-12T21:44:10.382Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789249450884,
+      "line": "[2026-09-12T21:44:10.883Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249450884,
+      "line": "22:44:10  voice [2026-09-12T21:44:10.883Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249451213,
+      "line": "[2026-09-12T21:44:11.212Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789249451213,
+      "line": "22:44:11  voice [2026-09-12T21:44:11.212Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789249451234,
+      "line": "[2026-09-12T21:44:11.233Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249451234,
+      "line": "22:44:11  voice [2026-09-12T21:44:11.233Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249451234,
+      "line": "[2026-09-12T21:44:11.234Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789249451234,
+      "line": "22:44:11  voice [2026-09-12T21:44:11.234Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789249451386,
+      "line": "[2026-09-12T21:44:11.386Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249451386,
+      "line": "22:44:11  voice [2026-09-12T21:44:11.386Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249451887,
+      "line": "[2026-09-12T21:44:11.886Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249451887,
+      "line": "22:44:11  voice [2026-09-12T21:44:11.886Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249452389,
+      "line": "[2026-09-12T21:44:12.388Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249452389,
+      "line": "22:44:12  voice [2026-09-12T21:44:12.388Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249452889,
+      "line": "[2026-09-12T21:44:12.889Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789249452889,
+      "line": "22:44:12  voice [2026-09-12T21:44:12.889Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789249453233,
+      "line": "[2026-09-12T21:44:13.233Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249453233,
+      "line": "22:44:13  voice [2026-09-12T21:44:13.233Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249453234,
+      "line": "[2026-09-12T21:44:13.233Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789249453234,
+      "line": "22:44:13  voice [2026-09-12T21:44:13.233Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789249453392,
+      "line": "[2026-09-12T21:44:13.391Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789249453392,
+      "line": "22:44:13  voice [2026-09-12T21:44:13.391Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789249453471,
+      "line": "[2026-09-12T21:44:13.471Z] [daemon-io] dispatching op (1 sent): add \"Message\""
+    },
+    {
+      "at": 1789249453471,
+      "line": "22:44:13  voice [2026-09-12T21:44:13.471Z] [daemon-io] dispatching op (1 sent): add \"Message\""
+    },
+    {
+      "at": 1789249453477,
+      "line": "[2026-09-12T21:44:13.477Z] [daemon-io] acknowledged op (1 ack): add \"Message\""
+    },
+    {
+      "at": 1789249453477,
+      "line": "22:44:13  voice [2026-09-12T21:44:13.477Z] [daemon-io] acknowledged op (1 ack): add \"Message\""
+    },
+    {
+      "at": 1789249453477,
+      "line": "22:44:13  voice sent: item.add — add \"Message\" → added Message"
+    },
+    {
+      "at": 1789249453893,
+      "line": "[2026-09-12T21:44:13.893Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249453893,
+      "line": "22:44:13  voice [2026-09-12T21:44:13.893Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789249454212,
+      "line": "[2026-09-12T21:44:14.212Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":1}"
+    },
+    {
+      "at": 1789249454212,
+      "line": "22:44:14  voice [2026-09-12T21:44:14.212Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":1}"
+    },
+    {
+      "at": 1789249454396,
+      "line": "[2026-09-12T21:44:14.395Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789249454396,
+      "line": "22:44:14  voice [2026-09-12T21:44:14.395Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789249454898,
+      "line": "[2026-09-12T21:44:14.898Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789249454898,
+      "line": "22:44:14  voice [2026-09-12T21:44:14.898Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789249455233,
+      "line": "[2026-09-12T21:44:15.233Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249455233,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.233Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249455234,
+      "line": "[2026-09-12T21:44:15.233Z] [http] GET /state status=200 in=0b duration=1.0ms"
+    },
+    {
+      "at": 1789249455234,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.233Z] [http] GET /state status=200 in=0b duration=1.0ms"
+    },
+    {
+      "at": 1789249455391,
+      "line": "22:44:15  voice live socket: turn_complete {}"
+    },
+    {
+      "at": 1789249455400,
+      "line": "[2026-09-12T21:44:15.399Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249455400,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.399Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789249455401,
+      "line": "[2026-09-12T21:44:15.401Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249455401,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.401Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789249455439,
+      "line": "[2026-09-12T21:44:15.439Z] [http] POST /session/end status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789249455439,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.439Z] [http] POST /session/end status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789249455440,
+      "line": "[2026-09-12T21:44:15.440Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789249455440,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.440Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789249455448,
+      "line": "[2026-09-12T21:44:15.448Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789249455448,
+      "line": "22:44:15  voice [2026-09-12T21:44:15.448Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789249455458,
+      "line": "22:44:15  voice live socket: socket_closed {\"code\":1000,\"reason\":\"\",\"audioUpFrames\":2252,\"audioDownFrames\":9}"
+    }
+  ]
+}

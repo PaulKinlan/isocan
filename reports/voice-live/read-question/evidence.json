@@ -1,0 +1,773 @@
+{
+  "at": "2026-09-12T21:53:56.299Z",
+  "run": "/home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-live/run6",
+  "real": {
+    "page": "/tmp/voice-ui-pin @ ",
+    "harness": "/home/paulkinlan/worktrees/isocan-voice-harness",
+    "daemon": "http://127.0.0.1:39805",
+    "provider": "gemini live",
+    "key": "~/.isocan/voice/key.json (never printed)"
+  },
+  "synthetic": {
+    "speech": "/home/paulkinlan/cap-evidence/astra/isocan-silent-turn-20260912/speech-fixture.wav",
+    "sha256": "a824efe1e5fb035009a6f36a950434660da02e2903f4bad003468d224dfbd60a",
+    "microphone": "chrome fake capture device"
+  },
+  "pageInput": "page-input.s16",
+  "pageAudio": {
+    "frames": 3960,
+    "bytes": 337920,
+    "secondsAt16k": 10.56,
+    "zeroFraction": 0.7726917613636364,
+    "rms": 0.07318959386599708
+  },
+  "speechWindow": {
+    "frames": 1504,
+    "bytes": 128340,
+    "secondsAt16k": 4.010625,
+    "zeroFraction": 0.40341280972417015,
+    "rms": 0.11876138890392735
+  },
+  "gaps": {
+    "intervals": 3959,
+    "worstGapMs": 19,
+    "missingMs": 7954,
+    "gapsOver20ms": 0
+  },
+  "pageState": "ended",
+  "turn": "2026-09-12T21:53:54.337Z",
+  "toolCall": {
+    "id": "log_1789250027992_gtb9ak",
+    "timestamp": "2026-09-12T21:53:47.992Z",
+    "source": "live",
+    "type": "tool_call",
+    "name": "read_canvas",
+    "args": {},
+    "result": {
+      "ok": true,
+      "count": 2,
+      "answer": "2 things here: Alpha note [itm_alpha]; Beta note [itm_beta]."
+    }
+  },
+  "canvas": {
+    "before": [
+      "Alpha note",
+      "Beta note"
+    ],
+    "after": [
+      {
+        "id": "itm_alpha",
+        "title": "Alpha note"
+      },
+      {
+        "id": "itm_beta",
+        "title": "Beta note"
+      }
+    ]
+  },
+  "oplogAsVoice": [],
+  "providerWire": {
+    "records": 3998,
+    "sentByKind": {
+      "setup": 1,
+      "audio": 3948,
+      "toolResponse": 1
+    },
+    "audioSamples": 168448,
+    "received": [
+      {
+        "at": 1789250024537,
+        "bytes": 26,
+        "text": "{\n  \"setupComplete\": {}\n}\n"
+      },
+      {
+        "at": 1789250025765,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"7ae8ee0c-027d-4d40-be78-f02a865580b0\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250026493,
+        "bytes": 110,
+        "text": "{\n  \"serverContent\": {},\n  \"voiceActivity\": {\n    \"type\": \"ACTIVITY_START\",\n    \"audioOffset\": \"2.160s\"\n  }\n}\n"
+      },
+      {
+        "at": 1789250026692,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"ae164282-1442-4a38-a39f-cc14a47fac04\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250027640,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"086b0c88-0ed6-4b89-a1b7-ed6ddc0c237a\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250027648,
+        "bytes": 95,
+        "text": "{\n  \"serverContent\": {\n    \"inputTranscription\": {\n      \"text\": \"read the canvas\"\n    }\n  }\n}\n"
+      },
+      {
+        "at": 1789250027648,
+        "bytes": 108,
+        "text": "{\n  \"serverContent\": {},\n  \"voiceActivity\": {\n    \"type\": \"ACTIVITY_END\",\n    \"audioOffset\": \"3.200s\"\n  }\n}\n"
+      },
+      {
+        "at": 1789250027649,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250027979,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250027990,
+        "bytes": 159,
+        "text": "{\n  \"toolCall\": {\n    \"functionCalls\": [\n      {\n        \"name\": \"read_canvas\",\n        \"args\": {},\n        \"id\": \"fc_1907886542944434294\"\n      }\n    ]\n  }\n}\n"
+      },
+      {
+        "at": 1789250028411,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250028588,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250028589,
+        "bytes": 274,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"AAA=\"\n          }\n        }\n      ]\n    },\n    \"outputTranscription\": {\n      \"text\": \"There are\"\n    }\n  }\n}\n"
+      },
+      {
+        "at": 1789250028660,
+        "bytes": 13008,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"c/9w/27/a/9q/2v/av9s/2z/cf9w/2z/av9w/2//bP9w/3H/bv9w/2//bv9s/2z/bf9x/2//bf9u/2z/aP9q/2X/bP9l/2b/Zf9h/2b/Zv9o/2b/Zf9m/2X/Zf9k/2L/Yv9n/2X/Zf9q/2r/bP9r/23/cf9z/3j/eP9z/3b/dv94/3//gf+B/4L/f/9+/4T/hv+E/4P/h/+H/4n/jP+L/47/kP+U/5n/nP+d/6H/pP+l/6X/q/+r/7L/sf+1/7b/vf/E/8X/zP/M/9D/0P/Q/9X/2P/a/97/3//g/97/3v/e/+X/6P/l/+n/5f/p/+r/6P/o/+n/6f/m/+r/6P/o/+3/7//z//T/8//4//r/AAAFAAoADQAQABYAEgAWABcAGwAdACgALgAtADIAMQA3ADoAPgA/AEQARQBLAEwAUgBWAFcAWABYAFkAXwBdAGAAZQBlAGUAZQBnAGYAXwBiAGgAbAB0AHEAbgBxAG8AcAB2AHQAdQB4AHkAdQB4AHkAfAB7AIEAgQCBAIEAgwCFAIIAhgCJAIsAjgCMAIoAgwCGAIQAggCFAIIAgwCCAHwAfQB7AHoAfgB8AHkAcQBzAHcAdwB6AHcAewB8AHgAeAB7AHwAfACBAIEAgQCBAIEAgwCAAIQAhgCHAI4AjQCPAJMAlQCZAJcAlwCXAJkAlQCaAJkAmgCbAJoAlQCUAJYAkwCWAJUAkwCSAJIAkQCOAJEAkQCNAIYAhQCCAIMAgQB/AH4AdgB0AHIAcQBuAGwAawBnAGcAYgBgAFsAVwBWAFEAUABOAEkARABAAD4AOQA0ADMAMQAuACsAJgAjAB4AHAAWABgAFQARAA4ACgAJAAcAAwD//wAA///5//j/9v/0//X/8v/v/+3/5v/n/+X/5//j/+L/5P/h/+L/4v/g/+H/4v/h/+D/4v/h/+D/4f/a/9v/2f/W/9b/0f/P/87/zf/J/8j/yP/F/8P/wP+//7//wf++/7z/tv+x/7P/sv+1/7D/rv+q/6n/qP+n/6T/pv+h/57/oP+a"
+      },
+      {
+        "at": 1789250028699,
+        "bytes": 10448,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"9QcTB+YGbgjzC/oQIhcAHoUkeikoLJsrRSh1I20dIhd3EXMM1AjiBikG1QWsBckEhQK7/1L8ZPgQ9Z7yy/AV8S/zPfbC+lv/LQORBi4JGApmClgJTQd1BRQEhgMLBF4FeQdrCS0LBQyeCroHMwP7/C/24e/z6BDknuAM3k7dKt0T3NvaVthl0w/OgMgSw2XB78LQx2LTA+MF9pcKqhpJJeYqfyqtJn0gBxgCEq8QSRT4HNQnYzHPOLY7aDgjMK0iUxLWAVbzf+l75Xzmkupg78XzI/Zk9VfxVOlq37bWqNBpzrbQddZO3+PqfPZ1ABkIPwwTDXkM3QqDCfsJCwyjD5oVvxzKI9EpuyxbLKApTyRmHX8Vqg1fB3gD3AFKArgDTAVnBvUFIATjAE38cvfn8ubvk++s8dT1dPtpAfkGyAteDroO6AxZCUoFrAFY/6v+///RAnMGYQokDcwNygsSB4UAwvgq8abp3OPn31nev95i30TgkN963W3Z39NszZ7HssSzxITJGdQH4+v1SgoMGkEmdyxrLGcpoCLfGRUTJhBWEe8XGCEoKkYyTzdzNtIwbCbAFzcIzPm07YrmjuSn5arpHe8p85z1O/VJ8ErpluFN2svVtNTJ1gndpOaq8d78lgZdDTIRehJ+EWcP2g0gDRAOsRHSFvgccyPjJ+Ip6ynKJq8hYhuoE7sMlAdABBQDaQNRBEcFKAbXBQoEdgHH/fT5Rfec9ZD1n/fV+sr+FwPBBksJYwriCdgHBgWWAnwAif8xAMIBKgQMB6EIuAhNB5MDBv7b9/XwkerN5W3itODC4B7h8OAC4EHdpNgX0/LMVMcqxYbGSszu12DnwvkRDVwcSSZAK/gpYyXKHXgU+QxbCoQMURMeHQgnpy+9NQ42OTCmJUYX6QaL+I3szeRp47XlPuoD8YP2Lfl8+dL08+xi5f3dXNg118vYad516BvzTf3MBvQMIBCZESEQ1g2uDBMM2wyMED0VwRoXIUQlWCdAKEImCSLgHAAWiw+lCqgGPQRrA4QDBQTI"
+      },
+      {
+        "at": 1789250028706,
+        "bytes": 2768,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"uPuz/+MD8QcKCyQNJw5RDgUOow2SDfENAw+DEEQStBNcFCwUARMxEUIPEw0QC5wJMwhEB2EGtwS8Ai4AsvxA+eD1cvLw77TtaOt26eXmw+Nr4GXc9dd51DbSMtKu1CzYvNw/4WLlCul863Ds/Out6ifqCutM7oLzFfptAcIIFw8nFG0XphhVGBIXQBWFFCoVVxcRGzsfCSMmJp0nSyc2JVkhehxsF+8SpQ+7DfkMvQyzDAkMdQrGBwAEd/+2+jH2bvLi77Lux+7b7x3xLPKv8lrykvGh8L7vmO9U8Pnxy/Qw+Mf7Q//uAX4DcwTaBDgFUAbfBwEKuAx6DxQSRBRdFScV1xO1EZAP9g32DNMMVw0nDtIO3Q6XDcQKvgb5ARr97fiW9RvzqvFf8DXvgO2A6ozmoeGB3EbYcNVe1EDVctfm2vfeleLU5YPnyuc/5yjmmuWn5lDpCe5C9Nf6XgEyB8UL/A6mELgQGRCBD+APuRH5FB0ZfB1vIWMkByYtJsIkCSKdHvga/hfdFd8UWxQ5FOET5hI2EYYOAQsPB+oC8/7O+1n5xvcC95T2T/bh9SD1CvQH8zHynfG38TjycPM09Tz3Mfm6+s/7Yfz5/LX90/6yANcCUAUUCHYKTwxpDW4N6gwfDC4LzQr7CrYL/wxQDi8PYw+PDpQM7AmsBnkDngBR/rH8bfsy+oP4CPbe8gHv5eom5xPk5+Hf4J7g7OD14STjneTP5ULmNOaP5THld+WI5tbo3+tK7xbzSfZ2+Uz83/4XAc8CJgRbBd8G4wh/C2IOKBGvE9sVjhfVGLEZCBrwGWwZpxi8F+4WPRa8FSgVhxS9E8YShREGEDcOLgzwCeQH6QVSBPICtAGOAHT/e/63/Q39kPwK/Lb7kPuO+8b7BPw9/DD8EPzW+6H74vt2/HP9xP4eAFUBUQLkAgEDyQI6AqsBUAFSAcUBwQL4AzkFMAaFBiQGHQV5A6wB+P+S/oj97/xi/Lb7vPpT+Un3/fR28h/wOu4M7VrsGeww7LLslO2R7l7vk+9W"
+      },
+      {
+        "at": 1789250028770,
+        "bytes": 13065,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"nv52/lL+Nv4c/g/+B/4H/gj+Df4W/iL+KP43/kb+Sv5e/mz+eP6G/ob+jf6L/oX+iP6B/nr+a/5Y/kL+I/4A/tD9o/1y/T79Dv3a/K/8g/xl/Ej8K/wV/AH88Pvl+9372vvi+/P7Ffw7/Gr8m/zb/BT9Tv1//bf97/0x/m/+vv4P/2v/0/85AKMAAQFSAaAB7gErAmkCrALzAjsDiQPQAxgEXQSOBLMExATFBMUEsgSbBIgEbgRaBEMEKQQLBOADrgN5AzYD8gKqAmECIQLeAakBcwFJASEB+QDSAKsAgwBlAEgAKAAPAP3/7f/i/9P/x//D/8H/vv+//7v/x//U/+f//f8PACEALgBBAEQATgBUAFUAXABeAGQAYgBiAFIAQwAsAAYA4v+x/4T/V/8m//7+z/6k/nj+Tf4f/vL9w/2Z/Xb9VP1B/S39IP0c/RP9F/0U/Rj9Hv0o/Tr9S/1n/YX9qP3I/ev9Cf4w/lT+ff6q/tP+Bf8//3T/rv/f/w4AOABqAI4AugDiAAUBKQFJAWoBjQGpAbYByAHMAcwBzAG7AbQBpgGaAZQBeQFsAVYBQAElAQoB8QDSALwApACQAH0AbQBeAFQAQgAyACEAEQD+/+3/5f/i/+r/8v///xIAIQAtADwARQBPAFAAUgBUAFsAZAByAIEAlQCUAKQApgCeAJsAiwB/AG8AVQBEAC8AFQADAOf/zP+r/4v/aP9L/y7/FP8D/+3+1/7C/q7+mf6E/nT+aP5o/mX+Z/5q/nb+hf6K/o7+jP6F/oj+gP6C/pP+of63/s/+7f4N/yr/Qf9S/2L/b/+C/5L/o/+6/9P/7P8MACUAOgBKAE8AUwBQAEwATQBSAFUAWgBgAGYAawBtAGEAXABFADkALwAcABUAEAARABQAFgAcABkAEwAGAPf/6//b/9f/1v/c/+f/9P8FABsALwA8AEUASgBOAE8AWABfAGwAeQCGAJoAqwC4AMYAygDMAM8AxQDGALQApQCdAIwAewBoAFUAQwAzACIAFQAIAP7/8P/i"
+      },
+      {
+        "at": 1789250028779,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"11f97502-aa41-4519-b30e-3cdc28ebea11\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250028821,
+        "bytes": 13068,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"rwAdApgEhgZ6CGgJUgnjCh8N5RBWFJwWHhcRF8cX0xeMGAcYzhbuFcgUChXUFPMUMBVuFFoUZhPLEawPqgz1CdAHdAZ4BTkEyQKIAML+tv27/LT74PkX95rzLPH/7h7u9uzG6hzpbebH5dXlsOb95p7mPegi6dHr4u297VXs3+rN7OftcfGa83fzm/WU90L7xv54ANkBZwIhBKUGTwjeCWcKXQx9D5QSdhWyFnMWxBb1FlEXGRffFbwUwRM9FJkUwxSPFOETeRPyEpkRCg8MDJgJdwdkBm4FMQOxATcAsP7X/Yz94vsj+iv48fPp8WLvy+0c7a3q2ehb5uLlUOZ+51zpyOiS6U/qtupH7HXs3Osv62/th++28Un0fvTJ9Q34/Pun/kwAZAFtARkDagUACJgJcwupDVEQMxPJFPoVnxWBFewVIBYrFlcVeRTkE9UTlRTaFDYUrBOvEp0RExCTDS4Lzwg8BxYGBAUhA1UB+f+S/lv9e/08/Jb5APgp8+bwBO+G7cjsh+n+547lDObk57boU+q+6eDp4upC65HrYesn647r3e7X8avzMfVz9SP3rPnH/d//IgAAAW4BzQOhBj8JJgsaDeYPVhKSFCoVJBUCFfIU9hWFFjcWwxWjFKwU4xTJFOkUZBOxEo0RJBDhDlYMiwqiCFUHIQaBBGgCDQBo/q79SvzR/PD7Tfgu9zfy9+//7tzsteuy5znmN+Vm5ojpu+l+6i/qFupF60rrN+vD6ojrgO358Pvz4vT49X32DPlK/IP/+gB7AHUBvQJqBYII6Ar2DCsPexK3FKwV9BUmFSgVyRWUFgMXRxaQFXwVrBUZFi0WJhWVE1oSAhFLD2ENCwsMCZEHawZOBSoDBAFK/779dP1q/Dn71vmS9YbzAfFS7jnukusC6TTmj+Wu5tvnQuoJ6prpV+p86qjqlupM6hvrWe2K8HHz5/R29av2o/jJ++j+rgDMAN4A3AJOBSQI+goDDTgPMBLIFPcVxxVOFZ4VPxbvFtMXyBbXFSYWMxanFnwWcBX0"
+      },
+      {
+        "at": 1789250028845,
+        "bytes": 7888,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"Zuhb52fySAJfDZsQWgZt/E3zgOnH5ZTpB/R4AAgK1wYw/Vr0o/LW+JAC6gfmCDkI+QgBDlcTtRXXFdYSoRDhDxMRVxNIFhQZPxlOFSYN6wOG/cj8aQHXB5IKewllAxb81fcV9xb6Af+2A9IGHAdoBSYCEf+z/kwBDAXyBx4IsAVeA/EC7gI1A8EB+P6k/N76jvp/+jj6Afpk+Dr2O/O68FvvhPDn8wj3Rvm4+D/3N/Vo9eT3evrb/RL/C//H/zcANgE+AhQC6AEcAnsCpAIxA/kCjAPlBD8GcwfVBp8EwwKcAjMFSQnLDH4NFgtQCNcGGwfYCZwLjgysDAgMjgysCrgIVQR4AJH/7P+VAdT/h/wX9o3wA+1s6hfq2egm6TvrRe788XvxnO086K3mJ+0r+nYGuAruBZf6yfJM73n0ufmG/RwBuQKl//j8jPXA7Vbvg/Wt/6oFiwU1/mX3B/dp+mb+cQOiA2QEDAcYCJcJEQn2Ch8MVRHXExoTohHeDqkPUhL6FPcT6w+WCVsFXQUkCCELagzrCQQGRwLi/iL9sf0wABsEDgcNB3sDQf2++Gr42fuJATUGtwe/BSYCVv6C+9j67/uX/TAAfgC4/y/8Zfdg9NjyVvSB9gb48fcw99L2CPa49g327fVK93H44/q5+zb85vvc/FL+3f/MAHEA4/8fAO0BagRwBg0HWgZwBU0FDwaVB34I0QhECe0JJAvgC2gLYAq6CBIJHQo7C/ELCwt9Ce4IAgjDBuoExAEW/439iP3l/UL9bPq99SrxNe4P7k/wB/P69Ib1GvXZ84fy8vG08lD1BfpI/80BGgAP+qnxXeys7PPyOfqk/iT/Z/kD9IfxVPBb85j51f0EA8oECAI//tP5m/k8/K0ChAh+C6gM7grRCWEJ7wn0Cp4NKRBnE/oUvBNXEBkM0glfCfcKHAyyC9EKAQl3By4GKQSkAlABewFzAnsDjwP4AUD/Tv17/M78wv3T/cb93f2R/mj/I//B/fr7GPoh+iH7Afw//HX7xvk9+AX3mvUz"
+      },
+      {
+        "at": 1789250028915,
+        "bytes": 13067,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"bgiNBosKZQcmBzAI2QZLBq4F2wUwBMQDpgJLA3kA4ACyAiz+5f60/xn7xPq7/Uz4ZfiT+R34U/Wy+Af4y/I893f1c/Nb8yP0NvRi87rzdPRV9KbyX/Vh87fze/by8mH2UfZ39/D1zPhx+Tj53foU+7r70PzL+1f/Yf+c/UkCLgIUAt4AzgURA6EEawSmBjwDIgg6Bg0FHgnCBsEG7glxB9IHPQcECcAHQQezCmcIewfACeEJogeZCKUImweOB1QJpQdFCKUIWQbKB4IGxgTfBk0FVwU4AwYFHQVV/zMFUgKR/s8EA/62/40AKv18/zX9hPyS+3L9/Pob+u35b/z893r4RPzf93j4PfnL+Lf4cfZk+/H1zvjk+Fr3Vflg9yv53/il+In4K/mR+1H3z/vv++z5vPwv+4H92/zU+9X+P/0Q/gQAbf6J/yoAKAOV/rMD7gPa/7QE9gN8AVMEtQSRAzEILgP+A9YKPgFqBWsHMwWTBpsCtAg0B8P/FgrzBS0EQQe8BGAGvATaBd4FmgUkBGcFzgNABIsFZwKLBZADmQQ0AHoE7wPT/i0DVQFNAVsBHgD5/0wDh/7k/AkCz/1T/Qr/a/6v/Cv8PAA1+lv7Nf2+/Kv7/fl3/rz5+Pxi+fv7E/5k+HL88/ob/qr3tv4D+1P6b/60+1j7/P7a/Dn+4vx2/jD8o//x+wT+ZgEN/G8AXf0ZABkAhP9z/toC//8i/1AC7AAuAlb9EAYT/3YB4QPz/8UCXAJnAZACcgCzATIBQwJDA2sBqACqBOIB6wBDAgcCFgHQAjsBFwJWAcAB5AGsADADhAJX/rMCUQFVAk3/4wG+Agb98wLTAhr9/gCIBSf7hwBuBXL6fwEuATL+TgBY/hcDd/uiAQkCLfouAUj/w/3e/AgA/P+R+///SQGi+3b+LP9y/fb9Z/1N/k0BlvsJAeAAh/ooAtL8XP58AEL9of5//28AsfuhAhj/hf0iAcv6nAHj/mv6sQKIAfn7jgEsARX8bAFK/K0APP/F/ZT/8f8QAFT+3gDt"
+      },
+      {
+        "at": 1789250028941,
+        "bytes": 10448,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"OvjO9xf4m/jl+Nb4dPj899X3GfiQ+Ef5Rfp++zX9F/++ACkCIwPIA3oEOgXKBUoGowbXBiAHVQdEB+kGLQY4BUkEcgOjAswB5wD8/xb/Qf5e/XD8fvuz+jH6CvoS+i/6YPqy+gv7e/vk+z/8vPxp/UX+Uf9ZAEgBGQKyAhMDMgMxAwgD5wLUAtsCFgNsA6wDvQObAy4DigKfAZcAgv95/rH9Kv3d/MD8yvzs/AL9Dv3s/Jz8UPwX/An8WPy4/DP94f2M/j7/4P9bAMMAAAEnAUcBcQGtAd4BFAJHAogCyQLgAswCrAJtAiUC4gGKAR8BwABiAAgA2P+n/3H/K//Y/ob+Qf73/bz9g/1s/Wr9kf3O/Q/+bv7F/jT/jP/i/xUATAB8AKEA2QAQAWkBxAErAnQCqwKhAngCGwKIAeoALgB+//X+h/5E/jn+NP4W/uT9qf0h/a38FPx/+yT7EPtL+9n7gfw2/dL9TP6V/nr+P/6+/WP9C/0C/Tn9nf0u/tz+iv80AJsAnQBWAMz/Vv/Y/qf+iP67/gj/Y//V//f/3P92/9r+Hv6I/Rj98fwF/Uj9t/1d/ub+Rv9l/zj/Ef/T/rL+q/7M/hv/n/9EAPkAtAEjAmgCagJSAjQCFQLtAdEB0gHvASkCYAKKAp0CqAKfAqkCiAJcAvYBoAFNAf4A2wDNANMA3wAZAUYBggGrAZUBZQFCASgBOAF1AdEBUALZAncD4gMzBDEE5gOaA04DCgP4AvcC+QI9A4MDugPkA84DZAMLA5UCKwLWAYgBOAETAfMAwACVACsAnP8K/5H+RP4Q/vv97v0A/l3+q/76/lT/aP+h/+v//f8uAFUAIAALANb/cv8n/5H+0f0m/Zr8QPxO/FD8Lfym+7L6M/lv92L1KPMO8TrvIu4j7grv6vBD8xn1bvaq9pf1APTr8bfvcO7P7gPx2fbS/k0HaQ+eFSQZwBouGSIUoA37BnQB7v68/kgA/gOzCOAMNxBaETcP6gq2BGz9L/d68nzv4u6L8KXzLvjk/EUATwLH"
+      },
+      {
+        "at": 1789250028956,
+        "bytes": 2768,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"+//1//H/7v/t/+3/7//w//f/+P////3/9//1/+n/6P/m/9z/2v/Y/9v/5//7/woAEgAQAAkA+//x/+f/4P/Z/+L/7P8IACgAQABVAFcAUwBCADgAMwA5ADwARQBOAF0AcwCKAJUAngCeAKMAogCjAJ8AmQCPAH0AdgB1AH0AigCfAKwAtgC3ALkAtwCkAJEAdABtAGEAUQBPAE4AUABJAEUAOQA6ADoAPQA8ADIAKQAiABgAFQAAAOv/4f/k/+///P////X/8v/o/+P/3v/e/9//5f/1/w4AIQAgAAkA6f/B/53/k/+T/6P/vv/e//z/FgAiACEACgDo/8X/pv+U/5z/rP/H/9f/2v/0/wgAJQAvADIAIgAIAPD/0//C/7P/pv+y/9D//P83AGEAeAB0AFoAMQARAOX/0//K/9H/5v8AABoANgBIAEoARwA9ADUALwAkABcAAgDv/+b/1f/b/+T/7v/8/wkAFwAbAA8A/v/q/8T/sP+q/6D/pv+y/8T/2//2/wgACgAEAOj/0/+3/6D/lf+P/5D/ov+1/8v/1//l/+j/4v/b/8n/wP/C/8j/xv/E/8j/yv/H/9D/2f/l/+r//P8DAAgADQD7//D/3//U/87/0f/V/93/6//z//n/AQD8//v/8P/k/+X/5//o/+P/4P/X/+P/4P/g/+L/2//V/9D/0P/Y/9v/5P/n/+j/3f/Z/9j/2P/X/9D/xP/B/9D/1P/k/+X/3P/W/83/zP/B/7n/rP+f/57/m/+l/7b/vP/A/7b/p/+e/5H/gf97/3z/hv+N/6D/sf++/8L/vv+1/6f/ov+k/6X/s/+8/8L/z//X/97/5//w//H/9f/7/wAAAgAJAAcAAAD9//v/BwAaADIAQQBKAFcAWwBWAFIAUgA9AC4AKQAxAEAASgBZAGMAbAB5AHkAdABmAF0AUwBMAEQAPgBKAEwAVABXAFcAWABaAF4AVgBRAEUAOwAvACEAGwARAAoACAAFAAAAAQAOABIAEAALAAIA/v/0/+n/2P/T/8T/wv+8"
+      },
+      {
+        "at": 1789250029015,
+        "bytes": 13068,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"vv++/7r/vf+9/8D/w//K/83/yf/K/8D/zf+8/7n/t/+v/7T/t/++/8P/x//M/9D/zv/L/8f/xf/A/8H/wv/F/8L/yf/M/8//zf/L/8j/y//O/83/0P/U/9P/2P/T/9L/0P/P/8v/0f/W/9P/2P/Z/9f/1//W/9f/0//Q/8//0f/X/9b/1f/V/9j/2P/V/9L/z//T/9D/z//P/8//zv/O/9H/0P/P/87/yP/I/8n/xf/H/8j/x//D/8v/yf/G/8n/v/+9/7z/uv+8/73/t/+3/7j/u/+7/7j/t/+2/7X/r/+r/6j/pf+g/6X/of+l/6P/o/+i/6P/oP+j/5z/m/+a/53/mP+X/5H/k/+X/5P/nv+f/6L/o/+i/6D/n/+b/5v/m/+a/5v/n/+j/6f/r/+w/6//rv+3/7b/uv+3/7v/vP+//8X/yP/P/8v/0f/S/9f/1P/Y/9j/5f/o/+b/5//p/+f/6P/p//H/+P/6//7/+/8CAAAA/v8CAAcADgATABkAHgArAC4AKQAuACoALAAuACsAKgAqACkALQAuAC0ALgA2ADwARwBHAEMASAA6ADkAMQAwACwAMAAyADMAMwA5ADEAMgAvAC4AMAAnACMAHQAkABcAHAAXAA4ADAAIAAwAEAAQAA4ABwACAAEA/P/3//b/8f/t/+j/4//m/9z/4P/h/+H/3//b/97/2//Y/9z/2f/Z/9f/2//c/97/3f/o//D/8v8AAAsAFQAeACEAKQAvAD4AQwBSAGIAaQB5AIIAkQCZAKEArAC3AL0AygDTANgA4QDjAOoA6QDuAPAA9QD5APwA/wD+APUA+AD5APsA7QDjAOUA3ADYANAAxgDCALwAtgCuAKQAmgCQAIMAfQBtAGEAVABKAD0AKQAdAA8ABQD1/+b/2P/H/7b/qP+c/47/gP90/2v/X/9W/1D/Sv9I/zj/MP8u/yz/Lf8o/yv/Kv8q/zT/O/8+/0P/TP9d/2j/c/+A/5H/m/+o/7z/xf/Y//D/AwAUACcAOQBHAF4AaAB5AIUAlwCi"
+      },
+      {
+        "at": 1789250029075,
+        "bytes": 15568,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"kfe3+Vb7lfyH/iAAqQGtAzcFmAY0CGgJdApLCysMHA37DQwPtQ9LEOEQJxGtESMSdBKwEroSKBOXE9QTXhTDFCkVsRW5Fa4VmhWwFcYVvRW5FYMVTRVXFfcUjxRoFMkTcBMKE54SQRLUEXgRBhGOEPMPHg9mDqsNAw2FDPwLeAsDC3wK4AlgCc8ISAj6B4cHIQfSBnkGLQb+BaUFHAXuBGcEygNgA9UCdwIFApcBBwGGACEAev/N/lP+xP09/eL8P/yr+yX7dPrD+eT4APj29sD1yvTP88byzvGV8D7v5u1O7LzqA+lo51zmL+XS4wrjHeJL4angbd+s3jze191I3c/cld0r3vrepOD64N/hbeNU5OTl5ufB6Rvsm+698H3yGfQt9qL3b/la+3z8eP5jAPABAwSKBd8GOQhDCU0KRwsWDDANOg4sDxoQfxD8EDARgRETEgsSUxKOEsUSjxPsE1UU2BT9FFsVZhVFFUoVOhWIFa0VjhWCFRkV4hSaFAAUtBM9E8MSuRJXEgMS1RFIEeMQURCgD9wOHQ6HDdAMZQwZDGsLEAuPCtIJTQmuCCwIwgd0ByAH6wbTBrQGWAb2BY0F+gSLBBQEpwNFAwMDxQJUAvIBhAHpAG8AAABU//X+i/4S/sv9NP3F/AT8M/tc+h35Rfgv9wL2M/Uq9Avz7PF08ODuOe1k68vpDOi85oXlE+Rg43XiP+GK4FjfKd543dfcY9wC3D/cFN3r3T3f0N834KTh5uJ45EXmO+iw6kntkO+M8Tjz4/TB9m34Sfr9+7P9yP/HAcYDdwXIBisIJgkoCmMLOQxRDX4OWA9hEAARHxFgEYcR7BEQEiMSjxK2EkwT/BM3FJMUuxTQFOwU3xTKFNcU9hQtFQwV5RSvFD4U5xNoEwwTqxIwEgQSuhFYET4RzxApEJYP8A4zDnkNwAwVDI8LSgvWCjAK1Ak9CYwIOAiRBzUHBgfKBrkGhwaGBlYG/gXHBUsF0ASeBEgEFwT5A64DigM2A74CSALEAY4BDwGFADgA0/+M"
+      },
+      {
+        "at": 1789250029174,
+        "bytes": 18188,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"kP+S/4v/h/+H/4X/hv+J/4v/iP+L/4n/lP+g/6T/qf+w/7n/vP/B/8n/1f/d/+T/6f/u//P/9P/4//3/+/8EAAIA/v8AAAAAAAD+/wEABwAFAAQA//8BAAYABwAAAP7//P/8//v/+P/8//L/6//l/+L/3f/Y/9f/0v/S/83/z//Q/8v/x//B/8L/wf/A/8D/u//C/7//vv/A/7//xP/F/8X/x//L/9D/0P/S/9X/1//b/9//3v/b/+H/4P/j/+P/5v/q/+b/6f/n/+n/6f/m/+r/7P/t/+3/7f/q/+z/7f/p/+j/6P/i/+X/3f/b/97/2f/Y/9X/z//S/9H/0//T/9H/2P/c/9b/3//l/+P/5f/m/+n/6P/s/+j/6v/p/+z/7v/s/+z/6//v/+//9P/v/+z/7v/u/+7/8v/z//P/8//0//P/9v/8//v/AQACAAUABgAKAAUACAAOAAoAEAANAAgADAAGAAEAAwD/////+v/5//j/9P/2//j/8P/6//b/9v8AAAAA+/8AAAAAAgAEAAAABwAFAAYACQAJAA8AEQAYABoAHgAfAB8AJQAoACsAKgAwADQANQA3ADoAMQAtACwALAAqACMAJQAfABoAFAAUAA0ADgARAAgACAAHAAcAAwACAAMAAAD9//v/AAD//wIAAgADAAcAAgAGAAgADAAOABUAFgAaAB0AJgAoADEANQA4AEEARABHAE8AUQBXAGAAWABVAFoAWABQAE0ATQBHAEYAPwA3ADMALgAqACQAHAAdABoAFQAZAA4ACQAHAAMAAgAAAAEA/f////v//v8CAP///P/+//v/+//6//z/AAD+//7//P///wAAAAAFAAUACAAMAA4AEAATABUAFQAWABoAHgAfAB4AHgAiACUAJwAkACEAJAAiACcAIAAhAB0AHwAfACAAIgAhAB8AIwApACAAGwAgAB0AIAAhACIAIQAfAB4AHQAdABgAGQAWABMAFAARAA4ADAAEAAQAAgD9//n/9v/1//T/8//w//b/+P/5//j//P/9"
+      },
+      {
+        "at": 1789250029183,
+        "bytes": 5328,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"1f+F/y//9v7z/iT/Q/82/zH/UP+D/53/nP9C/77+SP6n/ev8Bvz6+vr5GvlI+HT3qPYG9oD1QvUS9dD0oPSc9Kv00PQF9Sz1T/WD9bP1AfZb9p/27fY395n3EfiN+Br5lfkV+qL6Q/vf+378FP24/WX+/f6W/yMAwAA5AbABHwKQAt4CDgNIA30DvgPzAxsEUwSTBLcE+gQ3BWQFmgXMBQIGOQZrBpoGrQamBo0GmQakBq0GjgZuBlMGSQZcBmQGXgZhBnUGiwaPBpIGrgbQBuQG2QbGBrkGtgamBooGYwY3BuwFkQVJBfEEngQ/BOYDmAM7A+kCoAJoAj8CIALtAawBcwFPATYBBwHBAHoAMQDu/6T/Uv8A/6f+Z/4y/gX+2v2x/aD9nP2j/a39tf3E/d79C/41/kL+Q/5E/lX+YP5b/kD+GP7z/dj9vP2V/Vj9D/3M/I38VPwX/N/7lPtL+w/75fqv+oD6RvoY+ur5xvms+Zf5fflc+T/5Nfk6+TX5JPkg+Tr5WPl6+aD5wvkB+kv6pvr1+jT7g/ve+zj8ifzY/Cb9fv3M/Sb+df7E/in/iP/2/20A5QBeAdMBSgLHAkMDtQMbBHwE0wQqBYQFxwX4BS0GVwaCBrEGzgbgBvMGEAc0B0UHTAdVB3IHiwegB58HmQeRB4UHdwdVByUH7AatBmIGGQbFBXEFDgWsBFIEAQSzA2oDJwP0AsICigJhAjsCEwLnAbgBeQE1AfcAtgBrABIAuv9t/yb/3f6U/kv+E/7j/b39mv1w/VL9S/1M/UL9M/0i/Rv9E/0J/fz87fzb/Mf8u/yv/Jr8i/xy/F/8VfxV/FH8R/xD/Dz8Ovw6/ED8P/w1/Db8M/wt/Cr8Lvww/CX8H/we/Br8GfwU/Ar8DPwI/AD8AvwC/Av8EvwX/Bv8Ivwn/C78LPwt/C/8LPwy/DL8L/ww/Dz8Svxf/IH8rPzT/AT9Nf11/bL99/0//n/+wP4C/1L/nP/o/ysAdQDDABQBbAHDAR8CewLgAkkDrwMRBHQE1wQ6"
+      },
+      {
+        "at": 1789250029344,
+        "bytes": 20749,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"i/8c/7f+Tf7z/cf9o/28/dj9Cf5A/nH+wP40/6n/EABqALEA/QBYAaoB3gH0AQYCAQL0Ac4BewEgAb0AcAAxAN7/jP9R/xP/Af/v/tD+vv7T/vz+Hf9G/27/tf8CAFgAlgDQAAMBIwEyARUB7ADbAL4AjwBpAD0AAwDe/57/af9K/wP/1P6u/p7+rv6z/tf+Cv9H/57/3v8RAEUAZgCDAJYApQCaAKgApwCaAIcAbAA8ACkACwDI/6X/hf9Y/zL/Mv8x/0L/UP+E/7T/3//6/y8AZQB3AIsAlAC0AMQAzwDVAN8A+ADgAL8AlQBrADQA8P/B/4r/SP8u/xD/DP8b/yn/SP9i/3H/l//Y//v/BwAKACwAVgBjAGQAeQCNAIQAagBWACMA6v+w/3//WP8v/wr/4v7f/ur+8/4M/zj/X/+B/57/zP8MADsAawCUAMYA3wDuAP4AEQEnAR4B8gDMAK4AeQAzAP//3P+m/4X/ZP9U/1b/O/85/0z/WP9Y/1z/b/+V/7n/yf/d//f/EgAmADkATABHAEYAJwAaAAQA3f/Y/83/mv+Y/5T/fP+q/8P/zv/v/xcAMgBOAGQAgACnALYAywDhAOoA5QDPANgA0gC5AKoAbwBNACMA+f/Y/7v/qf+F/23/Xf9h/2f/Y/9t/4X/nP+v//T/7f8gAIEAZwCBAJ4AogCpAKEAjACDAIIAUQAsAC0ABQDt/9z/sv+//7b/j/+S/6z/o/+s/83/uf/M/+f/+f/8/xYADAAKACcAKAAlAC4AKwAsADwAIAAcABIACgAKABcAGAANACAAKwA0AEMARgA/ADMANQAmAB8AFwASABIA/f/0/9r/wv+q/5P/b/9F/yv/H/8V/x3/K/8y/1b/iv+v/8j/BQAjACYASABRAFoAdgCDAJwAwgDCAK0AtwC0AI8AdABcADcAGQD7/9D/zf/E/7L/tv+3/7b/tv+t/7T/uv+//7v/3//o//D/AAATACMAKQA3ABsACQD2//P/+f/j/9X/4v/Y/9X/9//6/+X/3f/O"
+      },
+      {
+        "at": 1789250029383,
+        "bytes": 23308,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"jNn24UvoTewE7fbwkfXn+vz9QgAeAmECSgQOBi4JAQ7UEt8WqBeXFOcPxwofB6QFlwQUAin+pvqp+P35d/2aAKcBpQDj/u38m/yL/XT+v/93AQ8EOweCC3kPgBO5F5gatBwXHFcZkBfaFXUW5xfoF6EXLRa4FeQVJxa0FX4TrxAzDTsKjwdyBbQEhARWBS0GTAarBYkERAOPApgBtf9P/Wf6Efk/+NL2c/VV81vxNvD264nlkd4S2nvZe9vt14vQXMmcxJnMb9fn4mrohuk97JjsPvMF+Mb5r/xw/In+yAAEBCwJdg3xEZQVeRQrEecLiwa5A0gCagLEADX+nftU+g78pf/MAgIDwABf/tr8I/1v/zwBRwNcBlMJvQ35EDUUVhe2GKkaLBqXGAwXhBW8FX8WDBemFxgX6xViFVMU7RKMEQAPogsOCfoGwgX5BawGQgdMBxUHpQbtBW4F9ATAAwgCYADD/ob9/v14/f36dvg/9efyWPGS6jfk+90c2kDfZd6U2OzPhMZxxmXP2duC4oDkquRg5kPr3PLX+J36ifz5/AX/aAFDBE8J8gzjEGETUxFsDQ0JTQUHBCgDxAI/AAf82/ks+Uj7i/4cAUQAGv4J/cD8kf4YAdoDXQYZCF0LsQ38D14TexayGPMZZBnjFp4VjRX8FmsYTxiUFykVlBPFE+USrxKKEMYMDwosB/cG5AcmCPsISAg2B38GJgWABeUESAUcBSUDEgIcAEgAlgEAABn/QvvN9nn1KvAh6yjlN+CI4EniTeIW2lrQVMlIyNHR1ttW4d7iCeNz5SrrsPKo+AX78/uJ/M38iP+UApcHyAwGEMkRmg+8CxgItwTmA08D5gE5AOr7s/ky+un7aADfAW4A0P1r+8L73P3KAAoEPwYyCHELew0XEFAT0BXSF54YghfxFOMTGBTVFXgYXBkOGbAWpRRDE14SRBKWEL0NqgqMCKkI9wk/C8wL3go/CdEHqAb0Be4FQQbOBRkFBAQhA3kDFANFAoH/Rfu7+Av1qO+g6Rzkq+DW"
+      },
+      {
+        "at": 1789250029472,
+        "bytes": 20745,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"3f/c/9n/2//U/9r/1v/U/9j/1f/T/9f/3//l/+r/8f/5////AwADAAEACAAPABcAIgAxADsAQwBCAEUARQBAAEcAQgBHAEYARgBFAEIAQwBDAEcAQAA5ACsAIQAaABQAEgAQAA8ACgAIAAAA+P/y/+z/5P/a/9X/0f/V/9T/2P/Z/9//3P/Z/9b/0f/V/9n/1f/Y/+P/3f/m/+z/6//s/+v/9P/y//L/8P/t//L/9//+//3/AAABAAAAAwABAP//+//5//z/+P/6//j/+v/0/+//6v/k/97/1//Q/8T/wf+9/7P/t/+5/7H/s/+w/6X/oP+Y/5f/kf+Z/5r/l/+b/5z/nv+f/6H/qf+n/6X/qf+o/7D/uv/C/8X/1f/S/9X/2P/Z/9//4P/q/+b/5f/q/+j/7P/y//D/7f/s/+j/6P/h/9//3P/V/9L/z//O/9D/zf/N/8L/wf+4/6r/tP+u/7D/s/+z/7H/rf+w/6z/p/+t/6r/qv+y/6z/sf+x/7X/uf+9/8f/yP/J/83/1P/W/9//6//y//f/+v///wEAAAAGAAsABQAEAAUABAAJAAoADAAIAAcABAAFAAIA/P/7//f/8f/w/+j/3//c/9P/yf/I/8f/wP+7/7b/tP+2/7T/qv+w/7H/rf+5/7X/uv+//8X/yv/T/9v/4//q//v///8MAA8AGQAlACgANgA5AEoASQBKAFMATwBUAFkAWwBeAFoAVwBLAD4AOAAxACwALgArACsAJQAYAAMA9P/y//b/9v/q/9z/zf/S/9X/4v/o/+L/2v/N/9f/1v/Z/+H/8f/7/wYACQASAB0ALAA6ADUAPABCAFAAXwBrAHEAcgB+AHwAgAB6AH8AfQB+AHUAfAB/AHsAdwBtAFkAZABiAFgAUQBGAD8AQAAyACsALwAfABcAHQADAA0ADAANAA8A/v8IAP3/+v8PAAQAFgALAAwAGQASACEAIAAdADYANgAwAE4ATQBPAGQAawAxAGgAYQBcAJQAawBYAFUAbwBOAIwAgABRAG4ANQA6"
+      },
+      {
+        "at": 1789250029574,
+        "bytes": 23312,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"3xKKEhASdxH3EKsQZRD2D4sPGA+TDkAOwA2MDXsNZA14DV8NfA3UDRcOvQ47D6wPXxDrEDYRWhFJEfEQQxCED4EOSA16DIgLdwq8CaIIwwcEB8sFnAQzA8EBgAAn/839gPwA+8T5r/il99H20fXU9Ofzy/KW8W3wQ+/67Z/sNOvA6UboueY95Y/j2eFs4Gffpd703eDdEd4s3mPfvOBf4Snjm+Ra5U7nZ+mp6ijtPO+a8HPyAfSH9WL3I/oE/WX/EQIXBFQFsga/B0QILQluCpAL3QwgDhoP/Q8DEdQRRRLxEl4TqBMHFCcUEBQbFPQTjRMWE3YS2RFfEdQQUxD1D34PIw+uDhsO5w3HDbwN4g3sDQIONQ5fDqgOJw9rD9YPWBCAEJUQlRAVEHkP1g73DfIMGww3C0EKbwl+CJ0HzwbOBcYEdQMJAt4Aef8l/vD8ePtY+k35T/h29432hvWg9HTzMPIB8dTvkO5A7fHriuoB6ZbnE+Y55KLiJ+H23+7eWN733dzdSd5o33bgYOHD4tbjx+SY5nDoz+lf7F3ule928czyEfTp9YT4Evuv/aEAnQIOBNIF2gabB/oIQAphC8kMEA4bD/oPKBEkEroSdRPxEyQUiRTWFOwU9hTxFKQU/xNsE6sS7xGiEUYR7RDVEGsQ0Q9lDxMPww7nDhYPGA9DD3APVw9zD7kP2A8oEJUQjBBqED4Qxw8HD2wOnw11DJ0LwgqCCawI2AffBh8GJgUJBNcCmgFpABz/1P2n/Ib7g/p4+YL4jfes9sj18/TV857yb/Eu8NLune1t7BTrrekv6Hrmy+RE47rhhuB+37DeQ94n3mHeJN/838Pg4uEb47fjeeWJ59voOOtv7YbuS/Ap8jrz6vRK94X5OfxZ/7MBYAMYBX0GYQfiCE0KiwvlDD8OdQ91EI0RgBImE+0TfBTZFD0VfRWlFbcVnhVWFcEU+hNeE7QSOxL0EakRSxH1EH4QrA8oD9sOjQ6hDs0OqQ63DsMOlw60DrcOvQ4QDwsP9g7BDlgO3w1m"
+      },
+      {
+        "at": 1789250029592,
+        "bytes": 5328,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"6PVv+an8Hv+HAWcEggdaCvIMkA6gDiEN2wpxCdkIiQfnBDoB4P1L/KX74/um/H783/tA/L/9LwAjApMBkv/B/RT8QfrK9x7yUurQ4iHcItdU1TrS18xkyDbF9cfU0IHaZeT67UT1wf3MC1McLitUNAg1TjXiOFc80zyQN94sYSKYGCUPsQVu+5/xM+rK5AHgtNzE2+ndVuNU6bfu6/M++X7/2AaaDVoSRxRjE6QRFhAgDxYOCgvxBWH/Zvrb+OL5ifvF+/L6cfuN/jYEHwpWDsUQRhInFAQW6BbLFmcVrxKdDhcKrQW4AY7+1/s1+Yj25PO08rvzO/bg+Ob6b/zl/tABzgTZBzAKXQs4C7EJWggKCNQHsgbBAzgAlf33/If9IP4K/jb9qfyX/b//+QGsAskA1/39+736x/jB9N7siuTi3fXXcdaf1OHOzMhaxOjFoc7H11LfLec77934wgZrFUEjoC2iMXkzDzepOtM7qDgTMJEmEh5EFbcLxAGi9/jvnupP5VbhFd+n39PjROkr7pPy5vb1+7ICFAk4Dk8Qcw/kDXMMbAwlDLkJ3AQ1/xH71PkK+3L8q/yT/BT9/f8ABcoJNw4lEfwSphQiFfcVTBZ6FXsTbg/QCqwGNAODAMf94/rU9yj1QPR79CP2Pvih+Tz75fwA/xgC/QQ7BwMIfgcPB9wGtAZRBu0ElwIxAKj+GP5p/sT+Ef4S/aX8Pv2H/5wA/v4T/Pj4BfiN9zH0X+6u5ezd6tm215rWk9I+y/fGOcgWzy/Yb94l5KDsbvcJBKYRYB0LJ/ctGzKuNWE54DneNv4wHSlkIRIZbA+rBXf8b/QZ7iHp4eQq4urhKuRt6O/sbvCB9A36LwBXBrIKywwmDdoM5gzODA8MMArlBRUBCP6B/C798P1m/T39A/6BANkEaAlIDagQxxJlFHUW3BdtGP0XCBYpExEQEQxKCOYEGgGu/cr66ffb9dv0rvRj9cz2JfjT+Xf89P5gAcsDUgXXBuAHQQjrB98G8wV7BDUD9wE7AJf/Bv62"
+      },
+      {
+        "at": 1789250029683,
+        "bytes": 15628,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"EP/a/p7+Yv4Z/sv9d/0t/eT8kPw9/OP7jfs4+9j6fvos+sj5ZPn4+J74TPj69673Yvci9/D2xfao9pn2k/aa9rf21vYE90P3ivfj90T4ovgJ+XP55flg+tb6Ufu7+yD8i/wA/XX94/1L/q/+E/97/+j/XADMADkBqgEbAn0C3wI9A5UD9QNKBJQE1gQeBVsFogXeBQ4GOAZrBpwGygbzBhIHLgdAB1IHZgdwB3gHcwdqB2cHUQdAByEH/gbSBpcGXwYbBtsFkQVIBfsErARgBBUEyQOEAz8D/AK2AnUCMQL0AbYBdwFBAQkBzQCfAHEAQAASAOn/tv+P/27/Sf8g//H+yf6b/m3+M/73/bf9bv0k/df8gvwo/NT7evsb+8n6avoK+rP5XfkW+dL4kPhM+Av4zfeg94L3YfdK9zn3L/c690j3ZveT98n3BfhM+KD4/fhf+cv5Ofqs+iP7lvsT/I/8EP2I/fv9bv7c/kn/tP8dAI8A7wBSAacB/wFTAqsC+AJKA48DyAMLBEwEjATMBAIFNwVkBY4FtQXfBQIGJwY+Bk8GXAZfBmsGbAZuBmIGVQZBBiwGHgYPBv8F5QXFBZ4FggVkBUgFKgUFBdoEsASEBF0EKwTxA8EDkANXAyAD6AKwAoECSAINAs4BiwFNAREB1QCWAFMAGgDW/57/Yf8n/+7+s/57/kH+E/7k/ar9d/1B/QH9vvx4/Dj87vuh+0379/qd+kb68vma+UD57vio+GP4KPjt98D3mPd192f3W/da91z3bveL97n36/cx+Hn4xvgm+Y/5/flr+t/6VPvN+0f8wPw0/Z/9Ef6D/vL+Vv+7/yEAiwD2AFwBwgEcAnwC2QIqA30DyQMRBFQEjgTDBPIEJAVEBWYFhQWaBbIFwwXWBeAF8gUCBhIGHgYmBioGMwZBBksGTQZMBkgGSQZHBkQGQwYuBhMG+QXfBb4FlwVrBT8FCwXTBJkEWwQbBOEDpgNoAysD6wK1AmoCKwLzAbIBdQE2AfcAsgBxADMA+f+3/27/KP/i"
+      },
+      {
+        "at": 1789250029772,
+        "bytes": 23309,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"VwJcBEkGpQekBrUEIQQGBOUE4wWbBScF+AWLB6IJHgwiDbYM+QzCDYkPTxOhFlIYzRgVF9IUjBTmFfEXAhl8FtMQMAtYBwIGawVCAv36qPFD6iflMOWr6C/qOusR6O7gV9p21UTWktka3i7h5d7i3Nbc3d1a43fqMO7w8IrxLu9u71DydvaZ/KoBXwSYBb8GewiSCtMNdxCAEZkRpQ91DfUMOg5mEA4SYBAsDLUH7wMpAqMB6ABmAAEAYwBEAUwC1gObBJ4EpQOXAZIAfAJlBmILBw/GD3MPhw8zEV4UuBfIGeUZ8hjeFycYCBv0Hloh8SBpHQYZhBXGEswOpwhOAk39Bvsj+Rj2YPE67frrluwJ7ALn8d/P2ELW99p54hbpnepf5TnahtAtzmLS99536yHvRO0q6K/jiufD8C74zvym/CH4yvZc+mACiQ2yFu4ZHxaoDy8KwggaDWkSFhRxExYPsQr0CH8HiAa5BMYB9/04+iD3//VQ+GL9ugECBFwC6P3d+5f8rgCKBrwL0w5ADzMP7Q6oEAgVghr9HRkeghuAGPgX0RtaIZwkoiUwInwciBdvE7IQ2g9GD/wNJwtcBuIAxvt4+dT49fdM90vyHuwC52flG+op8Lv13PKz507aqM7byQvPd9gM4TLn0+a14TreVN0j4Jjmf+om67HpAelB7BL0Bf9oCJQN0w2UCYcEkwLbBJQKuxEgFiUX/hR2ESEPVQ2tDCsLoAefAvf8+/gZ+J76c/4pAQYB1f0c+Qb21fUJ+Zn+3gPTBnYH1QaLBnkI8wsyD9IQRxAADqUM8w1lERgWBxoUG+MZxxfxFZYVjxa0GF8aWho5GZ0WJxN2EUUQ3w0YDG0KcQc7BQMCh/vH9Zz1mvo1AzYLDQgX+6Pr7N4D3DbisunI7W7sr+YM4NPck9504gfmHuW03UbVydHV1YLhhO4r9mv36/P07obs/u218qD5GAGlBbQG3gYNB5YJfw5sEQkQ2gt2BhEC8wGfBLQHDQtuDEkKTga3AZf9ovyT/Q7+VP0t"
+      },
+      {
+        "at": 1789250029790,
+        "bytes": 7888,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"NQA1ADkAOwA7ADsAOwA7ADwAOgA8ADkANAA4ADUAMQAxADAAMAAzADIANQA0ADcANQA2ADMAMwAxADMAMQAwAC0ANwA0ADUANQA0ADUANQA0ADIAMwAxACsALwAuADAANgA3ADgANwAyADAANQAvAC4ALgAvADEALgAtADAALgAuAC0ALgArAC0ALQAqACgAKwAqACIAJwAjACUAIgAhACEAIAAgAB0AHQAaABgAGAAcABwAHgAbABwAGAASABQAEwAQABAACwALAAkABwAJAAYABAAEAAAA/v/8//v//f/2/////f/3//j/9P/1//H/8v/t//X/8v/t//H/6//q/+n/6f/q/+b/4//l/+D/2//Y/9j/2f/Z/9b/1//U/9D/zf/M/9D/yv/L/8n/yP/F/87/zf/C/8j/w//C/8D/wf+//8H/wP++/73/wv/F/8T/wv/F/8T/w//F/8j/w//D/8b/yP/H/8f/yv/K/83/zf/R/83/y//I/8j/x//J/8j/zP/N/8n/zf/M/8n/yv/J/8v/zP/Q/8z/y//L/8//z//Q/9H/0P/U/9H/z//U/9X/0//U/9T/2f/Z/9z/2v/Z/9v/3//b/97/3f/b/9r/1P/Y/9X/1P/Z/9b/1P/U/9T/0//U/9n/1//V/9f/1P/X/9j/2f/b/9r/5P/b/9v/3P/c/9v/2v/e/9z/4f/d/9v/2v/c/9z/3v/f/97/4//e/+P/4f/i/+H/4//l/+f/6P/r/+z/7P/y//H/8v/x/+7/8//w//f/9f/2//r/8P/8//z/+//6//n//f/7/wMA/P/7//7//f////z//f///wIA//8EAAcABAAGAAIAAQABAAIABAAFAAQABQAJAAgACAARABAAFQAUABIADwAUABMAFgAUABQAFgAVAB4AHQAbABkAGQAeAB4AHwAgACIAIwAcACMAJAAeACUAIgAkACEAJgAlACMAJwAmACIAJQAkACcAJwApACcAIwAhACQAKQAmACkAKQAoACsAMQAwACwAMwAxADMALgAt"
+      },
+      {
+        "at": 1789250029893,
+        "bytes": 20752,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"FQAXABQAEgAUABAAFAAVABUAFgAVABwAHAAUAAoACwARAA0ADAAOAAsABwAKAAkABwAHAAMABgAGAAMAAgAAAP//AAD9//z/+//6//b/8//z/+//7P/w/+f/6v/p/+X/6//o/+j/6f/k/+H/3//o/+j/5f/i/+L/4v/g/+P/3v/f/+P/4P/i/+T/5v/m/+j/6P/p/+j/5v/m/+b/5P/f/+T/4f/h/+L/4v/c/97/2v/e/93/3P/g/97/2//V/9T/1v/Z/9P/2P/W/8//2P/T/9T/1P/U/9D/z//P/9D/zf/P/9X/0P/M/8n/zP/K/8f/yf/G/8T/yf/G/8v/wv/E/8P/wP/C/7//xf++/7b/tv+2/7n/uP+7/7r/tf+7/7j/vf+//7//wP+9/73/v/++/8P/v//B/7v/wP/E/8P/yP/G/8X/xv/D/8f/x//G/8f/xv/O/8r/zf/J/8z/0//W/9X/1v/Y/9n/2f/Z/9r/1v/V/9z/1//W/9P/1P/b/9X/3f/h/97/1v/a/9v/2P/b/93/4f/g/9//3//j/+X/5f/i/+f/5P/v/+//8v/4/+z/7v/0//f/8v/0//X/+v/9//z//v8CAAUABQAEAAkACQAKAAgACQAMAAwADgAOABYAEwAYABgAHAAaAB4AHQAaAB4AHwAdAB8AHgAdABYAFQAYABgAFwAVABgAFwAVABUAFgAWABcAGAAZAB8AHwAfABoAHQAhACMAJQAiACoAKAAnACoAJwAnACQALAApACgAKQApAC4ALgAvAC8ALgAsACkALgAtAC8ALwAwADAANAA0ADMAOAAzADMANgAzADUAMgAyADgAMQAzADMANgA3ADkAOwA7AD0APwBEAEQAQQBAAEUAQwBJAEUARQBDAEYATABIAEkATABMAEUATABFAEYAQgBEAEcAQwBEAEYAQwBAAEUAQQBGAEQAQwBFAEQASABDAEMAQABDAEAAPQA+ADwAPwA/AD0AOgA4ADoAPAA5ADgANwAyADQANwAwADEALgAuADAALwAp"
+      },
+      {
+        "at": 1789250029914,
+        "bytes": 13070,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"m/2V/I77ifqQ+aX42/cX91b2hvWl9Mzz/PJT8tnxVvHn8JbwSfAV8PDvwO9x7znvCu8B7xzvae/N70rwvPAj8ZTxFfLS8r7z0PTp9ev23ve5+JL5ivqe+878Bv5B/20AhAGBAmkDSAQcBeAFqwZvBxsIoAgQCWwJwwkoCoEKxwoCCyYLNgtQC2YLiAutC+ILDww3DEcMSAxEDD4MRwxIDEgMSQwyDAUMvQtkCw8Ltwp0CjUK7gmLCQcJYQilB90GMAZ/Bd4ENQRrA38CdAFcAFT/X/58/an83PsH+zH6Uvl6+JL3s/b59U/1wfQ79MDzV/Py8ojyKPLV8ZbxbPFY8TrxKfEM8ffw+fAh8WLxqPEK8l/ywfIx87bzR/QI9d31ufan94/4a/lG+iD7CvwD/RP+H/8qAB0B8AGuAloDDwTQBJUFWwYWB7QHMwiXCOYIJAlsCcIJKwqRCtQK7wr4CuMK2wrVCuEK9QoLCxsLIAsUC/kK3grDCqcKkwp4CkcKCgrDCXIJLAn4CLoIeQgsCMwHXQfcBkMGnAX3BFMEuQMdA4ICywEDATUAcP/A/gj+V/2h/OH7HftT+o750fgm+Ij39fZ29gL2jvUj9cj0c/QV9NPzm/Ny82nzXvNH8zfzKfMd8zTzcPO68wz0X/S19P/0W/XD9VT2/va094T4N/nv+ab6bPtB/BX98P3R/qr/gQBLAQ4CzgKJA0EEBgXEBX8GIwegB/4HRwiMCNoINQmQCd0JBAoNCgkK/Qn3CfoJ+wnxCewJ2gnLCbMJlAl9CVgJLwn+CM4ImAhkCDUIAQjKB5cHXQccB9MGeAYHBoUFAwWEBAgEjwMLA4IC8QFcAb8AHQCE/+T+Qf6d/fr8WPy5+xz7jPoG+oT5G/mu+Dn4xvdg9//2ovZM9gT21PWq9ZH1hPV39V71SfU+9Ub1Z/Wh9ef1JvZl9qr27vZF96b3EviM+Av5nPku+r36V/vm+4L8Iv3R/YT+Nf/j/28ABgGaAT8C4QKLAycErwQkBYUF6AVCBqAG+gZO"
+      },
+      {
+        "at": 1789250029964,
+        "bytes": 13067,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"NwPwBSQHZwjaCQMM3Q0gDxgQOhF2EnsT3RP8E/kUWRbVFv4ViBM8ETAQMxBcEOoPBg+0DY4MiQqnB/sEOwMiA6UD7QPMAtYAv/6l/Mf77/vT/O/9x/7h/gj/AP+a/qT+Xf7Z/qz/GgFUAq4C4wKpApYCZgMRBEED4AFdAEcAogEYA48DUALB/uX6I/j59bv02vSI9uz4G/rW9+DyQ+3F6Zvq9O3/8o/1KvcA9aTxte6q65bs0PBL9Z35hfuu+v74L/f29qn3S/qg/dEAygNiBGwEtQPFA/YEtgb/CHoK9QvmDBYNBA36DNYMGw1IDXINeA1rDWENwQ2aDfEM8gvWCpgJuAhkCE4IEgjGBz0HQwZKBVAEZQP7AhoDSANaAwYDWgK3ATsBCAH3APsA7QDiANwAjAAQAF7/B/97/+P/GwDa/zf/Y/6W/T39F/3t/Iv8D/yf+0T7bPqX+db4mfiG+Jn4mfhq+Av4lPdn99P2Y/az9hH3Xfed9yb4+vei98339fdU+Kb47viD+Tj6tfrM+rb6l/rc+rL73fzC/ab+8v4D/2z/tv9FAGYAQQEvAqwCUAO9Az4ESgShBCQF2AU/Bl0GZwZ2BrEGyQYCB14HkwfeBw4IBwjHB54HWgddB6IHoQezB5QHXAcVB+EGjwZABvAFsgVmBfcEsgRuBPADhQMVA8MClAI0ArEBNwHmAJcATQDR/0D/1P68/pn+bf72/X/9Sf3r/NH8t/xv/Fn89vuN+yL7uvpe+kD6+vnD+aP5avk++d74X/gI+Lj3nveu96v3nvdu92T3hPeV99D3Gvhl+LD4+vg++XH5yfkS+n36+/pq+9v7ZfwB/X79Fv5j/qD++P5L/9v/XgDoAI8BJwKFAugCFwN4A8kDMQTtBG8F4QUZBjQGWQabBu8GMAeJB6cHsAfHB9EHjwdvB30Hcwd7B14HGQfcBpIGRAYTBtwFoAVNBeQEfQQSBNEDswNnAw0DzwK0AoQCSwLVAXYBQQH/ALsAbADr/5P/c/9I/wj/oP4u/rP9X/0Y"
+      },
+      {
+        "at": 1789250030124,
+        "bytes": 23312,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"LfOL8m/wpvEZ8tzztfVD9Xb19/Wq97D4dPvI/QIBHgSxBQYFcQPxAg0E2Qc3DLYPdBKREzMUdRTNFEUUzhQ+Fq4XPRnrGCEXsBQuE9oSERPNEbIP7AxsCoQJJgnBCLAHPAfmBXcEHQPe/2z8H/o0+Mv4l/p7+6P7r/pZ+U75SPr2+iv76vn8+Cb46fYZ9UD0jPLr8vr1ivb/9hf2CPKd7fHqJuph6VLsE+9l8PHzjPXQ9Sj0UPNp8r3zQ/ZX9/j2Qfay9lP4SPvN/vQBTQT2Bf0FLQUUBHkEjgZkCe8MtA9AEV4SZhJvEuASdhR5FhkYmBgiF7kUCRK0EBAQDhDaD+MOoA0ODGAKsAgpB+8FQAVdBCIDBgE4/uz7Lfp2+XX5HPqa+ln72/tf+0b72/q9+kT7LPs5+wH6DPgA9k70IPVQ9mX4JvkT9sHyae/h7AjtUe0o7S3ulfAq8yz1bfXY8/byzfNq9pL3Q/gM9xT2dffo+E/8uf7rAPACgQQKBWEF4QREBXgG1AifC28NCA+ID+sP7BCuEmAUpBVMFrkVmBTGE2sSKhElEGEP7g6QDhwOEgwkCkkIrQb1BeYErgNxAan/kf1o/HD7KPoo+r75CvoA++f61fqp+un6KfuR+5f7Bfs6+U73TfXd9E/1yfUb91LzD/Go7q7slO3Q7tTulu8U8nLzv/SJ9Oby3vFG80D1Ovdr+AL4mfgJ+r/7nf6wAMsB8wKrA8IDUwQeBa4FHgcOCVkLJg2/DjEPYQ8AEEMR0BKaE38TnBKEEYcQAhBOD24O2g1vDeIMBwyhCvoIZgc4BkUF3QMrAnUAy/6E/bf88vsE+2f6BPqo+Xj5yPnv+ab6xPud+6v70Ppv+Vv4Y/bf9O7z7/OU8wDyv/BH7ebrn+1b7tjwHPIZ8qXxDvP+8kTzPfRs9J71Tfdo+Pf4ovmG+gD8uP63AAIDxwTOBE4FqAUmBooHbQmKClILxQxEDSAOJQ+/D4kQuhELE2AT6BIEEmIQhg/aDlEOYQ0QDPYKWQlHCCgHYgbL"
+      },
+      {
+        "at": 1789250030153,
+        "bytes": 20688,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"kAK4AuMC+AIJAx4DMgNJA1sDYANoA2ADYwN/A5QDpAO7A8gDygPRA8MDqwOYA44DigOHA4kDbQNSA0cDQgNCAzUDKQMMA+0C1wK1Ap0CjgJ6AlACMQIQAvQB5gHRAa4BowGOAXUBWwE9AQsB3wC4AKEAowClAJUAfQBZAC4AFQAHAP//5P/F/6L/iP+A/27/W/89/yv/Jv8a/xH/Cv/8/uL+1f7N/sf+w/6u/pT+cP5U/kn+UP5i/mT+Xv5J/iX+GP4Q/gb+8v3j/d395v3s/ef9w/2a/Yb9eP16/ZP9nf2d/Zz9iP13/XT9cP1u/W79bP1o/Wf9af1o/WP9X/1b/WX9hv2t/cP9yP3S/dT91v3s/f79Dv4i/i/+QP5t/pr+xP7z/hz/Nf9X/23/gf+J/4n/kP+p/9P/EABXAJUAwwDzABgBNAFKAVEBSAFIAUoBYQGLAb8B8gEoAlwCfAKeArgCwQK/ArUCqgKwAsUC1QL0Av8CBgMhAzEDSQNZA0cDKwMbAwUD/wL4AvIC9gL2AuoC3gLQArIClAJ6AmoCWgJNAjACFwLsAcMBlgF6AXEBcwFwAWgBTAEgAfYAzgCmAIEAbQBiAF4AYwBPAEcANAAcAP//2//J/7D/k/9//3X/cP9o/3b/cf9h/0//P/8y/yj/H/8S/wL//f7v/tz+y/7K/sn+0v7n/uz+6f7V/r/+p/6p/qv+rv63/sH+x/7P/sT+wv7A/rv+yf7O/tb+5f7w/vv+BP8Q/w7/C/8T/xz/Jf8q/zj/RP9J/1j/W/9c/1b/W/9t/4n/sP/H/9j/3v/W/8v/x//F/87/7v/+/xIAJwAzADgAOQBAAEUASQBOAFsAWgBaAFkAaQBoAGcAdAB1AHMAewCDAIkAlQCYAJoAiQCAAH0AeQCAAJMAnQCrALoAuQCxAJkAgQBsAGIAYgBiAGEAXQBfAGQAbwBxAG4AeABvAFoARAAnABAACAAHAAoACgAVACMAJgAoAA4A/f/m/9T/0P/A/7f/qP+m/6//s/+x/7f/r/+c"
+      },
+      {
+        "at": 1789250030179,
+        "bytes": 60,
+        "text": "{\n  \"serverContent\": {\n    \"generationComplete\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250031149,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"3aa078e9-4477-4a61-bd14-25cb3bb80a58\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250032009,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"51d2c1e1-894f-477e-b15f-c856f5f7d709\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250033023,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"fe3faf0b-e94b-4eda-b333-61e0b6b29c4e\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250034237,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"3e41e64f-9523-4a43-ba94-03ea99be42b6\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250034337,
+        "bytes": 456,
+        "text": "{\n  \"serverContent\": {\n    \"turnComplete\": true\n  },\n  \"usageMetadata\": {\n    \"promptTokenCount\": 8799,\n    \"responseTokenCount\": 153,\n    \"totalTokenCount\": 8952,\n    \"promptTokensDetails\": [\n      {\n        \"modality\": \"TEXT\",\n        \"tokenCount\": 5795\n      },\n      {\n        \"modality\": \"AUDIO\",\n        \"tokenCount\": 68\n      }\n    ],\n    \"responseTokensDetails\": [\n      {\n        \"modality\": \"AUDIO\",\n        \"tokenCount\": 147\n      }\n    ]\n  }\n}\n"
+      }
+    ],
+    "setup": {
+      "at": 1789250024292,
+      "event": "sent",
+      "kind": "setup",
+      "model": "models/gemini-3.1-flash-live-preview",
+      "tools": 37
+    },
+    "closed": {
+      "at": 1789250034844,
+      "event": "closed",
+      "code": 1000,
+      "reason": ""
+    }
+  },
+  "harnessLines": [
+    {
+      "at": 1789250023322,
+      "line": "[2026-09-12T21:53:43.321Z] [startup] Voice harness active on port 7815 {\"canvas\":\"Voice drive (prj_voice_drive)\",\"agent\":\"Voice (usr_DiOY2m2391)\",\"daemon\":\"http://127.0.0.1:39805\",\"model\":\"models/gemini-3.1-flash-live-preview\",\"keyConfigured\":true}"
+    },
+    {
+      "at": 1789250023322,
+      "line": "22:53:43  voice [2026-09-12T21:53:43.321Z] [startup] Voice harness active on port 7815 {\"canvas\":\"Voice drive (prj_voice_drive)\",\"agent\":\"Voice (usr_DiOY2m2391)\",\"daemon\":\"http://127.0.0.1:39805\",\"model\":\"models/gemini-3.1-flash-live-preview\",\"keyConfigured\":true}"
+    },
+    {
+      "at": 1789250023322,
+      "line": "Voice is listening on the canvas — talk at http://127.0.0.1:7815/"
+    },
+    {
+      "at": 1789250023322,
+      "line": "not enrolled as a harness yet — the microphone speaks as Voice either way, but nothing can summon it."
+    },
+    {
+      "at": 1789250023322,
+      "line": "to invite it:  isocan rc add Voice --harness voice"
+    },
+    {
+      "at": 1789250023322,
+      "line": "(which needs \"acpAdapters\": {\"voice\": [\"node\", \"<this isocan.js>\", \"voice\", \"--acp\"]} in ~/.isocan/config.json)"
+    },
+    {
+      "at": 1789250023322,
+      "line": "[2026-09-12T21:53:43.322Z] [presence] created session on daemon {\"sessionId\":\"ses_FKiSQwG-s9\"}"
+    },
+    {
+      "at": 1789250023322,
+      "line": "22:53:43  voice [2026-09-12T21:53:43.322Z] [presence] created session on daemon {\"sessionId\":\"ses_FKiSQwG-s9\"}"
+    },
+    {
+      "at": 1789250023324,
+      "line": "[2026-09-12T21:53:43.323Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250023324,
+      "line": "22:53:43  voice [2026-09-12T21:53:43.323Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250023457,
+      "line": "22:53:43  voice key check (gemini): accepted"
+    },
+    {
+      "at": 1789250023620,
+      "line": "[2026-09-12T21:53:43.458Z] [http] POST /key/test status=200 in=0b duration=126.1ms"
+    },
+    {
+      "at": 1789250023620,
+      "line": "22:53:43  voice [2026-09-12T21:53:43.458Z] [http] POST /key/test status=200 in=0b duration=126.1ms"
+    },
+    {
+      "at": 1789250023939,
+      "line": "[2026-09-12T21:53:43.938Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250023939,
+      "line": "22:53:43  voice [2026-09-12T21:53:43.938Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250023939,
+      "line": "[2026-09-12T21:53:43.939Z] [http] GET /state status=200 in=0b duration=1.4ms"
+    },
+    {
+      "at": 1789250023939,
+      "line": "22:53:43  voice [2026-09-12T21:53:43.939Z] [http] GET /state status=200 in=0b duration=1.4ms"
+    },
+    {
+      "at": 1789250024220,
+      "line": "[2026-09-12T21:53:44.219Z] [http] POST /session/start status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250024220,
+      "line": "22:53:44  voice [2026-09-12T21:53:44.219Z] [http] POST /session/start status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250024221,
+      "line": "[2026-09-12T21:53:44.221Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250024221,
+      "line": "22:53:44  voice [2026-09-12T21:53:44.221Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250024221,
+      "line": "[2026-09-12T21:53:44.221Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789250024221,
+      "line": "22:53:44  voice [2026-09-12T21:53:44.221Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789250024264,
+      "line": "22:53:44  voice live socket: socket_opening {\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\"}"
+    },
+    {
+      "at": 1789250024291,
+      "line": "22:53:44  voice live socket: socket_open {\"model\":\"models/gemini-3.1-flash-live-preview\"}"
+    },
+    {
+      "at": 1789250024537,
+      "line": "22:53:44  voice live socket: setup_complete {}"
+    },
+    {
+      "at": 1789250024723,
+      "line": "[2026-09-12T21:53:44.722Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250024723,
+      "line": "22:53:44  voice [2026-09-12T21:53:44.722Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250024724,
+      "line": "[2026-09-12T21:53:44.724Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250024724,
+      "line": "22:53:44  voice [2026-09-12T21:53:44.724Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250025226,
+      "line": "[2026-09-12T21:53:45.225Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250025226,
+      "line": "22:53:45  voice [2026-09-12T21:53:45.225Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250025727,
+      "line": "[2026-09-12T21:53:45.726Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250025727,
+      "line": "22:53:45  voice [2026-09-12T21:53:45.726Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250025936,
+      "line": "[2026-09-12T21:53:45.936Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250025936,
+      "line": "22:53:45  voice [2026-09-12T21:53:45.936Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250025937,
+      "line": "[2026-09-12T21:53:45.936Z] [http] GET /state status=200 in=0b duration=1.3ms"
+    },
+    {
+      "at": 1789250025937,
+      "line": "22:53:45  voice [2026-09-12T21:53:45.936Z] [http] GET /state status=200 in=0b duration=1.3ms"
+    },
+    {
+      "at": 1789250026228,
+      "line": "[2026-09-12T21:53:46.227Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250026228,
+      "line": "22:53:46  voice [2026-09-12T21:53:46.227Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250026322,
+      "line": "[2026-09-12T21:53:46.322Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250026322,
+      "line": "22:53:46  voice [2026-09-12T21:53:46.322Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250026730,
+      "line": "[2026-09-12T21:53:46.729Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250026730,
+      "line": "22:53:46  voice [2026-09-12T21:53:46.729Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250027232,
+      "line": "[2026-09-12T21:53:47.232Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250027232,
+      "line": "22:53:47  voice [2026-09-12T21:53:47.232Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250027733,
+      "line": "[2026-09-12T21:53:47.733Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250027733,
+      "line": "22:53:47  voice [2026-09-12T21:53:47.733Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250027936,
+      "line": "[2026-09-12T21:53:47.935Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250027936,
+      "line": "22:53:47  voice [2026-09-12T21:53:47.935Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250027936,
+      "line": "[2026-09-12T21:53:47.936Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250027936,
+      "line": "22:53:47  voice [2026-09-12T21:53:47.936Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250028234,
+      "line": "[2026-09-12T21:53:48.234Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250028234,
+      "line": "22:53:48  voice [2026-09-12T21:53:48.234Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250028735,
+      "line": "[2026-09-12T21:53:48.735Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250028735,
+      "line": "22:53:48  voice [2026-09-12T21:53:48.735Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250029236,
+      "line": "[2026-09-12T21:53:49.236Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250029236,
+      "line": "22:53:49  voice [2026-09-12T21:53:49.236Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250029321,
+      "line": "[2026-09-12T21:53:49.321Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250029321,
+      "line": "22:53:49  voice [2026-09-12T21:53:49.321Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250029737,
+      "line": "[2026-09-12T21:53:49.737Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250029737,
+      "line": "22:53:49  voice [2026-09-12T21:53:49.737Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250029935,
+      "line": "[2026-09-12T21:53:49.935Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250029935,
+      "line": "22:53:49  voice [2026-09-12T21:53:49.935Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250029936,
+      "line": "[2026-09-12T21:53:49.935Z] [http] GET /state status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250029936,
+      "line": "22:53:49  voice [2026-09-12T21:53:49.935Z] [http] GET /state status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250030239,
+      "line": "[2026-09-12T21:53:50.238Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250030239,
+      "line": "22:53:50  voice [2026-09-12T21:53:50.238Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250030739,
+      "line": "[2026-09-12T21:53:50.739Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250030739,
+      "line": "22:53:50  voice [2026-09-12T21:53:50.739Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250031241,
+      "line": "[2026-09-12T21:53:51.241Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250031241,
+      "line": "22:53:51  voice [2026-09-12T21:53:51.241Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250031742,
+      "line": "[2026-09-12T21:53:51.742Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250031742,
+      "line": "22:53:51  voice [2026-09-12T21:53:51.742Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250031935,
+      "line": "[2026-09-12T21:53:51.935Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250031935,
+      "line": "22:53:51  voice [2026-09-12T21:53:51.935Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250031936,
+      "line": "[2026-09-12T21:53:51.936Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250031936,
+      "line": "22:53:51  voice [2026-09-12T21:53:51.936Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250032244,
+      "line": "[2026-09-12T21:53:52.243Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250032244,
+      "line": "22:53:52  voice [2026-09-12T21:53:52.243Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250032321,
+      "line": "[2026-09-12T21:53:52.320Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250032321,
+      "line": "22:53:52  voice [2026-09-12T21:53:52.320Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250032746,
+      "line": "[2026-09-12T21:53:52.746Z] [http] GET /log status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250032746,
+      "line": "22:53:52  voice [2026-09-12T21:53:52.746Z] [http] GET /log status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250033247,
+      "line": "[2026-09-12T21:53:53.247Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250033247,
+      "line": "22:53:53  voice [2026-09-12T21:53:53.247Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250033324,
+      "line": "[2026-09-12T21:53:53.323Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789250033324,
+      "line": "22:53:53  voice [2026-09-12T21:53:53.323Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789250033749,
+      "line": "[2026-09-12T21:53:53.748Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250033749,
+      "line": "22:53:53  voice [2026-09-12T21:53:53.748Z] [http] GET /log status=200 in=0b duration=0.8ms"
+    },
+    {
+      "at": 1789250033935,
+      "line": "[2026-09-12T21:53:53.935Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250033935,
+      "line": "22:53:53  voice [2026-09-12T21:53:53.935Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250033936,
+      "line": "[2026-09-12T21:53:53.936Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250033936,
+      "line": "22:53:53  voice [2026-09-12T21:53:53.936Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250034251,
+      "line": "[2026-09-12T21:53:54.251Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250034251,
+      "line": "22:53:54  voice [2026-09-12T21:53:54.251Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250034337,
+      "line": "22:53:54  voice live socket: turn_complete {}"
+    },
+    {
+      "at": 1789250034754,
+      "line": "[2026-09-12T21:53:54.753Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250034754,
+      "line": "22:53:54  voice [2026-09-12T21:53:54.753Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250034755,
+      "line": "[2026-09-12T21:53:54.754Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250034755,
+      "line": "22:53:54  voice [2026-09-12T21:53:54.754Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250034800,
+      "line": "[2026-09-12T21:53:54.800Z] [http] POST /session/end status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250034800,
+      "line": "22:53:54  voice [2026-09-12T21:53:54.800Z] [http] POST /session/end status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250034801,
+      "line": "[2026-09-12T21:53:54.801Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250034801,
+      "line": "22:53:54  voice [2026-09-12T21:53:54.801Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250034809,
+      "line": "[2026-09-12T21:53:54.809Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250034809,
+      "line": "22:53:54  voice [2026-09-12T21:53:54.809Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250034844,
+      "line": "22:53:54  voice live socket: socket_closed {\"code\":1000,\"reason\":\"\",\"audioUpFrames\":3948,\"audioDownFrames\":27}"
+    },
+    {
+      "at": 1789250035936,
+      "line": "[2026-09-12T21:53:55.935Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250035936,
+      "line": "22:53:55  voice [2026-09-12T21:53:55.935Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250035936,
+      "line": "[2026-09-12T21:53:55.936Z] [http] GET /state status=200 in=0b duration=1.0ms"
+    },
+    {
+      "at": 1789250035936,
+      "line": "22:53:55  voice [2026-09-12T21:53:55.936Z] [http] GET /state status=200 in=0b duration=1.0ms"
+    }
+  ]
+}

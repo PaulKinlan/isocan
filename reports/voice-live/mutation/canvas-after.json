@@ -1,0 +1,262 @@
+{
+  "snapshot": {
+    "project": {
+      "id": "prj_voice_drive",
+      "title": "Voice drive",
+      "description": "",
+      "properties": {},
+      "createdAt": "2026-09-12T21:53:26.305Z",
+      "createdBy": {
+        "id": "usr_seeder",
+        "name": "Seeder"
+      },
+      "updatedAt": "2026-09-12T21:53:31.500Z",
+      "updatedBy": {
+        "id": "usr_m1rBc8LTu2",
+        "name": "Voice"
+      },
+      "lastOp": "item.add"
+    },
+    "canvas": {
+      "items": {
+        "itm_alpha": {
+          "id": "itm_alpha",
+          "x": 100,
+          "y": 100,
+          "width": 320,
+          "height": 240,
+          "title": "Alpha note",
+          "description": "",
+          "properties": {},
+          "versions": [
+            {
+              "id": "ver_itm_alpha",
+              "blobHash": "h_itm_alpha",
+              "mimeType": "text/markdown",
+              "filename": "itm_alpha.md",
+              "size": 3,
+              "createdAt": "2026-09-12T21:53:26.307Z",
+              "createdBy": {
+                "id": "usr_seeder",
+                "name": "Seeder"
+              }
+            }
+          ],
+          "currentVersionId": "ver_itm_alpha",
+          "createdAt": "2026-09-12T21:53:26.307Z",
+          "createdBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          },
+          "updatedAt": "2026-09-12T21:53:26.307Z",
+          "updatedBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          }
+        },
+        "itm_beta": {
+          "id": "itm_beta",
+          "x": 520,
+          "y": 100,
+          "width": 320,
+          "height": 240,
+          "title": "Beta note",
+          "description": "",
+          "properties": {},
+          "versions": [
+            {
+              "id": "ver_itm_beta",
+              "blobHash": "h_itm_beta",
+              "mimeType": "text/markdown",
+              "filename": "itm_beta.md",
+              "size": 3,
+              "createdAt": "2026-09-12T21:53:26.309Z",
+              "createdBy": {
+                "id": "usr_seeder",
+                "name": "Seeder"
+              }
+            }
+          ],
+          "currentVersionId": "ver_itm_beta",
+          "createdAt": "2026-09-12T21:53:26.309Z",
+          "createdBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          },
+          "updatedAt": "2026-09-12T21:53:26.309Z",
+          "updatedBy": {
+            "id": "usr_seeder",
+            "name": "Seeder"
+          }
+        },
+        "itm_ndNMedIjMm": {
+          "id": "itm_ndNMedIjMm",
+          "x": -420,
+          "y": 100,
+          "width": 480,
+          "height": 360,
+          "title": "New note",
+          "description": "",
+          "properties": {},
+          "versions": [
+            {
+              "id": "ver_g6r9Odisnd",
+              "blobHash": "933260194ce59178528d37861b7a69a5a7c221c81e8d7035474fd56acf895525",
+              "mimeType": "text/markdown",
+              "filename": "new-note.md",
+              "size": 8,
+              "createdAt": "2026-09-12T21:53:31.500Z",
+              "createdBy": {
+                "id": "usr_m1rBc8LTu2",
+                "name": "Voice"
+              }
+            }
+          ],
+          "currentVersionId": "ver_g6r9Odisnd",
+          "createdAt": "2026-09-12T21:53:31.500Z",
+          "createdBy": {
+            "id": "usr_m1rBc8LTu2",
+            "name": "Voice"
+          },
+          "updatedAt": "2026-09-12T21:53:31.500Z",
+          "updatedBy": {
+            "id": "usr_m1rBc8LTu2",
+            "name": "Voice"
+          }
+        }
+      },
+      "threads": {},
+      "trash": [],
+      "agents": {}
+    },
+    "lastSeq": 4,
+    "colors": {},
+    "names": {
+      "usr_seeder": "Seeder",
+      "usr_m1rBc8LTu2": "Voice"
+    },
+    "joined": {}
+  },
+  "oplog": [
+    {
+      "seq": 1,
+      "envelope": {
+        "id": "op_pZ8btfrM4n",
+        "canvasId": null,
+        "actor": {
+          "id": "usr_seeder",
+          "name": "Seeder"
+        },
+        "ts": "2026-09-12T21:53:26.305Z",
+        "op": {
+          "type": "project.create",
+          "canvasId": "prj_voice_drive",
+          "title": "Voice drive"
+        }
+      },
+      "inverse": null
+    },
+    {
+      "seq": 2,
+      "envelope": {
+        "id": "op_yFDuoEu4LK",
+        "canvasId": "prj_voice_drive",
+        "actor": {
+          "id": "usr_seeder",
+          "name": "Seeder"
+        },
+        "ts": "2026-09-12T21:53:26.307Z",
+        "op": {
+          "type": "item.add",
+          "itemId": "itm_alpha",
+          "version": {
+            "id": "ver_itm_alpha",
+            "blobHash": "h_itm_alpha",
+            "mimeType": "text/markdown",
+            "filename": "itm_alpha.md",
+            "size": 3
+          },
+          "width": 320,
+          "height": 240,
+          "placement": {
+            "x": 100,
+            "y": 100
+          },
+          "title": "Alpha note"
+        }
+      },
+      "inverse": {
+        "type": "item.delete",
+        "itemId": "itm_alpha"
+      }
+    },
+    {
+      "seq": 3,
+      "envelope": {
+        "id": "op_xwkdeFay1l",
+        "canvasId": "prj_voice_drive",
+        "actor": {
+          "id": "usr_seeder",
+          "name": "Seeder"
+        },
+        "ts": "2026-09-12T21:53:26.309Z",
+        "op": {
+          "type": "item.add",
+          "itemId": "itm_beta",
+          "version": {
+            "id": "ver_itm_beta",
+            "blobHash": "h_itm_beta",
+            "mimeType": "text/markdown",
+            "filename": "itm_beta.md",
+            "size": 3
+          },
+          "width": 320,
+          "height": 240,
+          "placement": {
+            "x": 520,
+            "y": 100
+          },
+          "title": "Beta note"
+        }
+      },
+      "inverse": {
+        "type": "item.delete",
+        "itemId": "itm_beta"
+      }
+    },
+    {
+      "seq": 4,
+      "envelope": {
+        "id": "op_iZubEANt8b",
+        "canvasId": "prj_voice_drive",
+        "actor": {
+          "id": "usr_m1rBc8LTu2",
+          "name": "Voice"
+        },
+        "ts": "2026-09-12T21:53:31.500Z",
+        "op": {
+          "type": "item.add",
+          "itemId": "itm_ndNMedIjMm",
+          "version": {
+            "id": "ver_g6r9Odisnd",
+            "blobHash": "933260194ce59178528d37861b7a69a5a7c221c81e8d7035474fd56acf895525",
+            "mimeType": "text/markdown",
+            "filename": "new-note.md",
+            "size": 8
+          },
+          "width": 480,
+          "height": 360,
+          "placement": {
+            "x": -420,
+            "y": 100
+          },
+          "title": "New note"
+        }
+      },
+      "inverse": {
+        "type": "item.delete",
+        "itemId": "itm_ndNMedIjMm"
+      }
+    }
+  ]
+}
