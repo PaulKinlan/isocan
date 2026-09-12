@@ -32,7 +32,6 @@ import {
 } from "../lib/voice.ts";
 import { LevelMeter, Playback, capture, fromBytes, inputs, toBytes, type Capture, type Input, type ScheduleInfo } from "../lib/voiceAudio.ts";
 
-declare const __VOICE_BUILD_INFO__: { branch: string; commit: string } | undefined;
 
 /** The meter's resolution: 28 bars across −60…0 dBFS. */
 export const BARS = 28;
