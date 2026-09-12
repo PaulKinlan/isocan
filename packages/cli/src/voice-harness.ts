@@ -382,9 +382,11 @@ export function planVoice(text: string, ctx: PlanContext): { plans: PlannedOp[];
 
 function describeCanvas(ctx: PlanContext): string {
   if (ctx.items.length === 0) return "This canvas is empty.";
-  const titles = ctx.items.slice(0, 6).map((i) => i.title ?? i.id.slice(0, 8));
-  const more = ctx.items.length > titles.length ? `, and ${ctx.items.length - titles.length} more` : "";
-  return `${ctx.items.length} things here: ${titles.join("; ")}${more}.`;
+  // Ids, not just titles: a read that describes state without naming it is
+  // unusable for a follow-up action — "delete that" needs something to echo.
+  const named = ctx.items.slice(0, 8).map((i) => `${i.title ?? "untitled"} [${i.id}]`);
+  const more = ctx.items.length > named.length ? `, and ${ctx.items.length - named.length} more` : "";
+  return `${ctx.items.length} things here: ${named.join("; ")}${more}.`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1468,6 +1470,9 @@ export interface LiveCallbacks {
   onText?: (text: string) => void;
   /** The model asked for an operation. Answers with what to say back to it. */
   onToolCall?: (name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** Last chance to add context — recent actions with their ids and acks —
+   * to every tool result the model sees. */
+  decorateResponse?: (answer: Record<string, unknown>) => Record<string, unknown>;
   onAudio?: (pcm: Uint8Array) => void;
   onState?: (state: string, bad?: boolean) => void;
   onEvent?: (event: string, details?: Record<string, unknown>) => void;
@@ -1587,7 +1592,11 @@ export function startLiveSession(options: {
       const responses: Record<string, unknown>[] = [];
       for (const call of message.toolCall.functionCalls) {
         const answer = await (callbacks.onToolCall?.(call.name, call.args ?? {}) ?? Promise.resolve({ ok: true }));
-        responses.push({ id: call.id, name: call.name, response: answer });
+        responses.push({
+          id: call.id,
+          name: call.name,
+          response: callbacks.decorateResponse ? callbacks.decorateResponse(answer) : answer,
+        });
       }
       // Function calling is synchronous: the conversation waits for this, so
       // it carries the RESULT of the operation, not a promise of one.
@@ -1994,6 +2003,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
    * the live view show.
    */
   const record: ToolLogEntry[] = [...initialLog];
+  /** What the model just did, with its ids — the referent for "that one". */
+  const recentActions: Array<{ tool: string; op: string; id?: string; ack: string }> = [];
   const toolLog: ToolLogEntry[] = [...initialLog].slice(-200);
   const logListeners = new Set<(entry: ToolLogEntry) => void>();
 
@@ -2406,7 +2417,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       let liveFailure = "";
-      const instructions = await resolveProjectInstructions(home, target.canvasId);
+      const contextItems = await target.canvas.items().catch(() => []);
+      const contextThreads = await target.canvas.threads().catch(() => []);
+      const contextBlock =
+        "Current canvas state (ids are authoritative — echo them in tool calls):\n" +
+        `- items: ${contextItems.map((i) => `${i.title ?? "untitled"} [${i.id}]`).join("; ") || "none"}\n` +
+        `- threads: ${contextThreads.map((t) => `${t.id} (${t.comments.length} comments)`).join("; ") || "none"}`;
+      const projectInstructions = await resolveProjectInstructions(home, target.canvasId);
+      const instructions = {
+        source: projectInstructions?.source ?? "canvas",
+        text: [projectInstructions?.text, contextBlock].filter(Boolean).join("\n\n"),
+      };
       const session = startLiveSession({
         key: stored,
         instructions,
@@ -2414,6 +2435,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
         ...(options.WebSocketImpl ? { WebSocketImpl: options.WebSocketImpl } : {}),
         callbacks: {
+          // Every tool result carries the last few actions with their ids and
+          // acks, so "delete that comment" has a referent the model can echo
+          // without another read turn.
+          decorateResponse: (answer) => ({ ...answer, recent: recentActions.slice(-5) }),
           onEvent: (event: string, details?: Record<string, unknown>) => {
             narrate(`live socket: ${event} ${JSON.stringify(details ?? {})}`);
             recordToolLog({
@@ -2583,14 +2608,28 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 anchor: { itemId: t.anchorItemId, x: t.x, y: t.y },
                 comments: t.comments.map((c) => ({ id: c.id, body: c.body, author: c.author?.name, at: c.createdAt })),
               }));
+              // The prose names the ids too: the model reads the answer, and a
+              // comment it cannot name is a comment it cannot edit or delete.
+              const threadText = threadList.length
+                ? threadList
+                    .map(
+                      (t) =>
+                        `thread ${t.id}${t.anchor.itemId ? ` on ${t.anchor.itemId}` : ""}: ` +
+                        t.comments
+                          .map((c) => `${c.id}${c.author ? ` (${c.author})` : ""} “${String(c.body).slice(0, 80)}”`)
+                          .join(", "),
+                    )
+                    .join("; ")
+                : "no threads on this canvas yet";
+              say({ text: threadText });
               recordToolLog({
                 type: "tool_call",
                 source: "live",
                 name,
                 args: args as Record<string, unknown>,
-                result: { ok: true, count: threadList.length },
+                result: { ok: true, count: threadList.length, answer: threadText },
               });
-              return { ok: true, count: threadList.length, threads: threadList };
+              return { ok: true, count: threadList.length, threads: threadList, answer: threadText };
             }
             if (name === "read_presence") {
               const sessions = await target.canvas.ctx.client.listSessions(target.canvas.id).catch(() => []);
@@ -2697,6 +2736,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 // the model and the log see is the daemon's, not the label's.
                 const intent = one.said;
                 sent.push(applied.ack);
+                recentActions.push({
+                  tool: name,
+                  op: one.op.type,
+                  ...(applied.target ? { id: applied.target } : {}),
+                  ack: applied.ack,
+                });
+                if (recentActions.length > 20) recentActions.shift();
                 narrate(`sent: ${one.op.type} — ${intent} → ${applied.ack}`);
                 recordToolLog({
                   type: "tool_call",
@@ -2720,6 +2766,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 const msg = (err as Error).message;
                 const failureMsg = `${one.op.type} failed — ${msg}`;
                 failed.push(failureMsg);
+                recentActions.push({ tool: name, op: one.op.type, ack: failureMsg });
+                if (recentActions.length > 20) recentActions.shift();
                 narrate(`refused: ${failureMsg}`);
                 recordToolLog({
                   type: "tool_call",

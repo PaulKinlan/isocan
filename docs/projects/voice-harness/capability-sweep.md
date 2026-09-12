@@ -6,15 +6,15 @@
 
 ## Count line
 
-**145 capabilities across five sources — 66 tooled, 56 missing, 23 excluded with a reason.**
+**145 capabilities across five sources — 82 tooled, 34 missing, 29 excluded with a reason.**
 
 | Source | Rows | tooled | missing | excluded |
 |---|---|---|---|---|
-| Reducer (`packages/core/src/ops.ts`) | 33 | 13 | 18 | 2 |
-| CLI (`isocan --help`) | 52 | 21 | 17 | 14 |
-| Agent guide (`isocan --agent-help`) | 21 | 13 | 5 | 3 |
+| Reducer (`packages/core/src/ops.ts`) | 33 | 23 | 3 | 7 |
+| CLI (`isocan --help`) | 52 | 22 | 16 | 14 |
+| Agent guide (`isocan --agent-help`) | 21 | 14 | 4 | 3 |
 | MCP (`packages/mcp/src/server.ts`) | 6 | 4 | 2 | 0 |
-| Web UI (`packages/web`) | 33 | 15 | 14 | 4 |
+| Web UI (`packages/web`) | 33 | 19 | 9 | 5 |
 
 ---
 
@@ -25,9 +25,9 @@
 | Operation | Tool | Status | Notes |
 |---|---|---|---|
 | `actor.claim` | — | **missing** | planned `actor_claim`; an agent re-identifying itself by voice needs the operator's name, not the model's |
-| `actor.setColor` | — | **missing** | planned `actor_set_color` |
-| `actor.setMark` | — | **missing** | planned `actor_set_mark` |
-| `actor.join` | — | **missing** | planned `actor_join` |
+| `actor.setColor` | `actor_set_color` | **tooled** |  |
+| `actor.setMark` | `actor_set_mark` | **tooled** |  |
+| `actor.join` | `actor_join` | **tooled** | only when the person names the other actor |
 | `project.create` | — | **missing** | planned `project_create` |
 | `project.update` | — | **missing** | planned `project_update` |
 | `project.delete` | — | **excluded** | confirmation-gated; a canvas is not deleted unattended |
@@ -36,27 +36,27 @@
 | `item.move` | `move_item`, `items_move` | **tooled** |  |
 | `item.resize` | `resize_item` | **tooled** |  |
 | `item.update` | `update_item` / `rename_item` | **tooled** |  |
-| `item.addVersion` | — | **missing** | planned `item_add_version`; the agent can switch versions but cannot create one |
+| `item.addVersion` | `item_add_version` | **tooled** |  |
 | `item.setCurrentVersion` | `item_set_current_version` | **tooled** |  |
-| `item.removeVersion` | — | **missing** | planned `item_remove_version` |
-| `item.restoreVersion` | — | **missing** | planned `item_restore_version` |
+| `item.removeVersion` | — | **excluded** | internal: the engine refuses it from clients (INTERNAL_OP_TYPES); it is addVersion's undo inverse |
+| `item.restoreVersion` | — | **excluded** | internal: same set — removeVersion's inverse |
 | `item.delete` | `delete_item` | **tooled** |  |
 | `item.restore` | `restore_item` | **tooled** |  |
 | `items.move` | `items_move` | **tooled** |  |
 | `items.delete` | `items_delete` | **tooled** |  |
 | `items.restore` | `items_restore` | **tooled** |  |
 | `trash.empty` | — | **excluded** | confirmation-gated; purge is not an unattended act |
-| `thread.create` | `comment_on_item` (mints it) | **tooled** | explicit `thread_create` planned; the log used to name a phantom `item.comment` |
+| `thread.create` | `thread_create`, `comment_on_item` | **tooled** | the log used to name a phantom `item.comment` |
 | `thread.reply` | `say`, `ask` | **tooled** |  |
-| `thread.setAnchor` | — | **missing** | planned `thread_set_anchor` |
-| `thread.setMain` | — | **missing** | planned `thread_set_main` |
-| `thread.delete` | — | **missing** | planned `thread_delete` |
-| `comment.update` | — | **missing** | planned `comment_update` |
-| `comment.remove` | — | **missing** | planned `comment_remove` |
-| `comment.restore` | — | **missing** | planned `comment_restore` |
-| `thread.restore` | — | **missing** | planned `thread_restore` |
-| `agent.enroll` | — | **missing** | planned `agent_enroll` |
-| `agent.withdraw` | — | **missing** | planned `agent_withdraw` |
+| `thread.setAnchor` | `thread_set_anchor` | **tooled** |  |
+| `thread.setMain` | `thread_set_main` | **tooled** |  |
+| `thread.delete` | `thread_delete` | **tooled** | `isocan comment rm` deletes the thread, not one comment |
+| `comment.update` | `comment_update` | **tooled** |  |
+| `comment.remove` | — | **excluded** | internal: the engine refuses it from clients; removing a comment is deleting its thread |
+| `comment.restore` | — | **excluded** | internal: comment.remove's undo inverse |
+| `thread.restore` | — | **excluded** | internal: thread.delete's undo inverse |
+| `agent.enroll` | `agent_enroll` | **tooled** |  |
+| `agent.withdraw` | `agent_withdraw` | **tooled** |  |
 
 
 ## 2. CLI command surface — `isocan --help` (52 rows)
@@ -82,7 +82,7 @@
 | comment list | `read_threads` | **tooled** |  |
 | comment anchor | — | **missing** |  |
 | comment main | — | **missing** |  |
-| comment edit / rm | — | **missing** |  |
+| comment edit / rm | `comment_update`, `thread_delete` | **tooled** |  |
 | notify | — | **missing** |  |
 | ask | `ask` | **tooled** |  |
 | who / whoami | `read_presence` | **tooled** |  |
@@ -144,7 +144,7 @@
 | Presence control (start / on / end / work) | — | **missing** |  |
 | Wait for another agent | — | **excluded** | parking belongs to the summoned agent, not the microphone |
 | Summon an agent (`rc turn`) | — | **excluded** | a machine-side act, on another host |
-| Enrol / withdraw an agent | — | **missing** |  |
+| Enrol / withdraw an agent | `agent_enroll`, `agent_withdraw` | **tooled** |  |
 | Identity (`--as`, `--session`) | — | **excluded** | the harness's enrolled actor is its identity |
 
 
@@ -178,20 +178,20 @@ MCP exposes reads only; the voice harness is the write surface.
 | Paste a URL as a live page | `add_item` with `url` | **tooled** |  |
 | Draw with the pen | `drawing_add` | **tooled** |  |
 | Switch versions | `item_set_current_version` | **tooled** |  |
-| Create a version | — | **missing** |  |
-| Remove / restore a version | — | **missing** |  |
+| Create a version | `item_add_version` | **tooled** |  |
+| Remove / restore a version | — | **excluded** | internal ops; the engine refuses them from clients |
 | Delete to trash / restore | `delete_item`, `restore_item` | **tooled** |  |
 | Permanent trash purge | — | **excluded** | confirmation-gated |
 | Comment on an item | `comment_on_item` | **tooled** |  |
-| Edit / remove a comment | — | **missing** |  |
-| Anchor a thread by dragging its pin | — | **missing** |  |
+| Edit / remove a comment | `comment_update`; removal is thread.delete | **tooled** |  |
+| Anchor a thread by dragging its pin | `thread_set_anchor` | **tooled** |  |
 | Reply in the Chat | `say`, `ask`; `notify` missing | **tooled** |  |
 | React with an emoji | `item_react` | **tooled** |  |
 | Vote dot at a point | — | **missing** |  |
 | Zoom / pan the viewport | `viewport_pan` | **tooled** |  |
 | Focus an item in someone's view | `viewport_focus` | **tooled** |  |
 | Selection | `selection_set`, `selection_clear` | **tooled** |  |
-| Change your own colour / mark | — | **missing** |  |
+| Change your own colour / mark | `actor_set_color`, `actor_set_mark` | **tooled** |  |
 | See presence | `read_presence` | **tooled** |  |
 | Share links and permissions | — | **excluded** | operator-only |
 | Present / slides / deck | — | **missing** |  |

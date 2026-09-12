@@ -741,6 +741,8 @@ describe("the Live API path", () => {
       expect(readResp.id).toBe("call-read");
       expect(readResp.response.ok).toBe(true);
       expect(readResp.response.canvas).toContain("Checkout screen");
+      // The read names the ids, so a follow-up can echo them. 
+      expect(readResp.response.canvas).toContain("[itm_1]");
 
       // 2. add_item
       providerSocket.emit({
@@ -789,7 +791,34 @@ describe("the Live API path", () => {
       const siteItems = await items();
       expect(siteItems.map((i) => i.title)).toContain("localhost:3000");
 
-      // 5. Assert /log
+      // 5. Paul's example: comment, then delete the thread the comment made —
+      // using only the id the model's own recent-action record carries.
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            { id: "call-comment", name: "comment_on_item", args: { item_ref: "Checkout screen", text: "needs a button" } },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 6) await new Promise(r => setTimeout(r, 10));
+      const commentReply = JSON.parse(providerSocket.sent.at(-1) ?? "{}");
+      const commentResp = commentReply.toolResponse?.functionResponses?.[0];
+      expect(commentResp.response.ok).toBe(true);
+      const created = (commentResp.response.recent as Array<{ op: string; id?: string }>).find(
+        (r) => r.op === "thread.create",
+      );
+      expect(created?.id, "the created thread's id is in the recent actions").toBeTruthy();
+
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [{ id: "call-del", name: "thread_delete", args: { thread_id: created!.id } }],
+        },
+      });
+      while (providerSocket.sent.length < 7) await new Promise(r => setTimeout(r, 10));
+      const delResp = JSON.parse(providerSocket.sent.at(-1) ?? "{}").toolResponse?.functionResponses?.[0];
+      expect(delResp.response.ok).toBe(true);
+
+      // 6. Assert /log
       const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
       expect(logRes.entries.length).toBeGreaterThanOrEqual(3);
 
