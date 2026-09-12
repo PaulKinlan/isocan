@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { promises as fs, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,6 +21,17 @@ import {
   until,
   useRcHome,
 } from "./rc-fixture.ts";
+
+// The two suites in this file spawn a real `bin/isocan.js` CLI (plus, in
+// rc.test's sibling, a real daemon): focused they finish in ~7s, but under the
+// parallel suite's CPU oversubscription a spawn has crossed the global 30s
+// budget — four recorded sightings (isocan-7r8, 11 Sep 2026; focused full-pass
+// margin 9x). The repo's own vitest.config comment measured the same
+// oversubscription (24x, 2026-08-24) when it raised the global budget. 60s is
+// a LIVENESS budget scoped to THIS FILE only — a wedged child still fails at
+// 60s, naming itself — and no content assertion is touched (coord ruling,
+// isocan-7r8 sighting 4).
+vi.setConfig({ testTimeout: 60_000 });
 
 /**
  * **`isocan rc` and the enrolment records** (agents-on-demand phase 2).
