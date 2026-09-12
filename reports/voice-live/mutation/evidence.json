@@ -1,0 +1,563 @@
+{
+  "at": "2026-09-12T21:53:35.217Z",
+  "run": "/home/paulkinlan/worktrees/isocan-voice-harness/reports/voice-live/run5",
+  "real": {
+    "page": "/tmp/voice-ui-pin @ ",
+    "harness": "/home/paulkinlan/worktrees/isocan-voice-harness",
+    "daemon": "http://127.0.0.1:45179",
+    "provider": "gemini live",
+    "key": "~/.isocan/voice/key.json (never printed)"
+  },
+  "synthetic": {
+    "speech": "reports/voice-live/run4/speech.wav",
+    "sha256": "0d95cccadd6f8cb28f0547afe2e20432630071fc46cd89a80b77be62983af6d7",
+    "microphone": "chrome fake capture device"
+  },
+  "pageInput": "page-input.s16",
+  "pageAudio": {
+    "frames": 2272,
+    "bytes": 193876,
+    "secondsAt16k": 6.058625,
+    "zeroFraction": 0.5907693577338092,
+    "rms": 0.08499415927556864
+  },
+  "speechWindow": {
+    "frames": 1316,
+    "bytes": 112298,
+    "secondsAt16k": 3.5093125,
+    "zeroFraction": 0.29348697216335107,
+    "rms": 0.11167734923516548
+  },
+  "gaps": {
+    "intervals": 2271,
+    "worstGapMs": 28,
+    "missingMs": 4570,
+    "gapsOver20ms": 2
+  },
+  "pageState": "ended",
+  "turn": "2026-09-12T21:53:33.384Z",
+  "toolCall": {
+    "id": "log_1789250011502_dhd3nj",
+    "timestamp": "2026-09-12T21:53:31.502Z",
+    "source": "live",
+    "type": "tool_call",
+    "name": "add_item",
+    "args": {
+      "text": "buy milk"
+    },
+    "op": {
+      "type": "item.add",
+      "said": "add \"New note\"",
+      "target": "itm_ndNMedIjMm"
+    },
+    "result": {
+      "ok": true,
+      "answer": "added New note",
+      "target": "itm_ndNMedIjMm"
+    }
+  },
+  "canvas": {
+    "before": [
+      "Alpha note",
+      "Beta note"
+    ],
+    "after": [
+      {
+        "id": "itm_alpha",
+        "title": "Alpha note"
+      },
+      {
+        "id": "itm_beta",
+        "title": "Beta note"
+      },
+      {
+        "id": "itm_ndNMedIjMm",
+        "title": "New note"
+      }
+    ]
+  },
+  "oplogAsVoice": [
+    {
+      "seq": 4,
+      "type": "item.add"
+    }
+  ],
+  "providerWire": {
+    "records": 2292,
+    "sentByKind": {
+      "setup": 1,
+      "audio": 2264,
+      "toolResponse": 1
+    },
+    "audioSamples": 96598,
+    "received": [
+      {
+        "at": 1789250008105,
+        "bytes": 26,
+        "text": "{\n  \"setupComplete\": {}\n}\n"
+      },
+      {
+        "at": 1789250009152,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"dd664b7a-6f2b-4345-a335-b8bccb746779\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250009873,
+        "bytes": 110,
+        "text": "{\n  \"serverContent\": {},\n  \"voiceActivity\": {\n    \"type\": \"ACTIVITY_START\",\n    \"audioOffset\": \"2.120s\"\n  }\n}\n"
+      },
+      {
+        "at": 1789250010027,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"b88adc90-8e18-4675-8b69-199f239f4d40\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250010881,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"13ce922f-16ae-49ef-86f5-1e8db7c3bbdf\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250011091,
+        "bytes": 99,
+        "text": "{\n  \"serverContent\": {\n    \"inputTranscription\": {\n      \"text\": \"aber noch was, says\"\n    }\n  }\n}\n"
+      },
+      {
+        "at": 1789250011092,
+        "bytes": 108,
+        "text": "{\n  \"serverContent\": {},\n  \"voiceActivity\": {\n    \"type\": \"ACTIVITY_END\",\n    \"audioOffset\": \"3.200s\"\n  }\n}\n"
+      },
+      {
+        "at": 1789250011487,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250011491,
+        "bytes": 194,
+        "text": "{\n  \"toolCall\": {\n    \"functionCalls\": [\n      {\n        \"name\": \"add_item\",\n        \"args\": {\n          \"text\": \"buy milk\"\n        },\n        \"id\": \"fc_6307516148957959716\"\n      }\n    ]\n  }\n}\n"
+      },
+      {
+        "at": 1789250011840,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250012027,
+        "bytes": 26,
+        "text": "{\n  \"serverContent\": {}\n}\n"
+      },
+      {
+        "at": 1789250012040,
+        "bytes": 275,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"AAA=\"\n          }\n        }\n      ]\n    },\n    \"outputTranscription\": {\n      \"text\": \"I've added\"\n    }\n  }\n}\n"
+      },
+      {
+        "at": 1789250012057,
+        "bytes": 5968,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"vf/s/9z/n//c//D/2P/q/wMA7P81APL/1P9zAMj/3P8QAMH/2v/B/9X/rP+m/7z/xv+v/9T/sP/X/67/q/+v/73/t/9j/7f/yf+S/67/yv+4/77/1P/G//v/wv/g/9v/yf/R/+r/0v+4/93/u//p/9P/x//8/8X//f/L/77/AACw/8r/4f+o/8T/6/+h/53/GwCm/7X/0P/m/9X/n//f/8v/4v/b/9H/2P8DAOz/9f8CABYACAAVADgADwA0AFEAOAAJAEwAWwAXACkAQgAfAC4AEgApACsA6v8XACQA1//+/0QA5v/l/wMADwAGAPf/+P8ZAP//6/8IAPz/+//r/wEAEwAGAAgAEAAyAP3/CgAwACoAGwAMADUABwAiABgALgBFAO7/UABFAP7/HwBXACkANgAyAEUAQAArACkASwA3ACcAWgAGAG8AJQAwAFcAAwBjAD4AAgA5ADcAOwDi/9v/LgAWAOH/BABFABMA1P8ZAEsAEQAiABAA+v9SAAsAAwBYAAwAAgBQADYANwB5ABAALgBnAEAANwBAAA0ANAAkAOH/PgA9ABQAFwAeAEkAOQAZACIAJgD8/xEAMQDL/ycAMQDe/xQAKgAmADgA8f8RAEoATAAaAAcAVAAcADYARQCLAGkAJQCMAIQAWQBsAG8AWgApACgAUwAiAPT/QgAlAO7/QwAGAP3/OgDu/xcAFgD9//H/AgAWAN//6v8EAD0ACAD+/1UAOwAsAAMAPQBIAAYADwADAB8AHAAbABYAAQAiAEAADAAkACYADgD3/8z/8P/2/93/2//l/97/6f/1/xEA7P/t/xMA4f/9//H//P/O/+r/3P/S/xYACADv//7/DwDx//P/CADh/+j/3//e//r/xv/N//L/2f/o//r/9P/p/+H/5v/z/9r/4P/5/8z/5v/e/+b/5//c/8z/9f/k/+n/5//Y//f/4P/d//L/CwDj/+3/8//V/wAA1P/w/+n/zf/m/9//4P/q/8L/5f+3/8T/2v/e/9f/zP/p/9X/5f/g/+T/4P/V"
+      },
+      {
+        "at": 1789250012143,
+        "bytes": 15568,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"xP/28jznLN9W3LjbSt7U47/rl/Q9/OQCJwmyDlETfhaMF9UVaxHGDMUKyQuyD/UT8BZxF70UeQ9JCKwAW/oH94z2JPiF+qT8y/5KAbkDnwbbCdQMgg5EDj4NlwxADL8LvwtEDbUPVxEqEeEOrAtUCFYFlAPbAowC5gIVBPIEgwaOCNwLzQ8JEqYSfhHVDsYL9wgNCPIIYAt/DuIQhRK7EoURCxDYDnAObw5NDc4L5Ar6CVgKUAvSDLEO+A7JDY4LzAcrBOAA+P6T/3YBKwMvAwoB6v66/IX73/oh+hj5sPbt86nyiPEe8pLzR/UQ96X1VPFE60fjd96k3I7d1+EF4vfbk9D3v8K2obGTsrG7EMml12LlrfUXBp4QnBLeD4cO7Q2ZDYEOwg4qDWkKAAhECT8M9gyWCQkDkPoe8jzpSOGO3UXfu+Yz8WH7wwIaBukFFgU3BqgJxg2LEOURGBI7EngSXROnFf8X6BlkGe4VHg/CBpX+wvlQ+S/83v+gAogD3gJuAR4ANADWARsEkgYzCLgIHwhmCIwJiwzhD3wS+hJdEGkL2QZFBCkEawUYCCkLEg3EDKwKGgmZCPcIjAlaCnQKSAlxB/8FtAaKCYQNvxEzFUIX1hYhFO8QPA95D4YQbREJEl4RfA/GDEwLoQt7DMsMzAseCYkFFwFm/Sv8df1BAAcDswN+Asv/A/yp+DD3V/fd91/34/Wh9Kbz/fIt8/fzDPV09Nrwe+tA5Zzf/tsQ2p/bSt7H25vVNswhws66o7Wgtpy84Mac0iLjSvjUCQkT5BE1DGoI5gbTCIsOUhNBFpoVsxP1EyMVTBPgDt8IxQLU+gzw8+VN4MjgEucV8fv7iAMDBfUB3f4L/nEAZwQ5CS4OUhKZFEgV9xXkFqIY2xmOGR0XohFxCVwBLPx7+4n+eQK5BS8GSwSfAGb8z/kl+df67f0GAZAD9gUdBzAIagocDUUQShGND5EMzgj0BQcFhwYRCg8OEhHbEVgQ7gxECakGegU/BacF6AbvB3YIJQnWCtkN7hDH"
+      },
+      {
+        "at": 1789250012167,
+        "bytes": 7888,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"MRPFEFsO9gxoDU4PaxEBETcNewWU+wnyH+u058LnjOqd7qby2PVi+NH6Xv0BAF8CzANZBHUEywT1BcEHTwouDesPIRIZE5wSchBZDboJQgadA9gBIQEnAXgBywHPAV4BJAH9AM8AngAEAFT/xP6P/l7/KAEVBJwH4goeDcANPg1oDNQLAgzGDF8NCw6HDtQO4w7gDu4OfQ/nDwAQPg9hDcYKeQgSB0cHrQifCsAMEQ4WDvwMyAqiCNwG3AXbBScGNwb8BUgF8ATtBG8FUAYcB/QG3QX3A+cBPAAb/93+9v76/lH+7/yt+n74s/bd9WP18fTz8yzyAfCT7UzrT+l550Lm/eRw45LhAt8h3TfbCtrm2ZXZEdmJ17PUytFB0OPRPNjs4RjtgfcW/74EkAiuC1wOtRCtEuwTuRQAFRQVgxUNFh0XIRiKGAEYXhZrE48P1grjBWABZ/1A+u33qfY19rj22PdR+Tv6p/rS+rD6u/qA+nL6H/qJ+sT76P00AE8CDQSOBTcH9Ah6Ch0L3QoKCksJ7whHCe0J6AqyCwcMEQyUC/oKAArrCLgHkAZtBZcEvQMLA3wCEgIqAmMCugKkAiEChQHtAOEAHgGEAdEBrQFGAecAGAHpAUgDtAR4BV8FdwRcA8EC9QK8A6AEMgUyBRMF7AQMBaoFYwYUB4MHTgdEBsYEQgNDAh8CtgKwA08EWwT6A4kDNANEA2wDggP/AgsC0wC1/xv/Ef90//3/YgBvABcAbv9s/mb9YPyh+x37pvpQ+vT5vfm2+ZL5gfkR+Vn4ifeV9sb1EPW09NX0SPXx9a72Ovei9+33Lfhg+F34Rfjp95L3U/dL95X3Evie+Bv5gPnS+R36cfrF+h/7jPsC/HH82vwq/X/98f14/iP/2/9RAKQArQChAJcAlACwANEABQFDAYsB6QFFAqkC/gJIA5MD5AMxBHAEuwQbBZAFIwalBg8HQAcyBwUH2gbCBs8G/AYmB04HYgdwB3oHggeJB34HWAcIB6UGQQb4BdoF6AUPBjIGQwYp"
+      },
+      {
+        "at": 1789250012247,
+        "bytes": 15631,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"HwAUAAsAAAD1/+z/4v/R/8D/rP+K/2//Tv80/x//A//p/s3+q/6F/ln+Mf4J/tz9sP1//VD9Hv3w/ML8m/x4/FP8LfwA/Mv7l/tj+zH7B/ve+rn6lfpz+lT6Pfon+hj6Dfr/+fj58Pnq+ez58vkH+iX6Rfps+pb6xPr0+iL7UPuF+8H7AfxE/I783vwz/Y796/1E/p7+/f5X/6v/AABRAJ0A6gAuAXkBvwH7ATcCbAKcAssC8QIPAyIDNANBA0kDVQNcA2cDbQN4A34DhQOCA4gDjwOVA6EDqwO4A8gD1gPlA/kDDAQbBCoENwRBBEUEQQQ6BDIEKgQgBBUEAQTpA8kDpgOCA1kDLAMDA9MCoQJoAjMCBALYAa4BiQFnAUIBHwH+ANgAuACYAH4AaABUAEMAMQAfAAsA/P/w/+X/2P/I/7L/nf+G/27/V/9C/y7/Hv8L//P+1f66/p/+iP5s/k/+OP4Y/vv91/22/Zf9fv1k/UX9KP0D/eD8ufyT/HL8Ufwu/Av87fvT+7X7nPuD+277YPtT+0P7O/sw+y37M/tA+1H7Y/t9+5r7tfvP++z7EPwx/Fz8h/y5/PP8MP1w/bT9//1G/oz+1f4d/2L/pv/r/y4AcQC2APkAOAF0AbMB7AEfAk0CdwKVAq4CwgLXAugC+gILAxwDLQMwAz4DQgNDA0cDRgNIA0oDTANLA1ADTwNWA14DZwNwA3sDfwN+A3gDbwNnA2YDWwNVA0oDQAMwAxoDBAPtAtUCuAKYAngCTwImAgAC1gG2AZQBcQFZATwBIQEBAeIAwgClAIoAcgBZAEEAKQASAP3/6f/a/8v/sv+c/4f/bf9T/zf/Hf8E/+7+3v7I/rH+nf6J/nj+ZP5S/jv+JP4O/vL94v3T/cH9tP2i/Zf9if19/Wr9Wv1K/TX9Jf0R/f/87fzi/NT8yPy//Lj8uvy1/LD8rvyv/LD8s/y3/ML8zfzZ/On8+/wQ/Sn9Qf1Y/XT9kP26/db9/v0r/lj+h/65/uz+Hv9R/4b/uv/y/ycAXQCT"
+      },
+      {
+        "at": 1789250012273,
+        "bytes": 5328,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"PfiS+xMAxAQzCM0JGgrVCVQJBAldCJ8HigeaB+kHvAgZCaQKVgwQDiYPsg+1D74OdQ0CCykIoAXTA8MCjgKOAnIC3ALJAzsFrwZ+CPkJIgvUC4oLxwoVCmUJJQktCbIJfgqhCwENBg6WDh0PoQ/2D0UQfA8NDvQLjwmGB3sFOASzA8oDLARcBCAEoAOKA+8CUALCAQoBxP/6/Xr7NfhZ9eTyFfHW71Tuw+zK6pXo/+bm5H7jduL/4ZHg0d7t2dHT+NBF0BrTCNfT29ng6eim8oP5ewG6CFUM9BAkEkESsBGMEKAO3woFB2QDWAENAucDRQS4BCAFzQWXBpEG/wRXA1gBlv56+3H4Tvb39O7zKvOB8x71HflT/T4BLASHBoQI2QqbDK8NDw7hDZQNngy6C6sKDAq1CXEJdgnwCVcKpArECpEK4An/CGQILggHCCoHngXoA60C6wHZASUC4QLLA8sEvwX0BgYIKAmlCkkMlA3MDrgP3g+gD7sOog3mDLoMpgwjDC8LJgobCX0ILwj6BzQIegigCPgH0QYiBVUDowEJAP/+y/0Q/bD7k/lp9zz1q/Pl8jby8vAz78/sA+pu5wvlQOKl4HrfAd9i3dvZltVj0QXSSNST1x3d9OG26ELw4Pcc/1QF3QvsD48SQRQDFEoTuRKeEBsNngm/Bs0FKgYKBi4FLgRoBMUExATDBLwDwwJfATf/v/y2+uL4Lfeb9czzFPPN8yH2+vib+7P91f8RA4sGfAkqDN0NHg8rECUQgg+sDtENbAxkC0oKiAmNCUMJEwmICCEIXQj0CNkJAwqBCWwIrwZiBQ8EdgIMASgApf/Q/1QAYQGkAkEEhwavCGwLKQ4bEEsRZhHeEDQQaQ+uDo4NDwxcCrQIpQchB7AGSAZPBlgGtgb8BuoGWQY8BdsDMAK7ALP/ef7u/JD6xvcL9fry2PEk8QHwaO5W7H3q+ehQ51/lyeJ04e7gXuC/3nfbtdi01crWodl320/hzuWp6kfy/fjx/88G3QwfETIUGRYSFvkVBRbD"
+      },
+      {
+        "at": 1789250012279,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"4b13fc4e-64dc-48fd-9d10-d7fa45007ecf\",\n    \"resumable\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250012368,
+        "bytes": 23310,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"R/9O/0X/Sf9B/0n/Q/9L/1n/Wf9k/3b/g/+U/6D/pf+3/8P/yP/S/9X/z//a/9n/0//c/8X/0f/P/8b/xP/I/8b/yf/H/9P/1//W/+f/7f/s//L/8f/4/////P8KAAwAGgAlAB0ALwAkACwAIgAvAC8AKwA7ADEAMAA9ADsAQwBWAF0AYQBlAGsAYwBsAGAAWgBiAFkATABWAE8ASgBLAEYAPAA6ADcAMwAoACMAIQATAAoACwD3//f/9f/v//L/6f/u/+X/2v/c/9b/zv/L/8//2//c/+H/7P/r//r/+/8GABIAFgAmACUALwA1ACwAKAAgABQAEgAQAAUABAD8/wIA8P/u//X/9v/l//7/9P/3/wsA+f8OAAUAHQAqACgALQA6AEIAOABSAEoARgBWAEwAUwBJAFEATgBMAFIAQgBAAFIARABOAFkATgBIAFIARwA/AD4AOwA2ADEAKgAdAB8AIQAiACEAMgAfAC4AIgAwACQAKwA5AEEAPAA2AEEAQgAvADsAOgA8ADIALwA2ADcAPAA6ADwAMgBEAEEAPgA3AD8APwAeADgAMAAyADgAIgA6ACgAMgA7ABQAMwAwADIAKQAbADEANgAqACUAKAAeACEAGwD//w8AEgAFABEAEwDn/w8AAwD+/yMAIgA0AC4AMQAiADYAHQAQABoAGAAOAAUAAAD5//P//v8MAMz/CQDx/+P/+f/n/w8A+/8FAPv/DAAEABAAHAAjABsAGQA7ABoAIAAoABwAFAASACMAFQAfAAIAGwAmABYA//8iAAAABwAlAO3/JgD+/wcAIwD9//z/CQAAAAAA9P8TAAMA7P8TAAAA9f8KABMADwAZAAwAHgAWABYAMAAdACUAKAAaABQAJQAUADAAJwA2AFYAOgBRAGUAOABKAEsAVABDADsAVwAvACsAKAApAAsAEAAkAA4ABAAGABUABgAiAP3/KQASAPv/HgAwABUALQASABQAKAAbACQAGgALADsACgAXAPP/CQAOAAUA5//4/wAA6////9r/9f/c"
+      },
+      {
+        "at": 1789250012396,
+        "bytes": 10448,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"jf+P/5P/k/+P/5D/i/+K/4f/gf+H/4T/ev93/23/Z/9p/2r/af9u/27/cP9x/3T/cP9v/27/b/9q/2j/Zv9o/2L/aP9n/2b/Z/9o/2r/av9r/2n/bP9m/2X/af9p/2//dP94/37/fv99/3r/e/96/3r/ev90/3X/df90/3L/dP9x/3D/c/9x/3L/dP90/3b/eP92/3j/fv96/4D/g/+I/4v/kv+X/5z/n/+i/6j/rv+1/73/x//L/9T/0v/R/9b/3f/h/+T/5P/o/+3/8f/2//j//P/8//r/+//3//b/+v/6/wYAAwAAAAcABQAEAAQABwAEAAYAAwABAAQA/v/+//z/+v/7//n//P/4//D/6v/o/+j/5v/o/+r/7f/u//H/+f/8////+/////7//v/9/wQAAAD0//j/8//w/+n/5//q/+X/4f/b/9n/2P/T/9H/z//N/8v/x//H/8z/zv/X/93/3P/g/+f/7f/u//D/8//1//P/8f/v/+3/6f/q/+f/7P/r/+f/5//i/+L/3f/d/97/4f/l/+n/7v/0//n//f8EAAQAAQAFAAgACgAJAAUAAgAIAAoACAAGAA4ADQANABAAEQAUABcAFAAXABsAFQAfAB4AHwAqACwALwAxADcANwA4AD4APwA+AD0APgA/AD8APgBBAEAAQwA6ADQAMgAsACkAJQAjACMAKQAkACUAJwAkACEAJQAiACYAJwAkACQAHgAgABwAHwAeAB0AGgAYABgAEAALAAQA///6//j/8//w//H/7//0//P/8f/1/+//9P/3//f/9//5/wEA/v8AAAQAAgACAAcABwADAAcADQAOAA8ACwAJAA8ADwAPAA4ADwATAA8AFgAXABcAGAAYABsAGwAdABoAEgAXABYAFAAVABQAEwAQABEADwALAAMABwAGAAUACgAJAAkACgAMABAADgASABUADwASAA4ADgAJAAkACAACAAAA/f/1//T/7//v/+r/4//a/9j/1//P/8v/x//E/8L/wP+9/7P/tv+w/63/qP+k"
+      },
+      {
+        "at": 1789250012404,
+        "bytes": 2768,
+        "text": "{\n  \"serverContent\": {\n    \"modelTurn\": {\n      \"parts\": [\n        {\n          \"inlineData\": {\n            \"mimeType\": \"audio/pcm;rate=24000\",\n            \"data\": \"FAASABMAEAAUABYAFwAZABUAFAAVABcAFQAPAAsADgAPABAAFAATABcAFwAZABsAGQAaABsAHQAfAB4AIwAhACYALAAmACMAJgAjACMAIQAiACUAIAAjACAAIQAgACQAIwAmACkAIgAoAB0AGgAjAB4AHgAhACMAJAAlACQAIQAgACMAIAAgAB8AIAAdAB4AHwAcAB0AHgAeAB0AHQAcAB0AHgAbABoAGwAbAB0AGwAdABoAHAAXABwAEwAEAAsAAgADAAEAAAAAAP7///8AAP///v/9//z/+//7//z/+//7//z//P/8//z//v/+//z//P/9//z//f/9//3//f/9//7//P/8//3//P8CAAUAAAADAAUAAwAGAAYABwAFAAkACAAGAAUAAwAEAAIABAAEAAQACwAQAAoAEgAPABIADwALAAsACwAOAAkABQAKAAoACQAKAAgABQADAAAABgACAAIABwAEAAMAAAD+//v/9//9//b/9f/0//P/9P/w//H/6//r/+//6P/p/+f/5//o/+r/7f/q/+b/5v/p/+P/4//i/9//3f/e/+X/3//f/+L/3//d/9r/3P/X/9f/2v/W/9f/2P/b/9v/2//X/9f/0//P/9X/z//P/8//z//T/9D/0v/P/9D/1v/P/8//zv/P/9H/1P/Z/9b/2f/d/97/3P/e/+L/4v/k/+f/5v/g/+H/5//m/+b/5P/p/+3/7//2//T/+//6//v/+f/6//j/+P/1//b/9f/4//v/+f/9//3/AAD9/wMAAQABAAsACgAIAAcABwAHAAYABgAGAAYABgAIAAYACAAHAAQABgAGAAQABgAGAAcABQAHAAcABQAGAAYABQAGAAQABQAGAAUABQACAAMAAgD8/wAA+//x//j/+f/5//n/+v/6//n/+P/5//j/+f/5//n/+f/5//n/+v/5//v/+v/6//r/+f/5//r/+P/4//j/+f/5//j/+f/4//f/9//5//j/+f/4//b/+P/4//b/9v/3//T/9P/1//T/8f/0//P/9P/z"
+      },
+      {
+        "at": 1789250012458,
+        "bytes": 60,
+        "text": "{\n  \"serverContent\": {\n    \"generationComplete\": true\n  }\n}\n"
+      },
+      {
+        "at": 1789250013384,
+        "bytes": 454,
+        "text": "{\n  \"serverContent\": {\n    \"turnComplete\": true\n  },\n  \"usageMetadata\": {\n    \"promptTokenCount\": 8712,\n    \"responseTokenCount\": 52,\n    \"totalTokenCount\": 8764,\n    \"promptTokensDetails\": [\n      {\n        \"modality\": \"TEXT\",\n        \"tokenCount\": 5738\n      },\n      {\n        \"modality\": \"AUDIO\",\n        \"tokenCount\": 70\n      }\n    ],\n    \"responseTokensDetails\": [\n      {\n        \"modality\": \"AUDIO\",\n        \"tokenCount\": 39\n      }\n    ]\n  }\n}\n"
+      },
+      {
+        "at": 1789250013465,
+        "bytes": 118,
+        "text": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"75ae46cf-d4b8-440b-98a9-23ba185c7566\",\n    \"resumable\": true\n  }\n}\n"
+      }
+    ],
+    "setup": {
+      "at": 1789250007702,
+      "event": "sent",
+      "kind": "setup",
+      "model": "models/gemini-3.1-flash-live-preview",
+      "tools": 37
+    },
+    "closed": {
+      "at": 1789250013737,
+      "event": "closed",
+      "code": 1000,
+      "reason": ""
+    }
+  },
+  "harnessLines": [
+    {
+      "at": 1789250006914,
+      "line": "[2026-09-12T21:53:26.913Z] [startup] Voice harness active on port 7639 {\"canvas\":\"Voice drive (prj_voice_drive)\",\"agent\":\"Voice (usr_m1rBc8LTu2)\",\"daemon\":\"http://127.0.0.1:45179\",\"model\":\"models/gemini-3.1-flash-live-preview\",\"keyConfigured\":true}"
+    },
+    {
+      "at": 1789250006914,
+      "line": "22:53:26  voice [2026-09-12T21:53:26.913Z] [startup] Voice harness active on port 7639 {\"canvas\":\"Voice drive (prj_voice_drive)\",\"agent\":\"Voice (usr_m1rBc8LTu2)\",\"daemon\":\"http://127.0.0.1:45179\",\"model\":\"models/gemini-3.1-flash-live-preview\",\"keyConfigured\":true}"
+    },
+    {
+      "at": 1789250006914,
+      "line": "Voice is listening on the canvas — talk at http://127.0.0.1:7639/"
+    },
+    {
+      "at": 1789250006914,
+      "line": "not enrolled as a harness yet — the microphone speaks as Voice either way, but nothing can summon it."
+    },
+    {
+      "at": 1789250006914,
+      "line": "to invite it:  isocan rc add Voice --harness voice"
+    },
+    {
+      "at": 1789250006914,
+      "line": "(which needs \"acpAdapters\": {\"voice\": [\"node\", \"<this isocan.js>\", \"voice\", \"--acp\"]} in ~/.isocan/config.json)"
+    },
+    {
+      "at": 1789250006914,
+      "line": "[2026-09-12T21:53:26.914Z] [presence] created session on daemon {\"sessionId\":\"ses_wlABPE6jxp\"}"
+    },
+    {
+      "at": 1789250006914,
+      "line": "22:53:26  voice [2026-09-12T21:53:26.914Z] [presence] created session on daemon {\"sessionId\":\"ses_wlABPE6jxp\"}"
+    },
+    {
+      "at": 1789250006915,
+      "line": "[2026-09-12T21:53:26.915Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250006915,
+      "line": "22:53:26  voice [2026-09-12T21:53:26.915Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250007050,
+      "line": "22:53:27  voice key check (gemini): accepted"
+    },
+    {
+      "at": 1789250007218,
+      "line": "[2026-09-12T21:53:27.051Z] [http] POST /key/test status=200 in=0b duration=128.1ms"
+    },
+    {
+      "at": 1789250007218,
+      "line": "22:53:27  voice [2026-09-12T21:53:27.051Z] [http] POST /key/test status=200 in=0b duration=128.1ms"
+    },
+    {
+      "at": 1789250007506,
+      "line": "[2026-09-12T21:53:27.505Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250007506,
+      "line": "22:53:27  voice [2026-09-12T21:53:27.505Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250007506,
+      "line": "[2026-09-12T21:53:27.506Z] [http] GET /state status=200 in=0b duration=1.5ms"
+    },
+    {
+      "at": 1789250007506,
+      "line": "22:53:27  voice [2026-09-12T21:53:27.506Z] [http] GET /state status=200 in=0b duration=1.5ms"
+    },
+    {
+      "at": 1789250007638,
+      "line": "[2026-09-12T21:53:27.637Z] [http] POST /session/start status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250007638,
+      "line": "22:53:27  voice [2026-09-12T21:53:27.637Z] [http] POST /session/start status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250007640,
+      "line": "[2026-09-12T21:53:27.639Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250007640,
+      "line": "22:53:27  voice [2026-09-12T21:53:27.639Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250007640,
+      "line": "[2026-09-12T21:53:27.640Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789250007640,
+      "line": "22:53:27  voice [2026-09-12T21:53:27.640Z] [presence] status updated: \"listening\""
+    },
+    {
+      "at": 1789250007676,
+      "line": "22:53:27  voice live socket: socket_opening {\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\"}"
+    },
+    {
+      "at": 1789250007702,
+      "line": "22:53:27  voice live socket: socket_open {\"model\":\"models/gemini-3.1-flash-live-preview\"}"
+    },
+    {
+      "at": 1789250008106,
+      "line": "22:53:28  voice live socket: setup_complete {}"
+    },
+    {
+      "at": 1789250008142,
+      "line": "[2026-09-12T21:53:28.141Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250008142,
+      "line": "22:53:28  voice [2026-09-12T21:53:28.141Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250008142,
+      "line": "[2026-09-12T21:53:28.142Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250008142,
+      "line": "22:53:28  voice [2026-09-12T21:53:28.142Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250008644,
+      "line": "[2026-09-12T21:53:28.644Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250008644,
+      "line": "22:53:28  voice [2026-09-12T21:53:28.644Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250009146,
+      "line": "[2026-09-12T21:53:29.145Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250009146,
+      "line": "22:53:29  voice [2026-09-12T21:53:29.145Z] [http] GET /log status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250009504,
+      "line": "[2026-09-12T21:53:29.504Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250009504,
+      "line": "22:53:29  voice [2026-09-12T21:53:29.504Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250009505,
+      "line": "[2026-09-12T21:53:29.504Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250009505,
+      "line": "22:53:29  voice [2026-09-12T21:53:29.504Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250009647,
+      "line": "[2026-09-12T21:53:29.647Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250009647,
+      "line": "22:53:29  voice [2026-09-12T21:53:29.647Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250009914,
+      "line": "[2026-09-12T21:53:29.913Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250009914,
+      "line": "22:53:29  voice [2026-09-12T21:53:29.913Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":0}"
+    },
+    {
+      "at": 1789250010148,
+      "line": "[2026-09-12T21:53:30.148Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250010148,
+      "line": "22:53:30  voice [2026-09-12T21:53:30.148Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250010649,
+      "line": "[2026-09-12T21:53:30.649Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250010649,
+      "line": "22:53:30  voice [2026-09-12T21:53:30.649Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250011151,
+      "line": "[2026-09-12T21:53:31.150Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250011151,
+      "line": "22:53:31  voice [2026-09-12T21:53:31.150Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250011495,
+      "line": "[2026-09-12T21:53:31.495Z] [daemon-io] dispatching op (1 sent): add \"New note\""
+    },
+    {
+      "at": 1789250011495,
+      "line": "22:53:31  voice [2026-09-12T21:53:31.495Z] [daemon-io] dispatching op (1 sent): add \"New note\""
+    },
+    {
+      "at": 1789250011502,
+      "line": "[2026-09-12T21:53:31.502Z] [daemon-io] acknowledged op (1 ack): add \"New note\""
+    },
+    {
+      "at": 1789250011502,
+      "line": "22:53:31  voice [2026-09-12T21:53:31.502Z] [daemon-io] acknowledged op (1 ack): add \"New note\""
+    },
+    {
+      "at": 1789250011502,
+      "line": "22:53:31  voice sent: item.add — add \"New note\" → added New note"
+    },
+    {
+      "at": 1789250011506,
+      "line": "[2026-09-12T21:53:31.506Z] [http] GET /log status=200 in=0b duration=1.8ms"
+    },
+    {
+      "at": 1789250011506,
+      "line": "22:53:31  voice [2026-09-12T21:53:31.506Z] [http] GET /log status=200 in=0b duration=1.8ms"
+    },
+    {
+      "at": 1789250011507,
+      "line": "[2026-09-12T21:53:31.506Z] [http] GET /state status=200 in=0b duration=2.4ms"
+    },
+    {
+      "at": 1789250011507,
+      "line": "22:53:31  voice [2026-09-12T21:53:31.506Z] [http] GET /state status=200 in=0b duration=2.4ms"
+    },
+    {
+      "at": 1789250011653,
+      "line": "[2026-09-12T21:53:31.652Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250011653,
+      "line": "22:53:31  voice [2026-09-12T21:53:31.652Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250012155,
+      "line": "[2026-09-12T21:53:32.154Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250012155,
+      "line": "22:53:32  voice [2026-09-12T21:53:32.154Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250012656,
+      "line": "[2026-09-12T21:53:32.656Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250012656,
+      "line": "22:53:32  voice [2026-09-12T21:53:32.656Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250012913,
+      "line": "[2026-09-12T21:53:32.913Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":1}"
+    },
+    {
+      "at": 1789250012913,
+      "line": "22:53:32  voice [2026-09-12T21:53:32.913Z] [audio-stats] live streaming throughput {\"inFromPage\":\"0 frames (0B)\",\"outToProvider\":\"0 frames\",\"inFromProvider\":\"0 frames\",\"outToPage\":\"0B\",\"totalDaemonOpsAck\":1}"
+    },
+    {
+      "at": 1789250013157,
+      "line": "[2026-09-12T21:53:33.157Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250013157,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.157Z] [http] GET /log status=200 in=0b duration=0.6ms"
+    },
+    {
+      "at": 1789250013384,
+      "line": "22:53:33  voice live socket: turn_complete {}"
+    },
+    {
+      "at": 1789250013505,
+      "line": "[2026-09-12T21:53:33.505Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250013505,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.505Z] [http] GET /log status=200 in=0b duration=0.4ms"
+    },
+    {
+      "at": 1789250013505,
+      "line": "[2026-09-12T21:53:33.505Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250013505,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.505Z] [http] GET /state status=200 in=0b duration=0.9ms"
+    },
+    {
+      "at": 1789250013659,
+      "line": "[2026-09-12T21:53:33.658Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250013659,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.658Z] [http] GET /log status=200 in=0b duration=0.5ms"
+    },
+    {
+      "at": 1789250013660,
+      "line": "[2026-09-12T21:53:33.659Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250013660,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.659Z] [http] GET /log status=200 in=0b duration=0.3ms"
+    },
+    {
+      "at": 1789250013718,
+      "line": "[2026-09-12T21:53:33.718Z] [http] POST /session/end status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250013718,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.718Z] [http] POST /session/end status=200 in=0b duration=0.7ms"
+    },
+    {
+      "at": 1789250013720,
+      "line": "[2026-09-12T21:53:33.720Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250013720,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.720Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250013726,
+      "line": "[2026-09-12T21:53:33.726Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250013726,
+      "line": "22:53:33  voice [2026-09-12T21:53:33.726Z] [presence] status updated: \"enrolled — nobody is listening right now\""
+    },
+    {
+      "at": 1789250013737,
+      "line": "22:53:33  voice live socket: socket_closed {\"code\":1000,\"reason\":\"\",\"audioUpFrames\":2264,\"audioDownFrames\":9}"
+    }
+  ]
+}

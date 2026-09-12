@@ -18,7 +18,6 @@ import {
   startLiveSession,
   createAcpAgent,
   planVoice,
-  providerFor,
   readVoiceKey,
   readVoiceLog,
   resolveSpokenRef,
@@ -314,15 +313,16 @@ describe("the key belongs to the harness", () => {
     await expect(readVoiceKey(home)).rejects.toThrow(/not 600/);
   });
 
-  it("never refuses a key: the shape is only a default, and the provider judges", () => {
-    expect(providerFor("AIza-abc")).toBe("gemini");
-    expect(providerFor("sk-abc")).toBe("openai");
-    // Whatever shape it is, it is accepted. This used to be `null`: a
-    // client-side guess about a key format, failing closed on a real key
-    // before anything had sent it.
-    expect(providerFor("hunter2")).toBe("gemini");
-    expect(providerFor("hunter2", "openai")).toBe("openai");
-    expect(providerFor("AIza-abc", "openai")).toBe("openai");
+  it("never refuses a key: any non-empty string is stored, and the provider judges", async () => {
+    // "hunter2" is not a key shape at all, and it is still stored. This used
+    // to be a client-side refusal — a guess about a key format, failing closed
+    // on a real key before anything had sent it.
+    expect(await writeVoiceKey(home, { provider: "gemini", key: "hunter2" })).toBe(voiceKeyFile(home));
+    expect(await readVoiceKey(home)).toEqual({ provider: "gemini", key: "hunter2" });
+    // A key that LOOKS like another provider's is not special: there is one
+    // provider, and it is the judge.
+    expect(await writeVoiceKey(home, { provider: "gemini", key: "sk-looks-like-openai" })).toBe(voiceKeyFile(home));
+    expect(await readVoiceKey(home)).toEqual({ provider: "gemini", key: "sk-looks-like-openai" });
   });
 
 });
@@ -767,6 +767,20 @@ describe("the Live API path", () => {
       const canvasItems = await items();
       expect(canvasItems.map((i) => i.title)).toContain("Spoken Note");
 
+      // 2b. `add_item` with a title and NO text — how "add a note called X"
+      // arrives from the model. The note's body falls back to its title rather
+      // than an empty blob, which the daemon refuses as `empty blob body`.
+      providerSocket.emit({
+        toolCall: { functionCalls: [{ id: "call-title-only", name: "add_item", args: { title: "Titled Only" } }] },
+      });
+      while (providerSocket.sent.length < 4) await new Promise(r => setTimeout(r, 10));
+      const titledItems = await items();
+      expect(titledItems.map((i) => i.title)).toContain("Titled Only");
+      const titledLog = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries.find(
+        (e: any) => e.args?.title === "Titled Only",
+      );
+      expect(titledLog.result.ok, `a title alone still makes a note: ${titledLog.result.error ?? ""}`).toBe(true);
+
       // 3. rename_item
       providerSocket.emit({
         toolCall: {
@@ -779,7 +793,7 @@ describe("the Live API path", () => {
           ],
         },
       });
-      while (providerSocket.sent.length < 4) await new Promise(r => setTimeout(r, 10));
+      while (providerSocket.sent.length < 5) await new Promise(r => setTimeout(r, 10));
 
       const renamedItems = await items();
       expect(renamedItems.map((i) => i.title)).toContain("Spoken Note Renamed");
@@ -792,7 +806,7 @@ describe("the Live API path", () => {
           functionCalls: [{ id: "call-site", name: "add_item", args: { url: "localhost:3000" } }],
         },
       });
-      while (providerSocket.sent.length < 5) await new Promise(r => setTimeout(r, 10));
+      while (providerSocket.sent.length < 6) await new Promise(r => setTimeout(r, 10));
 
       const siteItems = await items();
       expect(siteItems.map((i) => i.title)).toContain("localhost:3000");
@@ -806,7 +820,7 @@ describe("the Live API path", () => {
           ],
         },
       });
-      while (providerSocket.sent.length < 6) await new Promise(r => setTimeout(r, 10));
+      while (providerSocket.sent.length < 7) await new Promise(r => setTimeout(r, 10));
       const commentReply = JSON.parse(providerSocket.sent.at(-1) ?? "{}");
       const commentResp = commentReply.toolResponse?.functionResponses?.[0];
       expect(commentResp.response.ok).toBe(true);
@@ -820,7 +834,7 @@ describe("the Live API path", () => {
           functionCalls: [{ id: "call-del", name: "thread_delete", args: { thread_id: created!.id } }],
         },
       });
-      while (providerSocket.sent.length < 7) await new Promise(r => setTimeout(r, 10));
+      while (providerSocket.sent.length < 8) await new Promise(r => setTimeout(r, 10));
       const delResp = JSON.parse(providerSocket.sent.at(-1) ?? "{}").toolResponse?.functionResponses?.[0];
       expect(delResp.response.ok).toBe(true);
 

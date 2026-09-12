@@ -94,25 +94,24 @@ export async function writeVoiceLog(home: string, entries: ToolLogEntry[]): Prom
 }
 
 export interface VoiceKey {
-  provider: "gemini" | "openai";
+  /** Only Gemini: the live conversation *is* Gemini Live, and the batch
+   * transcription fallback goes to the same provider. A second provider —
+   * OpenAI, inferred from an `sk-` prefix — sat in this type, the page and the
+   * tests for a path the conversation never took. */
+  provider: "gemini";
   key: string;
 }
 
 /**
- * **The provider, guessed only when nobody said — and never a refusal.**
+ * **No validation, and nothing to infer.**
  *
  * This used to reject a key whose prefix was not `AIza…` or `sk-…`, which is a
  * client-side guess about a format that changes, failing closed on the one
  * person who knows better. Paul pasted a real key, the page said no, and the
- * feature looked broken before it had run. There is no validation here now:
- * any non-empty key is stored, the provider is taken from the form when it is
- * named and guessed from the prefix only as a default, and **the provider is
- * the judge** — its error is surfaced verbatim, in its own words.
+ * feature looked broken before it had run. Any non-empty key is stored, and
+ * **the provider is the judge** — its error is surfaced verbatim, in its own
+ * words.
  */
-export function providerFor(key: string, named?: string): VoiceKey["provider"] {
-  if (named === "gemini" || named === "openai") return named;
-  return key.startsWith("sk-") ? "openai" : "gemini";
-}
 
 /** The stored key, or null. A file that is not 0600 is refused rather than
  * read: a key that leaked its own permissions is worth telling somebody
@@ -412,19 +411,6 @@ export async function transcribe(options: {
 }): Promise<Transcript> {
   const doFetch = options.fetchImpl ?? fetch;
   const bytes = new Uint8Array(options.wav);
-  if (options.key.provider === "openai") {
-    const form = new FormData();
-    form.append("model", options.model ?? "whisper-1");
-    form.append("file", new Blob([bytes], { type: "audio/wav" }), "speech.wav");
-    const r = await doFetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${options.key.key}` },
-      body: form,
-    });
-    const j = (await r.json()) as { text?: string; error?: { message?: string } };
-    if (!r.ok) throw new Error(`openai: ${j.error?.message ?? r.status}`);
-    return { text: (j.text ?? "").trim(), provider: "openai" };
-  }
   const model = options.model ?? "gemini-2.5-flash";
   const r = await doFetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(options.key.key)}`,
@@ -1055,13 +1041,21 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
         };
       }
       const title = String(args.title ?? "New note");
+      /* **A title with no body still makes a note.** "Add a note called
+         Banana" is how a person says it, and the model answers it with
+         `{title: "Banana"}` and no text. An empty body is not a note the
+         daemon accepts — an empty blob is refused with `empty blob body` — so
+         the title becomes the body, which is what the note would say anyway.
+         Found by driving the path: the model got the tool call right and the
+         canvas answered with a refusal. */
+      const text = String(args.text ?? "").trim() || title;
       return {
         plans: [
           {
             op: {
               type: "item.add",
               title,
-              text: String(args.text ?? ""),
+              text,
               x: args.x !== undefined ? Number(args.x) : undefined,
               y: args.y !== undefined ? Number(args.y) : undefined,
             },
@@ -1644,11 +1638,6 @@ export async function checkKey(
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: boolean; answer: string; provider: string }> {
   try {
-    if (key.provider === "openai") {
-      const r = await fetchImpl("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key.key}` } });
-      const body = await r.text();
-      return { ok: r.ok, answer: r.ok ? "accepted" : `${r.status} ${body.slice(0, 300)}`, provider: "openai" };
-    }
     const r = await fetchImpl(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key.key)}`,
     );
@@ -2257,16 +2246,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         }
         // Either shape: the form posts `{key, provider}`, and a bare string is
         // tolerated because a hand-made request is not a mistake worth a 400.
+        // The `provider` field is ignored now — there is one provider, and the
+        // page still sends the field for a harness that predates this.
         const posted: Record<string, unknown> = typeof body === "string" ? { key: body } : body;
         const key = String(posted.key ?? "").trim();
         if (!key) {
           respond(400, { error: "no key in that body" });
           return;
         }
-        const provider = providerFor(key, typeof posted["provider"] === "string" ? (posted["provider"] as string) : undefined);
-        await writeVoiceKey(home, { provider, key });
-        narrate(`key stored for ${provider}`);
-        respond(200, { provider, path: voiceKeyFile(home) });
+        await writeVoiceKey(home, { provider: "gemini", key });
+        narrate("key stored for gemini");
+        respond(200, { provider: "gemini", path: voiceKeyFile(home) });
         return;
       }
       if (url.pathname === "/key/test") {

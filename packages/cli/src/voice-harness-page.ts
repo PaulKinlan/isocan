@@ -685,12 +685,10 @@ export function voicePage(facts: VoicePageFacts): string {
   <section class="panel">
     <h2>Key — kept by the harness, never by this page</h2>
     <select id="provider">
-      <option value="">auto (from the key's shape)</option>
       <option value="gemini">Gemini</option>
-      <option value="openai">OpenAI</option>
     </select>
     <div style="height:8px"></div>
-    <input id="key" type="password" placeholder="paste a Gemini or OpenAI API key" autocomplete="off">
+    <input id="key" type="password" placeholder="paste your Gemini API key" autocomplete="off">
     <div class="keyrow" style="margin-top:8px">
       <button id="save-key">Save key</button>
       <button id="test-key">Test key</button>
