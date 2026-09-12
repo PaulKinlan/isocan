@@ -6437,7 +6437,9 @@ button.mt-card:hover { border-color: var(--accent); }
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--s4);
-  min-block-size: 100dvb;
+  block-size: 100dvb;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   max-width: 640px;
   margin: 0 auto;
   padding: var(--s4);
@@ -6605,12 +6607,15 @@ button.mt-card:hover { border-color: var(--accent); }
   display: grid;
   gap: var(--s2);
   width: min(100%, 520px);
-  max-height: 108px;
+  max-height: 120px;
   overflow-y: auto;
   margin: 0;
-  padding: 0;
+  padding: var(--s3);
   list-style: none;
   text-align: left;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ink-muted) 6%, var(--card));
 }
 .voice-transcript:empty { display: none; }
 .voice-confirm {
@@ -6809,13 +6814,18 @@ button.mt-card:hover { border-color: var(--accent); }
 }
 .voice-keyrow button:disabled { opacity: 0.45; cursor: default; }
 
-.voice-log { list-style: none; margin: 0; padding: 0 0 var(--s3); max-height: 200px; overflow: auto; display: grid; gap: 0; }
+/* One scroll surface: the drawer scrolls, the log does not scroll inside it.
+   Two nested vertical tracks on one screen was the review's second finding. */
+.voice-log { list-style: none; margin: 0; padding: 0 0 var(--s3); display: grid; gap: 0; }
 .voice-log li {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--s2);
   min-width: 0;
+  /* A websocket URL or a serialised event is one long token; without this it
+     pushes a horizontal scrollbar across the whole drawer. */
+  overflow-wrap: anywhere;
   font-family: ui-monospace, monospace;
   font-size: var(--t-xs);
   line-height: 1.35;
@@ -6829,13 +6839,20 @@ button.mt-card:hover { border-color: var(--accent); }
 
 @media (max-width: 720px) {
   .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s3); }
+  .voice-quiet > summary { flex-wrap: wrap; row-gap: var(--s1); }
+  /* The marker stays on the label's line, and the summary takes its own: the
+     alternative was a lone "+" below two lines of truncated text. */
+  .voice-summary { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
+  .voice-session button { min-height: 44px; padding: var(--s2) var(--s5); }
+  .voice-confirm-acts button { min-height: 44px; }
+  .voice-drawers { padding-bottom: var(--s4); }
   .voice-hero { padding: var(--s4) 0; gap: var(--s3); }
   .voice-mic #listen { width: 96px; height: 96px; }
   .voice-glyph { width: 38px; height: 38px; }
   .voice-facts { grid-template-columns: minmax(0, 1fr); }
   .voice-transcript { max-height: 84px; }
   .voice-scale { display: none; }
-  .voice-drawers { max-height: 40dvb; }
+  .voice-drawers { max-height: 52dvb; }
 }
 
 @media (prefers-reduced-motion: reduce) {
