@@ -18,6 +18,8 @@ import {
   startLiveSession,
   createAcpAgent,
   planVoice,
+  enrolmentForVoice,
+  notEnrolledLine,
   readVoiceKey,
   readVoiceLog,
   resolveSpokenRef,
@@ -485,6 +487,45 @@ describe("the ACP face", () => {
     const agent = createAcpAgent({ name: "Voice", forward: async () => null, out: (m) => written.push(m) });
     await agent.handle({ jsonrpc: "2.0", id: 9, method: "session/teleport", params: {} });
     expect(written[0]).toMatchObject({ id: 9, error: { code: -32601 } });
+  });
+
+  it("says a refusal in its own words — the one naming the command that fixes it", async () => {
+    const written: unknown[] = [];
+    const refusal = notEnrolledLine("Voice", "prj_9");
+    const agent = createAcpAgent({ name: "Voice", forward: async () => ({ refused: refusal }), out: (m) => written.push(m) });
+    await agent.handle({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "session/prompt",
+      params: { sessionId: "s", prompt: "look at the checkout screen" },
+    });
+    const update = written.find((m) => (m as { method?: string }).method === "session/update") as {
+      params: { update: { content: { text: string } } };
+    };
+    // Verbatim, not paraphrased: a refusal is only useful if it carries the
+    // command, and the command is written in one place.
+    expect(update.params.update.content.text).toBe(refusal);
+    expect(update.params.update.content.text).toContain("isocan rc add Voice --harness voice --canvas prj_9");
+  });
+
+  it("resolves the canvas and the name from the enrolment record, not the environment", () => {
+    const rows = [
+      { canvasId: "prj_1", name: "Voice", harness: "voice" },
+      { canvasId: "prj_2", name: "Voice", harness: "voice" },
+      { canvasId: "prj_3", name: "Percy", harness: "pi" },
+    ];
+    // A hint that names a canvas the record knows wins.
+    expect(enrolmentForVoice(rows, { name: "Voice", canvas: "prj_2" })).toMatchObject({ canvasId: "prj_2" });
+    // A hint that matches nothing does not invent an answer: the record is
+    // the authority on what this agent answers on.
+    expect(enrolmentForVoice(rows, { name: "Voice", canvas: "prj_none" })).toMatchObject({ canvasId: "prj_1" });
+    // One row is the answer even when the name came in differently.
+    expect(enrolmentForVoice([rows[2]!, { canvasId: "prj_4", name: "Voice", harness: "voice" }], { name: "Whatever" })).toMatchObject(
+      { canvasId: "prj_4" },
+    );
+    // Another harness's rows are nobody's business here.
+    expect(enrolmentForVoice([rows[2]!], { name: "Voice" })).toBeNull();
+    expect(enrolmentForVoice([], { name: "Voice" })).toBeNull();
   });
 });
 
@@ -1132,6 +1173,11 @@ describe("the harness as the rc's adapter", () => {
       const turned = await isocan(["rc", "turn", "Voice", "look", "at", "the", "checkout", "screen"]);
       expect(turned.code, turned.stderr).toBe(0);
       expect(turned.stderr).toContain("turn ended — end_turn");
+      // WHICH PATH RAN is logged, not only said in the reply: the summons
+      // found a page already standing and attached to it. "Attached" and
+      // "started one" are different moments for the microphone, and the
+      // conversation alone cannot tell them apart.
+      expect(turned.stderr).toContain("attached to the voice harness already standing on port");
       const state = (await (await fetch(`${server.state.url}state`)).json()) as { lines: string[] };
       expect(state.lines.join("\n")).toContain("summoned by Voice");
       expect(state.lines.join("\n")).toContain("look at the checkout screen");

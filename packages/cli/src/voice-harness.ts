@@ -2929,7 +2929,7 @@ interface Rpc {
  * holding a 10-minute ceiling open on a room that may be empty.
  */
 export function createAcpAgent(options: {
-  forward: (summons: { name: string; prompt: string }) => Promise<{ url: string } | null>;
+  forward: (summons: { name: string; prompt: string }) => Promise<{ url?: string; refused?: string } | null>;
   name: string;
   out?: (message: unknown) => void;
 }): { handle: (message: Rpc) => Promise<void> } {
@@ -2965,6 +2965,14 @@ export function createAcpAgent(options: {
           case "session/prompt": {
             const prompt = promptText(params.prompt);
             const forwarded = await options.forward({ name: options.name, prompt }).catch(() => null);
+            // What went wrong is said in the refusal's OWN words: a refusal
+            // that paraphrases is a refusal that hides the command that fixes
+            // it, which is the whole of what it is for.
+            const text = forwarded?.refused
+              ? forwarded.refused
+              : forwarded?.url
+                ? `The voice harness is standing at ${forwarded.url} — the summons is in its conversation.`
+                : "The voice harness could not open its local page; run `isocan voice` where you are.";
             out({
               jsonrpc: "2.0",
               method: "session/update",
@@ -2972,12 +2980,7 @@ export function createAcpAgent(options: {
                 sessionId: params.sessionId,
                 update: {
                   sessionUpdate: "agent_message_chunk",
-                  content: {
-                    type: "text",
-                    text: forwarded
-                      ? `The voice harness is standing at ${forwarded.url} — the summons is in its conversation.`
-                      : "The voice harness could not open its local page; run `isocan voice` where you are.",
-                  },
+                  content: { type: "text", text },
                 },
               },
             });
@@ -3014,23 +3017,88 @@ function cliEntry(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "isocan.js");
 }
 
+/** A line on stderr: the adapter's stdout is JSON-RPC and nothing else. */
+function adapterLine(message: string): void {
+  process.stderr.write(`[${new Date().toISOString()}] [voice-adapter] ${message}\n`);
+}
+
+/**
+ * **Which canvas, and which name, from the enrolment record.**
+ *
+ * The rc's record is the authority on what this agent answers on: a summons
+ * carries a name and a canvas in its environment, and those are the enrolling
+ * caller's hint, not the fact. The row is the fact — it is what `rc add`
+ * wrote, it names the canvas the person enrolled the agent on, and it is the
+ * same row `isocan who` and the summons roster read.
+ *
+ * One agent may stand on several canvases, so a hint that matches a row is
+ * honoured; without a hint the name decides; and a single row is the answer
+ * rather than a guess.
+ */
+export function enrolmentForVoice(
+  rows: { canvasId: string; name: string; harness: string | null }[],
+  options: { name: string; canvas?: string },
+): { canvasId: string; name: string; harness: string | null } | null {
+  const mine = rows.filter((row) => row.harness === VOICE_HARNESS);
+  if (mine.length === 0) return null;
+  const onCanvas = options.canvas ? mine.filter((row) => row.canvasId === options.canvas) : [];
+  const pool = onCanvas.length > 0 ? onCanvas : mine;
+  const byName = pool.find((row) => row.name === options.name);
+  return byName ?? (pool.length === 1 ? pool[0]! : null);
+}
+
+/** The command that fixes "nothing can summon this", in full, with the
+ * canvas filled in when the caller knew one. A refusal that does not name its
+ * fix is a refusal somebody has to go and research. */
+export function notEnrolledLine(name: string, canvas?: string): string {
+  return (
+    `The voice harness is not enrolled here, so nothing can summon it.\n` +
+    `Enrol it, on the canvas it should answer on, with:\n` +
+    `  isocan rc add ${name} --harness ${VOICE_HARNESS} --canvas ${canvas ?? "<canvas id>"}\n` +
+    `(\`isocan ls --kind canvas\` lists the canvases; the enrolment is what makes the summons, the identity and the canvas resolve without environment variables.)`
+  );
+}
+
 /**
  * **Enough adapter to be invited.** A summons with no harness standing starts
  * one — detached, so it outlives the turn — and then hands the summons over.
- * `--canvas` and the identity travel with it, which is what makes the
- * operations the microphone sends this agent's.
+ * The canvas comes from the enrolment record, which is what makes the
+ * operations the microphone sends this agent's; the environment the rc
+ * injects is a hint that the record can correct.
+ *
+ * Which path ran — attached to a server already standing, or started one
+ * detached — is LOGGED, not only said in the reply: the difference is a
+ * microphone that was already open and one that opened just now, and it is
+ * invisible from the conversation alone.
  */
 export async function runVoiceAdapter(options: { home: string; name: string; canvas?: string }): Promise<void> {
+  const rows = await readRcAgents(options.home).catch(() => []);
+  const enrolled = enrolmentForVoice(rows, options);
+  const target = enrolled ? { name: enrolled.name, canvas: enrolled.canvasId } : null;
+  const refusal = target
+    ? null
+    : notEnrolledLine(options.name, options.canvas ?? process.env.ISOCAN_CANVAS ?? undefined);
+  if (refusal) adapterLine(`refused: ${refusal.split("\n")[0]}`);
+  else if (target && target.canvas !== options.canvas) {
+    adapterLine(`canvas resolved from the enrolment record: ${target.canvas} (the environment said ${options.canvas ?? "nothing"})`);
+  }
+
   const forward = async (summons: { name: string; prompt: string }) => {
+    if (!target) return { refused: refusal! };
     const standing = await standingVoiceServer(options.home);
-    const target = standing ?? (await startDetachedServer(options));
-    if (!target) return null;
-    await fetch(`http://127.0.0.1:${target.port}/summons`, {
+    const chosen = standing ?? (await startDetachedServer({ home: options.home, name: target.name, canvas: target.canvas }));
+    if (!chosen) return null;
+    adapterLine(
+      standing
+        ? `attached to the voice harness already standing on port ${chosen.port}`
+        : `started a voice harness detached on port ${chosen.port}`,
+    );
+    await fetch(`http://127.0.0.1:${chosen.port}/summons`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: summons.name, prompt: summons.prompt }),
     }).catch(() => {});
-    return { url: target.url };
+    return { url: chosen.url };
   };
   const agent = createAcpAgent({ forward, name: options.name });
   let buffer = "";
