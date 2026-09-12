@@ -485,6 +485,8 @@ describe("the Live API path", () => {
     const { resolveProjectInstructions, liveSetup: makeSetup, LIVE_MODEL: defModel } = await import("../src/voice-harness.ts");
     const testDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-agents-test-"));
     await fs.writeFile(path.join(testDir, "AGENTS.md"), "# Project Instructions\nAlways be honest.\n");
+    await fs.mkdir(path.join(testDir, ".isocan"), { recursive: true });
+    await fs.writeFile(path.join(testDir, ".isocan", "project.json"), JSON.stringify({ canvasId: "prj_1" }));
     await fs.writeFile(path.join(home, "dirs.json"), JSON.stringify({ [testDir]: "prj_1" }));
 
     const resolved = await resolveProjectInstructions(home, "prj_1");

@@ -13,6 +13,7 @@ import {
   drawingSvg,
   drawingViewBox,
   inkBounds,
+  itemKind,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
   type InkStroke,
@@ -156,10 +157,17 @@ export interface PlanContext {
   mainThreadId: string | null;
 }
 
-/** A spoken reference: a title prefix, or an ordinal ("the second screen"). */
+/** A spoken reference: an exact item id, a title prefix, or an ordinal ("the second screen"). */
 export function resolveSpokenRef(ref: string, items: ListedItem[]): ListedItem | null {
-  const wanted = ref.trim().toLowerCase().replace(/^the\s+/, "");
-  if (!wanted) return null;
+  const raw = ref.trim();
+  if (!raw) return null;
+  // 1. Direct match by item id (exact or prefix)
+  const exactId = items.filter((i) => i.id === raw || i.id.toLowerCase() === raw.toLowerCase());
+  if (exactId.length === 1) return exactId[0]!;
+  const prefixId = items.filter((i) => i.id.startsWith(raw) || i.id.toLowerCase().startsWith(raw.toLowerCase()));
+  if (prefixId.length === 1) return prefixId[0]!;
+
+  const wanted = raw.toLowerCase().replace(/^the\s+/, "");
   const ordinal = wanted.match(/^(first|second|third|fourth|fifth|last|newest|oldest)\b/);
   if (ordinal) {
     const ordered = [...items].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
@@ -777,16 +785,32 @@ export async function resolveProjectInstructions(
   let projectDir: string | null = null;
   for (const [dir, id] of Object.entries(dirs)) {
     if (id === canvasId) {
-      projectDir = dir;
-      break;
+      try {
+        const marker = JSON.parse(await fs.readFile(path.join(dir, ".isocan", "project.json"), "utf8"));
+        if (marker.canvasId === canvasId) {
+          projectDir = dir;
+          break;
+        }
+      } catch {}
     }
   }
   if (!projectDir) {
     const rcRows = await readRcAgents(home).catch(() => []);
     const match = rcRows.find((r) => r.canvasId === canvasId && r.cwd);
-    if (match) projectDir = match.cwd;
+    if (match) {
+      try {
+        const marker = JSON.parse(await fs.readFile(path.join(match.cwd, ".isocan", "project.json"), "utf8"));
+        if (marker.canvasId === canvasId) projectDir = match.cwd;
+      } catch {}
+    }
   }
-  if (!projectDir) projectDir = process.cwd();
+  if (!projectDir) {
+    try {
+      const marker = JSON.parse(await fs.readFile(path.join(process.cwd(), ".isocan", "project.json"), "utf8"));
+      if (marker.canvasId === canvasId) projectDir = process.cwd();
+    } catch {}
+  }
+  if (!projectDir) return null;
 
   const candidates = [
     path.join(projectDir, "AGENTS.md"),
@@ -1027,7 +1051,11 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
  * a spoken reference resolved against what is actually here, and a delta
  * turned into the absolute position `item.move` takes. A reference nobody can
  * resolve is REFUSED in words rather than guessed at. */
-export function resolveLivePlans(plans: PlannedOp[], items: ListedItem[]): { ready: PlannedOp[]; refused: string[] } {
+export function resolveLivePlans(
+  plans: PlannedOp[],
+  items: ListedItem[],
+  trashItems: ListedItem[] = [],
+): { ready: PlannedOp[]; refused: string[] } {
   const ready: PlannedOp[] = [];
   const refused: string[] = [];
   for (const plan of plans) {
@@ -1038,7 +1066,8 @@ export function resolveLivePlans(plans: PlannedOp[], items: ListedItem[]): { rea
     }
     const ref = typeof op.ref === "string" ? op.ref : null;
     if (ref !== null) {
-      const item = resolveSpokenRef(ref, items);
+      const candidateList = op.type === "item.restore" ? [...trashItems, ...items] : items;
+      const item = resolveSpokenRef(ref, candidateList);
       if (!item) {
         refused.push(`${plan.said} — I could not tell which one “${ref}” is`);
         continue;
@@ -1360,13 +1389,14 @@ async function applyPlan(
   plan: PlannedOp,
   ctx: PlanContext,
   onIo?: (status: "sent" | "ack" | "err", said: string, err?: string) => void,
-): Promise<void> {
+): Promise<{ seq?: number; target?: string; ack: string }> {
   const op = plan.op as { type: string; [key: string]: unknown };
   onIo?.("sent", plan.said);
   try {
+    let result: { seq?: number; target?: string; ack: string };
     switch (op.type) {
-      case "item.add":
-        await canvas.add({
+      case "item.add": {
+        const added = await canvas.add({
           title: String(op.title ?? "Note"),
           content: String(op.text ?? op.content ?? ""),
           mime: (op.mime as string) ?? "text/markdown",
@@ -1374,11 +1404,13 @@ async function applyPlan(
           ...(op.x !== undefined && op.y !== undefined ? { at: { x: Number(op.x), y: Number(op.y) } } : {}),
           ...(op.width !== undefined && op.height !== undefined ? { size: { width: Number(op.width), height: Number(op.height) } } : {}),
         });
+        result = { target: added.id, ack: `added ${added.title}` };
         break;
-      case "item.update":
+      }
+      case "item.update": {
         // The title is a `MetaPatch` field, not a property — `set()`'s property
         // bag would write a property NAMED title, which is a different act.
-        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.update",
           itemId: op.itemId as string,
           patch: {
@@ -1386,54 +1418,74 @@ async function applyPlan(
             ...(op.description !== undefined ? { description: String(op.description) } : {}),
           },
         });
+        result = { seq: ack.seq, target: op.itemId as string, ack: `updated ${op.itemId} (seq ${ack.seq})` };
         break;
-      case "item.move":
+      }
+      case "item.move": {
         await canvas.move(op.itemId as string, op.x as number, op.y as number);
+        result = { target: op.itemId as string, ack: `moved to ${op.x}, ${op.y}` };
         break;
-      case "item.resize":
-        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+      }
+      case "item.resize": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.resize",
           itemId: op.itemId as string,
           width: Math.round(Number(op.width ?? 320)),
           height: Math.round(Number(op.height ?? 240)),
         });
+        result = { seq: ack.seq, target: op.itemId as string, ack: `resized ${op.itemId} (seq ${ack.seq})` };
         break;
-      case "item.delete":
+      }
+      case "item.delete": {
         await canvas.remove(op.itemId as string);
+        result = { target: op.itemId as string, ack: `deleted ${op.itemId}` };
         break;
-      case "item.setCurrentVersion":
-        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+      }
+      case "item.setCurrentVersion": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.setCurrentVersion",
           itemId: op.itemId as string,
           versionId: op.versionId as string,
         });
+        result = { seq: ack.seq, target: op.itemId as string, ack: `switched version (seq ${ack.seq})` };
         break;
-      case "item.restore":
-        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+      }
+      case "item.restore": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.restore",
           itemId: op.itemId as string,
         });
+        result = { seq: ack.seq, target: op.itemId as string, ack: `restored ${op.itemId} (seq ${ack.seq})` };
         break;
-      case "thread.reply":
-        if (ctx.mainThreadId) await canvas.reply(ctx.mainThreadId, op.body as string);
-        else await canvas.notify(op.body as string);
+      }
+      case "thread.reply": {
+        let sentReply: { threadId: string; commentId: string };
+        if (ctx.mainThreadId) sentReply = await canvas.reply(ctx.mainThreadId, op.body as string);
+        else sentReply = await canvas.notify(op.body as string);
+        result = { target: sentReply.threadId, ack: `replied in thread ${sentReply.threadId}` };
         break;
-      case "item.comment":
-        await canvas.comment(op.itemId as string, op.body as string);
+      }
+      case "item.comment": {
+        const res = await canvas.comment(op.itemId as string, op.body as string);
+        result = { target: op.itemId as string, ack: `commented on ${op.itemId}` };
         break;
-      case "item.react":
-        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+      }
+      case "item.react": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.react",
           itemId: op.itemId as string,
           emoji: String(op.emoji),
           on: Boolean(op.on),
           ...(op.at ? { at: op.at as { x: number; y: number } } : {}),
         });
+        result = { seq: ack.seq, target: op.itemId as string, ack: `reacted ${op.emoji} on ${op.itemId} (seq ${ack.seq})` };
         break;
+      }
       default:
         throw new Error(`the voice harness has no way to send ${op.type}`);
     }
     onIo?.("ack", plan.said);
+    return result;
   } catch (err) {
     onIo?.("err", plan.said, (err as Error).message);
     throw err;
@@ -1870,7 +1922,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             if (page.readyState === page.OPEN) page.send(pcm);
           },
           onToolCall: async (name, args) => {
-            const items = await target.canvas.items();
+            const { canvas: snapCanvas } = await target.canvas.ctx.client.snapshot(target.canvas.id);
+            const items = Object.values(snapCanvas.items).map((item) => ({ ...item, kind: itemKind(item) }));
+            const trashItems = Object.values(snapCanvas.trash ?? {}).map((t) => ({ ...t.item, kind: itemKind(t.item) }));
+
             // 1. Read & Inspection tools:
             if (name === "read_canvas") {
               const summary = items.map((i) => ({
@@ -1878,11 +1933,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 title: i.title,
                 kind: i.kind,
                 position: { x: i.x, y: i.y, width: i.width, height: i.height },
+                currentVersionId: i.currentVersionId,
               }));
               const text = describeCanvas({ items, mainThreadId: target.mainThreadId });
               say({ text });
               recordToolLog({
                 type: "tool_call",
+                source: "live",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: true, count: items.length, answer: text },
@@ -1897,6 +1954,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 say({ text: err });
                 recordToolLog({
                   type: "tool_call",
+                  source: "live",
                   name,
                   args: args as Record<string, unknown>,
                   result: { ok: false, error: err },
@@ -1911,10 +1969,23 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   content = buf.toString("utf8");
                 }
               } catch {}
-              const answer = { id: item.id, title: item.title, kind: item.kind, content: content.slice(0, 1000) };
-              say({ text: `Item "${item.title}": ${content.slice(0, 150)}` });
+              const MAX_CONTENT_LEN = 4000;
+              const isTruncated = content.length > MAX_CONTENT_LEN;
+              const bodyText = isTruncated
+                ? content.slice(0, MAX_CONTENT_LEN) + `\n\n[... content truncated after ${MAX_CONTENT_LEN} chars; full length: ${content.length} bytes ...]`
+                : content;
+              const answer = {
+                id: item.id,
+                title: item.title,
+                kind: item.kind,
+                content: bodyText,
+                truncated: isTruncated,
+                fullLength: content.length,
+              };
+              say({ text: `Item "${item.title}": ${bodyText.slice(0, 150)}` });
               recordToolLog({
                 type: "tool_call",
+                source: "live",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: true, answer },
@@ -1948,19 +2019,32 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               return { ok: true, count: hits.length, items: summary };
             }
             if (name === "read_threads") {
-              const threads = await target.canvas.threads().catch(() => []);
-              const threadList = threads.map((t) => ({
+              const ref = args.item_ref ? String(args.item_ref) : null;
+              let targetItem: ListedItem | null = null;
+              if (ref) {
+                targetItem = resolveSpokenRef(ref, items);
+                if (!targetItem) {
+                  const err = `could not find item matching "${ref}"`;
+                  return { ok: false, error: err };
+                }
+              }
+              const allThreads = await target.canvas.threads().catch(() => []);
+              const filtered = targetItem
+                ? allThreads.filter((t) => t.anchorItemId === targetItem!.id)
+                : allThreads;
+              const threadList = filtered.map((t) => ({
                 id: t.id,
-                anchorItemId: t.anchorItemId,
+                anchor: { itemId: t.anchorItemId, x: t.x, y: t.y },
                 comments: t.comments.map((c) => ({ id: c.id, body: c.body, author: c.author?.name, at: c.createdAt })),
               }));
               recordToolLog({
                 type: "tool_call",
+                source: "live",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: true, count: threadList.length },
               });
-              return { ok: true, threads: threadList };
+              return { ok: true, count: threadList.length, threads: threadList };
             }
             if (name === "read_presence") {
               const sessions = await target.canvas.ctx.client.listSessions(target.canvas.id).catch(() => []);
@@ -1969,6 +2053,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               const liveSessions = sessions.map((s) => ({ who: s.label ?? s.actor.name, kind: s.harness ?? s.kind, status: s.status }));
               recordToolLog({
                 type: "tool_call",
+                source: "live",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: true, liveSessions, enrolled },
@@ -2031,6 +2116,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               say({ text: err });
               recordToolLog({
                 type: "tool_call",
+                source: "live",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: false, error: err },
@@ -2040,24 +2126,44 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
 
             // 2. Canvas mutation operations:
             const plan = planForCall(name, args as Record<string, unknown>);
-            const { ready, refused } = resolveLivePlans(plan.plans, items);
+            if (plan.plans.length === 0) {
+              const err = plan.what ?? `unknown tool: "${name}" is not in this harness's vocabulary`;
+              say({ text: err, state: err, bad: true });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: false, error: err },
+              });
+              return { ok: false, error: err };
+            }
+
+            const { ready, refused } = resolveLivePlans(plan.plans, items, trashItems);
             const sent: string[] = [];
             const failed: string[] = [...refused];
             for (const one of ready) {
               try {
-                await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId }, onIo);
+                const applied = await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId }, onIo);
                 sent.push(one.said);
                 narrate(`sent: ${one.said}`);
                 recordToolLog({
                   type: "tool_call",
+                  source: "live",
                   name,
                   args: args as Record<string, unknown>,
                   op: {
                     type: one.op.type,
                     said: one.said,
-                    ...("target" in one.op && (one.op as any).target ? { target: String((one.op as any).target) } : {}),
+                    ...(applied.target ? { target: applied.target } : {}),
                   },
-                  result: { ok: true, answer: one.said },
+                  result: {
+                    ok: true,
+                    answer: one.said,
+                    ack: applied.ack,
+                    ...(applied.seq !== undefined ? { seq: applied.seq } : {}),
+                    ...(applied.target ? { target: applied.target } : {}),
+                  },
                 });
               } catch (err) {
                 const msg = (err as Error).message;
@@ -2065,6 +2171,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 narrate(`refused: ${one.said} — ${msg}`);
                 recordToolLog({
                   type: "tool_call",
+                  source: "live",
                   name,
                   args: args as Record<string, unknown>,
                   op: { type: one.op.type, said: one.said },
@@ -2075,6 +2182,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             for (const r of refused) {
               recordToolLog({
                 type: "tool_call",
+                source: "live",
                 name,
                 args: args as Record<string, unknown>,
                 result: { ok: false, error: r },
