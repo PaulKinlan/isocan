@@ -145,6 +145,64 @@ export class LevelMeter {
   }
 }
 
+/**
+ * **A streaming resampler that is correct at every ratio, not just integer ones.**
+ *
+ * The first version indexed its carry buffer with `i * ratio + j` and summed
+ * over `j < ratio`. For a 48,000 Hz context the ratio is exactly 3 and every
+ * index lands on a sample; for 44,100 it is 2.75625, every index is a float,
+ * every lookup answers `undefined`, and the `?? 0` fallback turned the whole
+ * stream into zeros — 98% of the PCM in a real capture. The provider heard
+ * silence, so it never opened a turn, and the page looked broken: the
+ * silent-turn family, in one line.
+ *
+ * This walks the input with a window `ratio` samples wide and weights the two
+ * samples the window straddles by the fraction it covers — a box average, the
+ * same flavour the first version meant and never achieved. The window always
+ * covers exactly `ratio` of the input, at any ratio; the phase that survives
+ * a block boundary is kept, so the filter is continuous across worklet blocks.
+ *
+ * `ratio < 1` (a context under 16 kHz) is a browser oddity, but the same
+ * window arithmetic covers it without a special case.
+ */
+export class Resampler {
+  private carry: number[] = [];
+  /** Where the next window starts, in input samples, modulo the buffer. */
+  private position = 0;
+
+  constructor(readonly ratio: number) {}
+
+  /** Feed one worklet block; answer the completed 16 kHz PCM, if any. */
+  push(input: Float32Array): Int16Array {
+    this.carry.push(...input);
+    const out: number[] = [];
+    const ratio = this.ratio;
+    // A window is complete once its last sample is in the buffer.
+    while (this.position + ratio <= this.carry.length + 1e-9) {
+      const start = this.position;
+      const end = start + ratio;
+      const first = Math.floor(start);
+      const last = Math.floor(end);
+      let sum = 0;
+      // The sample the window opens on, by its remaining fraction.
+      sum += this.carry[first]! * (Math.min(end, first + 1) - start);
+      // Whole samples inside the window.
+      for (let j = first + 1; j < last; j++) sum += this.carry[j]!;
+      // The sample the window closes on, by its covered fraction.
+      if (end > last) sum += this.carry[last]! * (end - last);
+      const value = Math.max(-1, Math.min(1, sum / ratio));
+      out.push(value < 0 ? value * 0x8000 : value * 0x7fff);
+      this.position = end;
+    }
+    // Everything before the next window's start is spent; the fraction of a
+    // sample it is mid-way through stays in the buffer and in the phase.
+    const spent = Math.floor(this.position + 1e-9);
+    this.carry.splice(0, spent);
+    this.position -= spent;
+    return Int16Array.from(out);
+  }
+}
+
 export interface Capture {
   path: string;
   deviceId: string;
@@ -198,24 +256,12 @@ export async function capture(
 
   const source = context.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(context, "tap");
-  const carry: number[] = [];
-  const ratio = context.sampleRate / 16000;
+  const resampler = new Resampler(context.sampleRate / 16000);
 
   node.port.onmessage = (message: MessageEvent<Float32Array>) => {
     if (held.muted) return;
-    carry.push(...message.data);
-    const whole = Math.floor(carry.length / ratio) * ratio;
-    if (whole === 0) return;
-    const pcm = new Int16Array(whole / ratio);
-    for (let i = 0; i < pcm.length; i++) {
-      // One sample per output step, averaged over the step: dropping samples
-      // instead of averaging is what makes a resampled voice sound metallic.
-      let sum = 0;
-      for (let j = 0; j < ratio; j++) sum += carry[i * ratio + j] ?? 0;
-      const value = Math.max(-1, Math.min(1, sum / ratio));
-      pcm[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
-    }
-    carry.splice(0, whole);
+    const pcm = resampler.push(message.data);
+    if (pcm.length === 0) return;
     onFrame(pcm);
   };
   source.connect(node);
