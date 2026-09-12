@@ -728,6 +728,12 @@ describe("the Live API path", () => {
       providerSocket.emit({ setupComplete: {} });
       await new Promise((r) => setTimeout(r, 50));
 
+      // The turn boundary, recorded as the provider reported it. Audio that
+      // never reached the model produces no turnComplete at all, so this line
+      // in /log is the difference between a silent session and a slow one.
+      providerSocket.emit({ serverContent: { turnComplete: true } });
+      await new Promise((r) => setTimeout(r, 30));
+
       // 1. read_canvas
       providerSocket.emit({
         toolCall: {
@@ -840,6 +846,9 @@ describe("the Live API path", () => {
       expect(renameLog).toBeDefined();
       expect(renameLog.result.ok).toBe(true);
       expect(renameLog.op.type).toBe("item.update");
+
+      const turnLog = logRes.entries.find((e: any) => e.event === "turn_complete");
+      expect(turnLog, "the provider's turn boundary is in the log").toBeDefined();
 
       clientWs.close();
     } finally {

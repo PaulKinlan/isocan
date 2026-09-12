@@ -1587,6 +1587,12 @@ export function startLiveSession(options: {
         }
       }
       if (content.interrupted) callbacks.onState?.("the model was interrupted", false);
+      // **A turn boundary, as the provider reported it.** This is the one
+      // signal that says the model heard a whole utterance; without it a
+      // silent session and a slow one look identical in the log, which is
+      // exactly how a broken resampler spent a day disguised as a UI problem.
+      // Recorded, never inferred from a frame counter.
+      if (content.turnComplete) callbacks.onEvent?.("turn_complete", {});
     }
     if (message.toolCall?.functionCalls) {
       const responses: Record<string, unknown>[] = [];
