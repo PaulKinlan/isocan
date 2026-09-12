@@ -200,7 +200,7 @@ describe("what a sentence means", () => {
       body: "? which of the two we keep",
     });
     expect(planVoice("comment on Checkout screen: the padding is wrong", ctx).plans[0]!.op).toMatchObject({
-      type: "item.comment",
+      type: "thread.create",
       itemId: "itm_1",
       body: "the padding is wrong",
     });
@@ -260,6 +260,32 @@ describe("what a sentence means", () => {
     const { plans, what } = planForCall("add_item", { url: "not a url" });
     expect(plans).toEqual([]);
     expect(what).toContain("not a web address");
+  });
+
+  it("plans the command surface as the engine's own operations", () => {
+    const items = [item("Checkout screen", "itm_1")];
+    const version = resolveLivePlans(planForCall("item_add_version", { item_ref: "Checkout", content: "v2" }).plans, items);
+    expect(version.ready[0]!.op).toMatchObject({ type: "item.addVersion", itemId: "itm_1", body: "v2" });
+    expect(version.ready[0]!.said).toBe('add a version to "Checkout screen"');
+
+    const thread = resolveLivePlans(planForCall("thread_create", { item_ref: "Checkout", body: "let's talk" }).plans, items);
+    expect(thread.ready[0]!.op).toMatchObject({ type: "thread.create", itemId: "itm_1", body: "let's talk" });
+
+    const main = planForCall("thread_set_main", { thread_id: "thr_1" });
+    expect(main.plans[0]!.op).toMatchObject({ type: "thread.setMain", threadId: "thr_1" });
+
+    const edit = planForCall("comment_update", { thread_id: "thr_1", comment_id: "cmt_1", body: "fixed" });
+    expect(edit.plans[0]!.op).toMatchObject({ type: "comment.update", threadId: "thr_1", commentId: "cmt_1", body: "fixed" });
+
+    expect(planForCall("notify", { text: "shipping" }).plans[0]!.op).toMatchObject({ type: "thread.reply", body: "shipping", notify: true });
+    expect(planForCall("actor_set_color", { color: "#00ff00" }).plans[0]!.op).toMatchObject({ type: "actor.setColor", color: "#00ff00" });
+    expect(planForCall("actor_set_mark", { mark: "🦊" }).plans[0]!.op).toMatchObject({ type: "actor.setMark", mark: "🦊" });
+    expect(planForCall("agent_enroll", { actor_id: "usr_2", name: "Codex" }).plans[0]!.op).toMatchObject({
+      type: "agent.enroll",
+      actorId: "usr_2",
+      agentName: "Codex",
+    });
+    expect(planForCall("agent_withdraw", { actor_id: "usr_2" }).plans[0]!.op).toMatchObject({ type: "agent.withdraw", actorId: "usr_2" });
   });
 
   it("refuses to guess which of two things you meant, and says so", () => {

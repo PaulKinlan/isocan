@@ -17,6 +17,9 @@ import {
   itemKind,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
+  newCommentId,
+  newThreadId,
+  newVersionId,
   normalizeSiteUrl,
   siteLabel,
   type InkStroke,
@@ -365,7 +368,7 @@ export function planVoice(text: string, ctx: PlanContext): { plans: PlannedOp[];
     const item = resolveSpokenRef(m[1]!, ctx.items);
     if (!item) return { plans: [], what: `I could not tell which one “${m[1]}” is.` };
     return {
-      plans: [{ op: { type: "item.comment", itemId: item.id, body: m[2]!.trim() }, said: `commented on ${quick(item)}` }],
+      plans: [{ op: { type: "thread.create", itemId: item.id, body: m[2]!.trim() }, said: `commented on ${quick(item)}` }],
     };
   }
 
@@ -600,6 +603,143 @@ export const LIVE_TOOLS = [
       type: "OBJECT",
       properties: { item_ref: { type: "STRING", description: "The item title, prefix, or id to comment on." }, text: { type: "STRING", description: "The comment text." } },
       required: ["item_ref", "text"],
+    },
+  },
+  {
+    name: "item_add_version",
+    description:
+      "Add a NEW version of content to an existing item — a checkpoint the person can switch back to. Use for " +
+      "'add a version', 'save this as another version', 'attach this text to X'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING", description: "The item title, prefix, or id." },
+        content: { type: "STRING", description: "The new version's full text/markdown." },
+        filename: { type: "STRING", description: "Optional filename for the version." },
+        mime: { type: "STRING", description: "Optional MIME type (default text/markdown)." },
+      },
+      required: ["item_ref", "content"],
+    },
+  },
+  {
+    name: "thread_create",
+    description:
+      "Start a new conversation thread — anchored to an item (item_ref) or at a canvas point (x, y). Use for " +
+      "'start a thread about X', 'open a discussion here', 'make a note on X'. For a comment on an item, comment_on_item is the same act.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        body: { type: "STRING", description: "The first comment in the thread." },
+        item_ref: { type: "STRING", description: "Item to anchor the thread to." },
+        x: { type: "NUMBER", description: "Canvas x if not anchored to an item." },
+        y: { type: "NUMBER", description: "Canvas y if not anchored to an item." },
+        main: { type: "BOOLEAN", description: "Make this the canvas's main Chat thread (only when none exists)." },
+      },
+      required: ["body"],
+    },
+  },
+  {
+    name: "thread_set_anchor",
+    description: "Move a thread's pin: anchor it to an item, or to a point. Use for 'anchor that thread to X', 'move the discussion to X'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        thread_id: { type: "STRING", description: "The thread to move." },
+        item_ref: { type: "STRING", description: "Item to anchor it to (omit for a point)." },
+        x: { type: "NUMBER" },
+        y: { type: "NUMBER" },
+      },
+      required: ["thread_id"],
+    },
+  },
+  {
+    name: "thread_set_main",
+    description: "Make a thread the canvas's main Chat thread — where `notify` and the Chat panel read and write. Use for 'make this the main thread'.",
+    parameters: {
+      type: "OBJECT",
+      properties: { thread_id: { type: "STRING", description: "The thread to promote." } },
+      required: ["thread_id"],
+    },
+  },
+  {
+    name: "thread_delete",
+    description: "Delete a conversation thread (undoable). Use for 'delete that thread', 'remove the discussion'.",
+    parameters: {
+      type: "OBJECT",
+      properties: { thread_id: { type: "STRING", description: "The thread to delete." } },
+      required: ["thread_id"],
+    },
+  },
+  {
+    name: "comment_update",
+    description: "Rewrite a comment you wrote — a working note that changes as the work does. Use for 'edit that comment', 'change my comment to …'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        thread_id: { type: "STRING", description: "The thread the comment is in." },
+        comment_id: { type: "STRING", description: "The comment to rewrite." },
+        body: { type: "STRING", description: "The new text." },
+      },
+      required: ["thread_id", "comment_id", "body"],
+    },
+  },
+  {
+    name: "notify",
+    description: "Say something in the canvas Chat (the main thread), so parked agents and people read it. Use for 'tell everyone', 'post in the Chat'.",
+    parameters: {
+      type: "OBJECT",
+      properties: { text: { type: "STRING", description: "What to post." } },
+      required: ["text"],
+    },
+  },
+  {
+    name: "actor_set_color",
+    description: "Change the colour this agent's presence wears on the canvas. Use for 'make me green', 'change my colour to blue'.",
+    parameters: {
+      type: "OBJECT",
+      properties: { color: { type: "STRING", description: "A CSS colour (hex or name)." } },
+      required: ["color"],
+    },
+  },
+  {
+    name: "actor_set_mark",
+    description: "Change the emoji mark this agent's presence wears instead of its initial. Use for 'make my mark a fox', 'set my mark to 🔥'.",
+    parameters: {
+      type: "OBJECT",
+      properties: { mark: { type: "STRING", description: "An emoji." } },
+      required: ["mark"],
+    },
+  },
+  {
+    name: "actor_join",
+    description:
+      "Fold another actor this machine owns into this one, so both names answer as the same presence. Use only when the person " +
+      "names the other actor explicitly ('join my other name', 'merge those two').",
+    parameters: {
+      type: "OBJECT",
+      properties: { other_actor_id: { type: "STRING", description: "The actor id that should stop answering on its own." } },
+      required: ["other_actor_id"],
+    },
+  },
+  {
+    name: "agent_enroll",
+    description: "Enrol another agent on this canvas so it can be summoned by name. Use for 'enrol Codex', 'add that agent to this canvas'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        actor_id: { type: "STRING", description: "The agent's actor id." },
+        name: { type: "STRING", description: "The name it answers to." },
+      },
+      required: ["actor_id", "name"],
+    },
+  },
+  {
+    name: "agent_withdraw",
+    description: "Withdraw an enrolled agent from this canvas. Use for 'withdraw that agent', 'remove it from the canvas'.",
+    parameters: {
+      type: "OBJECT",
+      properties: { actor_id: { type: "STRING", description: "The agent's actor id." } },
+      required: ["actor_id"],
     },
   },
   {
@@ -996,7 +1136,95 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
     case "ask":
       return { plans: [{ op: { type: "thread.reply", body: `? ${text}` }, said: `asked: ${text}` }] };
     case "comment_on_item":
-      return { plans: [{ op: { type: "item.comment", ref, body: text }, said: `commented on ${ref}` }] };
+      return { plans: [{ op: { type: "thread.create", ref, body: text }, said: `commented on ${ref}` }] };
+    case "item_add_version": {
+      const itemRef = typeof args.item_ref === "string" ? args.item_ref : "";
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.addVersion",
+              ref: itemRef,
+              body: String(args.content ?? args.text ?? ""),
+              ...(args.filename !== undefined ? { filename: String(args.filename) } : {}),
+              ...(args.mime !== undefined ? { mime: String(args.mime) } : {}),
+            },
+            said: `add a version to ${itemRef}`,
+          },
+        ],
+      };
+    }
+    case "thread_create": {
+      const itemRef = typeof args.item_ref === "string" && args.item_ref !== "" ? args.item_ref : undefined;
+      const body = String(args.body ?? args.text ?? "");
+      return {
+        plans: [
+          {
+            op: {
+              type: "thread.create",
+              ...(itemRef !== undefined ? { ref: itemRef } : {}),
+              body,
+              ...(args.x !== undefined ? { x: Number(args.x) } : {}),
+              ...(args.y !== undefined ? { y: Number(args.y) } : {}),
+              ...(args.main === true ? { main: true } : {}),
+            },
+            said: itemRef ? `start a thread on ${itemRef}` : "start a thread",
+          },
+        ],
+      };
+    }
+    case "thread_set_anchor":
+      return {
+        plans: [
+          {
+            op: {
+              type: "thread.setAnchor",
+              threadId: String(args.thread_id ?? ""),
+              ...(typeof args.item_ref === "string" && args.item_ref !== "" ? { ref: args.item_ref } : {}),
+              ...(args.x !== undefined ? { x: Number(args.x) } : {}),
+              ...(args.y !== undefined ? { y: Number(args.y) } : {}),
+            },
+            said: `move thread ${args.thread_id}`,
+          },
+        ],
+      };
+    case "thread_set_main":
+      return { plans: [{ op: { type: "thread.setMain", threadId: String(args.thread_id ?? "") }, said: `make ${args.thread_id} the main thread` }] };
+    case "thread_delete":
+      return { plans: [{ op: { type: "thread.delete", threadId: String(args.thread_id ?? "") }, said: `delete thread ${args.thread_id}` }] };
+    case "comment_update":
+      return {
+        plans: [
+          {
+            op: {
+              type: "comment.update",
+              threadId: String(args.thread_id ?? ""),
+              commentId: String(args.comment_id ?? ""),
+              body: String(args.body ?? args.text ?? ""),
+            },
+            said: `edit comment ${args.comment_id}`,
+          },
+        ],
+      };
+    case "notify":
+      return { plans: [{ op: { type: "thread.reply", body: text, notify: true }, said: "post in the Chat" }] };
+    case "actor_set_color":
+      return { plans: [{ op: { type: "actor.setColor", color: String(args.color ?? "") }, said: `change my colour to ${args.color}` }] };
+    case "actor_set_mark":
+      return { plans: [{ op: { type: "actor.setMark", mark: String(args.mark ?? "") }, said: `make my mark ${args.mark}` }] };
+    case "actor_join":
+      return { plans: [{ op: { type: "actor.join", from: String(args.other_actor_id ?? "") }, said: `join ${args.other_actor_id}` }] };
+    case "agent_enroll":
+      return {
+        plans: [
+          {
+            op: { type: "agent.enroll", actorId: String(args.actor_id ?? ""), agentName: String(args.name ?? "") },
+            said: `enrol ${args.name}`,
+          },
+        ],
+      };
+    case "agent_withdraw":
+      return { plans: [{ op: { type: "agent.withdraw", actorId: String(args.actor_id ?? "") }, said: `withdraw ${args.actor_id}` }] };
     case "drawing_add": {
       const color = String(args.color ?? "#23262b");
       const strokeWidth = Number(args.width ?? 3);
@@ -1137,9 +1365,30 @@ export function describeMintedOp(op: { type: string; [key: string]: unknown }, t
       return `switch "${ref}" to version ${op.versionId ?? op.versionRef}`;
     case "item.react":
       return `${op.on === false ? "remove" : "add"} reaction ${op.emoji ?? ""} on "${ref}"`;
-    case "thread.comment":
-    case "item.comment":
-      return `comment on "${ref}"`;
+    case "thread.create":
+      return `start a thread on "${ref}"`;
+    case "item.addVersion":
+      return `add a version to "${ref}"`;
+    case "thread.reply":
+      return op.notify === true ? "post in the Chat" : `reply in thread ${op.threadId ?? ""}`;
+    case "thread.setAnchor":
+      return `move thread ${op.threadId} to "${ref}"`;
+    case "thread.setMain":
+      return `make thread ${op.threadId} the main thread`;
+    case "thread.delete":
+      return `delete thread ${op.threadId}`;
+    case "comment.update":
+      return `edit comment ${op.commentId}`;
+    case "actor.setColor":
+      return `change my colour to ${op.color}`;
+    case "actor.setMark":
+      return `make my mark ${op.mark}`;
+    case "actor.join":
+      return `join ${op.from} into this actor`;
+    case "agent.enroll":
+      return `enrol ${op.agentName}`;
+    case "agent.withdraw":
+      return `withdraw ${op.actorId}`;
     case "drawing.add":
       return `draw "${op.title ?? "Drawing"}" with the pen tool`;
     case "trash.empty":
@@ -1577,18 +1826,6 @@ async function applyPlan(
         result = { seq: ack.seq, target: op.itemId as string, ack: `restored "${nameOf(op.itemId)}" (seq ${ack.seq})` };
         break;
       }
-      case "thread.reply": {
-        let sentReply: { threadId: string; commentId: string };
-        if (ctx.mainThreadId) sentReply = await canvas.reply(ctx.mainThreadId, op.body as string);
-        else sentReply = await canvas.notify(op.body as string);
-        result = { target: sentReply.threadId, ack: `replied in thread ${sentReply.threadId}` };
-        break;
-      }
-      case "item.comment": {
-        const res = await canvas.comment(op.itemId as string, op.body as string);
-        result = { target: op.itemId as string, ack: `commented on "${nameOf(op.itemId)}"` };
-        break;
-      }
       case "item.react": {
         const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.react",
@@ -1598,6 +1835,132 @@ async function applyPlan(
           ...(op.at ? { at: op.at as { x: number; y: number } } : {}),
         });
         result = { seq: ack.seq, target: op.itemId as string, ack: `reacted ${op.emoji} on "${nameOf(op.itemId)}" (seq ${ack.seq})` };
+        break;
+      }
+      case "thread.reply": {
+        let sentReply: { threadId: string; commentId: string };
+        if (op.notify === true) sentReply = await canvas.notify(op.body as string);
+        else if (ctx.mainThreadId) sentReply = await canvas.reply(ctx.mainThreadId, op.body as string);
+        else sentReply = await canvas.notify(op.body as string);
+        result = {
+          target: sentReply.threadId,
+          ack: op.notify === true ? "posted in the Chat" : `replied in thread ${sentReply.threadId}`,
+        };
+        break;
+      }
+      case "thread.create": {
+        if (op.itemId !== undefined && op.itemId !== null) {
+          const res = await canvas.comment(op.itemId as string, String(op.body ?? ""));
+          result = { target: res.threadId, ack: `started a thread on "${nameOf(op.itemId)}"` };
+          break;
+        }
+        const threadId = newThreadId();
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "thread.create",
+          threadId,
+          x: Number(op.x ?? 0),
+          y: Number(op.y ?? 0),
+          anchorItemId: null,
+          comment: { id: newCommentId(), body: String(op.body ?? "") },
+        });
+        result = { seq: ack.seq, target: threadId, ack: `started a thread (seq ${ack.seq})` };
+        break;
+      }
+      case "item.addVersion": {
+        const mime = String(op.mime ?? "text/markdown");
+        const filename = String(op.filename ?? "version.md");
+        const upload = await canvas.ctx.client.uploadBlob(
+          canvas.id,
+          Buffer.from(String(op.body ?? ""), "utf8"),
+          mime,
+          filename,
+        );
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "item.addVersion",
+          itemId: op.itemId as string,
+          version: { id: newVersionId(), blobHash: upload.blobHash, mimeType: mime, filename, size: upload.size },
+        });
+        result = { seq: ack.seq, target: op.itemId as string, ack: `added a version to "${nameOf(op.itemId)}" (seq ${ack.seq})` };
+        break;
+      }
+      case "thread.setAnchor": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "thread.setAnchor",
+          threadId: String(op.threadId),
+          anchorItemId: (op.itemId as string) ?? null,
+          x: Number(op.x ?? 0),
+          y: Number(op.y ?? 0),
+        });
+        result = { seq: ack.seq, target: String(op.threadId), ack: `anchored thread ${op.threadId} (seq ${ack.seq})` };
+        break;
+      }
+      case "thread.setMain": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "thread.setMain",
+          threadId: String(op.threadId),
+        });
+        result = { seq: ack.seq, target: String(op.threadId), ack: `made ${op.threadId} the main thread (seq ${ack.seq})` };
+        break;
+      }
+      case "thread.delete": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "thread.delete",
+          threadId: String(op.threadId),
+        });
+        result = { seq: ack.seq, target: String(op.threadId), ack: `deleted thread ${op.threadId} (seq ${ack.seq})` };
+        break;
+      }
+      case "comment.update": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "comment.update",
+          threadId: String(op.threadId),
+          commentId: String(op.commentId),
+          body: String(op.body ?? ""),
+        });
+        result = { seq: ack.seq, target: String(op.commentId), ack: `edited comment ${op.commentId} (seq ${ack.seq})` };
+        break;
+      }
+      case "actor.setColor": {
+        const actorId = canvas.ctx.actor.id;
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "actor.setColor",
+          actorId,
+          color: String(op.color),
+        });
+        result = { seq: ack.seq, target: actorId, ack: `colour set to ${op.color} (seq ${ack.seq})` };
+        break;
+      }
+      case "actor.setMark": {
+        const actorId = canvas.ctx.actor.id;
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "actor.setMark",
+          actorId,
+          mark: String(op.mark),
+        });
+        result = { seq: ack.seq, target: actorId, ack: `mark set to ${op.mark} (seq ${ack.seq})` };
+        break;
+      }
+      case "actor.join": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "actor.join",
+          from: String(op.from),
+          into: canvas.ctx.actor.id,
+        });
+        result = { seq: ack.seq, target: String(op.from), ack: `joined ${op.from} into this actor (seq ${ack.seq})` };
+        break;
+      }
+      case "agent.enroll": {
+        const agent = { id: String(op.actorId), name: String(op.agentName ?? op.actorId) };
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, { type: "agent.enroll", agent });
+        result = { seq: ack.seq, target: agent.id, ack: `enrolled ${agent.name} (seq ${ack.seq})` };
+        break;
+      }
+      case "agent.withdraw": {
+        const ack = await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "agent.withdraw",
+          actorId: String(op.actorId),
+        });
+        result = { seq: ack.seq, target: String(op.actorId), ack: `withdrew ${op.actorId} (seq ${ack.seq})` };
         break;
       }
       default:
