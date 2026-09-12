@@ -176,8 +176,16 @@ export async function capture(
 ): Promise<Capture> {
   // `exact` because "prefer this one" silently gives you the system default,
   // which is the bug being fixed here.
+  // Echo cancellation and noise suppression are REQUIRED for a voice loop:
+  // without them the microphone hears the speaker and the model answers
+  // itself. The browser's own processing is the right first cut.
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    audio: {
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
     video: false,
   });
   const track = stream.getAudioTracks()[0];
