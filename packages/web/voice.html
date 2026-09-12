@@ -26,6 +26,11 @@
     <div class="voice">
       <header class="voice-head">
         <h1>Voice</h1>
+        <!-- The build this page was served from: Paul uses it to know he is
+             testing the right branch. Vite injects `__VOICE_BUILD_INFO__` on
+             the integration build; a build without it says so rather than
+             showing a tag that is not true. -->
+        <span class="voice-build" id="build-tag" title="the build this page was served from"></span>
       </header>
 
       <section class="voice-hero" id="hero" data-state="idle" data-activity="idle" aria-label="Microphone">
@@ -58,6 +63,17 @@
         </div>
 
         <ol class="voice-transcript" id="transcript" aria-live="polite" aria-label="Transcript"></ol>
+
+        <!-- The permission gate, when the harness asks. It is not a dialog on
+             purpose: it sits where the microphone is, it says what the agent
+             wants to do, and it waits. -->
+        <section class="voice-confirm" id="confirm" hidden aria-live="assertive">
+          <p class="voice-confirm-what" id="confirm-what"></p>
+          <div class="voice-confirm-acts">
+            <button id="confirm-allow" type="button">Allow</button>
+            <button id="confirm-deny" type="button">Deny</button>
+          </div>
+        </section>
       </section>
 
       <div class="voice-drawers">
@@ -67,6 +83,12 @@
             <span class="voice-summary" id="connection-summary">unknown</span>
           </summary>
           <section class="voice-facts-strip" aria-label="Connection">
+            <div class="voice-setup" id="setup" hidden>
+              <h3>Set this up</h3>
+              <p class="voice-hint" id="setup-note"></p>
+              <ul class="voice-steps" id="setup-steps"></ul>
+            </div>
+
             <dl class="voice-facts">
               <div>
                 <dt>Canvas</dt>
@@ -96,12 +118,6 @@
               </div>
             </dl>
 
-            <div class="voice-setup" id="setup" hidden>
-              <h3>Set this up</h3>
-              <p class="voice-hint" id="setup-note"></p>
-              <ul class="voice-steps" id="setup-steps"></ul>
-            </div>
-
             <p class="voice-bad" id="complaint" hidden></p>
           </section>
         </details>
@@ -129,7 +145,7 @@
 
         <details class="voice-quiet" id="log-panel">
           <summary>
-            Tool calls
+            <span class="voice-summary-first">Tool calls</span>
             <button id="copy-log" type="button">Copy</button>
           </summary>
           <ol class="voice-log" id="log"></ol>
