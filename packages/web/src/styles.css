@@ -509,38 +509,6 @@ img { height: auto; }
     filter 0.14s ease;
 }
 /**
- * **Taken down: still here, and visibly not open** (operator phase 2; journey
- * 4 step 3 — *the canvas is there, greyed, with the same sentence, and it does
- * not open*).
- *
- * Greyed rather than hidden, because a canvas that vanished from its owner's
- * own list is indistinguishable from one she lost. Greyed rather than merely
- * annotated, because the card has no link in it any more and a card that looks
- * clickable and is not is a worse lie than a card that looks disabled.
- *
- * The cursor is the tell that costs nothing: `default`, not `pointer`, on the
- * whole card. The hover lift below still applies — the peek still opens, and
- * what happened here before it came down is exactly what somebody reading this
- * card wants.
- */
-.canvas-card.taken-down {
-  background: var(--chip);
-  cursor: default;
-}
-.canvas-card.taken-down h3 {
-  color: var(--ink-soft);
-}
-/** The home's own sentence, in the place the description would be. Not
- * `danger`-coloured: this is an explanation, not an error, and painting it red
- * would tell the owner she did something wrong. */
-.card-taken-down {
-  margin: 4px 0;
-  color: var(--ink);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-/**
  * **Lifted: nearer, not merely highlighted.**
  *
  * Hover and focus are one state here, because focus is the second way the
@@ -3187,49 +3155,6 @@ button.mt-card:hover { border-color: var(--accent); }
 }
 .wb-dismiss:hover { color: var(--ink); background: var(--chip); }
 
-/* Whose word wakes it, the owner's one control on their own agent's row
-   (owner-only summons): a quiet word, like Dismiss — widening spends the
-   reader's own tokens, so it is offered, never pressed on anybody. */
-.wb-listen {
-  flex: none; border: 1px solid var(--line); background: none; cursor: pointer;
-  color: var(--ink-soft); font: inherit; font-size: 11px; line-height: 1.2;
-  padding: 1px 6px; border-radius: 999px; white-space: nowrap;
-}
-.wb-listen:hover { color: var(--ink); background: var(--chip); }
-.wb-listen.on { color: var(--ink); background: var(--chip); border-color: var(--ink-soft); }
-
-/* **The gate as a list of people** (#272 phase 2), under the row rather than
-   in a dialog: the row's one line says what the gate IS, and a modal would
-   take the reader away from it at the moment they are changing it. */
-.gate-panel {
-  display: flex; flex-direction: column; gap: 3px;
-  margin: 4px 0 2px 20px; padding: 6px 8px;
-  border: 1px solid var(--line); border-radius: 6px; background: var(--chip);
-  font-size: 11px; color: var(--ink-soft);
-}
-.gate-panel label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.gate-panel input[type="checkbox"] { margin: 0; }
-.gate-panel em { font-style: normal; color: var(--ink-muted); margin-left: auto; }
-.gate-panel select { font: inherit; font-size: 11px; background: none; color: inherit; border: 1px solid var(--line); border-radius: 4px; }
-.gate-anyone { font-weight: 600; color: var(--ink); }
-.gate-note { margin: 2px 0; color: var(--ink-muted); }
-.gate-span { margin-top: 3px; padding-top: 4px; border-top: 1px solid var(--line); }
-
-/* **The refusal is the control** (#272 phase 1). Under the message an agent's
-   gate turned away — the owner gets the two buttons, everybody else gets the
-   words the rc already wrote, and after a grant the same place says the gate
-   moved so the refusal above stops reading as true. */
-.gate-under { margin: 3px 0 0; font-size: 11px; }
-.gate-grant { display: flex; align-items: center; gap: 6px; margin: 0; flex-wrap: wrap; }
-.gate-grant button {
-  border: 1px solid var(--line); background: none; cursor: pointer;
-  color: var(--ink-soft); font: inherit; font-size: 11px; line-height: 1.2;
-  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
-}
-.gate-grant button:hover { color: var(--ink); background: var(--chip); }
-.gate-grant select { font: inherit; font-size: 11px; background: none; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 4px; }
-.gate-granted { margin: 0; color: var(--ink-muted); }
-
 /* Follow's toggle, in the Chat's own header because that is what it follows.
    Quiet when off and wearing the accent when on: this moves the canvas on
    somebody's behalf, so whether it is armed has to be readable at a glance
@@ -3532,11 +3457,8 @@ button.mt-card:hover { border-color: var(--accent); }
 
 .minimap-dock {
   position: absolute; bottom: var(--edge); z-index: var(--z-float);
-  /* left comes from the component: it steps aside for a docked panel. And
-     `bottom` eases too, because below 460 an unfold also lifts the map clear
-     of the zoom row, and a map that jumped up while it slid in would be two
-     motions where there is one. */
-  transition: left 0.22s cubic-bezier(0.2, 0.8, 0.3, 1), bottom 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  /* left comes from the component: it steps aside for a docked panel. */
+  transition: left 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
   /* …but not on the way in. Until the map has been placed once, `left` is
      where it belongs rather than somewhere it moved to, and easing into it
      drew a slide across the screen on every load. `.placed` arrives a frame
@@ -3573,14 +3495,11 @@ button.mt-card:hover { border-color: var(--accent); }
  * bottom-right corner under the zoom cluster's left end, on every phone, since
  * both were placed against opposite edges of a window wide enough for both.
  *
- * **Below 460 the map is folded, by the width** (11 Sep; `lib/minimapfold.ts`).
- * It first STACKED instead, because folding wrote `isocan.minimap` — a width
- * deciding a PREFERENCE that followed the person to their desktop. The fold
- * and the preference are two facts now, and the width only ever sets the
- * first, so the handle sits in its corner clear of the zoom row and nothing
- * is stored. What is left of the stack is for somebody who taps the handle on
- * a phone: an OPEN map below 460 still has to clear the zoom row, so the lift
- * is kept, for the unfolded dock only.
+ * They stack rather than fold. Folding the map is what the mobile note
+ * recommends and it writes `isocan.minimap` to localStorage — a width
+ * deciding a PREFERENCE, which would then follow the person to their desktop
+ * and be a setting they never chose and cannot connect to anything they did.
+ * Stacking is CSS, holds no state, and comes back on rotation.
  *
  * **460, and the number is arithmetic rather than a phone.** The map's right
  * edge is 20 + 168 = 188; the zoom row's is `width - 20 - its own width`, so
@@ -3594,11 +3513,10 @@ button.mt-card:hover { border-color: var(--accent); }
  * to grow by a button. Deliberately NOT the mobile note's 640: between 405
  * and 640 the two sit a comfortable 231px apart, and moving chrome there
  * would be chrome moving for no reason. Measured at 640, 461, 460, 403 and
- * 375 the day it was written. `NARROW_MINIMAP_PX` is the same number for the
- * fold, and a test holds the two together.
+ * 375 the day it was written.
  */
 @media (max-width: 460px) {
-  .minimap-dock:not(.folded) { bottom: calc(var(--edge) + var(--zoom-row) + 8px); }
+  .minimap-dock { bottom: calc(var(--edge) + var(--zoom-row) + 8px); }
 }
 .minimap-panel {
   /* Claimed back from the dock above — this one is drawn, so it is clickable
@@ -3957,72 +3875,12 @@ button.mt-card:hover { border-color: var(--accent); }
   box-shadow: var(--shadow-pop);
 }
 .tool-btn {
-  position: relative; /* the tip hangs off the button, not the rail */
   display: flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; border-radius: 11px;
   background: none; border: 1px solid transparent; color: var(--ink-muted);
 }
 .tool-btn:hover { background: var(--chip); color: var(--ink); }
 .tool-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-/* The rail's tooltips, drawn rather than left to `title` — the same reason
-   `.fullscreen-btn::after` gives: the native tip waits about a second,
-   appears at the pointer, and takes no styling. Here it had a third fault.
-   The rail is a column, and a tip that lands at the pointer lands ON the
-   buttons below the one it names, so reading what Pen does covered Text and
-   Comment.
-
-   **Out to the side, pointing back at the button.** The rail is on the right
-   edge, so the tip pops LEFT into open canvas — the direction the ink well
-   already takes — and a small chevron on its right edge says which button is
-   speaking, which a floating pill beside a column of six cannot. It is the
-   card's own paper, ink-coloured, at a readable size: this is the one place
-   a first-time visitor learns what the glyphs are and what the letters do.
-   The hint's first line is the name and key; a second line, when there is
-   one, is the behaviour (`pre-line` makes the newline a line).
-
-   Prompt: a fifth of a second, not the native second — long enough that
-   sweeping the pointer down the rail does not flash six tips, short enough
-   that stopping on one gets an answer. Keyboard focus gets it at once.
-   Inert (`pointer-events: none`), and never the thing the pointer meets on
-   its way to the control it describes. */
-.tool-btn[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute; right: calc(100% + 12px); top: 50%;
-  transform: translate(4px, -50%);
-  width: max-content; max-width: 220px; padding: 5px 10px; border-radius: 9px;
-  white-space: pre-line; text-align: left;
-  background: var(--card); border: 1px solid var(--line); color: var(--ink);
-  box-shadow: var(--shadow-pop);
-  font-size: 12px; line-height: 1.35; font-weight: 400;
-  opacity: 0; pointer-events: none; z-index: 1;
-  transition: opacity 0.1s ease, transform 0.1s ease;
-}
-/* The chevron: a square wearing two of the tip's borders, turned so its
-   corner meets the button. It sits over the tip's right edge (z 2 over 1),
-   so the edge it crosses is its own. */
-.tool-btn[data-tip]::before {
-  content: "";
-  position: absolute; right: calc(100% + 8px); top: 50%;
-  width: 8px; height: 8px;
-  transform: translate(4px, -50%) rotate(45deg);
-  background: var(--card); border-right: 1px solid var(--line); border-top: 1px solid var(--line);
-  opacity: 0; pointer-events: none; z-index: 2;
-  transition: opacity 0.1s ease, transform 0.1s ease;
-}
-.tool-btn[data-tip]:hover::after,
-.tool-btn[data-tip]:hover::before { opacity: 1; transition-delay: 0.2s; }
-.tool-btn[data-tip]:focus-visible::after,
-.tool-btn[data-tip]:focus-visible::before { opacity: 1; transition-delay: 0s; }
-.tool-btn[data-tip]:hover::after,
-.tool-btn[data-tip]:focus-visible::after { transform: translate(0, -50%); }
-.tool-btn[data-tip]:hover::before,
-.tool-btn[data-tip]:focus-visible::before { transform: translate(0, -50%) rotate(45deg); }
-/* A press is an answer, not a question: the tip goes the moment the button
-   is pressed, the way the native one does. (A button with something open
-   beside it — the Pen's ink well, the Add door's popover — carries no
-   `data-tip` at all while it is open; that is decided where it renders.) */
-.tool-btn[data-tip]:active::after,
-.tool-btn[data-tip]:active::before { opacity: 0; transition: none; }
 .tool-sep { height: 1px; margin: 2px 6px; background: var(--line); }
 /* A canvas's own tool (extensions stage 1). It keeps the rail's geometry —
    same 38px square, same radius, same focus ring — because the app draws it
@@ -4565,44 +4423,6 @@ button.mt-card:hover { border-color: var(--accent); }
 }
 .terms-foot a { color: var(--accent-text); }
 
-/* ---------- the operator's prove page (operator phase 1) ----------
-   The terms page's column, deliberately: both are one address a person lands
-   on from outside the app, reads, and leaves. Reusing the measure and the
-   rhythm is what makes this read as the same home rather than as a sign-in
-   page somebody bolted on — which is exactly what a consent page must not
-   look like. The ACT is the largest thing on it, above every control, because
-   the one failure this page can have is somebody authorising something they
-   did not read. */
-.operator-prove {
-  /* `.notfound-page`'s inset, not the terms page's: this is a standalone page
-     inside the APP's scale, and the terms and front pages are measured as
-     their own column (`scale.test.ts`'s partition). Reusing 96/24 is what
-     keeps that guard at full strength rather than one step wider. */
-  max-width: 560px; margin: 0 auto; padding: 96px 24px;
-  display: flex; flex-direction: column; gap: 16px;
-}
-.operator-prove h1 {
-  margin: 0; font-size: 18px;
-  font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance;
-}
-.operator-prove p { margin: 0; font-size: 13.5px; line-height: 1.5; }
-/* The act, larger than the prose around it and in full ink — NOT `--ink-muted`.
-   It is the sentence the whole page exists to put in front of somebody, and
-   greying it is exactly how a consent page comes to be signed unread. */
-.operator-act {
-  font-size: 15px; font-weight: 600;
-  padding: 12px 14px; border-radius: var(--radius);
-  background: var(--chip); border: 1px solid var(--line-soft);
-}
-.operator-where { color: var(--ink-muted); }
-.operator-where code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
-}
-.operator-error { color: var(--danger); }
-.operator-signin { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.operator-signin label { font-size: 12.5px; color: var(--ink-muted); }
-.operator-signin input { min-width: min(320px, 100%); }
-
 /* ---------- nothing here ---------- */
 .notfound-page {
   max-width: 560px; margin: 0 auto; padding: 96px 24px;
@@ -4681,8 +4501,6 @@ button.mt-card:hover { border-color: var(--accent); }
   border-radius: 4px; background: var(--chip); border: 1px solid var(--chip-line);
 }
 .help-commands .help-keys { flex-basis: 200px; }
-.help-guides .help-keys a { color: var(--accent-text); text-decoration: none; }
-.help-guides .help-keys a:hover { text-decoration: underline; }
 
 /* ---------- who picked this up ---------- */
 /* Under the last thing said in a thread: live, ephemeral, and never a comment.
@@ -6101,8 +5919,9 @@ button.mt-card:hover { border-color: var(--accent); }
  * **The archive, said out loud** (#194).
  *
  * One chip, wherever a canvas somebody put away can appear beside one they
- * did not: the switcher's rows under Include archived, and the home screen's
- * cards under `Archived` — both of which show the two together. One rule rather than one per surface — two
+ * did not: the switcher's rows, which offer archived canvases under every
+ * live match once something is typed, and the home screen's cards under
+ * `Archived`, which shows both. One rule rather than one per surface — two
  * would end up two different words for one state, which is how this codebase
  * got `faceMark`/`initial`.
  *
@@ -6132,28 +5951,6 @@ button.mt-card:hover { border-color: var(--accent); }
   text-underline-offset: 2px;
 }
 .palette-when { margin-left: auto; flex: none; color: var(--ink-soft); font-size: 11px; font-variant-numeric: tabular-nums; }
-/**
- * **The switcher's scope** (#194): one checkbox under the field, only while
- * something is archived. A strip rather than a chip in the field's corner,
- * because the field's width is the query's and a long title typed into it
- * should not run under a control. The kbd is the palette's own, so ⌥A reads
- * as the same kind of thing as every other key it prints.
- */
-.palette-scope {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 16px; border-bottom: 1px solid var(--line-soft);
-  color: var(--ink-muted); font-size: 12px; cursor: pointer;
-}
-.palette-scope input { margin: 0; accent-color: var(--accent); }
-/* The sentence that says what the list scope is hiding, and is the door to
-   it. Quiet, left-aligned like the rows, and a link's colour because it IS
-   one: it changes what the list shows rather than going anywhere. */
-.palette-shelf-hint {
-  margin: 0 6px 6px; padding: 6px 10px;
-  border: none; border-radius: 7px; background: transparent;
-  color: var(--accent-text); font-size: 12px; text-align: left; cursor: pointer;
-}
-.palette-shelf-hint:hover { background: var(--accent-wash); }
 .palette-foot {
   display: flex; justify-content: space-between; gap: 12px;
   padding: 7px 14px; border-top: 1px solid var(--line-soft);
@@ -6532,21 +6329,6 @@ button.mt-card:hover { border-color: var(--accent); }
 .docs-row a:hover { border-color: var(--accent); }
 .docs-row small { color: var(--ink-soft); font-size: 12px; }
 
-/* ---------- sandboxes (modules/sandbox) ---------- */
-/* The run line sits BESIDE the card rather than inside it: `.docs-row a` is
-   the card itself, so a second anchor nested in one came out looking like a
-   second card — found by building the page and looking at it, which is the
-   lesson the stickers tray cost a day to learn. */
-.sandbox-note { margin: 0 0 12px; }
-.sandbox-runs { margin: 4px 0 0 16px; font-size: 12px; color: var(--ink-soft); }
-/* `.docs-row a` matches any descendant, so this undoes the card for the one
-   link that is a link and not a row. */
-.sandbox-runs a {
-  display: inline; padding: 0; gap: 0;
-  background: none; border: none; border-radius: 0;
-  color: var(--ink); text-decoration: underline;
-}
-
 /* ---------- speaker notes (core/slides.ts) ---------- */
 /* On the canvas: the caption that says which slide a note speaks for, above
    the words, in world units like the words. */
@@ -6609,42 +6391,25 @@ button.mt-card:hover { border-color: var(--accent); }
 .diagram-view svg { max-width: 100%; max-height: 100%; height: auto; }
 .diagram-error small { display: block; margin-top: 6px; color: var(--ink-soft); }
 
-/* Read mode keeps document geometry local and gives selection its own gesture. */
-.item-read { position: absolute; right: 8px; bottom: 8px; z-index: 6; background: var(--card); min-height: 32px; }
-.item.entered .md-view { padding-bottom: 40px; user-select: text; -webkit-user-select: text; }
-.item.entered:not(.textnode) .md-view, .artifact-stage .md-view { font-size: 16px; line-height: 1.6; }
-.item.entered:not(.textnode) .md-view h1, .artifact-stage .md-view h1 { font-size: 22px; }
-.item.entered:not(.textnode) .md-view h2, .artifact-stage .md-view h2 { font-size: 18px; }
-.item.entered:not(.textnode) .md-view h3, .artifact-stage .md-view h3 { font-size: 17px; }
-.markdown-text { max-width: 72ch; margin-inline: auto; overflow-wrap: anywhere; }
-.markdown-text pre { overflow-wrap: normal; }
-.text-attention-status { position: sticky; top: 0; z-index: 1; background: var(--card); color: var(--ink); padding: 4px 8px; font-size: 12px; line-height: 1.4; border-bottom: 1px solid var(--line); user-select: none; }
-.text-attention-status > span { display: block; }
-.text-attention-status button { margin-left: 6px; }
-
-.document-outline { margin: 0 0 12px; font-size: 13px; }
-.document-outline nav { display: flex; flex-direction: column; align-items: flex-start; }
-
-/* Discussion controls stay outside the canonical document text. */
-.document-discussions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.thread-text-anchor { margin: 0 0 12px; overflow-wrap: anywhere; }
-.thread-text-anchor blockquote { margin: 0 0 8px; padding-left: 12px; border-left: 2px solid var(--accent); white-space: pre-wrap; max-height: 160px; overflow: auto; }
-.thread-text-anchor small { color: var(--ink-muted); }
-.markdown-resource-missing { text-decoration: underline dotted; color: var(--ink-muted); cursor: help; }
-
-.text-comment-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; position: sticky; top: 0; z-index: 2; background: var(--card); padding: 4px; }
-.fullscreen-stage .md-view { padding-top: 96px; scroll-padding-top: 96px; }
-.fullscreen-stage .text-comment-actions { top: 64px; }
 
 /*
- * **The voice page: the microphone is the hero.**
+ * **The voice page: one microphone, and everything else behind a drawer.**
  *
  * The first version was six equal boxes holding one value each, which reads as
- * "here is some information" rather than "speak". The microphone is now first,
- * largest, and the only thing on the page allowed to be loud: an instrument
- * with a baseline and a held peak, the device picker beside its control, and a
- * state line naming the device it listens on. The connection facts and the
- * tool-call log are supporting information — quieter, smaller, tighter.
+ * "here is some information" rather than "speak", and the second made the
+ * microphone a wide bar inside a card with the meter beside it — still a form,
+ * still scrolled past. What Paul asked for is the shape the voice modes in the
+ * LLM apps already have: **one dominant element, centred** (the microphone),
+ * a visible state (idle / listening / thinking / speaking), a quiet waveform,
+ * the last exchange compactly, and the facts, the key and the log behind
+ * disclosures at the bottom. Nothing was deleted to get there.
+ *
+ * The state is one attribute — `data-activity` on the hero — and everything
+ * that moves is a child of it: the ring around the microphone, the dot beside
+ * the words, and which meter the waveform is showing. `data-state` stays the
+ * session's own word (idle / live / muted / ended) because that is the
+ * harness's vocabulary and the wire's, and two vocabularies must not be
+ * quietly merged into one.
  *
  * Written in this stylesheet's own terms rather than its own scale: the type
  * and space tokens are declared here, every radius is var(--radius), and every
@@ -6670,102 +6435,230 @@ button.mt-card:hover { border-color: var(--accent); }
   --s6: 32px;
 
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--s5);
-  padding: var(--s5);
-  max-width: 1100px;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--s4);
+  min-block-size: 100dvb;
+  max-width: 640px;
   margin: 0 auto;
+  padding: var(--s4);
   color: var(--ink);
 }
 .voice > * { min-width: 0; }
-.voice-head { display: grid; gap: var(--s1); }
-.voice-head h1 { color: var(--ink); margin: 0; font-size: var(--t-xl); font-weight: 600; letter-spacing: -0.02em; }
-.voice-sub { margin: 0; max-width: 62ch; color: var(--ink-muted); font-size: var(--t-md); }
-
-/* THE HERO. Everything below it is deliberately quieter than this. */
-.voice-hero {
-  display: grid;
-  gap: var(--s4);
-  border: 1px solid var(--line);
-  border-top: 2px solid var(--line);
-  border-radius: var(--radius);
-  padding: var(--s5);
-  background: var(--card);
-}
-.voice-hero[data-state="live"] { border-top-color: var(--accent); }
-.voice-hero[data-state="muted"] { border-top-color: var(--warn); }
-.voice-hero h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); font-weight: 600; }
-.voice-controls { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--s3); }
-.voice-controls button {
-  font: inherit;
-  font-size: var(--t-md);
-  padding: var(--s3) var(--s5);
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--ink);
-  cursor: pointer;
-  min-width: 0;
-}
-/* The one thing a person presses is the largest element in the hero, so the
-   meter can be an instrument beside it rather than the page's centre of mass
-   — a 57,000px² empty field in front of a 9,400px² button was the dashboard
-   the design was trying to leave behind. */
-.voice-controls #listen {
-  flex: 1 1 320px;
-  min-height: 88px;
-  font-size: var(--t-xl);
+.voice-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.voice-head h1 {
+  margin: 0;
+  font-size: var(--t-xs);
   font-weight: 600;
-  padding: var(--s4) var(--s6);
-  border-color: var(--ink);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s3);
-}
-.voice-controls #mute,
-.voice-controls #end { flex: 0 0 auto; min-width: 96px; }
-.voice-hero[data-state="live"] #listen { border-color: var(--accent); color: var(--accent-text); }
-.voice-controls button:disabled { opacity: 0.45; cursor: default; }
-.voice-instrument { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s4) var(--s5); }
-.voice-pick { min-width: 0; flex: 0 1 260px; display: grid; gap: var(--s1); }
-.voice-pick-label { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
-.voice-pick select {
-  font: inherit;
-  font-size: var(--t-sm);
-  width: 100%;
-  min-width: 0;
-  padding: var(--s2) var(--s3);
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--card);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
-/* An instrument, not texture: a labelled scale, lit bars, and a peak that
-   holds. The track is the muted ink at 65% on the card because `--line-soft`
-   measured about 1.2:1 on graphite — a meter whose off state is invisible says
-   nothing until it moves, which reads as broken rather than as zero. */
-.voice-meter-wrap { flex: 1 1 320px; max-width: 460px; min-width: 0; }
-.voice-meter { position: relative; height: 44px; border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
-.voice-bars { display: flex; align-items: flex-end; gap: var(--s1); height: 100%; }
-.voice-bars span { flex: 1 1 0; min-width: 0; height: 100%; border-radius: var(--radius); background: color-mix(in srgb, var(--ink-muted) 65%, var(--card)); transition: background 90ms linear; }
-.voice-bars span.on { background: var(--accent); }
+/* THE HERO. Empty space is the design: the microphone sits in the middle of
+   it and nothing else competes for the first look. */
+.voice-hero {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--s4);
+  padding: var(--s5) 0;
+  text-align: center;
+}
+
+/* The one dominant element. A ring around it carries the state, so the state
+   is visible from across the room without a word being read. */
+.voice-mic { position: relative; display: grid; place-items: center; }
+.voice-ring {
+  position: absolute;
+  inset: calc(var(--s3) * -1);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  transition: border-color 200ms ease;
+}
+.voice-mic #listen {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.voice-mic #listen:hover:not(:disabled) { color: var(--ink); }
+.voice-mic #listen:disabled { cursor: default; }
+.voice-glyph {
+  width: 44px;
+  height: 44px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The four states, each one thing: listening breathes, thinking turns,
+   speaking pulses faster and in the good colour, muted sits in the warning
+   colour. Idle is none of them — a still ring that says nothing is happening,
+   which is true. */
+.voice-hero[data-activity="listening"] .voice-ring { border-color: var(--accent); animation: voice-breathe 2.8s ease-in-out infinite; }
+.voice-hero[data-activity="listening"] #listen { color: var(--accent-text); border-color: var(--accent); }
+.voice-hero[data-activity="thinking"] .voice-ring { border-style: dashed; border-color: var(--accent); animation: voice-spin 2.4s linear infinite; }
+.voice-hero[data-activity="thinking"] #listen { color: var(--accent-text); border-color: var(--accent); }
+.voice-hero[data-activity="speaking"] .voice-ring { border-color: var(--good); animation: voice-breathe 1.1s ease-in-out infinite; }
+.voice-hero[data-activity="speaking"] #listen { color: var(--good); border-color: var(--good); }
+.voice-hero[data-activity="muted"] .voice-ring { border-color: var(--warn); }
+.voice-hero[data-activity="muted"] #listen { color: var(--warn); border-color: var(--warn); }
+
+@keyframes voice-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.07); opacity: 1; }
+}
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+
+.voice-state {
+  margin: 0;
+  font-size: var(--t-md);
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.voice-state::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink-muted) 65%, var(--card));
+  flex: none;
+}
+.voice-hero[data-activity="listening"] .voice-state::before { background: var(--accent); }
+.voice-hero[data-activity="thinking"] .voice-state::before { background: var(--accent); }
+.voice-hero[data-activity="speaking"] .voice-state::before { background: var(--good); }
+.voice-hero[data-activity="muted"] .voice-state::before { background: var(--warn); }
+
+/* A quiet waveform, not a control panel: thin bars that grow from the middle,
+   and the scale kept because a meter without a scale is a decoration. While
+   the model speaks this reads the OUTPUT; the rest of the time it reads the
+   microphone. */
+.voice-wave { width: min(100%, 340px); }
+.voice-meter-wrap { min-width: 0; }
+.voice-meter { position: relative; height: 26px; border-bottom: 1px solid var(--line-soft); }
+.voice-bars { display: flex; align-items: center; gap: var(--s1); height: 100%; }
+.voice-bars span {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--ink-muted) 50%, var(--card));
+  transform: scaleY(0.12);
+  transition: transform 90ms linear, background 90ms linear;
+}
+.voice-bars span.on { transform: scaleY(1); background: var(--accent); }
+.voice-hero[data-activity="speaking"] .voice-bars span.on { background: var(--good); }
+.voice-hero[data-activity="thinking"] .voice-wave { opacity: 0.45; }
 .voice-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); border-radius: var(--radius); }
-.voice-scale { position: relative; height: 1.4em; margin-top: var(--s1); color: var(--ink-muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.voice-scale {
+  position: relative;
+  height: 1.2em;
+  margin-top: var(--s1);
+  color: var(--ink-muted);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+}
 .voice-scale span { position: absolute; top: 0; }
 .voice-scale span:nth-child(1) { left: 0; }
 .voice-scale span:nth-child(2) { left: 66.667%; transform: translateX(-50%); }
 .voice-scale span:nth-child(3) { right: 0; }
-.voice-state { margin: 0; font-size: var(--t-lg); font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: var(--s2); }
-.voice-state::before { content: ""; width: 10px; height: 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--ink-muted) 65%, var(--card)); flex: none; }
-.voice-hero[data-state="live"] .voice-state::before { background: var(--accent); }
-.voice-hero[data-state="muted"] .voice-state::before { background: var(--warn); }
 
-/* Supporting information: one tight strip, one quiet log. */
-.voice-facts-strip { display: grid; gap: var(--s2); padding-top: var(--s4); border-top: 1px solid var(--line); }
-.voice-facts-strip h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); font-weight: 600; }
-.voice-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, max-content)); gap: var(--s3) var(--s5); margin: 0; font-size: var(--t-sm); }
+/* The last exchange, compactly: two lines that grow as the words arrive and
+   scroll away when they are old. Hidden while there is nothing to say. */
+.voice-transcript {
+  display: grid;
+  gap: var(--s2);
+  width: min(100%, 520px);
+  max-height: 108px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.voice-transcript:empty { display: none; }
+.voice-turn { margin: 0; font-size: var(--t-sm); line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.voice-turn b {
+  display: block;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.voice-turn.you { color: var(--ink-muted); }
+
+/* Mute and End, and nothing else: the microphone is the page's one action. */
+.voice-session { display: flex; gap: var(--s2); }
+.voice-session button {
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s2) var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.voice-session button:disabled { opacity: 0.45; cursor: default; }
+
+/* Everything else, in drawers at the bottom: present, reachable, and none of
+   it asking to be looked at first. */
+.voice-drawers { display: grid; gap: var(--s1); border-top: 1px solid var(--line); padding-top: var(--s3); }
+.voice-quiet { border: 0; padding: 0; }
+.voice-quiet > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin: 0;
+  padding: var(--s2) 0;
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.voice-quiet > summary::-webkit-details-marker { display: none; }
+.voice-quiet > summary::after { content: "+"; font-size: var(--t-sm); line-height: 1; }
+.voice-quiet[open] > summary::after { content: "−"; }
+.voice-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-facts-strip { display: grid; gap: var(--s2); padding-bottom: var(--s3); }
+.voice-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, max-content));
+  gap: var(--s2) var(--s4);
+  margin: 0;
+  font-size: var(--t-sm);
+}
 .voice-facts div { min-width: 0; display: grid; gap: var(--s1); }
 .voice-facts dt { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
 .voice-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
@@ -6784,23 +6677,75 @@ button.mt-card:hover { border-color: var(--accent); }
 .voice-id { font-family: ui-monospace, monospace; color: var(--ink-muted); font-size: var(--t-xs); }
 .voice-ok { color: var(--good); }
 .voice-bad { color: var(--danger); }
-.voice-hint { color: var(--ink-muted); font-size: var(--t-sm); margin: var(--s2) 0 0; overflow-wrap: anywhere; }
-.voice-quiet { border-top: 1px solid var(--line); padding-top: var(--s3); }
-.voice-quiet > summary, .voice-quiet > h2 {
+.voice-hint { color: var(--ink-muted); font-size: var(--t-sm); margin: 0; overflow-wrap: anywhere; }
+.voice-pick { display: grid; gap: var(--s1); min-width: 0; }
+.voice-pick-label { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.voice-pick select {
+  font: inherit;
+  font-size: var(--t-sm);
+  width: 100%;
+  min-width: 0;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-muted);
+}
+
+/* The setup half: what is missing, what the harness cannot do yet, and the
+   command that does it by hand. Visible, never a silent absence. */
+.voice-setup { display: grid; gap: var(--s2); border-top: 1px solid var(--line-soft); padding-top: var(--s3); }
+.voice-setup h3 {
   margin: 0;
   font-size: var(--t-xs);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-muted);
   font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--s2);
 }
-.voice-quiet > h2 { cursor: default; }
-.voice-log { list-style: none; margin: var(--s2) 0 0; padding: 0; max-height: 200px; overflow: auto; display: grid; gap: 0; }
+.voice-steps { display: grid; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
+.voice-steps li { display: grid; gap: var(--s1); font-size: var(--t-sm); }
+.voice-steps code { font-family: ui-monospace, monospace; font-size: var(--t-xs); color: var(--ink-muted); overflow-wrap: anywhere; }
+.voice-steps button {
+  justify-self: start;
+  font: inherit;
+  font-size: var(--t-xs);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.voice-steps button:disabled { opacity: 0.45; cursor: default; }
+
+.voice-keyrow { display: flex; flex-wrap: wrap; gap: var(--s2); padding-bottom: var(--s2); }
+.voice-keyrow:last-child { padding-bottom: var(--s3); }
+.voice-keyrow input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+/* The key panel's buttons all wear the same outline: nothing there is the
+   page's main action, and Save is only pressable once there is a key to
+   save — the loudest thing in the panel must not be the one that does
+   nothing. */
+.voice-keyrow button {
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  cursor: pointer;
+}
+.voice-keyrow button:disabled { opacity: 0.45; cursor: default; }
+
+.voice-log { list-style: none; margin: 0; padding: 0 0 var(--s3); max-height: 200px; overflow: auto; display: grid; gap: 0; }
 .voice-log li {
   display: flex;
   flex-wrap: wrap;
@@ -6817,38 +6762,19 @@ button.mt-card:hover { border-color: var(--accent); }
 .voice-op { color: var(--good); }
 .voice-answered { color: var(--accent-text); }
 .voice-event { color: var(--ink-muted); }
-.voice-keyrow { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
-.voice-keyrow input {
-  flex: 1 1 200px;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--t-sm);
-  padding: var(--s2) var(--s3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-/* The key panel's buttons all wear the same outline: nothing there is the
-   page's main action, and Save is only pressable once there is a key to
-   save — the loudest thing in the panel must not be the one that does
-   nothing. */
-.voice-keyrow button:disabled { opacity: 0.45; cursor: default; }
-.voice-keyrow button {
-  font: inherit;
-  font-size: var(--t-sm);
-  padding: var(--s2) var(--s3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card);
-  cursor: pointer;
+
+@media (max-width: 720px) {
+  .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s3); }
+  .voice-hero { padding: var(--s4) 0; gap: var(--s3); }
+  .voice-mic #listen { width: 96px; height: 96px; }
+  .voice-glyph { width: 38px; height: 38px; }
+  .voice-facts { grid-template-columns: minmax(0, 1fr); }
+  .voice-transcript { max-height: 84px; }
 }
 
-@media (max-width: 900px) {
-  .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s4); }
-  .voice-head h1 { font-size: var(--t-lg); }
-  .voice-hero { padding: var(--s4); }
-  .voice-controls #listen { flex: 1 1 100%; }
-  .voice-controls #mute, .voice-controls #end { flex: 1 1 auto; }
-  .voice-meter-wrap { flex: 1 1 100%; max-width: none; }
-  .voice-meter { height: 40px; }
-  .voice-facts { grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
+@media (prefers-reduced-motion: reduce) {
+  .voice-ring, .voice-bars span { transition: none; }
+  .voice-hero[data-activity="listening"] .voice-ring,
+  .voice-hero[data-activity="thinking"] .voice-ring,
+  .voice-hero[data-activity="speaking"] .voice-ring { animation: none; }
 }

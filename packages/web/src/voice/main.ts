@@ -68,13 +68,46 @@ function audioFacts(facts: State | null): { provider: string; model: string; key
 }
 
 /**
+ * **What the microphone is doing, which is not the same as what the session
+ * is.**
+ *
+ * The session has four words the harness owns (`idle`, `live`, `muted`,
+ * `ended`) and they answer "is there a session". The page needs a second,
+ * finer answer — the one an LLM voice mode shows — because "live" covers
+ * three different pictures: the microphone is open and waiting, the model is
+ * working on what it just heard, and the model is talking back. Those are
+ * `listening`, `thinking` and `speaking`, and they are derived ONLY from
+ * signals that exist on the wire:
+ *
+ *   - `heard` (the person's utterance was transcribed and ended) → thinking
+ *   - output PCM arriving, or a reply transcript line → speaking
+ *   - a quiet gap after the last output chunk → listening
+ *   - `interrupted` → the model stops, the microphone is what happened next
+ *
+ * `thinking` is the state that was missing: without it the page jumps from
+ * "live" straight to "live" again and nothing tells a person that their
+ * sentence landed and something is happening. The mute gate is checked here
+ * rather than in the mic: a muted session never renders as listening, because
+ * a page that shows a live microphone while it is off is lying about the one
+ * thing the person controls.
+ */
+export type Activity = "idle" | "listening" | "thinking" | "speaking" | "muted" | "ended";
+
+/** How long a quiet gap after the last output chunk ends "speaking". */
+const SPEAKING_TAIL_MS = 700;
+
+/**
  * **The state line says which microphone, because "it is using the wrong one"
  * is not diagnosable from a word like "live".**
  */
-function stateWords(session: SessionState, microphone: string): string {
-  if (session === "live") return `live — listening on ${microphone}`;
-  if (session === "muted") return `muted — ${microphone} is still open`;
-  if (session === "ended") return "ended";
+function stateWords(activity: Activity, session: SessionState, microphone: string): string {
+  if (activity === "thinking") return "thinking…";
+  if (activity === "speaking") {
+    return session === "muted" ? "speaking — you are muted" : "speaking";
+  }
+  if (activity === "muted") return `muted — ${microphone} is still open`;
+  if (activity === "listening") return `listening — ${microphone}`;
+  if (activity === "ended") return "ended";
   return "idle — press Listen to start";
 }
 
@@ -108,6 +141,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const bars = required<HTMLElement>("bars", doc);
   const peakMark = required<HTMLElement>("peak", doc);
   const stateLine = required<HTMLElement>("state", doc);
+  const transcript = required<HTMLElement>("transcript", doc);
   const canvasTitle = required<HTMLElement>("canvas-title", doc);
   const canvasId = required<HTMLElement>("canvas-id", doc);
   const daemonLine = required<HTMLElement>("daemon", doc);
@@ -119,6 +153,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   const versionLine = required<HTMLElement>("version", doc);
   const updatedLine = required<HTMLElement>("updated", doc);
   const complaintLine = required<HTMLElement>("complaint", doc);
+  const connectionPanel = required<HTMLDetailsElement>("connection-panel", doc);
+  const connectionSummary = required<HTMLElement>("connection-summary", doc);
   const openButton = required<HTMLButtonElement>("open-project", doc);
   const keyInput = required<HTMLInputElement>("key", doc);
   const providerSelect = required<HTMLSelectElement>("provider", doc);
@@ -164,18 +200,83 @@ export function wireVoice(doc: Document = document): VoicePage {
   let socket: WebSocket | null = null;
   let playback: Playback | null = null;
   let levelMeter: LevelMeter | null = null;
+  let outputMeter: LevelMeter | null = null;
   let ticker: ReturnType<typeof setInterval> | null = null;
+  /** The visible state: what the microphone is doing, not what the session is. */
+  let activity: Activity = "idle";
+  let speakingTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Turn boundaries and the reply, as the harness's own log describes them. */
+  let turns: { who: "you" | "voice"; text: string }[] = [];
+  /** True once a tagged reply has been seen, so the untagged copy is ignored. */
+  let sawTagged = false;
 
+  /**
+   * The session's word and the page's word, side by side. `data-state` is the
+   * harness's vocabulary (idle / live / muted / ended) and `data-activity` is
+   * the visible one; a muted session is never rendered as listening. A live
+   * session keeps whatever activity is in progress — the poll runs every two
+   * seconds and must not wipe "thinking" back to "listening" mid-turn.
+   */
   function renderHero(): void {
     hero.dataset.state = session;
+    if (session === "idle" || session === "ended") activity = session;
+    else if (session === "muted" && activity !== "speaking") activity = "muted";
+    else if (session === "live" && (activity === "idle" || activity === "ended" || activity === "muted"))
+      activity = "listening";
+    hero.dataset.activity = activity;
     listenButton.disabled = session === "live" || session === "muted";
     muteButton.disabled = session !== "live" && session !== "muted";
     endButton.disabled = session === "idle" || session === "ended";
     muteButton.textContent = muted ? "Unmute" : "Mute";
     stateLine.textContent = stateWords(
+      activity,
       session,
       mics.find((one) => one.id === chosenId)?.label ?? "the default microphone",
     );
+  }
+
+  /** The activity changed for a reason; say it once, in one place. */
+  function setActivity(next: Activity): void {
+    if (activity === next) return;
+    activity = next;
+    renderHero();
+  }
+
+  /** Output PCM is arriving: the model is speaking, and the waveform is its. */
+  function spoke(): void {
+    if (session !== "live" && session !== "muted") return;
+    setActivity("speaking");
+    if (speakingTimer !== null) clearTimeout(speakingTimer);
+    speakingTimer = setTimeout(() => {
+      speakingTimer = null;
+      outputMeter?.reset();
+      renderMeter(0, 0);
+      setActivity(muted ? "muted" : "listening");
+    }, SPEAKING_TAIL_MS);
+  }
+
+  /** A user turn or the reply, as text, accumulating within the turn. */
+  function addTurn(who: "you" | "voice", text: string): void {
+    if (!text) return;
+    const last = turns[turns.length - 1];
+    if (last && last.who === who) last.text += text;
+    else turns.push({ who, text });
+    turns = turns.slice(-6);
+    renderTranscript();
+  }
+
+  function renderTranscript(): void {
+    transcript.replaceChildren();
+    for (const turn of turns) {
+      const row = doc.createElement("li");
+      row.className = `voice-turn ${turn.who === "you" ? "you" : "voice"}`;
+      const label = doc.createElement("b");
+      label.textContent = turn.who === "you" ? "You" : "Voice";
+      row.appendChild(label);
+      row.appendChild(doc.createTextNode(turn.text));
+      transcript.appendChild(row);
+    }
+    transcript.scrollTop = transcript.scrollHeight;
   }
 
   function renderMeter(level: number, peak: number): void {
@@ -183,7 +284,10 @@ export function wireVoice(doc: Document = document): VoicePage {
     const percent = Math.round(peak * 100);
     peakMark.hidden = peak <= 0;
     peakMark.style.left = `${Math.min(100, percent)}%`;
-    meter.setAttribute("aria-label", `input level ${Math.round(level * 100)} percent, peak ${percent} percent`);
+    meter.setAttribute(
+      "aria-label",
+      `${activity === "speaking" ? "output" : "input"} level ${Math.round(level * 100)} percent, peak ${percent} percent`,
+    );
   }
 
   function renderFacts(): void {
@@ -201,6 +305,24 @@ export function wireVoice(doc: Document = document): VoicePage {
     audioLine.textContent = `${audio.provider} · ${audio.model} · ${audio.key ? "key stored" : "no key stored"}`;
     versionLine.textContent = facts?.version ?? "unknown";
     updatedLine.textContent = `updated ${facts?.updated ?? "unknown"}`;
+
+    // One line that answers "what am I connected to" without opening anything:
+    // the canvas by title, the actor by name, and the one thing still missing.
+    const missing: string[] = [];
+    if (!facts?.canvas?.title) missing.push("no canvas");
+    if (!facts?.agent?.name) missing.push("no actor");
+    else if (!facts?.agent?.enrolled) missing.push("not enrolled");
+    if (!audio.key) missing.push("no key");
+    connectionSummary.textContent = facts
+      ? `${facts.canvas?.title ?? "no canvas"} · ${facts.agent?.name ?? "no actor"}${
+          missing.length ? ` · ${missing.join(" · ")}` : ""
+        }`
+      : "no harness answered";
+
+    // A first run that is missing something must not hide it behind the same
+    // drawer as a working session's logs: the drawer opens itself, and says
+    // what is missing, until there is nothing missing.
+    if (missing.length > 0) connectionPanel.open = true;
   }
 
   function renderComplaint(): void {
@@ -400,6 +522,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     ticker = null;
   }
 
+  function stopSpeakingTimer(): void {
+    if (speakingTimer !== null) clearTimeout(speakingTimer);
+    speakingTimer = null;
+  }
+
   async function finish(): Promise<void> {
     socket?.close();
     socket = null;
@@ -408,11 +535,96 @@ export function wireVoice(doc: Document = document): VoicePage {
     playback?.close();
     playback = null;
     stopTicker();
+    stopSpeakingTimer();
     levelMeter?.reset();
     levelMeter = null;
+    outputMeter = null;
     renderMeter(0, 0);
     session = "ended";
+    activity = "ended";
     renderHero();
+  }
+
+  /**
+   * **One message from the harness, and what it means.**
+   *
+   * The wire speaks four shapes the page uses and one it only records:
+   *
+   *   { state, bad }         the harness narrating a session state ("live",
+   *                          "the model was interrupted", a failure)
+   *   { heard: text }        the person's utterance, transcribed — a turn ended
+   *   { text }               the model's reply (or a tool result echoed)
+   *   { type: "tool_log" }   the harness's own record, carrying `details.kind`
+   *                          (`heard` / `reply`) which is the ONLY way to tell
+   *                          a reply from a tool-result echo: both arrive as
+   *                          `{ text }`. The transcript is built from the
+   *                          tagged copy so the canvas description a tool
+   *                          returned is never shown as something the voice
+   *                          said.
+   *   binary                24 kHz PCM from the model — the page's output
+   *
+   * `turnComplete`/`interrupted` as booleans are kept as well as their string
+   * forms, because the harness has answered both shapes across builds and the
+   * state machine must not be the thing that decides which one is canonical.
+   */
+  function handleEvent(event: Record<string, unknown>): void {
+    const tagged = event.type === "tool_log" ? (event.entry as Record<string, unknown> | undefined) : undefined;
+    if (tagged) {
+      const details = tagged.details as { kind?: string; text?: string } | undefined;
+      if (details?.kind === "heard") {
+        sawTagged = true;
+        addTurn("you", details.text ?? "");
+        if (activity === "speaking") return; // the model is still finishing a sentence
+        setActivity("thinking");
+      } else if (details?.kind === "reply") {
+        sawTagged = true;
+        addTurn("voice", details.text ?? "");
+        spoke();
+      }
+      const name = typeof tagged.name === "string" ? tagged.name : undefined;
+      if (name) put({ at: new Date().toLocaleTimeString(), event: `tool: ${name}` });
+      return;
+    }
+
+    if (typeof event.heard === "string") {
+      addTurn("you", event.heard);
+      setActivity("thinking");
+      return;
+    }
+    if (typeof event.state === "string") {
+      const bad = event.bad === true;
+      if (bad) {
+        complaint = event.state;
+        renderComplaint();
+      }
+      if (event.state.includes("interrupted") || event.interrupted === true) {
+        // Barge-in: the model stops mid-sentence and the microphone is what
+        // happened next.
+        playback?.stopNow();
+        stopSpeakingTimer();
+        outputMeter?.reset();
+        renderMeter(0, 0);
+        setActivity(muted ? "muted" : "listening");
+      } else if (event.state === "turn_complete" || event.turn_complete === true) {
+        // The turn is over; anything still playing drains on the tail timer.
+        if (activity !== "speaking") setActivity(muted ? "muted" : "listening");
+      } else if (event.state === "live" && activity !== "speaking" && activity !== "thinking") {
+        setActivity(muted ? "muted" : "listening");
+      }
+      put({ at: new Date().toLocaleTimeString(), event: `state: ${event.state}${bad ? " (failed)" : ""}` });
+      return;
+    }
+    if (typeof event.text === "string") {
+      // The untagged copy of a reply. It is used only when the harness never
+      // sends the tagged one (an older build), so a reply is never doubled.
+      if (!sawTagged) addTurn("voice", event.text);
+      if (activity === "thinking") spoke();
+      return;
+    }
+    if (event.interrupted === true) {
+      playback?.stopNow();
+      setActivity(muted ? "muted" : "listening");
+    }
   }
 
   async function listen(): Promise<void> {
@@ -433,6 +645,9 @@ export function wireVoice(doc: Document = document): VoicePage {
     playback = new Playback();
     playback.onSchedule = noteChunk;
     levelMeter = new LevelMeter(BARS);
+    outputMeter = new LevelMeter(BARS);
+    turns = [];
+    renderTranscript();
     try {
       const captured = await startCapture(chosenId || undefined);
       // The context rate is in the log for the same reason the chunk
@@ -457,15 +672,19 @@ export function wireVoice(doc: Document = document): VoicePage {
     live.onmessage = async (message) => {
       if (typeof message.data === "string") {
         try {
-          const event = JSON.parse(message.data) as { interrupted?: boolean; turn_complete?: boolean };
-          if (event.interrupted) playback?.stopNow();
-          put({ at: new Date().toLocaleTimeString(), event: JSON.stringify(event).slice(0, 200) });
+          handleEvent(JSON.parse(message.data) as Record<string, unknown>);
         } catch {
           put({ at: new Date().toLocaleTimeString(), event: message.data.slice(0, 200) });
         }
         return;
       }
-      await playback?.push(await fromBytes(message.data as ArrayBuffer));
+      const pcm = await fromBytes(message.data as ArrayBuffer);
+      // The waveform reads the model's own audio while it speaks, and the
+      // input meter is what it reads before that. Feed both: which one the
+      // ticker draws is the activity's decision, not the socket's.
+      outputMeter?.feed(pcm);
+      spoke();
+      await playback?.push(pcm);
     };
     live.onclose = (event) =>
       put({ at: new Date().toLocaleTimeString(), event: `audio socket closed ${event.code} ${event.reason}`.trim() });
@@ -473,9 +692,14 @@ export function wireVoice(doc: Document = document): VoicePage {
 
     session = "live";
     muted = false;
+    activity = "listening";
     renderHero();
     ticker = setInterval(() => {
-      const reading = levelMeter?.tick();
+      // The waveform follows the activity: output while the model speaks,
+      // input the rest of the time, so "the bars are moving" always means the
+      // thing that is actually making sound.
+      const speaking = activity === "speaking";
+      const reading = (speaking ? outputMeter : levelMeter)?.tick();
       if (!reading) {
         renderMeter(0, 0);
         return;
@@ -519,6 +743,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     muted = next;
     if (held) held.muted = next;
     session = next ? "muted" : "live";
+    // The mute gate lives in the state model, not only on the track: a muted
+    // session never renders as listening, and unmuting after a barge-in goes
+    // back to waiting for a sentence rather than to a stale "speaking".
+    if (next && activity !== "speaking") activity = "muted";
+    if (!next && activity === "muted") activity = "listening";
     renderHero();
     put({ at: new Date().toLocaleTimeString(), event: next ? "muted (session still open)" : "unmuted" });
     await (next ? muteSession() : unmuteSession()).catch((err) => {

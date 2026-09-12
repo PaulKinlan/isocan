@@ -167,6 +167,8 @@ describe("the standalone page keeps the controls a person has to press", () => {
     for (const id of ["key", "save-key", "test-key", "forget-key"]) {
       expect(document.getElementById(id), id).toBeTruthy();
     }
+    // The drawer that carries the missing piece opens itself on a first run:
+    // stateReply is empty here, so there is no canvas, no actor and no key.
     expect(document.querySelector("details[open]")).toBeTruthy();
     // The heading was printed twice — once as the summary, once as an <h2>.
     expect(document.body.innerHTML.match(/>Key</g)?.length ?? 0).toBe(1);
@@ -198,13 +200,17 @@ describe("state wiring, without a component tree", () => {
     expect(element<HTMLButtonElement>("listen").disabled).toBe(true);
     expect(element<HTMLButtonElement>("mute").disabled).toBe(false);
     expect(element<HTMLButtonElement>("end").disabled).toBe(false);
-    expect(element<HTMLElement>("state").textContent).toBe("live — listening on Desk microphone");
+    expect(element<HTMLElement>("state").textContent).toBe("listening — Desk microphone");
+    // The page's own word for what the microphone is doing, next to the
+    // session's own word for whether there is a session.
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("listening");
   });
 
   it("takes a bare session string too", async () => {
     stateReply = { session: "muted" };
     await wire();
     expect(element<HTMLElement>("hero").dataset.state).toBe("muted");
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("muted");
     expect(element<HTMLElement>("state").textContent).toContain("muted");
   });
 
