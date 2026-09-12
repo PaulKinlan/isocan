@@ -557,8 +557,8 @@ describe("the Live API path", () => {
     await new Promise((r) => setTimeout(r, 0));
     socket.closeWith(1007, "The requested combination of response modalities (TEXT) is not supported by the model");
     expect(await session.ready).toBe(false);
-    expect(states[0].state).toContain("provider closed socket: code 1007 — The requested combination of response modalities (TEXT)");
-    expect(states[0].bad).toBe(true);
+    expect(states[0]?.state).toContain("provider closed socket: code 1007 — The requested combination of response modalities (TEXT)");
+    expect(states[0]?.bad).toBe(true);
   });
 
   it("drives live tools end-to-end: read_canvas answers live state, add_item and rename_item land operations in oplog and /log", async () => {
@@ -657,7 +657,7 @@ describe("the Live API path", () => {
       expect(renamedItems.map((i) => i.title)).toContain("Spoken Note Renamed");
 
       // 4. Assert /log
-      const logRes = await (await fetch(`${server.state.url}log`)).json();
+      const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
       expect(logRes.entries.length).toBeGreaterThanOrEqual(3);
 
       const readLog = logRes.entries.find((e: any) => e.name === "read_canvas");
@@ -673,6 +673,215 @@ describe("the Live API path", () => {
       expect(renameLog).toBeDefined();
       expect(renameLog.result.ok).toBe(true);
       expect(renameLog.op.type).toBe("item.update");
+
+      clientWs.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("exercises Paul's five tools: draw, react, comment, delete, and find — each landing on canvas and appearing in /log", async () => {
+    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+
+    let providerSocket!: {
+      emit: (message: unknown) => void;
+      sent: string[];
+    };
+    class FakeLiveSocket {
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        providerSocket = this;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+    });
+
+    try {
+      const { WebSocket: WsClient } = await import("ws");
+      const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+      await new Promise<void>((resolve) => {
+        clientWs.on("open", () => resolve());
+      });
+
+      while (!providerSocket) await new Promise((r) => setTimeout(r, 10));
+      providerSocket.emit({ setupComplete: {} });
+      await new Promise((r) => setTimeout(r, 50));
+
+      // 1. DRAW (drawing_add)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-draw",
+              name: "drawing_add",
+              args: { title: "Handwritten Arrow", color: "#ff0000", points: [{ x: 50, y: 50 }, { x: 150, y: 150 }] },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 2) await new Promise((r) => setTimeout(r, 10));
+
+      const afterDraw = await items();
+      const sketchItem = afterDraw.find((i) => i.title === "Handwritten Arrow");
+      expect(sketchItem).toBeDefined();
+      expect(sketchItem!.properties?.kind).toBe("drawing");
+
+      // 2. REACT (item_react)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-react",
+              name: "item_react",
+              args: { item_ref: "Checkout screen", emoji: "👍", on: true },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 3) await new Promise((r) => setTimeout(r, 10));
+
+      const afterReact = await items();
+      const reactedItem = afterReact.find((i) => i.title === "Checkout screen");
+      expect(reactedItem?.reactions?.["👍"]).toBeDefined();
+
+      // 3. COMMENT (comment_on_item)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-comment",
+              name: "comment_on_item",
+              args: { item_ref: "Checkout screen", text: "Approved by Voice" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 4) await new Promise((r) => setTimeout(r, 10));
+
+      // 4. DELETE (delete_item)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-delete",
+              name: "delete_item",
+              args: { item_ref: "Handwritten Arrow" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 5) await new Promise((r) => setTimeout(r, 10));
+
+      const afterDelete = await items();
+      expect(afterDelete.find((i) => i.title === "Handwritten Arrow")).toBeUndefined();
+
+      // 5. FIND (find_items)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-find",
+              name: "find_items",
+              args: { query: "Checkout" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 6) await new Promise((r) => setTimeout(r, 10));
+
+      const findReply = JSON.parse(providerSocket.sent.at(-1) ?? "{}");
+      expect(findReply.toolResponse?.functionResponses?.[0].response.count).toBe(1);
+
+      // 6. MULTI-SELECT MOVE (items_move)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-move",
+              name: "items_move",
+              args: { item_refs: ["Checkout screen"], by_x: 20, by_y: 30 },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 7) await new Promise((r) => setTimeout(r, 10));
+
+      // 7. CONVERGENCE / VERSION SWITCH (item_set_current_version)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-ver",
+              name: "item_set_current_version",
+              args: { item_ref: "Checkout screen", version_ref: "ver_1" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 8) await new Promise((r) => setTimeout(r, 10));
+
+      // 8. SELECTION GESTURES (selection_set)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-sel",
+              name: "selection_set",
+              args: { item_refs: ["Checkout screen"] },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 9) await new Promise((r) => setTimeout(r, 10));
+
+      // 9. DESTRUCTIVE CONFIRMATION GUARD (trash_empty)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-trash",
+              name: "trash_empty",
+              args: {},
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 10) await new Promise((r) => setTimeout(r, 10));
+      const trashReply = JSON.parse(providerSocket.sent.at(-1) ?? "{}");
+      expect(trashReply.toolResponse?.functionResponses?.[0].response.ok).toBe(false);
+      expect(trashReply.toolResponse?.functionResponses?.[0].response.error).toContain("confirmation");
+
+      // Verify /log entries
+      const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
+      expect(logRes.entries.find((e: any) => e.name === "drawing_add")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "item_react")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "comment_on_item")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "delete_item")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "find_items")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "items_move")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "item_set_current_version")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "selection_set")).toBeDefined();
+      expect(logRes.entries.find((e: any) => e.name === "trash_empty")).toBeDefined();
 
       clientWs.close();
     } finally {
@@ -771,7 +980,7 @@ describe("the harness session & tool-call log API", () => {
     const startRes = await (await fetch(`${server.state.url}session/start`, { method: "POST" })).json();
     expect(startRes).toEqual({ ok: true, state: "live" });
 
-    const state1 = await (await fetch(`${server.state.url}state`)).json();
+    const state1 = (await (await fetch(`${server.state.url}state`)).json()) as any;
     expect(state1.session.state).toBe("live");
 
     const muteRes = await (await fetch(`${server.state.url}session/mute`, { method: "POST" })).json();
@@ -795,7 +1004,7 @@ describe("the harness session & tool-call log API", () => {
     });
 
     // Check /log
-    const logRes = await (await fetch(`${server.state.url}log`)).json();
+    const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
     expect(logRes).toHaveProperty("entries");
     expect(logRes.entries.length).toBeGreaterThan(0);
 
@@ -810,11 +1019,11 @@ describe("the harness session & tool-call log API", () => {
   it("handles typed 'add a note' utterances through the same operation vocabulary and logs with source: typed", async () => {
     const server = await serve();
 
-    const res = await (await fetch(`${server.state.url}utterance`, {
+    const res = (await (await fetch(`${server.state.url}utterance`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "add a note that says hello from the voice log", source: "typed" }),
-    })).json();
+    })).json()) as any;
 
     expect(res.sent.length).toBe(1);
     expect(res.sent[0]).toContain("hello from the voice log");
@@ -822,7 +1031,7 @@ describe("the harness session & tool-call log API", () => {
     const canvasItems = await items();
     expect(canvasItems.some((i) => i.title?.includes("hello from the voice log"))).toBe(true);
 
-    const logRes = await (await fetch(`${server.state.url}log`)).json();
+    const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
     const addLog = logRes.entries.find((e: any) => e.args?.text?.includes("hello from the voice log"));
     expect(addLog).toBeDefined();
     expect(addLog.source).toBe("typed");
@@ -845,7 +1054,7 @@ describe("the harness session & tool-call log API", () => {
     // Start server2 on same home
     const server2 = await serve();
 
-    const logRes = await (await fetch(`${server2.state.url}log`)).json();
+    const logRes = (await (await fetch(`${server2.state.url}log`)).json()) as any;
     const persistedEntry = logRes.entries.find((e: any) => e.args?.text === "say persist this message");
     expect(persistedEntry).toBeDefined();
   });
@@ -854,9 +1063,9 @@ describe("the harness session & tool-call log API", () => {
     const server = await serve();
 
     // 1. JSON mode
-    const jsonRes = await (await fetch(`${server.state.url}open`, {
+    const jsonRes = (await (await fetch(`${server.state.url}open`, {
       headers: { Accept: "application/json" },
-    })).json();
+    })).json()) as any;
     expect(jsonRes).toHaveProperty("url");
     expect(jsonRes.canvasId).toBe("prj_1");
     expect(jsonRes.url).toContain("/p/prj_1#pss_");
@@ -914,6 +1123,7 @@ describe("responsive layout and bounding-box isolation", () => {
       });
       close = server.close;
 
+      // @ts-expect-error - JS helper module
       const { browser } = await import("../../../scripts/lib/browser.mjs");
       const b = await browser({
         flags: [
@@ -937,11 +1147,11 @@ describe("responsive layout and bounding-box isolation", () => {
         await new Promise((r) => setTimeout(r, 300));
 
         // 1. Document width <= viewport width + 1
-        const docWidth = await b.ev<number>(`document.documentElement.scrollWidth`);
+        const docWidth = Number(await b.ev(`document.documentElement.scrollWidth`));
         expect(docWidth).toBeLessThanOrEqual(width + 1);
 
         // 2. Zero pairwise bounding-box intersection between panels
-        const overlaps = await b.ev<string[]>(`(() => {
+        const overlaps = ((await b.ev(`(() => {
           const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock")]
             .map((el) => ({ el, r: el.getBoundingClientRect() }));
           const hits = [];
@@ -958,11 +1168,11 @@ describe("responsive layout and bounding-box isolation", () => {
             }
           }
           return hits;
-        })()`);
+        })()`)) as string[]) ?? [];
         expect(overlaps, `Overlapping panels at ${width}px: ${overlaps.join("; ")}`).toEqual([]);
 
         // 3. scrollWidth <= clientWidth + 1 for every text element
-        const overflows = await b.ev<string[]>(`(() => {
+        const overflows = ((await b.ev(`(() => {
           const elements = [...document.querySelectorAll("body *")];
           const offenders = [];
           for (const el of elements) {
@@ -978,7 +1188,7 @@ describe("responsive layout and bounding-box isolation", () => {
             }
           }
           return offenders;
-        })()`);
+        })()`)) as string[]) ?? [];
         expect(overflows, `Text overflow at ${width}px: ${overflows.join("; ")}`).toEqual([]);
       } finally {
         await b.close();

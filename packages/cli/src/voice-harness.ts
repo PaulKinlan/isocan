@@ -8,7 +8,15 @@ import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
 import { readConfigFile } from "@isocan/server";
 import { statSync } from "node:fs";
 import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
-import { canvasUrlWithPass } from "@isocan/core";
+import {
+  canvasUrlWithPass,
+  drawingSvg,
+  drawingViewBox,
+  inkBounds,
+  DRAWING_MIME,
+  DRAWING_PROPERTIES,
+  type InkStroke,
+} from "@isocan/core";
 import { readRcAgents } from "./rc.ts";
 import { voicePage } from "./voice-harness-page.ts";
 
@@ -578,6 +586,157 @@ export const LIVE_TOOLS = [
       required: ["item_ref", "text"],
     },
   },
+  {
+    name: "drawing_add",
+    description: "Draw ink or a sketch on the canvas using the pen tool (maps to item.add with kind=drawing and SVG strokes).",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        title: { type: "STRING", description: "Title or label for the sketch (default 'Sketch')." },
+        color: { type: "STRING", description: "Hex color (e.g. '#23262b' or '#ff0000')." },
+        width: { type: "NUMBER", description: "Stroke width in pixels (default 3)." },
+        points: {
+          type: "ARRAY",
+          description: "List of points {x, y} tracing the stroke.",
+          items: {
+            type: "OBJECT",
+            properties: { x: { type: "NUMBER" }, y: { type: "NUMBER" } },
+            required: ["x", "y"],
+          },
+        },
+      },
+      required: ["points"],
+    },
+  },
+  {
+    name: "item_react",
+    description: "Add or remove an emoji mark/reaction on an item, like 👍, ❤️, 🔥, or a vote dot (maps to core 'item.react').",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING", description: "The item to react to." },
+        emoji: { type: "STRING", description: "The emoji mark (e.g. '👍', '❤️', '🔥', '⭐')." },
+        on: { type: "BOOLEAN", description: "True to add the reaction, false to remove it (default true)." },
+        at_x: { type: "NUMBER", description: "Optional x fraction (0..1) on the item for heat map." },
+        at_y: { type: "NUMBER", description: "Optional y fraction (0..1) on the item for heat map." },
+      },
+      required: ["item_ref", "emoji"],
+    },
+  },
+  {
+    name: "find_items",
+    description: "Search and find items on the canvas matching a query or keyword.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        query: { type: "STRING", description: "Search query string." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "items_move",
+    description: "Move multiple items together by a spatial delta (maps to core 'items.move').",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_refs: {
+          type: "ARRAY",
+          description: "List of item titles, prefixes, or ids to move.",
+          items: { type: "STRING" },
+        },
+        by_x: { type: "NUMBER", description: "Horizontal delta to move by." },
+        by_y: { type: "NUMBER", description: "Vertical delta to move by." },
+      },
+      required: ["item_refs", "by_x", "by_y"],
+    },
+  },
+  {
+    name: "items_delete",
+    description: "Delete multiple items to the trash simultaneously (maps to core 'items.delete').",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_refs: {
+          type: "ARRAY",
+          description: "List of item titles, prefixes, or ids to delete.",
+          items: { type: "STRING" },
+        },
+      },
+      required: ["item_refs"],
+    },
+  },
+  {
+    name: "items_restore",
+    description: "Restore multiple deleted items from the trash back to the canvas (maps to core 'items.restore').",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_refs: {
+          type: "ARRAY",
+          description: "List of item titles, prefixes, or ids to restore.",
+          items: { type: "STRING" },
+        },
+      },
+      required: ["item_refs"],
+    },
+  },
+  {
+    name: "item_set_current_version",
+    description: "Switch an item's active visible version (convergence operation, maps to core 'item.setCurrentVersion').",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING", description: "Title, prefix, or id of the item." },
+        version_ref: { type: "STRING", description: "Version id or ordinal like 'first' or 'last'." },
+      },
+      required: ["item_ref", "version_ref"],
+    },
+  },
+  {
+    name: "viewport_focus",
+    description: "Center and zoom the collaborator's canvas view onto a specific item.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_ref: { type: "STRING", description: "Item title or id to center on." },
+      },
+      required: ["item_ref"],
+    },
+  },
+  {
+    name: "viewport_pan",
+    description: "Move the collaborator's camera to world coordinates and optional zoom level.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        x: { type: "NUMBER", description: "Target world x coordinate." },
+        y: { type: "NUMBER", description: "Target world y coordinate." },
+        zoom: { type: "NUMBER", description: "Optional zoom level." },
+      },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "selection_set",
+    description: "Select one or more items on the canvas.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        item_refs: {
+          type: "ARRAY",
+          description: "List of item titles, prefixes, or ids to select.",
+          items: { type: "STRING" },
+        },
+      },
+      required: ["item_refs"],
+    },
+  },
+  {
+    name: "selection_clear",
+    description: "Clear active selection on the canvas.",
+    parameters: { type: "OBJECT", properties: {} },
+  },
 
   // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
   {
@@ -761,6 +920,96 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
       return { plans: [{ op: { type: "thread.reply", body: `? ${text}` }, said: `asked: ${text}` }] };
     case "comment_on_item":
       return { plans: [{ op: { type: "item.comment", ref, body: text }, said: `commented on ${ref}` }] };
+    case "drawing_add": {
+      const color = String(args.color ?? "#23262b");
+      const strokeWidth = Number(args.width ?? 3);
+      const rawPoints = (args.points as Array<{ x: number; y: number }>) ?? [{ x: 100, y: 100 }, { x: 200, y: 200 }];
+      const strokes: InkStroke[] = [{ color, width: strokeWidth, points: rawPoints }];
+      const box = inkBounds(strokes) ?? { minX: 100, minY: 100, maxX: 300, maxY: 300 };
+      const svg = drawingSvg(strokes, box);
+      const width = Math.max(80, box.maxX - box.minX + 16);
+      const height = Math.max(80, box.maxY - box.minY + 16);
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.add",
+              title: String(args.title ?? "Sketch"),
+              content: svg,
+              mime: DRAWING_MIME,
+              properties: DRAWING_PROPERTIES,
+              width,
+              height,
+              x: box.minX - 8,
+              y: box.minY - 8,
+            },
+            said: `drew “${args.title ?? "Sketch"}” with the pen tool`,
+          },
+        ],
+      };
+    }
+    case "item_react":
+      return {
+        plans: [
+          {
+            op: {
+              type: "item.react",
+              ref,
+              emoji: String(args.emoji ?? "👍"),
+              on: args.on !== false,
+              ...(args.at_x !== undefined && args.at_y !== undefined ? { at: { x: Number(args.at_x), y: Number(args.at_y) } } : {}),
+            },
+            said: `${args.on === false ? "removed" : "added"} reaction ${args.emoji ?? "👍"} on ${ref}`,
+          },
+        ],
+      };
+    case "items_move": {
+      const refs = (args.item_refs as string[]) ?? [];
+      const byX = Number(args.by_x ?? 0);
+      const byY = Number(args.by_y ?? 0);
+      return {
+        plans: refs.map((r) => ({
+          op: { type: "item.move", ref: r, by: true, x: byX, y: byY },
+          said: `moved ${r} by ${byX}, ${byY}`,
+        })),
+      };
+    }
+    case "items_delete": {
+      const refs = (args.item_refs as string[]) ?? [];
+      return {
+        plans: refs.map((r) => ({
+          op: { type: "item.delete", ref: r },
+          said: `deleted ${r}`,
+        })),
+      };
+    }
+    case "items_restore": {
+      const refs = (args.item_refs as string[]) ?? [];
+      return {
+        plans: refs.map((r) => ({
+          op: { type: "item.restore", ref: r },
+          said: `restored ${r}`,
+        })),
+      };
+    }
+    case "item_set_current_version": {
+      const vRef = String(args.version_ref ?? "");
+      return {
+        plans: [
+          {
+            op: { type: "item.setCurrentVersion", ref, versionRef: vRef },
+            said: `switched version of ${ref} to ${vRef}`,
+          },
+        ],
+      };
+    }
+    case "viewport_focus":
+    case "viewport_pan":
+    case "selection_set":
+    case "selection_clear":
+      return { plans: [], what: `__${name}__` };
+    case "find_items":
+      return { plans: [], what: "__find_items__" };
     case "read_canvas":
       return { plans: [], what: "__read_canvas__" };
     case "read_item":
@@ -801,6 +1050,20 @@ export function resolveLivePlans(plans: PlannedOp[], items: ListedItem[]): { rea
         op.y = Number(item.y ?? 0) + Number(op.y ?? 0);
       }
       delete op.by;
+      if (op.type === "item.setCurrentVersion") {
+        const vRef = String(op.versionRef ?? "");
+        let verId = vRef;
+        if (item.versions) {
+          const match = item.versions.find(
+            (v) => v.id === vRef || v.filename === vRef || vRef.includes(v.id.slice(0, 8))
+          );
+          if (match) verId = match.id;
+          else if (vRef === "first" && item.versions[0]) verId = item.versions[0].id;
+          else if (vRef === "last" && item.versions.length) verId = item.versions[item.versions.length - 1]!.id;
+        }
+        op.versionId = verId;
+        delete op.versionRef;
+      }
     }
     if (op.type === "item.update" && op.title !== undefined) op.title = op.title;
     ready.push({ op, said: plan.said });
@@ -1004,20 +1267,22 @@ export interface VoiceServerOptions {
   liveUrl?: (key: string) => string;
   /** The network, for a test. */
   fetchImpl?: typeof fetch;
+  /** WebSocket implementation override for tests. */
+  WebSocketImpl?: any;
 }
 
 export interface ToolLogEntry {
   id: string;
   timestamp: string;
   type: "tool_call" | "session_event" | "utterance";
-  source?: "live" | "typed" | "system";
-  name?: string;
-  args?: Record<string, unknown>;
-  op?: { type: string; said?: string; target?: string };
-  result?: { ok: boolean; answer?: unknown; error?: string };
-  event?: string;
-  reason?: string;
-  details?: Record<string, unknown> | string;
+  source?: "live" | "typed" | "system" | undefined;
+  name?: string | undefined;
+  args?: Record<string, unknown> | undefined;
+  op?: { type: string; said?: string | undefined; target?: string | undefined } | undefined;
+  result?: { ok: boolean; answer?: unknown; error?: string | undefined; [k: string]: unknown } | undefined;
+  event?: string | undefined;
+  reason?: string | undefined;
+  details?: Record<string, unknown> | string | undefined;
 }
 
 export interface VoiceServerState {
@@ -1104,8 +1369,10 @@ async function applyPlan(
         await canvas.add({
           title: String(op.title ?? "Note"),
           content: String(op.text ?? op.content ?? ""),
-          mime: "text/markdown",
-          ...(op.x !== undefined && op.y !== undefined ? { at: { x: Number(op.x), y: Number(op.y), chosen: true } } : {}),
+          mime: (op.mime as string) ?? "text/markdown",
+          ...(op.properties ? { properties: op.properties as Record<string, string> } : {}),
+          ...(op.x !== undefined && op.y !== undefined ? { at: { x: Number(op.x), y: Number(op.y) } } : {}),
+          ...(op.width !== undefined && op.height !== undefined ? { size: { width: Number(op.width), height: Number(op.height) } } : {}),
         });
         break;
       case "item.update":
@@ -1134,6 +1401,13 @@ async function applyPlan(
       case "item.delete":
         await canvas.remove(op.itemId as string);
         break;
+      case "item.setCurrentVersion":
+        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "item.setCurrentVersion",
+          itemId: op.itemId as string,
+          versionId: op.versionId as string,
+        });
+        break;
       case "item.restore":
         await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
           type: "item.restore",
@@ -1146,6 +1420,15 @@ async function applyPlan(
         break;
       case "item.comment":
         await canvas.comment(op.itemId as string, op.body as string);
+        break;
+      case "item.react":
+        await canvas.ctx.client.sendOp(canvas.id, canvas.ctx.actor, {
+          type: "item.react",
+          itemId: op.itemId as string,
+          emoji: String(op.emoji),
+          on: Boolean(op.on),
+          ...(op.at ? { at: op.at as { x: number; y: number } } : {}),
+        });
         break;
       default:
         throw new Error(`the voice harness has no way to send ${op.type}`);
@@ -1568,9 +1851,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               type: "session_event",
               source: "live",
               event,
-              args: details,
-              reason: details?.reason ? String(details.reason) : undefined,
-              details,
+              ...(details ? { args: details, details } : {}),
+              ...(details?.reason ? { reason: String(details.reason) } : {}),
             });
           },
           onState: (state: string, bad?: boolean) => {
@@ -1639,11 +1921,37 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               });
               return { ok: true, item: answer };
             }
+            if (name === "find_items") {
+              const query = String(args.query ?? "").toLowerCase();
+              const hits = items.filter(
+                (i) =>
+                  (i.title && i.title.toLowerCase().includes(query)) ||
+                  (i.id && i.id.toLowerCase().includes(query)),
+              );
+              const summary = hits.map((i) => ({
+                id: i.id,
+                title: i.title,
+                kind: i.kind,
+                position: { x: i.x, y: i.y },
+              }));
+              const text = hits.length
+                ? `Found ${hits.length} items matching "${query}": ${hits.map((i) => `“${i.title}”`).join(", ")}.`
+                : `No items found matching "${query}".`;
+              say({ text });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, count: hits.length, answer: summary },
+              });
+              return { ok: true, count: hits.length, items: summary };
+            }
             if (name === "read_threads") {
               const threads = await target.canvas.threads().catch(() => []);
               const threadList = threads.map((t) => ({
                 id: t.id,
-                target: t.target,
+                anchorItemId: t.anchorItemId,
                 comments: t.comments.map((c) => ({ id: c.id, body: c.body, author: c.author?.name, at: c.createdAt })),
               }));
               recordToolLog({
@@ -1666,6 +1974,55 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 result: { ok: true, liveSessions, enrolled },
               });
               return { ok: true, liveSessions, enrolled };
+            }
+            if (name === "viewport_focus") {
+              const ref = String(args.item_ref ?? "");
+              const item = resolveSpokenRef(ref, items);
+              if (!item) return { ok: false, error: `could not find item matching "${ref}"` };
+              say({ type: "viewport_focus", itemId: item.id, x: item.x, y: item.y });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, focused: item.title },
+              });
+              return { ok: true, focused: item.title };
+            }
+            if (name === "viewport_pan") {
+              say({ type: "viewport_pan", x: Number(args.x ?? 0), y: Number(args.y ?? 0), zoom: args.zoom ? Number(args.zoom) : undefined });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, x: args.x, y: args.y },
+              });
+              return { ok: true, panned: { x: args.x, y: args.y } };
+            }
+            if (name === "selection_set") {
+              const refs = (args.item_refs as string[]) ?? [];
+              const selectedIds = refs.map((r) => resolveSpokenRef(r, items)?.id).filter(Boolean);
+              say({ type: "selection_set", selected: selectedIds });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, count: selectedIds.length },
+              });
+              return { ok: true, selectedCount: selectedIds.length };
+            }
+            if (name === "selection_clear") {
+              say({ type: "selection_clear" });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true },
+              });
+              return { ok: true, cleared: true };
             }
 
             // Destructive action confirmation guard
@@ -1695,7 +2052,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   type: "tool_call",
                   name,
                   args: args as Record<string, unknown>,
-                  op: { type: one.op.type, said: one.said, target: "target" in one.op ? String((one.op as any).target ?? (one.op as any).itemId ?? "") : undefined },
+                  op: {
+                    type: one.op.type,
+                    said: one.said,
+                    ...("target" in one.op && (one.op as any).target ? { target: String((one.op as any).target) } : {}),
+                  },
                   result: { ok: true, answer: one.said },
                 });
               } catch (err) {
