@@ -1,5 +1,16 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "node:child_process";
+
+const gitBranch = () => {
+  try { return execSync("git branch --show-current").toString().trim() || "feat/voice-agent"; }
+  catch { return "feat/voice-agent"; }
+};
+
+const gitCommit = () => {
+  try { return execSync("git rev-parse --short HEAD").toString().trim() || "unknown"; }
+  catch { return "unknown"; }
+};
 
 /**
  * **`/voice` is a second entry, not a route.**
@@ -34,6 +45,12 @@ function voiceEntry(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    __VOICE_BUILD_INFO__: JSON.stringify({
+      branch: gitBranch(),
+      commit: gitCommit(),
+    }),
+  },
   plugins: [react(), voiceEntry()],
   server: {
     port: 5173,

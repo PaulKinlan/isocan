@@ -32,6 +32,8 @@ import {
 } from "../lib/voice.ts";
 import { LevelMeter, Playback, capture, fromBytes, inputs, toBytes, type Capture, type Input, type ScheduleInfo } from "../lib/voiceAudio.ts";
 
+declare const __VOICE_BUILD_INFO__: { branch: string; commit: string } | undefined;
+
 /** The meter's resolution: 28 bars across −60…0 dBFS. */
 export const BARS = 28;
 const DEVICE_KEY = "isocan.voice.deviceId";
@@ -126,6 +128,19 @@ export function wireVoice(doc: Document = document): VoicePage {
   const keyNote = required<HTMLElement>("key-note", doc);
   const logList = required<HTMLElement>("log", doc);
   const copyLogButton = required<HTMLButtonElement>("copy-log", doc);
+  const buildTag = doc.getElementById("build-tag");
+  if (buildTag) {
+    try {
+      const info = typeof __VOICE_BUILD_INFO__ !== "undefined" ? __VOICE_BUILD_INFO__ : (window as any).__VOICE_BUILD_INFO__;
+      if (info?.branch && info?.commit) {
+        buildTag.textContent = `${info.branch} @ ${info.commit}`;
+      } else {
+        buildTag.textContent = "feat/voice-agent";
+      }
+    } catch {
+      buildTag.textContent = "feat/voice-agent";
+    }
+  }
 
   const barEls: HTMLElement[] = [];
   for (let i = 0; i < BARS; i++) {
