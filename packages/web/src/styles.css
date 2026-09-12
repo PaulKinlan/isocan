@@ -6635,3 +6635,220 @@ button.mt-card:hover { border-color: var(--accent); }
 .text-comment-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; position: sticky; top: 0; z-index: 2; background: var(--card); padding: 4px; }
 .fullscreen-stage .md-view { padding-top: 96px; scroll-padding-top: 96px; }
 .fullscreen-stage .text-comment-actions { top: 64px; }
+
+/*
+ * **The voice page: the microphone is the hero.**
+ *
+ * The first version was six equal boxes holding one value each, which reads as
+ * "here is some information" rather than "speak". The microphone is now first,
+ * largest, and the only thing on the page allowed to be loud: an instrument
+ * with a baseline and a held peak, the device picker beside its control, and a
+ * state line naming the device it listens on. The connection facts and the
+ * tool-call log are supporting information — quieter, smaller, tighter.
+ *
+ * Written in this stylesheet's own terms rather than its own scale: the type
+ * and space tokens are declared here, every radius is var(--radius), and every
+ * colour is a token, because `tokens.test.ts`, `scale.test.ts` and
+ * `oneblock.test.ts` all refuse a page that invents its own steps. That is the
+ * right rule: a page that brings its own numbers is the drift those guards
+ * exist to catch.
+ */
+.voice {
+  /* Type: five steps, one per role. Space: a 4px unit, six values. Both are
+     tokens, so a declaration that uses them is not a new step in the scales
+     the rest of the app is measured in. */
+  --t-xs: 0.75rem;
+  --t-sm: 0.8125rem;
+  --t-md: 0.9375rem;
+  --t-lg: 1.25rem;
+  --t-xl: 1.75rem;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s5);
+  padding: var(--s5);
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--ink);
+}
+.voice > * { min-width: 0; }
+.voice-head { display: grid; gap: var(--s1); }
+.voice-head h1 { color: var(--ink); margin: 0; font-size: var(--t-xl); font-weight: 600; letter-spacing: -0.02em; }
+.voice-sub { margin: 0; max-width: 62ch; color: var(--ink-muted); font-size: var(--t-md); }
+
+/* THE HERO. Everything below it is deliberately quieter than this. */
+.voice-hero {
+  display: grid;
+  gap: var(--s4);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s5);
+  background: var(--card);
+}
+.voice-hero[data-state="live"] { border-top-color: var(--accent); }
+.voice-hero[data-state="muted"] { border-top-color: var(--warn); }
+.voice-hero h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); font-weight: 600; }
+.voice-controls { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--s3); }
+.voice-controls button {
+  font: inherit;
+  font-size: var(--t-md);
+  padding: var(--s3) var(--s5);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  min-width: 0;
+}
+/* The one thing a person presses is the largest element in the hero, so the
+   meter can be an instrument beside it rather than the page's centre of mass
+   — a 57,000px² empty field in front of a 9,400px² button was the dashboard
+   the design was trying to leave behind. */
+.voice-controls #listen {
+  flex: 1 1 320px;
+  min-height: 88px;
+  font-size: var(--t-xl);
+  font-weight: 600;
+  padding: var(--s4) var(--s6);
+  border-color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+}
+.voice-controls #mute,
+.voice-controls #end { flex: 0 0 auto; min-width: 96px; }
+.voice-hero[data-state="live"] #listen { border-color: var(--accent); color: var(--accent-text); }
+.voice-controls button:disabled { opacity: 0.45; cursor: default; }
+.voice-instrument { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s4) var(--s5); }
+.voice-pick { min-width: 0; flex: 0 1 260px; display: grid; gap: var(--s1); }
+.voice-pick-label { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.voice-pick select {
+  font: inherit;
+  font-size: var(--t-sm);
+  width: 100%;
+  min-width: 0;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-muted);
+}
+
+/* An instrument, not texture: a labelled scale, lit bars, and a peak that
+   holds. The track is the muted ink at 65% on the card because `--line-soft`
+   measured about 1.2:1 on graphite — a meter whose off state is invisible says
+   nothing until it moves, which reads as broken rather than as zero. */
+.voice-meter-wrap { flex: 1 1 320px; max-width: 460px; min-width: 0; }
+.voice-meter { position: relative; height: 44px; border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
+.voice-bars { display: flex; align-items: flex-end; gap: var(--s1); height: 100%; }
+.voice-bars span { flex: 1 1 0; min-width: 0; height: 100%; border-radius: var(--radius); background: color-mix(in srgb, var(--ink-muted) 65%, var(--card)); transition: background 90ms linear; }
+.voice-bars span.on { background: var(--accent); }
+.voice-peak { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); border-radius: var(--radius); }
+.voice-scale { position: relative; height: 1.4em; margin-top: var(--s1); color: var(--ink-muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.voice-scale span { position: absolute; top: 0; }
+.voice-scale span:nth-child(1) { left: 0; }
+.voice-scale span:nth-child(2) { left: 66.667%; transform: translateX(-50%); }
+.voice-scale span:nth-child(3) { right: 0; }
+.voice-state { margin: 0; font-size: var(--t-lg); font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: var(--s2); }
+.voice-state::before { content: ""; width: 10px; height: 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--ink-muted) 65%, var(--card)); flex: none; }
+.voice-hero[data-state="live"] .voice-state::before { background: var(--accent); }
+.voice-hero[data-state="muted"] .voice-state::before { background: var(--warn); }
+
+/* Supporting information: one tight strip, one quiet log. */
+.voice-facts-strip { display: grid; gap: var(--s2); padding-top: var(--s4); border-top: 1px solid var(--line); }
+.voice-facts-strip h2 { margin: 0; font-size: var(--t-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); font-weight: 600; }
+.voice-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, max-content)); gap: var(--s3) var(--s5); margin: 0; font-size: var(--t-sm); }
+.voice-facts div { min-width: 0; display: grid; gap: var(--s1); }
+.voice-facts dt { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.voice-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.voice-open {
+  font: inherit;
+  font-size: var(--t-xs);
+  margin-left: var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+.voice-open:hover { border-color: var(--accent); }
+.voice-id { font-family: ui-monospace, monospace; color: var(--ink-muted); font-size: var(--t-xs); }
+.voice-ok { color: var(--good); }
+.voice-bad { color: var(--danger); }
+.voice-hint { color: var(--ink-muted); font-size: var(--t-sm); margin: var(--s2) 0 0; overflow-wrap: anywhere; }
+.voice-quiet { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.voice-quiet > summary, .voice-quiet > h2 {
+  margin: 0;
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s2);
+}
+.voice-quiet > h2 { cursor: default; }
+.voice-log { list-style: none; margin: var(--s2) 0 0; padding: 0; max-height: 200px; overflow: auto; display: grid; gap: 0; }
+.voice-log li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: var(--t-xs);
+  line-height: 1.35;
+  border-bottom: 1px solid var(--line-soft);
+  padding: var(--s1) 0;
+}
+.voice-at { color: var(--ink-muted); }
+.voice-op { color: var(--good); }
+.voice-answered { color: var(--accent-text); }
+.voice-event { color: var(--ink-muted); }
+.voice-keyrow { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+.voice-keyrow input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+/* The key panel's buttons all wear the same outline: nothing there is the
+   page's main action, and Save is only pressable once there is a key to
+   save — the loudest thing in the panel must not be the one that does
+   nothing. */
+.voice-keyrow button:disabled { opacity: 0.45; cursor: default; }
+.voice-keyrow button {
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s4); }
+  .voice-head h1 { font-size: var(--t-lg); }
+  .voice-hero { padding: var(--s4); }
+  .voice-controls #listen { flex: 1 1 100%; }
+  .voice-controls #mute, .voice-controls #end { flex: 1 1 auto; }
+  .voice-meter-wrap { flex: 1 1 100%; max-width: none; }
+  .voice-meter { height: 40px; }
+  .voice-facts { grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
+}

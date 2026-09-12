@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Voice</title>
+  </head>
+  <body>
+    <!--
+      **The voice page, as markup rather than a component tree.**
+
+      Vite serves this file directly (HMR included) and `src/voice/main.ts` is
+      its only script. There is no identity gate, no router and no React: the
+      page exists to open a microphone, so it opens one. Everything the CSS
+      already knows — the hero, the meter's scale, the connection strip, the
+      key panel, the tool log — is here with the same ids and classes.
+    -->
+    <div class="voice">
+      <header class="voice-head">
+        <h1>Voice</h1>
+        <p class="voice-sub">
+          Speak, and the operations land on the canvas as the enrolled actor. The key stays in the harness on the
+          machine — this page never sees it, and never decides where a sentence ends.
+        </p>
+      </header>
+
+      <section class="voice-hero" id="hero" data-state="idle" aria-label="Microphone">
+        <div class="voice-controls">
+          <button id="listen" type="button"><span aria-hidden="true">🎙</span> Listen</button>
+          <button id="mute" type="button" disabled>Mute</button>
+          <button id="end" type="button" disabled>End</button>
+        </div>
+        <div class="voice-instrument">
+          <label class="voice-pick">
+            <span class="voice-pick-label">Microphone</span>
+            <select id="device" aria-label="microphone"></select>
+          </label>
+          <div class="voice-meter-wrap">
+            <div class="voice-meter" id="meter" role="img" aria-label="input level 0 percent, peak 0 percent">
+              <div class="voice-bars" id="bars"></div>
+              <span class="voice-peak" id="peak" hidden></span>
+            </div>
+            <div class="voice-scale" aria-hidden="true"><span>-60</span><span>-20</span><span>0 dB</span></div>
+          </div>
+        </div>
+        <p class="voice-state" id="state">idle — press Listen to start</p>
+      </section>
+
+      <section class="voice-facts-strip" aria-label="Connection">
+        <h2>Connected to</h2>
+        <dl class="voice-facts">
+          <div>
+            <dt>Canvas</dt>
+            <dd>
+              <span id="canvas-title">unknown</span> <span class="voice-id" id="canvas-id">no id</span>
+              <button id="open-project" class="voice-open" type="button">Open the project ↗</button>
+            </dd>
+          </div>
+          <div><dt>Daemon</dt><dd id="daemon">unknown</dd></div>
+          <div><dt>Home</dt><dd id="home">none configured</dd></div>
+          <div>
+            <dt>Actor</dt>
+            <dd>
+              <span id="actor-name">unknown</span> <span class="voice-id" id="actor-id">no id</span>
+              <span id="actor-standing" class="voice-bad">not enrolled — nothing can summon it</span>
+            </dd>
+          </div>
+          <div><dt>Audio</dt><dd id="audio">no provider · no model · no key stored</dd></div>
+          <div><dt>Version</dt><dd><span id="version">unknown</span> <span class="voice-id" id="updated">updated unknown</span></dd></div>
+        </dl>
+        <p class="voice-bad" id="complaint" hidden></p>
+      </section>
+
+      <details class="voice-quiet" aria-label="Key" open>
+        <summary>Key</summary>
+        <p class="voice-hint">
+          Stored by the harness at <code>~/.isocan/voice/key.json</code>, mode 0600. Posted once over loopback and never
+          kept by this page. Paste any key — the provider is the judge, and it answers below in its own words.
+        </p>
+        <div class="voice-keyrow">
+          <input id="key" type="password" aria-label="provider key" placeholder="paste the provider key" autocomplete="off" />
+          <select id="provider" aria-label="provider">
+            <option value="gemini">gemini</option>
+            <option value="openai">openai</option>
+          </select>
+        </div>
+        <div class="voice-keyrow">
+          <button id="save-key" type="button" disabled>Save key</button>
+          <button id="test-key" type="button">Test key</button>
+          <button id="forget-key" type="button">Forget</button>
+        </div>
+        <p class="voice-hint" id="key-note" hidden></p>
+      </details>
+
+      <section class="voice-quiet voice-log-panel" aria-label="Tool calls">
+        <h2>
+          Tool calls
+          <button id="copy-log" type="button">Copy</button>
+        </h2>
+        <ol class="voice-log" id="log"></ol>
+      </section>
+    </div>
+
+    <script type="module">
+      import { wireVoice } from "/src/voice/main.ts";
+      wireVoice();
+    </script>
+  </body>
+</html>
