@@ -9,6 +9,7 @@ import { readConfigFile, readMarker } from "@isocan/server";
 import { statSync } from "node:fs";
 import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
 import {
+  BROWSER_MIME,
   canvasUrlWithPass,
   drawingSvg,
   drawingViewBox,
@@ -16,6 +17,8 @@ import {
   itemKind,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
+  normalizeSiteUrl,
+  siteLabel,
   type InkStroke,
 } from "@isocan/core";
 import { readRcAgents } from "./rc.ts";
@@ -492,16 +495,21 @@ export const LIVE_TOOLS = [
   // --- Canvas & Project Mutation Operations (Derived from @isocan/core Operation types) ---
   {
     name: "add_item",
-    description: "Add a new note, card, or document to the canvas with a title and text content.",
+    description:
+      "Add something to the canvas. A note: title + text. A live web page: pass url (e.g. 'add a web page', " +
+      "'put localhost:3000 on the canvas', 'show me example.com'). A page is an ordinary item whose content is a " +
+      "text/uri-list, so it renders as a live site.",
     parameters: {
       type: "OBJECT",
       properties: {
-        title: { type: "STRING", description: "The title of the new note or card." },
-        text: { type: "STRING", description: "The markdown or text content." },
+        title: { type: "STRING", description: "The title of the new item." },
+        text: { type: "STRING", description: "The note's markdown or text content." },
+        url: { type: "STRING", description: "A web address to add as a live page (http(s) or host:port)." },
+        kind: { type: "STRING", description: "What kind of item: 'note' (default) or 'site'." },
         x: { type: "NUMBER", description: "Optional x position on canvas." },
         y: { type: "NUMBER", description: "Optional y position on canvas." },
       },
-      required: ["title"],
+      required: [],
     },
   },
   {
@@ -875,21 +883,51 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
   const ref = typeof args.item_ref === "string" ? args.item_ref : "";
   const text = typeof args.text === "string" ? args.text : "";
   switch (name) {
-    case "add_item":
+    case "add_item": {
+      const rawUrl = typeof args.url === "string" ? args.url.trim() : "";
+      if (rawUrl !== "" || args.kind === "site") {
+        if (rawUrl === "") {
+          return { plans: [], what: "adding a site needs a url — say the address to project" };
+        }
+        let site: string;
+        try {
+          site = normalizeSiteUrl(rawUrl);
+        } catch (err) {
+          return { plans: [], what: `that is not a web address — ${(err as Error).message}` };
+        }
+        const title = String(args.title ?? siteLabel(site));
+        return {
+          plans: [
+            {
+              op: {
+                type: "item.add",
+                title,
+                text: `${site}\n`,
+                mime: BROWSER_MIME,
+                x: args.x !== undefined ? Number(args.x) : undefined,
+                y: args.y !== undefined ? Number(args.y) : undefined,
+              },
+              said: `add "${title}" as a web page`,
+            },
+          ],
+        };
+      }
+      const title = String(args.title ?? "New note");
       return {
         plans: [
           {
             op: {
               type: "item.add",
-              title: String(args.title ?? "New note"),
+              title,
               text: String(args.text ?? ""),
               x: args.x !== undefined ? Number(args.x) : undefined,
               y: args.y !== undefined ? Number(args.y) : undefined,
             },
-            said: `added "${args.title ?? "New note"}"`,
+            said: `add "${title}"`,
           },
         ],
       };
+    }
     case "update_item":
     case "rename_item": {
       const hasTitle = args.title !== undefined && args.title !== null;
@@ -1076,7 +1114,9 @@ export function describeMintedOp(op: { type: string; [key: string]: unknown }, t
   const ref = targetName || (op.ref as string) || (op.itemId as string) || "item";
   switch (op.type) {
     case "item.add":
-      return `add "${op.title ?? "Note"}"`;
+      return op.mime === BROWSER_MIME
+        ? `add "${op.title ?? "Note"}" as a web page`
+        : `add "${op.title ?? "Note"}"`;
     case "item.update": {
       const hasTitle = op.title !== undefined && op.title !== null;
       const hasDesc = op.description !== undefined && op.description !== null;

@@ -244,6 +244,24 @@ describe("what a sentence means", () => {
     expect(describeMintedOp({ type: "item.move", x: 10, y: 20 }, "Note")).toBe('move "Note" to 10, 20');
   });
 
+  it("turns a URL into an ordinary item.add whose blob is a text/uri-list", () => {
+    const { plans } = planForCall("add_item", { url: "localhost:3000" });
+    expect(plans[0]!.op).toMatchObject({
+      type: "item.add",
+      title: "localhost:3000",
+      text: "http://localhost:3000/\n",
+      mime: "text/uri-list",
+    });
+    const { ready } = resolveLivePlans(plans, []);
+    expect(ready[0]!.said).toBe('add "localhost:3000" as a web page');
+  });
+
+  it("refuses a url that is not a web address instead of adding an empty note", () => {
+    const { plans, what } = planForCall("add_item", { url: "not a url" });
+    expect(plans).toEqual([]);
+    expect(what).toContain("not a web address");
+  });
+
   it("refuses to guess which of two things you meant, and says so", () => {
     const ctx = { items: [item("Checkout screen", "itm_1"), item("Checkout v2", "itm_2")], mainThreadId: null };
     const out = planVoice("delete Checkout", ctx);
@@ -732,7 +750,20 @@ describe("the Live API path", () => {
       const renamedItems = await items();
       expect(renamedItems.map((i) => i.title)).toContain("Spoken Note Renamed");
 
-      // 4. Assert /log
+      // 4. add_item with a url — the "add a web page" case Paul asked for.
+      // It is an ordinary item.add whose blob is a text/uri-list, so the
+      // canvas renders it as a live site rather than a text card.
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [{ id: "call-site", name: "add_item", args: { url: "localhost:3000" } }],
+        },
+      });
+      while (providerSocket.sent.length < 5) await new Promise(r => setTimeout(r, 10));
+
+      const siteItems = await items();
+      expect(siteItems.map((i) => i.title)).toContain("localhost:3000");
+
+      // 5. Assert /log
       const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
       expect(logRes.entries.length).toBeGreaterThanOrEqual(3);
 
@@ -744,6 +775,11 @@ describe("the Live API path", () => {
       expect(addLog).toBeDefined();
       expect(addLog.result.ok).toBe(true);
       expect(addLog.op.type).toBe("item.add");
+
+      const siteLog = logRes.entries.find((e: any) => e.args?.url === "localhost:3000");
+      expect(siteLog, "the site call is in the log").toBeDefined();
+      expect(siteLog.op.said).toBe('add "localhost:3000" as a web page');
+      expect(siteLog.result.ok).toBe(true);
 
       const renameLog = logRes.entries.find((e: any) => e.name === "rename_item");
       expect(renameLog).toBeDefined();
