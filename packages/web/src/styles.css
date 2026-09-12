@@ -6823,6 +6823,9 @@ button.mt-card:hover { border-color: var(--accent); }
   align-items: baseline;
   gap: var(--s2);
   min-width: 0;
+  /* A websocket URL or a serialised event is one long token; without this it
+     pushes a horizontal scrollbar across the whole drawer. */
+  overflow-wrap: anywhere;
   font-family: ui-monospace, monospace;
   font-size: var(--t-xs);
   line-height: 1.35;
@@ -6837,7 +6840,9 @@ button.mt-card:hover { border-color: var(--accent); }
 @media (max-width: 720px) {
   .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s3); }
   .voice-quiet > summary { flex-wrap: wrap; row-gap: var(--s1); }
-  .voice-summary { flex-basis: 100%; text-align: left; white-space: normal; }
+  /* The marker stays on the label's line, and the summary takes its own: the
+     alternative was a lone "+" below two lines of truncated text. */
+  .voice-summary { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
   .voice-session button { min-height: 44px; padding: var(--s2) var(--s5); }
   .voice-confirm-acts button { min-height: 44px; }
   .voice-drawers { padding-bottom: var(--s4); }
