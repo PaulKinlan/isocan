@@ -1,3 +1,18 @@
+import { execFileSync } from "node:child_process";
+
+function gitInfo(key: string, fallback: string): string {
+  try {
+    return execFileSync("git", [key], { encoding: "utf8" }).trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const buildInfo = {
+  branch: gitInfo("rev-parse --abbrev-ref HEAD", "unknown-branch"),
+  commit: gitInfo("rev-parse --short HEAD", "unknown-commit"),
+};
+
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
@@ -46,7 +61,8 @@ function voiceEntry(): Plugin {
 
 export default defineConfig({
   define: {
-    __VOICE_BUILD_INFO__: JSON.stringify({
+    __VOICE_BUILD_INFO__: JSON.stringify(buildInfo),
+    
       branch: gitBranch(),
       commit: gitCommit(),
     }),
