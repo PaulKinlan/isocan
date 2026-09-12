@@ -43,6 +43,8 @@ export interface LogEntry {
   answered?: string | undefined;
   error?: string | undefined;
   event?: string | undefined;
+  /** The page's own record (not the harness's), kept across the log poll. */
+  own?: boolean;
   [k: string]: unknown;
 }
 

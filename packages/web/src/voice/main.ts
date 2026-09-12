@@ -30,7 +30,7 @@ import {
   type SessionState,
   type State,
 } from "../lib/voice.ts";
-import { LevelMeter, Playback, capture, fromBytes, inputs, toBytes, type Capture, type Input } from "../lib/voiceAudio.ts";
+import { LevelMeter, Playback, capture, fromBytes, inputs, toBytes, type Capture, type Input, type ScheduleInfo } from "../lib/voiceAudio.ts";
 
 /** The meter's resolution: 28 bars across −60…0 dBFS. */
 export const BARS = 28;
@@ -240,9 +240,64 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
+  /**
+   * **The page's own entries are marked, because the log poll used to eat
+   * them.**
+   *
+   * `pollLog` replaces `entries` with the harness's `/log` every two seconds,
+   * and the page's own record — the session opening, which microphone at
+   * which rate, every audio chunk's schedule — is not the harness's to
+   * return. So it survived for at most two seconds and then vanished, which is
+   * how a page can show a log and still have nothing to read when something
+   * sounds wrong. Marking them lets the poll replace only its own half.
+   */
   function put(entry: LogEntry): void {
-    entries = [entry, ...entries].slice(0, 200);
+    entries = [{ ...entry, own: true }, ...entries].slice(0, 200);
     renderLog();
+  }
+
+  /**
+   * **Every audio chunk, counted and dated, because "the frames overlap" is
+   * answered by the log or by nothing.**
+   *
+   * `Playback` reports each chunk's sequence, byte length and scheduled start.
+   * The first few are logged whole — the numbers that would show two chunks
+   * starting at the same time — and after that only a folded line every
+   * hundred, so a live session does not push the tool calls out of the log.
+   * `behind` and out-of-order starts are always logged: those are the shape of
+   * a real fault, and a fault nobody can see is the one that took a day to
+   * find.
+   */
+  const audio = { chunks: 0, bytes: 0, behind: 0, disorder: 0, last: -1 };
+
+  function noteChunk(info: ScheduleInfo): void {
+    const outOfOrder = info.start < audio.last - 1e-6;
+    audio.chunks += 1;
+    audio.bytes += info.bytes;
+    if (info.behind) audio.behind += 1;
+    if (outOfOrder) audio.disorder += 1;
+    audio.last = info.start;
+    const at = new Date().toLocaleTimeString();
+    if (info.behind || outOfOrder) {
+      put({
+        at,
+        event: `audio #${info.seq} · ${info.bytes} B · starts ${info.start.toFixed(3)}s at now ${info.now.toFixed(3)}s`,
+      });
+      return;
+    }
+    if (audio.chunks <= 8) {
+      put({
+        at,
+        event: `audio #${info.seq} · ${info.bytes} B · ${info.duration.toFixed(3)}s · starts ${info.start.toFixed(3)}s (now ${info.now.toFixed(3)}s)`,
+      });
+      return;
+    }
+    if (audio.chunks % 100 === 0) {
+      put({
+        at,
+        event: `audio · ${audio.chunks} chunks · ${audio.bytes} B · ${audio.behind} at now · last starts ${info.start.toFixed(3)}s${audio.disorder ? ` · ${audio.disorder} out of order` : ""}`,
+      });
+    }
   }
 
   const refresh = async (): Promise<void> => {
@@ -275,8 +330,11 @@ export function wireVoice(doc: Document = document): VoicePage {
       const reply = await fetchLog();
       // Newest first, because a live log is read from the top: the harness
       // answers oldest-first and the newest tool call is the one a person
-      // came to see, not the last of thirty session events.
-      entries = entriesFrom(reply).slice(-200).reverse();
+      // came to see, not the last of thirty session events. The page's own
+      // entries stay in front: they happened on this page and the harness
+      // cannot return them.
+      const own = entries.filter((entry) => entry.own);
+      entries = [...own, ...entriesFrom(reply).slice(-200).reverse()].slice(0, 200);
       renderLog();
     } catch {
       // The endpoint is merger's to land; until it exists the log stays as
@@ -358,10 +416,17 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
 
     playback = new Playback();
+    playback.onSchedule = noteChunk;
     levelMeter = new LevelMeter(BARS);
     try {
       const captured = await startCapture(chosenId || undefined);
-      put({ at: new Date().toLocaleTimeString(), event: `microphone: ${captured.label} (${captured.path})` });
+      // The context rate is in the log for the same reason the chunk
+      // schedules are: a silent turn is diagnosable from the numbers here
+      // (44.1 kHz was the rate that resampled to silence), and nowhere else.
+      put({
+        at: new Date().toLocaleTimeString(),
+        event: `microphone: ${captured.label} (${captured.path}) @ ${captured.context.sampleRate} Hz`,
+      });
     } catch (err) {
       const why = `no microphone: ${String((err as Error).message ?? err)}`;
       complaint = why;

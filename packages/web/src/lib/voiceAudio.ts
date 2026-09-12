@@ -288,10 +288,47 @@ export async function capture(
   return held;
 }
 
+/** How long the first chunk of an utterance waits, so jitter cannot clip it. */
+export const START_CUSHION = 0.02;
+
+/** One chunk's place in the playback queue, for the log that settles ordering. */
+export interface ScheduleInfo {
+  /** Arrival order of this chunk in the playback. */
+  seq: number;
+  /** Bytes of PCM as they came off the wire. */
+  bytes: number;
+  /** When it was asked to start, on the playback context's clock. */
+  start: number;
+  /** The context time when it was scheduled. */
+  now: number;
+  /** Seconds of audio it carries. */
+  duration: number;
+  /** True when the cursor had passed — scheduled at now, not after the last. */
+  behind: boolean;
+}
+
 /** What the model says back, played as it arrives, and stopped when it is cut off. */
 export class Playback {
   private context: AudioContext | null = null;
   private playing: AudioBufferSourceNode[] = [];
+  /**
+   * **Where the next chunk starts: the end of the last one.**
+   *
+   * `source.start()` with no argument starts the chunk at "now", so every
+   * chunk that arrived while the previous one still had audio left started on
+   * top of it — Paul heard that as "a lot of overlap in the audio", and the
+   * arithmetic is unambiguous: a chunk that begins when it arrives overlaps
+   * its predecessor whenever it arrives faster than real time, which is how
+   * the model sends it. Keeping the cursor also means a chunk is never
+   * scheduled in the past: when playback has fallen behind, the deadline is
+   * gone and the only honest place for the next chunk is now, with the cursor
+   * reset forward.
+   */
+  private nextStartTime = 0;
+  /** Arrival order, counted here so the log can prove it was preserved. */
+  private seq = 0;
+  /** Every chunk's schedule: sequence, bytes, when it was asked to start. */
+  onSchedule?: (info: ScheduleInfo) => void;
 
   private async ready(): Promise<AudioContext> {
     if (!this.context) this.context = new AudioContext({ sampleRate: 24000 });
@@ -310,8 +347,24 @@ export class Playback {
     source.onended = () => {
       this.playing = this.playing.filter((one) => one !== source);
     };
-    source.start();
+    const now = context.currentTime;
+    // The cursor, or now with a small cushion when the deadline has passed —
+    // scheduling at `now` exactly is what WebAudio's own guidance warns
+    // against, because setup jitter then eats the first samples.
+    const behind = this.nextStartTime <= now;
+    const start = behind ? now + START_CUSHION : this.nextStartTime;
+    this.nextStartTime = start + buffer.duration;
+    source.start(start);
     this.playing.push(source);
+    const info: ScheduleInfo = {
+      seq: this.seq++,
+      bytes: pcm.byteLength,
+      start,
+      now,
+      duration: buffer.duration,
+      behind,
+    };
+    this.onSchedule?.(info);
   }
 
   /** `interrupted` is the server saying the person spoke over the model. */
@@ -324,6 +377,9 @@ export class Playback {
       }
     }
     this.playing = [];
+    // The next chunk belongs to a new utterance: it starts at `now`, not at
+    // the end of audio that was just cut off.
+    this.nextStartTime = 0;
   }
 
   close(): void {
