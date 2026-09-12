@@ -1964,9 +1964,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 }
               } catch {}
               const MAX_CONTENT_LEN = 4000;
+              const byteLen = Buffer.byteLength(content, "utf8");
               const isTruncated = content.length > MAX_CONTENT_LEN;
               const bodyText = isTruncated
-                ? content.slice(0, MAX_CONTENT_LEN) + `\n\n[... content truncated after ${MAX_CONTENT_LEN} chars; full length: ${content.length} bytes ...]`
+                ? content.slice(0, MAX_CONTENT_LEN) + `\n\n[... content truncated after ${MAX_CONTENT_LEN} characters; full length: ${content.length} characters (${byteLen} bytes) ...]`
                 : content;
               const answer = {
                 id: item.id,
@@ -1974,7 +1975,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 kind: item.kind,
                 content: bodyText,
                 truncated: isTruncated,
-                fullLength: content.length,
+                characterCount: content.length,
+                byteLength: byteLen,
               };
               say({ text: `Item "${item.title}": ${bodyText.slice(0, 150)}` });
               recordToolLog({
@@ -2019,6 +2021,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 targetItem = resolveSpokenRef(ref, items);
                 if (!targetItem) {
                   const err = `could not find item matching "${ref}"`;
+                  say({ text: err });
+                  recordToolLog({
+                    type: "tool_call",
+                    source: "live",
+                    name,
+                    args: args as Record<string, unknown>,
+                    result: { ok: false, error: err },
+                  });
                   return { ok: false, error: err };
                 }
               }

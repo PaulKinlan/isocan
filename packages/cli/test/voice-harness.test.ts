@@ -912,6 +912,22 @@ describe("the Live API path", () => {
       expect(trashReply.toolResponse?.functionResponses?.[0].response.ok).toBe(false);
       expect(trashReply.toolResponse?.functionResponses?.[0].response.error).toContain("confirmation");
 
+      // 10. REFUSED READ_THREADS LOGGING (nonexistent item_ref)
+      providerSocket.emit({
+        toolCall: {
+          functionCalls: [
+            {
+              id: "call-threads-fail",
+              name: "read_threads",
+              args: { item_ref: "nonexistent_item_ref" },
+            },
+          ],
+        },
+      });
+      while (providerSocket.sent.length < 11) await new Promise((r) => setTimeout(r, 10));
+      const threadFailReply = JSON.parse(providerSocket.sent.at(-1) ?? "{}");
+      expect(threadFailReply.toolResponse?.functionResponses?.[0].response.ok).toBe(false);
+
       // Verify /log entries
       const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
       expect(logRes.entries.find((e: any) => e.name === "drawing_add")).toBeDefined();
@@ -923,6 +939,9 @@ describe("the Live API path", () => {
       expect(logRes.entries.find((e: any) => e.name === "item_set_current_version")).toBeDefined();
       expect(logRes.entries.find((e: any) => e.name === "selection_set")).toBeDefined();
       expect(logRes.entries.find((e: any) => e.name === "trash_empty")).toBeDefined();
+      const threadFailLog = logRes.entries.find((e: any) => e.name === "read_threads" && e.result?.ok === false);
+      expect(threadFailLog).toBeDefined();
+      expect(threadFailLog.result.error).toContain("nonexistent_item_ref");
 
       clientWs.close();
     } finally {
