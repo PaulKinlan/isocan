@@ -282,12 +282,12 @@ describe("the standalone page keeps the controls a person has to press", () => {
 
   it("offers the microphone, the session controls and the device picker", async () => {
     await wire();
-    for (const id of ["listen", "mute", "end", "device", "meter", "log"]) {
+    for (const id of ["listen", "mute", "end", "device", "input-wave", "output-wave", "log"]) {
       expect(document.getElementById(id), id).toBeTruthy();
     }
-    expect(element<HTMLElement>("bars").children).toHaveLength(28);
-    expect(element<HTMLElement>("peak").hidden).toBe(true);
-    expect(document.querySelectorAll(".voice-scale span")).toHaveLength(3);
+    expect(document.querySelector("#listen #input-wave")).toBeTruthy();
+    expect(document.querySelector("#listen #output-wave")).toBeNull();
+    expect(document.querySelectorAll("#meter, #bars, #peak, .voice-scale")).toHaveLength(0);
   });
 
   it("offers a way to open the project it is driving", async () => {
@@ -302,7 +302,8 @@ describe("state wiring, without a component tree", () => {
     stateReply = LIVE;
     await wire();
     expect(element<HTMLElement>("hero").dataset.state).toBe("live");
-    expect(element<HTMLButtonElement>("listen").disabled).toBe(true);
+    expect(element<HTMLButtonElement>("listen").disabled).toBe(false);
+    expect(element<HTMLButtonElement>("listen").getAttribute("aria-label")).toBe("Mute microphone");
     expect(element<HTMLButtonElement>("mute").disabled).toBe(false);
     expect(element<HTMLButtonElement>("end").disabled).toBe(false);
     expect(element<HTMLElement>("state").textContent).toBe("listening — Desk microphone");
@@ -428,10 +429,9 @@ describe("the states Paul asked for, from the wire that carries them", () => {
     socket.audio();
     await flush();
     expect(element<HTMLElement>("hero").dataset.activity).toBe("speaking");
-    // The ticker is what writes the meter, so let it tick once: the waveform
-    // now reads the model's own output, not the microphone.
+    // The outer waveform follows scheduled output without replacing input.
     await vi.advanceTimersByTimeAsync(150);
-    expect(element<HTMLElement>("meter").getAttribute("aria-label")).toContain("output level");
+    expect(document.getElementById("output-wave")?.getAttribute("d")).toContain("L");
 
     // The reply, as the harness tags it: the transcript shows both sides.
     socket.event({ type: "tool_log", entry: { details: { kind: "reply", text: "I've read the canvas." } } });
@@ -441,7 +441,7 @@ describe("the states Paul asked for, from the wire that carries them", () => {
     // A quiet tail returns to listening without anyone saying so.
     await vi.advanceTimersByTimeAsync(900);
     expect(element<HTMLElement>("hero").dataset.activity).toBe("listening");
-    expect(element<HTMLElement>("meter").getAttribute("aria-label")).toContain("input level");
+    expect(document.getElementById("input-wave")?.getAttribute("d")).toContain("M");
   });
 
   it("stops the model and goes back to listening when it is interrupted", async () => {
@@ -466,6 +466,81 @@ describe("the states Paul asked for, from the wire that carries them", () => {
     expect(element<HTMLElement>("hero").dataset.state).toBe("muted");
     expect(element<HTMLElement>("hero").dataset.activity).toBe("muted");
     expect(element<HTMLElement>("state").textContent).toContain("muted");
+  });
+});
+
+describe("mic-centred conversation feedback", () => {
+  it("shows connecting immediately and prevents duplicate start presses", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    element<HTMLButtonElement>("listen").click();
+    expect(element("hero").dataset.activity).toBe("connecting");
+    expect(element<HTMLButtonElement>("listen").disabled).toBe(true);
+    element<HTMLButtonElement>("listen").click();
+    await flush();
+    await flush();
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/session/start"))).toHaveLength(1);
+  });
+
+  it("keeps speaking through burst-delivered PCM, not a 700 ms packet gap", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    stateReply = { session: "live" };
+    const inputBefore = document.getElementById("input-wave")!.getAttribute("d");
+    const outputBefore = document.getElementById("output-wave")!.getAttribute("d");
+    socket.audio(72000); // three seconds delivered in one message
+    await flush();
+    socket.event({ state: "turn_complete" });
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(element("hero").dataset.activity).toBe("speaking");
+    expect(document.getElementById("output-wave")!.getAttribute("d")).not.toBe(outputBefore);
+    expect(document.getElementById("input-wave")!.getAttribute("d")).toBe(inputBefore);
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(element("hero").dataset.activity).toBe("listening");
+  });
+
+  it("streams captions without replacing earlier words, fades, and retains history", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    stateReply = { session: "live" };
+    const reply = (text: string) => socket.event({ type: "tool_log", entry: { details: { kind: "reply", text } } });
+    reply("The canvas ");
+    const first = element("captions").firstChild;
+    reply("is ready.");
+    expect(element("captions").firstChild).toBe(first);
+    expect(element("captions").textContent).toBe("The canvas is ready.");
+    // The old reply class accidentally inherited the entire .voice page grid.
+    expect(document.querySelectorAll(".voice")).toHaveLength(1);
+    expect(document.querySelector("#transcript .voice-turn--voice")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(5500);
+    expect(element("captions").classList.contains("faded")).toBe(true);
+    expect(element("transcript").textContent).toContain("The canvas is ready.");
+    element<HTMLInputElement>("keep-captions").click();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(element("captions").classList.contains("faded")).toBe(false);
+    page!.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("uses the large mic as mute/unmute without starting another session", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    await goLive();
+    const mic = element<HTMLButtonElement>("listen");
+    mic.click();
+    await flush();
+    expect(element("hero").dataset.activity).toBe("muted");
+    expect(mic.getAttribute("aria-label")).toBe("Unmute microphone");
+    mic.click();
+    await flush();
+    expect(element("hero").dataset.activity).toBe("listening");
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/session/start"))).toHaveLength(1);
   });
 });
 

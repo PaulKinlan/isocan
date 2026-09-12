@@ -30,10 +30,9 @@ import {
   type SessionState,
   type State,
 } from "../lib/voice.ts";
-import { LevelMeter, Playback, capture, fromBytes, inputs, toBytes, type Capture, type Input, type ScheduleInfo } from "../lib/voiceAudio.ts";
+import { Playback, capture, fromBytes, inputs, rmsOf, toBytes, type Capture, type Input, type ScheduleInfo } from "../lib/voiceAudio.ts";
 
-
-/** The meter's resolution: 28 bars across −60…0 dBFS. */
+/** The input waveform's recent energy samples; not a calibrated dB scale. */
 export const BARS = 28;
 const DEVICE_KEY = "isocan.voice.deviceId";
 /**
@@ -77,10 +76,10 @@ function storeDaemon(value: string): void {
 }
 
 /** The page is markup, so a missing element is a broken page, not a blank. */
-function required<T extends HTMLElement>(id: string, doc: Document): T {
-  const found = doc.getElementById(id);
+function required<T extends Element>(id: string, doc: Document): T {
+  const found = doc.querySelector<T>(`#${id}`);
   if (!found) throw new Error(`the voice page is missing #${id}`);
-  return found as T;
+  return found;
 }
 
 /**
@@ -129,16 +128,17 @@ function audioFacts(facts: State | null): { provider: string; model: string; key
  * a page that shows a live microphone while it is off is lying about the one
  * thing the person controls.
  */
-export type Activity = "idle" | "listening" | "thinking" | "speaking" | "muted" | "ended";
+export type Activity = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "muted" | "ended";
 
-/** How long a quiet gap after the last output chunk ends "speaking". */
-const SPEAKING_TAIL_MS = 700;
+/** Only a fallback for text-only replies; PCM follows its playback schedule. */
+const TEXT_TAIL_MS = 700;
 
 /**
  * **The state line says which microphone, because "it is using the wrong one"
  * is not diagnosable from a word like "live".**
  */
 function stateWords(activity: Activity, session: SessionState, microphone: string): string {
+  if (activity === "connecting") return "connecting…";
   if (activity === "thinking") return "thinking…";
   if (activity === "speaking") {
     return session === "muted" ? "speaking — you are muted" : "speaking";
@@ -194,9 +194,13 @@ export function wireVoice(doc: Document = document): VoicePage {
   const muteButton = required<HTMLButtonElement>("mute", doc);
   const endButton = required<HTMLButtonElement>("end", doc);
   const deviceSelect = required<HTMLSelectElement>("device", doc);
-  const meter = required<HTMLElement>("meter", doc);
-  const bars = required<HTMLElement>("bars", doc);
-  const peakMark = required<HTMLElement>("peak", doc);
+  const inputWave = required<SVGPathElement>("input-wave", doc);
+  const outputWave = required<SVGPathElement>("output-wave", doc);
+  const captions = required<HTMLElement>("captions", doc);
+  const keepCaptions = required<HTMLInputElement>("keep-captions", doc);
+  const copyNote = required<HTMLElement>("copy-note", doc);
+  const motion = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  keepCaptions.checked = motion?.matches ?? false;
   const stateLine = required<HTMLElement>("state", doc);
   const buildTag = required<HTMLElement>("build-tag", doc);
   const transcript = required<HTMLElement>("transcript", doc);
@@ -232,12 +236,6 @@ export function wireVoice(doc: Document = document): VoicePage {
   const keyNote = required<HTMLElement>("key-note", doc);
   const logList = required<HTMLElement>("log", doc);
   const copyLogButton = required<HTMLButtonElement>("copy-log", doc);
-  const barEls: HTMLElement[] = [];
-  for (let i = 0; i < BARS; i++) {
-    const bar = doc.createElement("span");
-    bars.appendChild(bar);
-    barEls.push(bar);
-  }
 
   let facts: State | null = null;
   let session: SessionState = "idle";
@@ -270,12 +268,25 @@ export function wireVoice(doc: Document = document): VoicePage {
   let held: Capture | null = null;
   let socket: WebSocket | null = null;
   let playback: Playback | null = null;
-  let levelMeter: LevelMeter | null = null;
-  let outputMeter: LevelMeter | null = null;
-  let ticker: ReturnType<typeof setInterval> | null = null;
+  let ticker: number | null = null;
+  let opening = false;
+  let disposed = false;
+  let generation = 0;
+  let outputEpoch = 0;
+  let audioWork = Promise.resolve();
+  let pendingPCM: Int16Array | null = null;
+  const inputHistory: number[] = Array(BARS).fill(0);
+  const displayInput: number[] = Array(BARS).fill(0);
+  const displayOutput: number[] = Array(64).fill(0);
+  let lastInputAt = 0;
+  let lastFrameAt = 0;
+  let queuedAudio: { pcm: Int16Array; start: number; end: number }[] = [];
+  let speechUntil = 0;
+  let captionTimer: ReturnType<typeof setTimeout> | null = null;
+  let captionText = "";
+  let captionTurn: object | null = null;
   /** The visible state: what the microphone is doing, not what the session is. */
   let activity: Activity = "idle";
-  let speakingTimer: ReturnType<typeof setTimeout> | null = null;
   /** Turn boundaries and the reply, as the harness's own log describes them. */
   let turns: { who: "you" | "voice"; text: string }[] = [];
   /** True once a tagged reply has been seen, so the untagged copy is ignored. */
@@ -299,12 +310,16 @@ export function wireVoice(doc: Document = document): VoicePage {
    */
   function renderHero(): void {
     hero.dataset.state = session;
-    if (session === "idle" || session === "ended") activity = session;
+    if (opening) activity = "connecting";
+    else if (session === "idle" || session === "ended") activity = session;
     else if (session === "muted" && activity !== "speaking") activity = "muted";
     else if (session === "live" && (activity === "idle" || activity === "ended" || activity === "muted"))
       activity = "listening";
     hero.dataset.activity = activity;
-    listenButton.disabled = session === "live" || session === "muted";
+    listenButton.disabled = opening;
+    const running = session === "live" || session === "muted";
+    listenButton.setAttribute("aria-label", running ? (muted ? "Unmute microphone" : "Mute microphone") : "Listen");
+    listenButton.title = running ? (muted ? "Unmute microphone" : "Mute microphone") : "Start listening";
     muteButton.disabled = session !== "live" && session !== "muted";
     endButton.disabled = session === "idle" || session === "ended";
     muteButton.textContent = muted ? "Unmute" : "Mute";
@@ -322,17 +337,33 @@ export function wireVoice(doc: Document = document): VoicePage {
     renderHero();
   }
 
-  /** Output PCM is arriving: the model is speaking, and the waveform is its. */
+  /** Text can precede the sound; scheduled PCM, not packet arrival, owns its end. */
   function spoke(): void {
     if (session !== "live" && session !== "muted") return;
+    speechUntil = performance.now() + TEXT_TAIL_MS;
     setActivity("speaking");
-    if (speakingTimer !== null) clearTimeout(speakingTimer);
-    speakingTimer = setTimeout(() => {
-      speakingTimer = null;
-      outputMeter?.reset();
-      renderMeter(0, 0);
-      setActivity(muted ? "muted" : "listening");
-    }, SPEAKING_TAIL_MS);
+  }
+
+  function clearCaptionTimer(): void {
+    if (captionTimer !== null) clearTimeout(captionTimer);
+    captionTimer = null;
+  }
+
+  function fadeCaptionLater(): void {
+    clearCaptionTimer();
+    if (keepCaptions.checked || !captionText) return;
+    const readingTime = Math.max(4500, Math.min(20000, captionText.length * 50));
+    captionTimer = setTimeout(() => {
+      captionTimer = null;
+      captions.classList.add("faded");
+    }, readingTime);
+  }
+
+  function clearOutput(): void {
+    outputEpoch++;
+    queuedAudio = [];
+    speechUntil = 0;
+    displayOutput.fill(0);
   }
 
   /** A user turn or the reply, as text, accumulating within the turn. */
@@ -343,7 +374,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       // Input transcription arrives as partials that grow — "read the canvas
       // and" and then the same phrase, longer. Replacing the extension rather
       // than appending is what stops the transcript saying "andread".
-      if (who === "you" && (text.startsWith(last.text) || last.text.startsWith(text))) {
+      if (text.startsWith(last.text) || last.text.startsWith(text)) {
         last.text = text.length >= last.text.length ? text : last.text;
       } else {
         last.text += text;
@@ -359,25 +390,69 @@ export function wireVoice(doc: Document = document): VoicePage {
     transcript.replaceChildren();
     for (const turn of turns) {
       const row = doc.createElement("li");
-      row.className = `voice-turn ${turn.who === "you" ? "you" : "voice"}`;
+      // Never reuse .voice here: it is the page's full-height grid class.
+      row.className = `voice-turn voice-turn--${turn.who}`;
       const label = doc.createElement("b");
       label.textContent = turn.who === "you" ? "You" : "Voice";
       row.appendChild(label);
       row.appendChild(doc.createTextNode(turn.text));
       transcript.appendChild(row);
     }
-    transcript.scrollTop = transcript.scrollHeight;
+    const last = turns[turns.length - 1];
+    if (last?.who !== "voice") return;
+    if (captionTurn !== last) {
+      captionTurn = last;
+      captionText = "";
+      captions.replaceChildren();
+    }
+    if (last.text === captionText) return;
+    clearCaptionTimer();
+    captions.classList.remove("faded");
+    // Append only the new words to the live region, not six rebuilt turns.
+    if (last.text.startsWith(captionText)) captions.appendChild(doc.createTextNode(last.text.slice(captionText.length)));
+    else captions.textContent = last.text;
+    captionText = last.text;
   }
 
-  function renderMeter(level: number, peak: number): void {
-    barEls.forEach((bar, index) => bar.classList.toggle("on", index / BARS < level));
-    const percent = Math.round(peak * 100);
-    peakMark.hidden = peak <= 0;
-    peakMark.style.left = `${Math.min(100, percent)}%`;
-    meter.setAttribute(
-      "aria-label",
-      `${activity === "speaking" ? "output" : "input"} level ${Math.round(level * 100)} percent, peak ${percent} percent`,
-    );
+  function energy(pcm: Int16Array): number {
+    const rms = rmsOf(pcm);
+    return rms < 0.0018 ? 0 : Math.min(1, Math.sqrt(rms / 0.22));
+  }
+
+  function drawWaves(now: number): void {
+    const blend = 1 - Math.exp(-Math.min(100, now - lastFrameAt || 16) / 65);
+    lastFrameAt = now;
+    queuedAudio = queuedAudio.filter((chunk) => chunk.end > now);
+    const playing = queuedAudio.find((chunk) => chunk.start <= now);
+    const quiet = muted || now - lastInputAt > 180;
+    let inner = "", outer = "";
+    for (let i = 0; i < BARS; i++) {
+      displayInput[i] = displayInput[i]! + ((quiet ? 0 : inputHistory[i]!) - displayInput[i]!) * blend;
+      const x = 24 + i * 80 / (BARS - 1);
+      const height = motion?.matches ? 0 : displayInput[i]! * 24;
+      inner += `M${x.toFixed(2)},${(64 - height).toFixed(2)}V${(64 + height + 0.5).toFixed(2)}`;
+    }
+    for (let i = 0; i < 64; i++) {
+      // A short window at the PLAYBACK cursor; burst-delivered PCM cannot
+      // make the ring finish early or animate before its sound is scheduled.
+      const at = playing ? Math.floor((now - playing.start) * 24) + i * 12 : 0;
+      const target = playing ? energy(playing.pcm.subarray(at, at + 12)) : 0;
+      displayOutput[i] = displayOutput[i]! + (target - displayOutput[i]!) * blend;
+      const angle = i / 64 * Math.PI * 2 - Math.PI / 2;
+      const radius = 101 + (motion?.matches ? 0 : displayOutput[i]! * 13);
+      outer += `${i ? "L" : "M"}${(120 + Math.cos(angle) * radius).toFixed(2)},${(120 + Math.sin(angle) * radius).toFixed(2)}`;
+    }
+    inputWave.setAttribute("d", inner);
+    outputWave.setAttribute("d", outer + "Z");
+    if (activity === "speaking" && queuedAudio.length === 0 && now >= speechUntil) {
+      setActivity(muted ? "muted" : "listening");
+      fadeCaptionLater();
+    }
+  }
+
+  function animate(now: number): void {
+    drawWaves(now);
+    ticker = requestAnimationFrame(animate);
   }
 
   function renderFacts(): void {
@@ -553,6 +628,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       const running = sessionFrom(next);
       if (running) {
         session = running;
+        muted = running === "muted";
         renderHero();
       }
       // Only the poll's own complaint is the poll's to clear. An action that
@@ -619,23 +695,26 @@ export function wireVoice(doc: Document = document): VoicePage {
     const captured = await capture((pcm) => {
       const live = socket;
       if (live?.readyState === WebSocket.OPEN) live.send(toBytes(pcm));
-      levelMeter?.feed(pcm);
+      inputHistory.push(energy(pcm));
+      inputHistory.shift();
+      lastInputAt = performance.now();
     }, deviceId);
     held = captured;
     return captured;
   }
 
   function stopTicker(): void {
-    if (ticker !== null) clearInterval(ticker);
+    if (ticker !== null) cancelAnimationFrame(ticker);
     ticker = null;
   }
 
   function stopSpeakingTimer(): void {
-    if (speakingTimer !== null) clearTimeout(speakingTimer);
-    speakingTimer = null;
+    speechUntil = 0;
   }
 
   async function finish(): Promise<void> {
+    generation++;
+    opening = false;
     socket?.close();
     socket = null;
     held?.stop();
@@ -644,10 +723,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     playback = null;
     stopTicker();
     stopSpeakingTimer();
-    levelMeter?.reset();
-    levelMeter = null;
-    outputMeter = null;
-    renderMeter(0, 0);
+    clearOutput();
+    inputHistory.fill(0);
+    displayInput.fill(0);
+    drawWaves(performance.now());
+    fadeCaptionLater();
     session = "ended";
     activity = "ended";
     renderHero();
@@ -718,8 +798,8 @@ export function wireVoice(doc: Document = document): VoicePage {
         // happened next.
         playback?.stopNow();
         stopSpeakingTimer();
-        outputMeter?.reset();
-        renderMeter(0, 0);
+        clearOutput();
+        fadeCaptionLater();
         setActivity(muted ? "muted" : "listening");
       } else if (event.state === "turn_complete" || event.turn_complete === true) {
         // The turn is over; anything still playing drains on the tail timer.
@@ -745,18 +825,27 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
     if (event.interrupted === true) {
       playback?.stopNow();
+      clearOutput();
+      fadeCaptionLater();
       setActivity(muted ? "muted" : "listening");
     }
   }
 
   async function listen(): Promise<void> {
+    if (opening || disposed) return;
+    const epoch = ++generation;
+    opening = true;
+    renderHero();
     put({ at: new Date().toLocaleTimeString(), event: `opening the session through ${HARNESS}` });
     try {
       const opened = await startSession();
       if (opened.error) throw new Error(opened.error);
+      if (epoch !== generation) return;
     } catch (err) {
       // Said plainly, because a silent fallback is how a credential problem
       // gets mistaken for a voice problem.
+      opening = false;
+      renderHero();
       const why = `Live session could not start — ${String((err as Error).message ?? err)}`;
       complaint = why;
       renderComplaint();
@@ -764,14 +853,28 @@ export function wireVoice(doc: Document = document): VoicePage {
       return;
     }
 
-    playback = new Playback();
-    playback.onSchedule = noteChunk;
-    levelMeter = new LevelMeter(BARS);
-    outputMeter = new LevelMeter(BARS);
+    const player = new Playback();
+    playback = player;
+    player.onSchedule = (info) => {
+      if (playback !== player) return;
+      noteChunk(info);
+      const start = performance.now() + (info.start - info.now) * 1000;
+      if (pendingPCM) queuedAudio.push({ pcm: pendingPCM, start, end: start + info.duration * 1000 });
+    };
+    clearCaptionTimer();
+    captionTurn = null;
+    captionText = "";
+    captions.replaceChildren();
     turns = [];
     renderTranscript();
     try {
       const captured = await startCapture(chosenId || undefined);
+      if (epoch !== generation) {
+        captured.stop();
+        if (held === captured) held = null;
+        return;
+      }
+      void lookForMics();
       // The context rate is in the log for the same reason the chunk
       // schedules are: a silent turn is diagnosable from the numbers here
       // (44.1 kHz was the rate that resampled to silence), and nowhere else.
@@ -780,6 +883,8 @@ export function wireVoice(doc: Document = document): VoicePage {
         event: `microphone: ${captured.label} (${captured.path}) @ ${captured.context.sampleRate} Hz`,
       });
     } catch (err) {
+      await endSession().catch(() => undefined);
+      await finish();
       const why = `no microphone: ${String((err as Error).message ?? err)}`;
       complaint = why;
       renderComplaint();
@@ -791,7 +896,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     live.binaryType = "arraybuffer";
     socket = live;
     live.onopen = () => put({ at: new Date().toLocaleTimeString(), event: "audio socket open" });
-    live.onmessage = async (message) => {
+    live.onmessage = (message) => {
+      if (socket !== live) return;
       if (typeof message.data === "string") {
         try {
           handleEvent(JSON.parse(message.data) as Record<string, unknown>);
@@ -800,34 +906,46 @@ export function wireVoice(doc: Document = document): VoicePage {
         }
         return;
       }
-      const pcm = await fromBytes(message.data as ArrayBuffer);
-      // The waveform reads the model's own audio while it speaks, and the
-      // input meter is what it reads before that. Feed both: which one the
-      // ticker draws is the activity's decision, not the socket's.
-      outputMeter?.feed(pcm);
-      spoke();
-      await playback?.push(pcm);
+      const turn = outputEpoch;
+      audioWork = audioWork.then(async () => {
+        if (socket !== live || playback !== player || turn !== outputEpoch) return;
+        const pcm = await fromBytes(message.data as ArrayBuffer);
+        if (socket !== live || turn !== outputEpoch) return;
+        pendingPCM = pcm;
+        spoke();
+        await player.push(pcm);
+        pendingPCM = null;
+        if (socket !== live || turn !== outputEpoch) {
+          player.stopNow();
+          clearOutput();
+        }
+      }).catch((err) => {
+        pendingPCM = null;
+        complaint = `Audio playback failed — end the session and try again: ${String(err)}`;
+        renderComplaint();
+        void end();
+      });
     };
-    live.onclose = (event) =>
+    live.onclose = (event) => {
       put({ at: new Date().toLocaleTimeString(), event: `audio socket closed ${event.code} ${event.reason}`.trim() });
-    live.onerror = () => put({ at: new Date().toLocaleTimeString(), event: "audio socket error", error: "the socket failed" });
+      if (socket !== live) return;
+      complaint = "Audio connection closed. Press Listen to start a new session.";
+      renderComplaint();
+      void end();
+    };
+    live.onerror = () => {
+      complaint = "Audio connection failed. End the session and try Listen again.";
+      renderComplaint();
+      put({ at: new Date().toLocaleTimeString(), event: "audio socket error", error: "the socket failed" });
+    };
 
     session = "live";
     muted = false;
     activity = "listening";
+    opening = false;
     renderHero();
-    ticker = setInterval(() => {
-      // The waveform follows the activity: output while the model speaks,
-      // input the rest of the time, so "the bars are moving" always means the
-      // thing that is actually making sound.
-      const speaking = activity === "speaking";
-      const reading = (speaking ? outputMeter : levelMeter)?.tick();
-      if (!reading) {
-        renderMeter(0, 0);
-        return;
-      }
-      renderMeter(reading.level, reading.peak);
-    }, 100);
+    stopTicker();
+    ticker = requestAnimationFrame(animate);
   }
 
   async function chooseMic(deviceId: string): Promise<void> {
@@ -879,8 +997,9 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   async function end(): Promise<void> {
-    await endSession().catch(() => undefined);
+    // Local audio stops on the press, not after a network round trip.
     await finish();
+    await endSession().catch(() => undefined);
     put({ at: new Date().toLocaleTimeString(), event: "session ended" });
   }
 
@@ -900,11 +1019,10 @@ export function wireVoice(doc: Document = document): VoicePage {
       .join("\n");
     try {
       await navigator.clipboard.writeText(text);
-      note = "log copied";
+      copyNote.textContent = "Log copied";
     } catch {
-      note = "clipboard refused — select the log and copy it by hand";
+      copyNote.textContent = "Clipboard refused — select the log and copy it by hand.";
     }
-    renderNote();
   }
 
   async function save(): Promise<void> {
@@ -1048,6 +1166,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (offered.canvases) {
       const li = setupStep(`Canvas: ${facts?.canvas?.title ?? "none"}. Choose another one:`);
       const select = doc.createElement("select");
+      select.setAttribute("aria-label", "Canvas");
       for (const one of offered.canvases as { id?: string; title?: string }[]) {
         const option = doc.createElement("option");
         option.value = String(one.id ?? "");
@@ -1302,7 +1421,15 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
-  listenButton.addEventListener("click", () => void listen());
+  listenButton.addEventListener("click", () => {
+    if (session === "live" || session === "muted") void toggleMute();
+    else void listen();
+  });
+  keepCaptions.addEventListener("change", () => {
+    clearCaptionTimer();
+    captions.classList.remove("faded");
+    if (activity !== "speaking") fadeCaptionLater();
+  });
   muteButton.addEventListener("click", () => void toggleMute());
   endButton.addEventListener("click", () => void end());
   deviceSelect.addEventListener("change", () => void chooseMic(deviceSelect.value));
@@ -1334,12 +1461,17 @@ export function wireVoice(doc: Document = document): VoicePage {
   // What the harness can do is asked once, so the setup panel can choose
   // between a working control and the command that does the same thing.
   void probeSetup();
+  drawWaves(performance.now());
   renderHero();
   renderSave();
   buildTag.textContent = buildWords();
 
   return {
     stop(): void {
+      disposed = true;
+      generation++;
+      clearCaptionTimer();
+      clearOutput();
       clearInterval(stateTimer);
       clearInterval(logTimer);
       stopTicker();
@@ -1350,7 +1482,6 @@ export function wireVoice(doc: Document = document): VoicePage {
       held = null;
       playback?.close();
       playback = null;
-      levelMeter = null;
     },
   };
 }
