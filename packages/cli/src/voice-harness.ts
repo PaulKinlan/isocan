@@ -1062,46 +1062,60 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
   }
 }
 
-/** Human-readable description derived strictly from the minted operation and its actual arguments. */
+/**
+ * **What was minted, in words — never what it turned out to do.**
+ *
+ * Paul's log showed an `update_item` that changed a description logged as
+ * "renamed": the label had been written by the tool's author rather than read
+ * off the operation, and the operation is the only thing that knows. These
+ * are action phrases because the outcome is not known yet — the daemon's
+ * answer is what says the change landed, and it replaces this wording rather
+ * than sitting behind it.
+ */
 export function describeMintedOp(op: { type: string; [key: string]: unknown }, targetName?: string): string {
   const ref = targetName || (op.ref as string) || (op.itemId as string) || "item";
   switch (op.type) {
     case "item.add":
-      return `added "${op.title ?? "Note"}"`;
+      return `add "${op.title ?? "Note"}"`;
     case "item.update": {
       const hasTitle = op.title !== undefined && op.title !== null;
       const hasDesc = op.description !== undefined && op.description !== null;
-      if (hasTitle && hasDesc) {
-        return `renamed "${ref}" to "${op.title}" and updated description`;
-      } else if (hasTitle) {
-        return `renamed "${ref}" to "${op.title}"`;
-      } else if (hasDesc) {
-        return `description updated on "${ref}"`;
-      }
-      return `updated "${ref}"`;
+      if (hasTitle && hasDesc) return `update "${ref}": new title "${op.title}", new description`;
+      if (hasTitle) return `update "${ref}": new title "${op.title}"`;
+      if (hasDesc) return `update "${ref}": new description`;
+      return `update "${ref}"`;
     }
     case "item.delete":
-      return `deleted "${ref}"`;
+      return `delete "${ref}"`;
     case "item.restore":
-      return `restored "${ref}"`;
+      return `restore "${ref}"`;
     case "item.move":
-      return `moved "${ref}" to ${op.x}, ${op.y}`;
+      return `move "${ref}" to ${op.x}, ${op.y}`;
     case "item.resize":
-      return `resized "${ref}" to ${op.width}x${op.height}`;
+      return `resize "${ref}" to ${op.width}x${op.height}`;
     case "item.setCurrentVersion":
-      return `switched version of "${ref}" to ${op.versionId ?? op.versionRef}`;
+      return `switch "${ref}" to version ${op.versionId ?? op.versionRef}`;
     case "item.react":
-      return `${op.on === false ? "removed" : "added"} reaction ${op.emoji ?? ""} on "${ref}"`;
+      return `${op.on === false ? "remove" : "add"} reaction ${op.emoji ?? ""} on "${ref}"`;
     case "thread.comment":
     case "item.comment":
-      return `commented on "${ref}"`;
+      return `comment on "${ref}"`;
     case "drawing.add":
-      return `drew "${op.title ?? "Drawing"}" with the pen tool`;
+      return `draw "${op.title ?? "Drawing"}" with the pen tool`;
     case "trash.empty":
-      return `emptied canvas trash`;
+      return `empty the canvas trash`;
     default:
       return `${op.type} on "${ref}"`;
   }
+}
+
+/** A plan that could not be minted, and why — the reason kept apart from
+ * the sentence the model reads, because the log should show the reason under
+ * the operation's own name and nothing should read as an outcome. */
+export interface RefusedPlan {
+  type: string;
+  said: string;
+  message: string;
 }
 
 /** What the model asked for, turned into operations the canvas can apply:
@@ -1112,47 +1126,49 @@ export function resolveLivePlans(
   plans: PlannedOp[],
   items: ListedItem[],
   trashItems: ListedItem[] = [],
-): { ready: PlannedOp[]; refused: string[] } {
+): { ready: PlannedOp[]; refused: RefusedPlan[] } {
   const ready: PlannedOp[] = [];
-  const refused: string[] = [];
+  const refused: RefusedPlan[] = [];
   for (const plan of plans) {
     const op = { ...plan.op } as { type: string; [key: string]: unknown };
-    if (op.type === "item.add") {
-      ready.push({ op, said: plan.said });
-      continue;
-    }
-    const ref = typeof op.ref === "string" ? op.ref : null;
-    if (ref !== null) {
-      const candidateList = op.type === "item.restore" ? [...trashItems, ...items] : items;
-      const item = resolveSpokenRef(ref, candidateList);
-      if (!item) {
-        refused.push(`${op.type} failed — could not resolve “${ref}”`);
-        continue;
-      }
-      delete op.ref;
-      op.itemId = item.id;
-      if (op.type === "item.move" && op.by === true) {
-        op.x = Number(item.x ?? 0) + Number(op.x ?? 0);
-        op.y = Number(item.y ?? 0) + Number(op.y ?? 0);
-      }
-      delete op.by;
-      if (op.type === "item.setCurrentVersion") {
-        const vRef = String(op.versionRef ?? "");
-        let verId = vRef;
-        if (item.versions) {
-          const match = item.versions.find(
-            (v) => v.id === vRef || v.filename === vRef || vRef.includes(v.id.slice(0, 8))
-          );
-          if (match) verId = match.id;
-          else if (vRef === "first" && item.versions[0]) verId = item.versions[0].id;
-          else if (vRef === "last" && item.versions.length) verId = item.versions[item.versions.length - 1]!.id;
+    let targetLabel: string | undefined;
+    if (op.type !== "item.add") {
+      const ref = typeof op.ref === "string" ? op.ref : null;
+      if (ref !== null) {
+        const candidateList = op.type === "item.restore" ? [...trashItems, ...items] : items;
+        const item = resolveSpokenRef(ref, candidateList);
+        if (!item) {
+          const said = `could not resolve “${ref}”`;
+          refused.push({ type: op.type, said, message: `${op.type} failed — ${said}` });
+          continue;
         }
-        op.versionId = verId;
-        delete op.versionRef;
+        delete op.ref;
+        op.itemId = item.id;
+        if (op.type === "item.move" && op.by === true) {
+          op.x = Number(item.x ?? 0) + Number(op.x ?? 0);
+          op.y = Number(item.y ?? 0) + Number(op.y ?? 0);
+        }
+        delete op.by;
+        if (op.type === "item.setCurrentVersion") {
+          const vRef = String(op.versionRef ?? "");
+          let verId = vRef;
+          if (item.versions) {
+            const match = item.versions.find(
+              (v) => v.id === vRef || v.filename === vRef || vRef.includes(v.id.slice(0, 8))
+            );
+            if (match) verId = match.id;
+            else if (vRef === "first" && item.versions[0]) verId = item.versions[0].id;
+            else if (vRef === "last" && item.versions.length) verId = item.versions[item.versions.length - 1]!.id;
+          }
+          op.versionId = verId;
+          delete op.versionRef;
+        }
+        targetLabel = item.title || item.id;
       }
-      const targetLabel = item.title || item.id;
-      plan.said = describeMintedOp(op, targetLabel);
     }
+    // Derived from the operation that was actually minted and the item it
+    // actually resolved to — never from the sentence that asked for it.
+    plan.said = describeMintedOp(op, targetLabel);
     ready.push({ op, said: plan.said });
   }
   return { ready, refused };
@@ -1452,6 +1468,8 @@ async function applyPlan(
   onIo?: (status: "sent" | "ack" | "err", said: string, err?: string) => void,
 ): Promise<{ seq?: number; target?: string; ack: string }> {
   const op = plan.op as { type: string; [key: string]: unknown };
+  // The daemon's answer should name the thing a person named, not its id.
+  const nameOf = (id: unknown): string => ctx.items.find((one) => one.id === id)?.title || String(id ?? "item");
   onIo?.("sent", plan.said);
   try {
     let result: { seq?: number; target?: string; ack: string };
@@ -1479,12 +1497,12 @@ async function applyPlan(
             ...(op.description !== undefined ? { description: String(op.description) } : {}),
           },
         });
-        result = { seq: ack.seq, target: op.itemId as string, ack: `updated ${op.itemId} (seq ${ack.seq})` };
+        result = { seq: ack.seq, target: op.itemId as string, ack: `updated "${nameOf(op.itemId)}" (seq ${ack.seq})` };
         break;
       }
       case "item.move": {
         await canvas.move(op.itemId as string, op.x as number, op.y as number);
-        result = { target: op.itemId as string, ack: `moved to ${op.x}, ${op.y}` };
+        result = { target: op.itemId as string, ack: `moved "${nameOf(op.itemId)}" to ${op.x}, ${op.y}` };
         break;
       }
       case "item.resize": {
@@ -1494,12 +1512,12 @@ async function applyPlan(
           width: Math.round(Number(op.width ?? 320)),
           height: Math.round(Number(op.height ?? 240)),
         });
-        result = { seq: ack.seq, target: op.itemId as string, ack: `resized ${op.itemId} (seq ${ack.seq})` };
+        result = { seq: ack.seq, target: op.itemId as string, ack: `resized "${nameOf(op.itemId)}" (seq ${ack.seq})` };
         break;
       }
       case "item.delete": {
         await canvas.remove(op.itemId as string);
-        result = { target: op.itemId as string, ack: `deleted ${op.itemId}` };
+        result = { target: op.itemId as string, ack: `deleted "${nameOf(op.itemId)}"` };
         break;
       }
       case "item.setCurrentVersion": {
@@ -1508,7 +1526,7 @@ async function applyPlan(
           itemId: op.itemId as string,
           versionId: op.versionId as string,
         });
-        result = { seq: ack.seq, target: op.itemId as string, ack: `switched version (seq ${ack.seq})` };
+        result = { seq: ack.seq, target: op.itemId as string, ack: `switched "${nameOf(op.itemId)}" to another version (seq ${ack.seq})` };
         break;
       }
       case "item.restore": {
@@ -1516,7 +1534,7 @@ async function applyPlan(
           type: "item.restore",
           itemId: op.itemId as string,
         });
-        result = { seq: ack.seq, target: op.itemId as string, ack: `restored ${op.itemId} (seq ${ack.seq})` };
+        result = { seq: ack.seq, target: op.itemId as string, ack: `restored "${nameOf(op.itemId)}" (seq ${ack.seq})` };
         break;
       }
       case "thread.reply": {
@@ -1528,7 +1546,7 @@ async function applyPlan(
       }
       case "item.comment": {
         const res = await canvas.comment(op.itemId as string, op.body as string);
-        result = { target: op.itemId as string, ack: `commented on ${op.itemId}` };
+        result = { target: op.itemId as string, ack: `commented on "${nameOf(op.itemId)}"` };
         break;
       }
       case "item.react": {
@@ -1539,7 +1557,7 @@ async function applyPlan(
           on: Boolean(op.on),
           ...(op.at ? { at: op.at as { x: number; y: number } } : {}),
         });
-        result = { seq: ack.seq, target: op.itemId as string, ack: `reacted ${op.emoji} on ${op.itemId} (seq ${ack.seq})` };
+        result = { seq: ack.seq, target: op.itemId as string, ack: `reacted ${op.emoji} on "${nameOf(op.itemId)}" (seq ${ack.seq})` };
         break;
       }
       default:
@@ -1563,7 +1581,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;
   const initialLog = await readVoiceLog(home).catch(() => []);
-  const toolLog: ToolLogEntry[] = [...initialLog];
+  /**
+   * **The file is the record; `toolLog` is the window.**
+   *
+   * This used to write `toolLog` back to the file, so the 200-entry display
+   * cap silently truncated the persisted log on every entry — older calls
+   * disappeared as new ones arrived. `record` carries the whole file plus
+   * everything this process adds; the ring buffer is only what `/state` and
+   * the live view show.
+   */
+  const record: ToolLogEntry[] = [...initialLog];
+  const toolLog: ToolLogEntry[] = [...initialLog].slice(-200);
   const logListeners = new Set<(entry: ToolLogEntry) => void>();
 
   let presenceSessionId: string | null = null;
@@ -1621,21 +1649,23 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       source: entry.source ?? (entry.type === "utterance" ? "typed" : "live"),
       ...entry,
     };
+    record.push(item);
     toolLog.push(item);
     while (toolLog.length > 200) toolLog.shift();
-    void writeVoiceLog(home, toolLog).catch(() => {});
+    void writeVoiceLog(home, record).catch(() => {});
     for (const listener of logListeners) {
       try { listener(item); } catch {}
     }
     return item;
   }
 
+  // A boundary in the stream: without it, a restart looks like the log simply
+  // losing entries, which is exactly what it used to do.
   recordToolLog({
     type: "session_event",
-    source: "live",
-    event: "harness_restarted",
-    message: "— harness restarted —",
-    details: { message: "— harness restarted —", port: options.port },
+    source: "system",
+    event: "harness restarted",
+    details: { kind: "harness_restarted", port: options.port },
   });
 
   const narrate = (line: string) => {
@@ -1745,10 +1775,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         }
       }
       if (req.method === "GET" && url.pathname === "/log") {
+        // The persisted file is the record; the in-memory copy covers entries
+        // not yet flushed. Merged by id, so a restart or a raced write cannot
+        // duplicate or hide one.
         const diskLog = await readVoiceLog(home).catch(() => []);
         const map = new Map<string, ToolLogEntry>();
         for (const e of diskLog) if (e && e.id) map.set(e.id, e);
-        for (const e of toolLog) if (e && e.id) map.set(e.id, e);
+        for (const e of record) if (e && e.id) map.set(e.id, e);
         const merged = Array.from(map.values());
         merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
         respond(200, { entries: merged, count: merged.length });
@@ -1757,7 +1790,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (req.method === "POST" && url.pathname === "/session/start") {
         sessionState = "live";
         void announcePresence("listening");
-        recordToolLog({ type: "session_event", event: "opened" });
+        recordToolLog({ type: "session_event", event: "session opened" });
         respond(200, { ok: true, state: sessionState });
         return;
       }
@@ -1765,7 +1798,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         if (sessionState === "live") {
           sessionState = "muted";
           void announcePresence("muted");
-          recordToolLog({ type: "session_event", event: "muted" });
+          recordToolLog({ type: "session_event", event: "session muted" });
         }
         respond(200, { ok: true, state: sessionState });
         return;
@@ -1774,7 +1807,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         if (sessionState === "muted") {
           sessionState = "live";
           void announcePresence("listening");
-          recordToolLog({ type: "session_event", event: "unmuted" });
+          recordToolLog({ type: "session_event", event: "session unmuted" });
         }
         respond(200, { ok: true, state: sessionState });
         return;
@@ -1782,7 +1815,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (req.method === "POST" && url.pathname === "/session/end") {
         sessionState = "ended";
         void announcePresence("enrolled — nobody is listening right now");
-        recordToolLog({ type: "session_event", event: "closed", reason: "user ended" });
+        recordToolLog({ type: "session_event", event: "session ended", reason: "user ended" });
         if (activeLiveSession) {
           try { activeLiveSession.close(); } catch {}
           activeLiveSession = null;
@@ -1862,28 +1895,34 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const sent: string[] = [];
         const failed: string[] = [];
         for (const plan of plans) {
+          // Same rule as the live path: the label is read off the operation
+          // and the item it is aimed at, and the answer is what the apply did.
+          const op = plan.op as { type: string; [key: string]: unknown };
+          const targetItem = typeof op.itemId === "string" ? items.find((one) => one.id === op.itemId) : undefined;
+          const intent = describeMintedOp(op, targetItem?.title);
           try {
-            await applyPlan(target.canvas, plan, ctx, onIo);
-            sent.push(plan.said);
-            narrate(`sent: ${plan.said}`);
+            const applied = await applyPlan(target.canvas, plan, ctx, onIo);
+            sent.push(applied.ack);
+            narrate(`sent: ${plan.op.type} — ${intent} → ${applied.ack}`);
             recordToolLog({
               type: "utterance",
               source: source === "spoken" || source === "live" ? "live" : "typed",
               name: "utterance",
               args: { text, source },
-              op: { type: plan.op.type, said: plan.said },
-              result: { ok: true, answer: plan.said },
+              op: { type: plan.op.type, said: intent },
+              result: { ok: true, answer: applied.ack },
             });
           } catch (err) {
-            failed.push(`${plan.said} — ${(err as Error).message}`);
-            narrate(`refused: ${plan.said} — ${(err as Error).message}`);
+            const msg = (err as Error).message;
+            failed.push(`${plan.op.type} failed — ${msg}`);
+            narrate(`refused: ${plan.op.type} failed — ${msg}`);
             recordToolLog({
               type: "utterance",
               source: source === "spoken" || source === "live" ? "live" : "typed",
               name: "utterance",
               args: { text, source },
-              op: { type: plan.op.type, said: plan.said },
-              result: { ok: false, error: (err as Error).message },
+              op: { type: plan.op.type, said: `failed — ${msg}` },
+              result: { ok: false, error: `${plan.op.type} failed — ${msg}` },
             });
           }
         }
@@ -1943,13 +1982,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   });
   live.on("connection", (page: NodeSocket) => {
     sessionState = "live";
-    recordToolLog({
-      type: "session_event",
-      source: "live",
-      event: "session_opened",
-      message: "— session opened —",
-      details: { message: "— session opened —" },
-    });
+    recordToolLog({ type: "session_event", source: "live", event: "session opened" });
     const say = (message: unknown) => {
       if (page.readyState === page.OPEN) page.send(JSON.stringify(message));
     };
@@ -1997,8 +2030,27 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             }
             say({ state, bad });
           },
-          onHeard: (text: string) => say({ heard: text }),
-          onText: (text: string) => say({ text }),
+          onHeard: (text: string) => {
+            say({ heard: text });
+            // Both directions of speech belong in the record: a log of tool
+            // calls alone cannot answer "did the model reply in words instead
+            // of acting?", which is the question the log exists to settle.
+            recordToolLog({
+              type: "session_event",
+              source: "live",
+              event: `heard: ${text}`,
+              details: { kind: "heard", text },
+            });
+          },
+          onText: (text: string) => {
+            say({ text });
+            recordToolLog({
+              type: "session_event",
+              source: "live",
+              event: `voice said: ${text}`,
+              details: { kind: "reply", text },
+            });
+          },
           onAudio: (pcm: Uint8Array) => {
             if (page.readyState === page.OPEN) page.send(pcm);
           },
@@ -2232,13 +2284,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
 
             const { ready, refused } = resolveLivePlans(plan.plans, items, trashItems);
             const sent: string[] = [];
-            const failed: string[] = [...refused];
+            const failed: string[] = [];
             for (const one of ready) {
               try {
                 const applied = await applyPlan(target.canvas, one, { items, mainThreadId: target.mainThreadId }, onIo);
-                const actionLabel = `${one.op.type} — ${one.said}`;
-                sent.push(actionLabel);
-                narrate(`sent: ${actionLabel}`);
+                // The intent, derived from the minted operation and its actual
+                // arguments; the ack is the outcome, produced by the apply.
+                // The label never claims what the outcome was, and the answer
+                // the model and the log see is the daemon's, not the label's.
+                const intent = one.said;
+                sent.push(applied.ack);
+                narrate(`sent: ${one.op.type} — ${intent} → ${applied.ack}`);
                 recordToolLog({
                   type: "tool_call",
                   source: "live",
@@ -2246,14 +2302,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   args: args as Record<string, unknown>,
                   op: {
                     type: one.op.type,
-                    said: actionLabel,
+                    said: intent,
                     ...(applied.target ? { target: applied.target } : {}),
                     ...(applied.seq !== undefined ? { seq: applied.seq } : {}),
                   },
                   result: {
                     ok: true,
-                    answer: actionLabel,
-                    ack: applied.ack,
+                    answer: applied.ack,
                     ...(applied.seq !== undefined ? { seq: applied.seq } : {}),
                     ...(applied.target ? { target: applied.target } : {}),
                   },
@@ -2268,20 +2323,21 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   source: "live",
                   name,
                   args: args as Record<string, unknown>,
-                  op: { type: one.op.type, said: failureMsg },
+                  op: { type: one.op.type, said: `failed — ${msg}` },
                   result: { ok: false, error: failureMsg },
                 });
               }
             }
             for (const r of refused) {
-              narrate(`refused: ${r}`);
+              failed.push(r.message);
+              narrate(`refused: ${r.message}`);
               recordToolLog({
                 type: "tool_call",
                 source: "live",
                 name,
                 args: args as Record<string, unknown>,
-                op: { type: plan.plans[0]?.op.type ?? "operation", said: r },
-                result: { ok: false, error: r },
+                op: { type: r.type, said: r.said },
+                result: { ok: false, error: r.message },
               });
             }
             say({ sent, failed, state: failed.length ? "some operations were refused" : "live", bad: failed.length > 0 });

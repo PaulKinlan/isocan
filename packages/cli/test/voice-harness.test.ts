@@ -10,6 +10,7 @@ import { mintTestBadge, type TestBadge } from "./badge.ts";
 import {
   DEFAULT_VOICE_PORT,
   LIVE_MODEL,
+  describeMintedOp,
   liveSetup,
   liveUrl,
   planForCall,
@@ -19,10 +20,12 @@ import {
   planVoice,
   providerFor,
   readVoiceKey,
+  readVoiceLog,
   resolveSpokenRef,
   startVoiceServer,
   voiceKeyFile,
   writeVoiceKey,
+  writeVoiceLog,
 } from "../src/voice-harness.ts";
 import type { ListedItem } from "@isocan/api";
 
@@ -207,6 +210,38 @@ describe("what a sentence means", () => {
     const out = planVoice("what is on this canvas?", { items: [item("Checkout screen", "itm_1")], mainThreadId: null });
     expect(out.plans).toEqual([]);
     expect(out.what).toContain("Checkout screen");
+  });
+
+  it("derives a call's label from the operation and its arguments, never from the tool's name", () => {
+    // Paul's log: an update that changed a description was labelled "renamed".
+    const { plans } = planForCall("update_item", { item_ref: "Hello Dion", description: "Hello Dion again" });
+    const { ready, refused } = resolveLivePlans(plans, [item("Hello Dion", "itm_dion")]);
+    expect(refused).toEqual([]);
+    expect(ready[0]!.op).toMatchObject({ type: "item.update", itemId: "itm_dion", description: "Hello Dion again" });
+    expect(ready[0]!.said).toBe('update "Hello Dion": new description');
+    expect(ready[0]!.said).not.toMatch(/renam/i);
+
+    const titled = resolveLivePlans(
+      planForCall("update_item", { item_ref: "Hello Dion", title: "Checkout v2" }).plans,
+      [item("Hello Dion", "itm_dion")],
+    );
+    expect(titled.ready[0]!.said).toBe('update "Hello Dion": new title "Checkout v2"');
+  });
+
+  it("labels a reference nobody can resolve as a failure under the operation's own name", () => {
+    // Paul's log: a call that could not find "Paul" still carried "renamed Paul".
+    const { plans } = planForCall("update_item", { item_ref: "Paul", title: "Paul" });
+    const { ready, refused } = resolveLivePlans(plans, [item("Hello Dion", "itm_dion")]);
+    expect(ready).toEqual([]);
+    expect(refused).toEqual([
+      { type: "item.update", said: "could not resolve “Paul”", message: "item.update failed — could not resolve “Paul”" },
+    ]);
+  });
+
+  it("phrases labels as actions, because the outcome has not happened yet", () => {
+    expect(describeMintedOp({ type: "item.delete", itemId: "itm_1" }, "Checkout screen")).toBe('delete "Checkout screen"');
+    expect(describeMintedOp({ type: "item.add", title: "Site" })).toBe('add "Site"');
+    expect(describeMintedOp({ type: "item.move", x: 10, y: 20 }, "Note")).toBe('move "Note" to 10, 20');
   });
 
   it("refuses to guess which of two things you meant, and says so", () => {
@@ -1117,6 +1152,57 @@ describe("the harness session & tool-call log API", () => {
     const logRes = (await (await fetch(`${server2.state.url}log`)).json()) as any;
     const persistedEntry = logRes.entries.find((e: any) => e.args?.text === "say persist this message");
     expect(persistedEntry).toBeDefined();
+    // Merged by id, so the restart cannot show the same call twice.
+    expect(logRes.entries.filter((e: any) => e.args?.text === "say persist this message")).toHaveLength(1);
+  });
+
+  it("answers with what the apply did, not with the label that asked for it", async () => {
+    const server = await serve();
+    await fetch(`${server.state.url}utterance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "retitle the first thing to Logged Title", source: "test" }),
+    });
+    const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
+    const utt = logRes.entries.find((e: any) => e.type === "utterance");
+    expect(utt.op.said).toBe('update "Checkout screen": new title "Logged Title"');
+    expect(String(utt.result.answer)).toContain('updated "Checkout screen"');
+    expect(utt.result.answer).not.toBe(utt.op.said);
+  });
+
+  it("marks restarts and session opens in the stream", async () => {
+    const server = await serve();
+    await fetch(`${server.state.url}session/start`, { method: "POST" });
+    const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
+    expect(logRes.entries.some((e: any) => e.event === "harness restarted")).toBe(true);
+    expect(logRes.entries.some((e: any) => e.event === "session opened")).toBe(true);
+  });
+
+  it("keeps the persisted file as the record when the in-memory window is capped at 200", async () => {
+    const old = Array.from({ length: 205 }, (_, i) => ({
+      id: `log_old_${i}`,
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+      type: "session_event" as const,
+      event: `old ${i}`,
+    }));
+    await writeVoiceLog(home, old);
+    const server = await serve();
+    await fetch(`${server.state.url}utterance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "say after the cap", source: "typed" }),
+    });
+    // The write is fire-and-forget; give it a beat to land rather than race it.
+    let disk = await readVoiceLog(home);
+    for (let i = 0; i < 50 && disk.length <= 205; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      disk = await readVoiceLog(home);
+    }
+    expect(disk.length).toBeGreaterThan(205);
+    expect(disk.some((e) => e.id === "log_old_0")).toBe(true);
+    const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
+    expect(logRes.entries.some((e: any) => e.id === "log_old_0")).toBe(true);
+    expect(logRes.entries.filter((e: any) => e.args?.text === "say after the cap")).toHaveLength(1);
   });
 
   it("mints a one-use pass and redirects to the canvas URL on GET /open", async () => {
