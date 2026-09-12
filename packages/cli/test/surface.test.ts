@@ -45,6 +45,15 @@ const PLUMBING = new Set([
   "gc",
   "turn",
   "mcp",
+  /**
+   * `voice` (Paul, 11 Sep 2026) is a PERSON's verb wearing a harness's clothes:
+   * it opens a local page with a microphone and speaks as an enrolled agent.
+   * An agent has no microphone and does not need to be told how to borrow one —
+   * and the half an agent WOULD use, being summoned on the `voice` harness, is
+   * `isocan rc add <name> --harness voice`, which the enrolment prose already
+   * covers. Documenting it here would be telling agents to open a page.
+   */
+  "voice",
 ]);
 
 /**

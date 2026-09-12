@@ -463,6 +463,7 @@ import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
 import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
 import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
+import { DEFAULT_VOICE_PORT, VOICE_HARNESS, isocanHome, runVoiceAdapter, startVoiceServer } from "./voice-harness.ts";
 import {
   noSandboxLine,
   policyFor,
@@ -15012,6 +15013,80 @@ trash
       }
       await sendOp(ctx, p.id, { type: "trash.empty" });
       console.log("trash emptied");
+    }),
+  );
+
+/**
+ * **`isocan voice` — the harness a microphone is, and the page it opens.**
+ *
+ * Two faces in one verb, because they are one thing: the adapter the rc spawns
+ * (`--acp`, declared in `config.json` as `{"acpAdapters": {"voice": ["…"]}}`)
+ * and the standing local server the person talks to. The adapter forwards a
+ * summons to the server — starting one, detached, if nobody is standing — so a
+ * summons lands in the conversation instead of being spent on a turn nobody is
+ * watching.
+ *
+ * The name is the enrolled agent's, so what the microphone sends is that
+ * agent's work: `isocan rc add <name> --harness voice`, and every operation is
+ * attributed, undoable and in the oplog exactly like a click.
+ *
+ * The key is the harness's (`~/.isocan/voice/key.json`, 0600). The page is
+ * served from loopback and never persists it — the caveat that the key
+ * transits the page once, over loopback, is in the docs rather than glossed.
+ */
+program
+  .command("voice")
+  .description(
+    "Talk to this canvas: a local page with a microphone, speaking as an enrolled agent — the voice harness",
+  )
+  .option("--acp", "speak ACP on stdio — the adapter `isocan rc add <name> --harness voice` spawns")
+  .option("--as <name>", "the agent the microphone speaks as (default: the injected session, else Voice)")
+  .option("--voice-port <port>", `the loopback port the page is served on (default ${DEFAULT_VOICE_PORT})`)
+  .action(
+    run(async (opts: { acp?: boolean; as?: string; voicePort?: string }, cmd: Command) => {
+      const name = opts.as ?? process.env.ISOCAN_SESSION_ID ?? "Voice";
+      const home = isocanHome();
+      const canvasId = process.env.ISOCAN_CANVAS ?? undefined;
+      if (opts.acp) {
+        // The adapter's half. No ctx: this process has no TTY, and everything
+        // it needs is the home, the name the rc injected, and the canvas.
+        await runVoiceAdapter({ home, name, ...(canvasId ? { canvas: canvasId } : {}) });
+        return;
+      }
+      const ctx = await ctxOf(cmd);
+      const { canvas: p } = await canvasAndSnapshot(ctx);
+      const port = Number(opts.voicePort ?? DEFAULT_VOICE_PORT);
+      // The claim is idempotent and it is the enrolment in miniature: the desk
+      // hands back the same actor for the same session key, so a second start
+      // resumes the one voice rather than minting a stranger.
+      await ctx.client.claimActor({
+        type: "actor.claim",
+        sessionKey: enrolmentKey(name),
+        name,
+        canvasId: p.id,
+      });
+      const server = await startVoiceServer({
+        home,
+        port,
+        identity: { session: name, harness: "agent" },
+        canvas: p.id,
+        onLine: (line) => console.log(rcLine("voice", line)),
+      });
+      console.log(`\n  ${server.state.name} is listening on the canvas — talk at ${server.state.url}\n`);
+      const roster = await readRcAgents(ctx.home);
+      if (!roster.some((r) => r.canvasId === p.id && r.name === name)) {
+        console.log(
+          `  not enrolled as a harness yet — the microphone speaks as ${name} either way, but nothing can summon it.\n` +
+            `  to invite it:  isocan rc add ${name} --harness ${VOICE_HARNESS}\n` +
+            `  (which needs "acpAdapters": {"${VOICE_HARNESS}": ["node", "<this isocan.js>", "voice", "--acp"]} in ~/.isocan/config.json)\n`,
+        );
+      }
+      await new Promise<void>((resolve) => {
+        process.once("SIGINT", resolve);
+        process.once("SIGTERM", resolve);
+      });
+      await server.close();
+      console.log("voice harness stopped");
     }),
   );
 
