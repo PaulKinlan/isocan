@@ -330,6 +330,11 @@ export class Playback {
   /** Every chunk's schedule: sequence, bytes, when it was asked to start. */
   onSchedule?: (info: ScheduleInfo) => void;
 
+  /** The actual playback clock; unlike wall time it pauses with the context. */
+  get currentTime(): number {
+    return this.context?.currentTime ?? 0;
+  }
+
   private async ready(): Promise<AudioContext> {
     if (!this.context) this.context = new AudioContext({ sampleRate: 24000 });
     if (this.context.state === "suspended") await this.context.resume();

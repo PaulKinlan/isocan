@@ -78,6 +78,21 @@ describe("playback schedules each chunk after the last", () => {
     expect(seen[0]!.bytes).toBe(4800);
   });
 
+  it("exposes the audio clock rather than elapsed wall time", async () => {
+    const context = fake();
+    const playback = new Playback();
+    expect(playback.currentTime).toBe(0);
+    await playback.push(chunk());
+    context.currentTime = 0.04;
+    expect(playback.currentTime).toBe(0.04);
+    context.state = "suspended";
+    expect(playback.currentTime).toBe(0.04);
+    context.currentTime = 0.08;
+    expect(playback.currentTime).toBe(0.08);
+    playback.close();
+    expect(playback.currentTime).toBe(0);
+  });
+
   it("starts at now rather than in the past when playback fell behind", async () => {
     const context = fake();
     const playback = new Playback();
