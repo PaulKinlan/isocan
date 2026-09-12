@@ -116,9 +116,9 @@ function audioFacts(facts: State | null): { provider: string; model: string; key
  * `listening`, `thinking` and `speaking`, and they are derived ONLY from
  * signals that exist on the wire:
  *
- *   - `heard` (the person's utterance was transcribed and ended) → thinking
- *   - output PCM arriving, or a reply transcript line → speaking
- *   - a quiet gap after the last output chunk → listening
+ *   - `heard` (input transcript received, not a separate VAD guarantee) → thinking
+ *   - scheduled output PCM, or a reply transcript line → speaking
+ *   - the playback queue drains (or a text-only reply goes quiet) → listening
  *   - `interrupted` → the model stops, the microphone is what happened next
  *
  * `thinking` is the state that was missing: without it the page jumps from
@@ -272,9 +272,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   let opening = false;
   let disposed = false;
   let generation = 0;
+  let captureEpoch = 0;
   let outputEpoch = 0;
-  let audioWork = Promise.resolve();
-  let pendingPCM: Int16Array | null = null;
   const inputHistory: number[] = Array(BARS).fill(0);
   const displayInput: number[] = Array(BARS).fill(0);
   const displayOutput: number[] = Array(64).fill(0);
@@ -289,6 +288,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   let activity: Activity = "idle";
   /** Turn boundaries and the reply, as the harness's own log describes them. */
   let turns: { who: "you" | "voice"; text: string }[] = [];
+  const turnRows = new WeakMap<object, HTMLLIElement>();
   /** True once a tagged reply has been seen, so the untagged copy is ignored. */
   let sawTagged = false;
   /** The confirmation the harness is waiting on, if any. */
@@ -321,7 +321,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     listenButton.setAttribute("aria-label", running ? (muted ? "Unmute microphone" : "Mute microphone") : "Listen");
     listenButton.title = running ? (muted ? "Unmute microphone" : "Mute microphone") : "Start listening";
     muteButton.disabled = session !== "live" && session !== "muted";
-    endButton.disabled = session === "idle" || session === "ended";
+    endButton.disabled = !opening && (session === "idle" || session === "ended");
     muteButton.textContent = muted ? "Unmute" : "Mute";
     stateLine.textContent = stateWords(
       activity,
@@ -387,16 +387,24 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   function renderTranscript(): void {
-    transcript.replaceChildren();
+    for (const row of [...transcript.children]) {
+      if (!turns.some((turn) => turnRows.get(turn) === row)) row.remove();
+    }
     for (const turn of turns) {
-      const row = doc.createElement("li");
-      // Never reuse .voice here: it is the page's full-height grid class.
-      row.className = `voice-turn voice-turn--${turn.who}`;
-      const label = doc.createElement("b");
-      label.textContent = turn.who === "you" ? "You" : "Voice";
-      row.appendChild(label);
-      row.appendChild(doc.createTextNode(turn.text));
-      transcript.appendChild(row);
+      let row = turnRows.get(turn);
+      if (!row) {
+        row = doc.createElement("li");
+        // Never reuse .voice here: it is the page's full-height grid class.
+        row.className = `voice-turn voice-turn--${turn.who}`;
+        const label = doc.createElement("b");
+        label.textContent = turn.who === "you" ? "You" : "Voice";
+        row.append(label, doc.createTextNode(""));
+        turnRows.set(turn, row);
+        transcript.appendChild(row);
+      }
+      const text = row.lastChild as Text;
+      if (turn.text.startsWith(text.data)) text.appendData(turn.text.slice(text.length));
+      else text.data = turn.text;
     }
     const last = turns[turns.length - 1];
     if (last?.who !== "voice") return;
@@ -422,8 +430,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   function drawWaves(now: number): void {
     const blend = 1 - Math.exp(-Math.min(100, now - lastFrameAt || 16) / 65);
     lastFrameAt = now;
-    queuedAudio = queuedAudio.filter((chunk) => chunk.end > now);
-    const playing = queuedAudio.find((chunk) => chunk.start <= now);
+    // Retain half a second of played PCM for the perimeter's level history.
+    // Those old samples do not extend the speaking state.
+    const audioNow = (playback?.currentTime ?? 0) * 1000;
+    queuedAudio = queuedAudio.filter((chunk) => chunk.end > audioNow - 512);
+    const pending = queuedAudio.some((chunk) => chunk.end > audioNow);
     const quiet = muted || now - lastInputAt > 180;
     let inner = "", outer = "";
     for (let i = 0; i < BARS; i++) {
@@ -433,10 +444,12 @@ export function wireVoice(doc: Document = document): VoicePage {
       inner += `M${x.toFixed(2)},${(64 - height).toFixed(2)}V${(64 + height + 0.5).toFixed(2)}`;
     }
     for (let i = 0; i < 64; i++) {
-      // A short window at the PLAYBACK cursor; burst-delivered PCM cannot
-      // make the ring finish early or animate before its sound is scheduled.
-      const at = playing ? Math.floor((now - playing.start) * 24) + i * 12 : 0;
-      const target = playing ? energy(playing.pcm.subarray(at, at + 12)) : 0;
+      // Walk recent played sound around the edge, in 8 ms RMS windows.
+      // A burst's unread future samples never animate ahead of its audio.
+      const time = audioNow - (63 - i) * 8;
+      const chunk = pending ? queuedAudio.find((one) => one.start <= time && one.end > time) : undefined;
+      const end = chunk ? Math.floor((time - chunk.start) * 24) + 1 : 0;
+      const target = chunk ? energy(chunk.pcm.subarray(Math.max(0, end - 192), end)) : 0;
       displayOutput[i] = displayOutput[i]! + (target - displayOutput[i]!) * blend;
       const angle = i / 64 * Math.PI * 2 - Math.PI / 2;
       const radius = 101 + (motion?.matches ? 0 : displayOutput[i]! * 13);
@@ -444,7 +457,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
     inputWave.setAttribute("d", inner);
     outputWave.setAttribute("d", outer + "Z");
-    if (activity === "speaking" && queuedAudio.length === 0 && now >= speechUntil) {
+    if (activity === "speaking" && !pending && now >= speechUntil) {
       setActivity(muted ? "muted" : "listening");
       fadeCaptionLater();
     }
@@ -614,8 +627,10 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   const refresh = async (): Promise<void> => {
+    const epoch = generation;
     try {
       const next = await fetchState();
+      if (disposed || epoch !== generation) return;
       facts = next;
       renderFacts();
       // Applied on load: a stored choice that differs from what the harness
@@ -640,6 +655,7 @@ export function wireVoice(doc: Document = document): VoicePage {
         renderComplaint();
       }
     } catch (err) {
+      if (disposed || epoch !== generation) return;
       stateComplaint = true;
       complaint = String((err as Error).message ?? err);
       renderComplaint();
@@ -691,14 +707,27 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   /** Changing microphone does not disturb the session: only the track changes. */
-  async function startCapture(deviceId?: string): Promise<Capture> {
-    const captured = await capture((pcm) => {
-      const live = socket;
-      if (live?.readyState === WebSocket.OPEN) live.send(toBytes(pcm));
-      inputHistory.push(energy(pcm));
-      inputHistory.shift();
-      lastInputAt = performance.now();
-    }, deviceId);
+  async function startCapture(deviceId?: string): Promise<Capture | null> {
+    const epoch = ++captureEpoch;
+    let captured: Capture;
+    try {
+      captured = await capture((pcm) => {
+        if (epoch !== captureEpoch || disposed || muted) return;
+        const live = socket;
+        if (live?.readyState === WebSocket.OPEN) live.send(toBytes(pcm));
+        inputHistory.push(energy(pcm));
+        inputHistory.shift();
+        lastInputAt = performance.now();
+      }, deviceId);
+    } catch (err) {
+      if (epoch !== captureEpoch || disposed) return null;
+      throw err;
+    }
+    if (epoch !== captureEpoch || disposed) {
+      captured.stop();
+      return null;
+    }
+    captured.muted = muted;
     held = captured;
     return captured;
   }
@@ -714,6 +743,7 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   async function finish(): Promise<void> {
     generation++;
+    captureEpoch++;
     opening = false;
     socket?.close();
     socket = null;
@@ -842,6 +872,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       if (opened.error) throw new Error(opened.error);
       if (epoch !== generation) return;
     } catch (err) {
+      if (epoch !== generation || disposed) return;
       // Said plainly, because a silent fallback is how a credential problem
       // gets mistaken for a voice problem.
       opening = false;
@@ -854,11 +885,13 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
 
     const player = new Playback();
+    let audioWork = Promise.resolve();
+    let pendingPCM: Int16Array | null = null;
     playback = player;
     player.onSchedule = (info) => {
       if (playback !== player) return;
       noteChunk(info);
-      const start = performance.now() + (info.start - info.now) * 1000;
+      const start = info.start * 1000;
       if (pendingPCM) queuedAudio.push({ pcm: pendingPCM, start, end: start + info.duration * 1000 });
     };
     clearCaptionTimer();
@@ -869,15 +902,16 @@ export function wireVoice(doc: Document = document): VoicePage {
     renderTranscript();
     try {
       const captured = await startCapture(chosenId || undefined);
+      if (!captured) return;
       if (epoch !== generation) {
         captured.stop();
         if (held === captured) held = null;
         return;
       }
       void lookForMics();
-      // The context rate is in the log for the same reason the chunk
-      // schedules are: a silent turn is diagnosable from the numbers here
-      // (44.1 kHz was the rate that resampled to silence), and nowhere else.
+      // Retain the actual context rate for diagnosis. A keyless capture
+      // exposed 44.1 kHz corruption; the historical silent session's rate
+      // and PCM were not retained, so its cause remains unknown.
       put({
         at: new Date().toLocaleTimeString(),
         event: `microphone: ${captured.label} (${captured.path}) @ ${captured.context.sampleRate} Hz`,
@@ -917,10 +951,11 @@ export function wireVoice(doc: Document = document): VoicePage {
         pendingPCM = null;
         if (socket !== live || turn !== outputEpoch) {
           player.stopNow();
-          clearOutput();
+          if (playback === player) clearOutput();
         }
       }).catch((err) => {
         pendingPCM = null;
+        if (socket !== live || playback !== player || turn !== outputEpoch) return;
         complaint = `Audio playback failed — end the session and try again: ${String(err)}`;
         renderComplaint();
         void end();
@@ -934,6 +969,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       void end();
     };
     live.onerror = () => {
+      if (socket !== live) return;
       complaint = "Audio connection failed. End the session and try Listen again.";
       renderComplaint();
       put({ at: new Date().toLocaleTimeString(), event: "audio socket error", error: "the socket failed" });
@@ -962,6 +998,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     try {
       held?.stop();
       const captured = await startCapture(deviceId);
+      if (!captured) return;
       put({ at: new Date().toLocaleTimeString(), event: `microphone changed to ${captured.label}` });
       await lookForMics();
     } catch (err) {
@@ -970,6 +1007,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       put({ at: new Date().toLocaleTimeString(), event: `could not use that microphone: ${why}`, error: why });
       try {
         const captured = await startCapture();
+        if (!captured) return;
         put({ at: new Date().toLocaleTimeString(), event: `fell back to ${captured.label}` });
       } catch {
         complaint = "no microphone available";
@@ -1052,8 +1090,20 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   async function forget(): Promise<void> {
-    await fetch(`${HARNESS}/key`, { method: "DELETE" }).catch(() => undefined);
-    await refresh();
+    try {
+      // The harness's existing verb is POST {forget:true}; DELETE is a 405.
+      const response = await fetch(`${HARNESS}/key`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ forget: true }),
+      });
+      if (!response.ok) throw new Error(`harness refused (${response.status})`);
+      note = "key forgotten";
+      await refresh();
+    } catch (err) {
+      note = `key not removed — ${String((err as Error).message ?? err)}`;
+    }
+    renderNote();
   }
 
   /**
@@ -1470,6 +1520,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     stop(): void {
       disposed = true;
       generation++;
+      captureEpoch++;
       clearCaptionTimer();
       clearOutput();
       clearInterval(stateTimer);

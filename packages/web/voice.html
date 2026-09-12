@@ -204,6 +204,8 @@
       import { wireVoice } from "/src/voice/main.ts";
       const page = wireVoice();
       addEventListener("pagehide", () => page.stop(), { once: true });
+      // A bfcache return restores a disposed controller; start a fresh page.
+      addEventListener("pageshow", (event) => { if (event.persisted) location.reload(); });
       if (import.meta.hot) import.meta.hot.dispose(() => page.stop());
     </script>
   </body>

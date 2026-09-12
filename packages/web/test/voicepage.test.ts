@@ -168,9 +168,11 @@ class FakeSocket {
 }
 
 function fakeCapture(): void {
+  FakeSocket.latest = null;
   class FakeContext {
     sampleRate = 48000;
-    currentTime = 0;
+    private createdAt = performance.now();
+    get currentTime() { return (performance.now() - this.createdAt) / 1000; }
     state = "running";
     destination = {};
     audioWorklet = { addModule: async () => undefined };
@@ -383,6 +385,20 @@ describe("devices, keys and the project link", () => {
     expect(save.disabled).toBe(false);
   });
 
+  it("forgets through the harness's POST verb and reports a refusal", async () => {
+    await wire();
+    element<HTMLButtonElement>("forget-key").click();
+    await flush();
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith("/key"));
+    expect(call?.[1]?.method).toBe("POST");
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ forget: true });
+    expect(element("key-note").textContent).toBe("key forgotten");
+    vi.mocked(fetch).mockResolvedValueOnce({ ...answer({}), ok: false, status: 503 });
+    element<HTMLButtonElement>("forget-key").click();
+    await flush();
+    expect(element("key-note").textContent).toBe("key not removed — harness refused (503)");
+  });
+
   it("mints a fresh pass on every press and opens the tab it made", async () => {
     await wire();
     element<HTMLButtonElement>("open-project").click();
@@ -511,8 +527,10 @@ describe("mic-centred conversation feedback", () => {
     const reply = (text: string) => socket.event({ type: "tool_log", entry: { details: { kind: "reply", text } } });
     reply("The canvas ");
     const first = element("captions").firstChild;
+    const historyRow = element("transcript").firstChild;
     reply("is ready.");
     expect(element("captions").firstChild).toBe(first);
+    expect(element("transcript").firstChild).toBe(historyRow);
     expect(element("captions").textContent).toBe("The canvas is ready.");
     // The old reply class accidentally inherited the entire .voice page grid.
     expect(document.querySelectorAll(".voice")).toHaveLength(1);
@@ -525,6 +543,45 @@ describe("mic-centred conversation feedback", () => {
     expect(element("captions").classList.contains("faded")).toBe(false);
     page!.stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("End cancels opening and stops a microphone granted afterwards", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    let grant!: (stream: MediaStream) => void;
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(() => new Promise((resolve) => { grant = resolve; }));
+    await wire();
+    element<HTMLButtonElement>("listen").click();
+    await flush();
+    expect(element<HTMLButtonElement>("end").disabled).toBe(false);
+    element<HTMLButtonElement>("end").click();
+    await flush();
+    const stop = vi.fn();
+    grant({ getAudioTracks: () => [], getTracks: () => [{ stop }] } as unknown as MediaStream);
+    await flush();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(FakeSocket.latest).toBeNull();
+    expect(element("hero").dataset.activity).toBe("ended");
+  });
+
+  it("a rejected old decode cannot end a new session", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const old = await goLive();
+    let reject!: (error: Error) => void;
+    const blob = new Blob();
+    Object.defineProperty(blob, "arrayBuffer", { value: () => new Promise((_resolve, refuse) => { reject = refuse; }) });
+    old.onmessage?.({ data: blob });
+    await flush();
+    element<HTMLButtonElement>("end").click();
+    await flush();
+    const current = await goLive();
+    reject(new Error("old decode failed"));
+    await flush();
+    expect(element("hero").dataset.state).toBe("live");
+    expect(current.readyState).toBe(1);
+    expect(element("complaint").textContent).not.toContain("old decode");
   });
 
   it("uses the large mic as mute/unmute without starting another session", async () => {
