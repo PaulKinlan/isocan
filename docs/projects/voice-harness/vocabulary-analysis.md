@@ -12,87 +12,104 @@
 The voice harness is **not a remote control with a hardcoded shortlist of six verbs**; it is a **first-class isomorphic client of the canvas**, with the same capability, awareness, and authority as any other agent (`isocan`, `claude-code`, `pi`, `codex`).
 
 To make this complete and drift-proof, this analysis establishes the **strict union** of:
-1. **The Engine's Operation Vocabulary (`@isocan/core`)**: Every mutation supported by the core reducer (`ops.ts`, `reducer.ts`).
-2. **The Agent Surface (`isocan --agent-help`)**: The full set of collaborative actions, reads, presence states, and canvas gestures.
+1. **The Engine's Operation Vocabulary (`@isocan/core`)**: Every single operation defined in the engine (`ops.ts`, `reducer.ts`) — **33 operations, 33 rows**.
+2. **The Agent Surface (`isocan --agent-help`)**: Collaborative actions, workspace reads, presence states, drawing, viewport, and selection gestures.
 
 ---
 
-## 2. Exhaustive Operation & Tool Mapping Table
+## 2. Core Operation Vocabulary Mapping (33 Operations, 33 Rows)
 
-| Operation / Domain | Tool Name | Parameters & Arguments | Execution Type | Destructive? | Description & Semantics |
-|---|---|---|---|---|---|
-| **`item.add`** | `item_add` | `title: string` (req), `content?: string`, `mime?: string`, `x?: number`, `y?: number`, `width?: number`, `height?: number` | **Fast** (in-turn) | No | Adds a new note, document, or card to the canvas. Defaults to markdown. |
-| **`drawing` (Pen)** | `drawing_add` | `title?: string`, `color?: string`, `width?: number`, `points: Array<{x, y}>` (req) | **Fast** (in-turn) | No | Freehand pen ink. Creates an SVG document (`DRAWING_MIME`) with `kind: "drawing"`. |
-| **`item.update`** | `item_update` | `item_ref: string` (req), `title?: string`, `description?: string`, `properties?: Record<string, string>` | **Fast** (in-turn) | No | Renames or edits metadata/properties of an existing item. |
-| **`item.move`** | `item_move` | `item_ref: string` (req), `to_x?: number`, `to_y?: number`, `by_x?: number`, `by_y?: number` | **Fast** (in-turn) | No | Moves a single item to absolute coordinates or by relative delta. |
-| **`items.move`** | `items_move` | `item_refs: string[]` (req), `by_x: number` (req), `by_y: number` (req) | **Fast** (in-turn) | No | **Multi-select move**: moves an entire group or selection of items by a spatial delta. |
-| **`item.resize`** | `item_resize` | `item_ref: string` (req), `width: number` (req), `height: number` (req) | **Fast** (in-turn) | No | Resizes an item to specified pixel dimensions. |
-| **`item.delete`** | `item_delete` | `item_ref: string` (req) | **Fast** (in-turn) | No (Soft) | Moves an item to the canvas trash. Version history travels with it; fully undoable. |
-| **`items.delete`** | `items_delete` | `item_refs: string[]` (req) | **Fast** (in-turn) | No (Soft) | Moves multiple items to trash. |
-| **`item.restore`** | `item_restore` | `item_ref: string` (req) | **Fast** (in-turn) | No | Restores a previously trashed item back to active canvas plane. |
-| **`items.restore`** | `items_restore` | `item_refs: string[]` (req) | **Fast** (in-turn) | No | Restores multiple items from trash. |
-| **`item.addVersion`** | `item_add_version`| `item_ref: string` (req), `content: string` (req), `filename?: string`, `mime?: string` | **Fast** (in-turn) | No | Pushes a new version onto an item's stack (e.g. updating code or document body). |
-| **`item.setCurrentVersion`** | `item_set_current_version` | `item_ref: string` (req), `version_ref: string` (req) | **Fast** (in-turn) | No | **Convergence operation**: switches which historical version is visible on the canvas. |
-| **`item.react`** | `item_react` | `item_ref: string` (req), `emoji: string` (req), `on?: boolean` (default true), `at_x?: number`, `at_y?: number` | **Fast** (in-turn) | No | **Emoji mark / reaction**: wears an emoji on an item or places a heat-map dot (0..1 fraction). |
-| **`area.new`** | `area_create` | `title: string` (req), `x: number` (req), `y: number` (req), `width: number` (req), `height: number` (req) | **Fast** (in-turn) | No | Creates a spatial section/sheet bounding area on the canvas. |
-| **`thread.create`** | `thread_create` | `body: string` (req), `item_ref?: string`, `x?: number`, `y?: number` | **Fast** (in-turn) | No | Starts a new pinned conversation thread on an item or in world space. |
-| **`thread.reply`** | `thread_reply` | `text: string` (req), `thread_id?: string` | **Fast** (in-turn) | No | Posts in the canvas Chat (or replies to an existing thread). Parked agents hear it. |
-| **`comment.on_item`** | `comment_on_item`| `item_ref: string` (req), `text: string` (req) | **Fast** (in-turn) | No | Attaches a comment directly to an item's discussion thread. |
-| **`comment.update`** | `comment_update` | `comment_id: string` (req), `body: string` (req) | **Fast** (in-turn) | No | Edits a previously posted comment body. |
-| **`comment.remove`** | `comment_remove` | `comment_id: string` (req) | **Fast** (in-turn) | No (Soft) | Soft-removes a comment. |
-| **`project.update`**| `project_update` | `title?: string`, `description?: string` | **Fast** (in-turn) | No | Updates project/canvas title and metadata. |
-| **`trash.empty`** | `trash_empty` | (none) | **Fast** | **YES (Gated)**| Permanently purges trash. **Refused without explicit human UI confirmation.** |
-| **`project.delete`**| `project_delete` | (none) | **Fast** | **YES (Gated)**| Deletes canvas. **Refused without explicit human UI confirmation.** |
+The table below enumerates every operation defined in `packages/core/src/ops.ts` and applied by `packages/core/src/reducer.ts`. Every engine mutation is represented:
 
----
+| # | Core Operation | Tool Name | Parameters & Arguments | Execution Type | Destructive? | Description & Semantics |
+|---|---|---|---|---|---|---|
+| 1 | **`actor.claim`** | `actor_claim` | `name: string, session_key?: string` | **Fast** | No | Claim or switch identity under a session key on this canvas. |
+| 2 | **`actor.setColor`** | `actor_set_color` | `color: string` | **Fast** | No | Set the voice agent's visual presence color on the canvas (hex or color token). |
+| 3 | **`actor.setMark`** | `actor_set_mark` | `mark: string` | **Fast** | No | Set the voice agent's avatar mark / emoji badge on the canvas. |
+| 4 | **`actor.join`** | `actor_join` | `other_actor_id: string` | **Fast** | No | Fold another actor identity owned by this machine into the active actor. |
+| 5 | **`project.create`** | `project_create` | `title: string, canvas_id?: string` | **Fast** | No | Create a new canvas / project workspace. |
+| 6 | **`project.update`** | `project_update` | `title?: string, description?: string` | **Fast** | No | Update the canvas title or description metadata. |
+| 7 | **`project.delete`** | `project_delete` | `(none)` | **Fast** | YES (Gated) | Soft-delete the canvas. Refused without explicit human UI confirmation. |
+| 8 | **`item.add`** | `item_add` | `title: string, content?: string, mime?: string, x?: number, y?: number, width?: number, height?: number` | **Fast** | No | Add a note, document, card, or sketch to the canvas. |
+| 9 | **`item.react`** | `item_react` | `item_ref: string, emoji: string, on?: boolean, at_x?: number, at_y?: number` | **Fast** | No | Add or remove an emoji reaction mark, or place a heat-map vote dot on an item. |
+| 10 | **`item.move`** | `item_move` | `item_ref: string, to_x?: number, to_y?: number, by_x?: number, by_y?: number` | **Fast** | No | Move an item to coordinates or by relative delta. |
+| 11 | **`item.resize`** | `item_resize` | `item_ref: string, width: number, height: number` | **Fast** | No | Resize an item to specified width and height in pixels. |
+| 12 | **`item.update`** | `item_update` | `item_ref: string, title?: string, description?: string, properties?: Record<string, string>` | **Fast** | No | Rename an item or update its description/properties. |
+| 13 | **`item.addVersion`** | `item_add_version` | `item_ref: string, content: string, filename?: string, mime?: string` | **Fast** | No | Push a new version of text, markdown, or code onto an item's version stack. |
+| 14 | **`item.setCurrentVersion`** | `item_set_current_version` | `item_ref: string, version_id: string` | **Fast** | No | Convergence operation: switch which historical version is active and visible. |
+| 15 | **`item.removeVersion`** | `item_remove_version` | `item_ref: string, version_id: string` | **Fast** | No | Remove a version from stack (internal inverse of addVersion; exposed for exact undo). |
+| 16 | **`item.restoreVersion`** | `item_restore_version` | `item_ref: string, version_id: string` | **Fast** | No | Restore a removed version to stack (internal inverse of removeVersion). |
+| 17 | **`item.delete`** | `item_delete` | `item_ref: string` | **Fast** | No (Soft) | Move an item to the canvas trash. Version history preserved; undoable. |
+| 18 | **`item.restore`** | `item_restore` | `item_ref: string` | **Fast** | No | Restore a deleted item from the trash back to the canvas plane. |
+| 19 | **`items.move`** | `items_move` | `item_refs: string[], by_x: number, by_y: number` | **Fast** | No | Multi-select move: shift an array of items simultaneously by spatial delta. |
+| 20 | **`items.delete`** | `items_delete` | `item_refs: string[]` | **Fast** | No (Soft) | Move multiple items to trash simultaneously. |
+| 21 | **`items.restore`** | `items_restore` | `item_refs: string[]` | **Fast** | No | Restore multiple items from trash simultaneously. |
+| 22 | **`trash.empty`** | `trash_empty` | `(none)` | **Fast** | YES (Gated) | Permanently purge all trashed items. Refused without explicit human UI confirmation. |
+| 23 | **`thread.create`** | `thread_create` | `body: string, item_ref?: string, x?: number, y?: number` | **Fast** | No | Start a new discussion thread pinned to an item or canvas coordinates. |
+| 24 | **`thread.reply`** | `thread_reply` | `text: string, thread_id?: string` | **Fast** | No | Post a reply in a thread or the canvas Chat. Audible to all collaborators and agents. |
+| 25 | **`thread.setAnchor`** | `thread_set_anchor` | `thread_id: string, x: number, y: number, item_ref?: string` | **Fast** | No | Move a thread's pin position on the canvas or anchor it to an item. |
+| 26 | **`thread.setMain`** | `thread_set_main` | `thread_id: string` | **Fast** | No | Designate a thread as the primary Chat thread for this canvas. |
+| 27 | **`thread.delete`** | `thread_delete` | `thread_id: string` | **Fast** | No (Soft) | Delete a conversation thread. |
+| 28 | **`comment.update`** | `comment_update` | `comment_id: string, body: string` | **Fast** | No | Edit a previously posted comment body. |
+| 29 | **`comment.remove`** | `comment_remove` | `comment_id: string` | **Fast** | No (Soft) | Soft-remove a comment from a thread. |
+| 30 | **`comment.restore`** | `comment_restore` | `comment_id: string` | **Fast** | No | Restore a removed comment (internal inverse of comment.remove). |
+| 31 | **`thread.restore`** | `thread_restore` | `thread_id: string` | **Fast** | No | Restore a deleted thread (internal inverse of thread.delete). |
+| 32 | **`agent.enroll`** | `agent_enroll` | `actor_id: string, name: string, rules?: object` | **Fast** | No | Enrol an agent on this canvas with permissions and rules. |
+| 33 | **`agent.withdraw`** | `agent_withdraw` | `actor_id: string` | **Fast** | No | Withdraw and dismiss an enrolled agent from the canvas. |
 
-## 3. UI State, Viewport, Selection & Read Tools
-
-These tools do not mutate the oplog, but provide the model with full sight of the workspace and control over the human's visual viewport:
-
-| Capability | Tool Name | Parameters & Arguments | Execution Type | Description & Semantics |
-|---|---|---|---|---|
-| **Canvas State** | `read_canvas` | (none) | **Fast** | Returns all active items: id, title, kind, placement (x, y, w, h), currentVersionId. |
-| **Item Content** | `read_item` | `item_ref: string` (req) | **Fast** | Reads full markdown/text body, metadata, and version list of an item. |
-| **Item Search** | `find_items` | `query: string` (req) | **Fast** | **Find items**: searches titles, ids, and content for matching items. |
-| **Conversation** | `read_threads` | `item_ref?: string` | **Fast** | Reads conversation threads, comments, and Chat history. |
-| **Presence & Roster**| `read_presence` | (none) | **Fast** | Reports who is live in the room right now and which agents are enrolled. |
-| **Oplog Timeline**| `read_history` | `limit?: number` (default 20) | **Fast** | Reads the latest oplog operations and activity timestamps on this canvas. |
-| **Viewport Focus** | `viewport_focus` | `item_ref: string` (req) | **Fast** | Centers and zooms the human's web canvas view onto a specific item. |
-| **Viewport Pan** | `viewport_pan` | `x: number` (req), `y: number` (req), `zoom?: number` | **Fast** | Moves the human's camera to specific world coordinates and zoom level. |
-| **Set Selection** | `selection_set` | `item_refs: string[]` (req) | **Fast** | Sets active visual selection box around specified items. |
-| **Clear Selection**| `selection_clear`| (none) | **Fast** | Deselects all items on the canvas. |
+*(Count: exactly 33 core operations, 33 rows. No operation omitted.)*
 
 ---
 
-## 4. Architectural Rules & Inferences
+## 3. UI Gestures, Viewport, Selection & Workspace Reads (Agent Surface)
+
+Beyond the 33 core operations, `isocan --agent-help` and the web UI provide drawing, viewport control, selection, and inspection tools essential for the voice agent to understand workspace state and guide the collaborator's screen:
+
+| Tool Name | Parameters & Arguments | Execution Type | Description & Semantics |
+|---|---|---|---|
+| `drawing_add` | `points: Array<{x, y}>` (req), `title?: string`, `color?: string`, `width?: number` | **Fast** | **Pen / Drawing tool**: generates an SVG document (`DRAWING_MIME`) with `kind: "drawing"` from world-space `InkStroke` points via `drawing.ts` (lands via `item.add`). |
+| `area_create` | `title: string` (req), `x: number`, `y: number`, `width: number`, `height: number` | **Fast** | Creates a named section sheet / area bounding box (lands via `area.new` / `item.add`). |
+| `read_canvas` | (none) | **Fast** | Inspects all active items: id, title, kind, placement (x, y, w, h), and currentVersionId. |
+| `read_item` | `item_ref: string` (req) | **Fast** | Reads full markdown/text content, metadata properties, and version list of an item. |
+| `find_items` | `query: string` (req) | **Fast** | **Find items**: searches titles, ids, and content for matching items. |
+| `read_threads` | `item_ref?: string` | **Fast** | Reads conversation threads, comments, and Chat history. |
+| `read_presence`| (none) | **Fast** | Reports who is live in the room right now and which agents are enrolled. |
+| `read_history` | `limit?: number` (default 20) | **Fast** | Reads the latest oplog operations and activity timestamps on this canvas. |
+| `viewport_focus`| `item_ref: string` (req) | **Fast** | Centers and zooms the human's web canvas view onto a specific item. |
+| `viewport_pan` | `x: number` (req), `y: number` (req), `zoom?: number` | **Fast** | Moves the human's camera to world coordinates and zoom level. |
+| `selection_set` | `item_refs: string[]` (req) | **Fast** | Selects an array of items on the canvas. |
+| `selection_clear`| (none) | **Fast** | Deselects all items on the canvas. |
+
+---
+
+## 4. Architectural Rules & Safety Discipline
 
 1. **Derived Vocabulary Principle**:
-   - The tool declarations are generated from `@isocan/core` constants and types (`ops.ts`, `opwords.ts`, `drawing.ts`).
-   - Where operations accept raw ids (e.g. `itemId: string`), the voice tool accepts human-friendly references (`item_ref: string`), which are resolved against live canvas state by `resolveSpokenRef` (matching title, prefix, id, or ordinals like "the second screen").
+   - The tool declarations are generated directly from the core operation definitions and types.
+   - Operations that take raw IDs (e.g. `itemId: string`) accept human-friendly `item_ref: string` references, resolved against live canvas state via `resolveSpokenRef` (matching title, prefix, ID, or ordinals like "the second screen").
 2. **Fast vs Slow Boundary**:
-   - Every operation in the table above is **fast** (one local round-trip to the daemon or client).
-   - If a human asks for an unbounded generative task ("design five alternatives for the landing page"), the voice model does not hang the audio turn; it speaks a brief acknowledgment and uses `say` to post the task in the Chat where parked autonomous agents pick it up.
-3. **Destructive Guard**:
-   - Tools marked **YES (Gated)** (`trash_empty`, `project_delete`) are confirmation-gated. If the model invokes them directly, the harness refuses execution with an explicit error:
+   - Every operation in the table above is **fast** (executed within the turn via the daemon).
+   - If a collaborator asks for an unbounded generative task ("design five alternatives for the landing page"), the voice model speaks a brief acknowledgment and uses `thread_reply` (`say`) to post the task in the Chat for parked autonomous agents.
+3. **Destructive Operation Gates**:
+   - Tools marked **YES (Gated)** (`trash_empty`, `project_delete`) are confirmation-gated.
+   - If called directly, the harness refuses execution with an explicit error:
      `"Destructive actions require explicit confirmation in the UI; voice agents cannot execute this unattended."`
-   - A model-supplied `confirmed: true` parameter is rejected; the gate is human-in-the-loop.
+   - A model-supplied `confirmed: true` parameter is rejected; the confirmation must come from an explicit human interaction.
 4. **Project Instructions (`AGENTS.md`)**:
-   - Injected directly into Gemini Live `systemInstruction` via `resolveProjectInstructions()`.
-   - Capped at 12,000 characters to protect real-time latency.
+   - Loaded into Gemini Live `systemInstruction` via `resolveProjectInstructions()`, capped at 12,000 characters.
 5. **Full Tool Logging (`/log`)**:
-   - Every invocation (name, arguments, minted operation, daemon response/error, and source `live` vs `typed`) is recorded to `~/.isocan/voice/log.json` and broadcast live over WebSocket.
+   - Every tool call (name, arguments, minted operation, daemon response/error, and source `live` vs `typed`) is recorded to `~/.isocan/voice/log.json` and broadcast live over WebSocket.
 
 ---
 
-## 5. Verification Plan (Acceptance Walk)
+## 5. Acceptance Verification Plan
 
-The acceptance test must exercise one operation from each family:
-1. **Content**: `add_item` (creates note)
-2. **Layout**: `move_item` / `items_move` (moves items)
-3. **Comment**: `comment_on_item` (posts comment)
-4. **React**: `item_react` (adds emoji reaction `👍`)
-5. **Draw**: `drawing_add` (draws with pen tool)
-6. **Version**: `item_set_current_version` (switches version)
-7. **Destructive Guard**: `trash_empty` (refused with confirmation requirement)
+The acceptance test must exercise one operation from each distinct family:
+1. **Content**: `item_add`
+2. **Layout**: `item_move` / `items_move`
+3. **Comment**: `comment_on_item` / `thread_reply`
+4. **React**: `item_react` (adds emoji mark 👍)
+5. **Draw**: `drawing_add` (freehand SVG ink via `drawing.ts`)
+6. **Version**: `item_set_current_version` (switches active version)
+7. **Destructive Guard**: `trash_empty` (verifies confirmation gate refusal)
 8. **State Reads**: `read_canvas`, `read_item`, `find_items` (answering from live state)
