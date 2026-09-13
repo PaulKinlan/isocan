@@ -6515,9 +6515,9 @@ body:has(> .voice) { overflow: auto; }
   font-size: var(--t-xs);
   color: var(--ink-muted);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  text-align: center;
 }
 
 /* THE HERO. Empty space is the design: the microphone sits in the middle of

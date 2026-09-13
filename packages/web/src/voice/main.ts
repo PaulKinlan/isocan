@@ -174,12 +174,13 @@ function stateWords(activity: Activity, muted: boolean, microphone: string): str
 /**
  * **The build tag, and what it says when there is no build to tag.**
  *
- * The integration build injects `{ branch, commit }` through Vite's `define`,
- * because Paul uses that line to know which branch he is looking at. A build
- * without the define must not borrow a plausible-looking string: it says the
- * tag was not injected, which is the one true thing it knows.
+ * Vite injects the checkout revision and its invocation time, not the time
+ * this tab loaded. Serve and build use different labels; absent metadata is
+ * named rather than replaced with a plausible-looking version or timestamp.
  */
-declare const __VOICE_BUILD_INFO__: { branch?: string; commit?: string } | string | undefined;
+declare const __VOICE_BUILD_INFO__: {
+  branch?: string; commit?: string; command?: "serve" | "build"; startedAt?: string;
+} | string | undefined;
 
 export function buildWords(): string {
   const info = typeof __VOICE_BUILD_INFO__ === "undefined" ? undefined : __VOICE_BUILD_INFO__;
@@ -187,7 +188,12 @@ export function buildWords(): string {
   if (typeof info === "string") return info;
   const branch = info.branch ?? "unknown branch";
   const commit = (info.commit ?? "").slice(0, 8);
-  return commit ? `${branch} @ ${commit}` : branch;
+  const revision = commit ? `${branch} @ ${commit}` : branch;
+  const label = info.command === "serve" ? "Dev started" : info.command === "build" ? "Built" : "";
+  const date = new Date(info.startedAt ?? "");
+  if (!label || Number.isNaN(date.getTime())) return `${revision}\nBuild time not injected`;
+  const when = date.toISOString().slice(0, 19).replace("T", " ");
+  return `${revision}\n${label} ${when} UTC`;
 }
 
 /**
