@@ -173,6 +173,21 @@
           <p class="voice-hint" id="key-note" hidden></p>
         </details>
 
+        <details class="voice-quiet" id="memory-panel">
+          <summary>
+            <span class="voice-summary-first">Memory</span>
+            <span class="voice-summary" id="memory-summary">nothing stored</span>
+          </summary>
+          <!-- The agent's own state: OPFS, this browser, this origin. The
+               person can see every entry and remove it, because a store the
+               operator cannot inspect is one they cannot trust. -->
+          <p class="voice-hint" id="memory-note"></p>
+          <ol class="voice-log" id="memory-list"></ol>
+          <div class="voice-keyrow">
+            <button id="memory-forget-all" type="button" hidden>Forget everything</button>
+          </div>
+        </details>
+
         <details class="voice-quiet" id="log-panel">
           <summary>
             <span class="voice-summary-first">Tool calls</span>

@@ -781,3 +781,176 @@ describe("the page asks for a folder, and answers file questions from it", () =>
     expect(JSON.parse(String((grant?.[1] as RequestInit).body))).toEqual({ folder: null, granted: false });
   });
 });
+
+/**
+ * **Memory, in the page's own store, and the person able to see all of it.**
+ *
+ * jsdom has no OPFS and no `navigator.storage`, which exercises the honest
+ * fallback: the store is this tab's memory for the session and the panel says
+ * so. The fake-OPFS test below is the reload claim at jsdom scale — a second
+ * `wireVoice` reading what the first one wrote — and the real-browser proof
+ * (reload, then a browser restart) is run separately, against the code as
+ * shipped.
+ */
+describe("memory lives in the page's store", () => {
+  const fakeOpfs = () => {
+    const files = new Map<string, string>();
+    const dir = (prefix: string): Record<string, unknown> => ({
+      getDirectoryHandle: async (name: string) => dir(`${prefix}${name}/`),
+      getFileHandle: async (name: string) => {
+        const key = `${prefix}${name}`;
+        return {
+          createWritable: async () => ({
+            write: async (data: string) => {
+              files.set(key, data);
+            },
+            close: async () => undefined,
+          }),
+          getFile: async () => ({ text: async () => files.get(key) ?? "" }),
+        };
+      },
+    });
+    return {
+      files,
+      storage: {
+        getDirectory: async () => dir(""),
+        persist: async () => true,
+        persisted: async () => true,
+      },
+    };
+  };
+
+  const withStorage = (value: unknown) =>
+    Object.defineProperty(navigator, "storage", { configurable: true, value });
+
+  it("records a memory through the broker, and the panel shows it", async () => {
+    fakeCapture();
+    withStorage(undefined); // no OPFS: the session-only fallback, stated as such
+    await wire();
+    const socket = await goLive();
+    socket.event({ memory: { callId: "m1", op: "remember", text: "the daemon port is 4441", tags: ["daemon"], session: "Voice" } });
+    await flush();
+
+    const stored = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/memory/result"));
+    const body = JSON.parse(String((stored?.[1] as RequestInit).body));
+    expect(body).toMatchObject({ callId: "m1", ok: true, tags: ["daemon"] });
+    expect(body.id).toMatch(/^mem_/);
+    expect(body.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    await flush();
+    expect(element("memory-summary").textContent).toBe("1 memory");
+    expect(element("memory-list").textContent).toContain("the daemon port is 4441");
+    expect(element("memory-note").textContent).toContain("session only");
+  });
+
+  it("answers a search honestly, and a read by id (or says which ids exist)", async () => {
+    fakeCapture();
+    await wire();
+    const socket = await goLive();
+    for (const text of ["the daemon port is 4441", "Paul prefers short answers"]) {
+      socket.event({ memory: { callId: `w_${text.length}`, op: "remember", text, session: "Voice" } });
+      await flush();
+    }
+    const lastResult = () =>
+      JSON.parse(
+        String(
+          (vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/memory/result")).at(-1)?.[1] as RequestInit)
+            .body,
+        ),
+      );
+
+    socket.event({ memory: { callId: "s1", op: "search", query: "DAEMON" } });
+    await flush();
+    expect(lastResult()).toMatchObject({ callId: "s1", ok: true, count: 1 });
+
+    socket.event({ memory: { callId: "s2", op: "search", query: "database" } });
+    await flush();
+    expect(lastResult()).toMatchObject({ callId: "s2", ok: true, count: 0 }); // a synonym was never written
+
+    socket.event({ memory: { callId: "s3", op: "read", id: "mem_nope" } });
+    await flush();
+    const miss = lastResult();
+    expect(miss).toMatchObject({ callId: "s3", ok: false });
+    expect(miss.recentIds.length).toBe(2); // so the model can retry with a real one
+  });
+
+  it("lets the person forget one entry, and all of them", async () => {
+    fakeCapture();
+    await wire();
+    const socket = await goLive();
+    socket.event({ memory: { callId: "w1", op: "remember", text: "first", session: "Voice" } });
+    await flush();
+    socket.event({ memory: { callId: "w2", op: "remember", text: "second", session: "Voice" } });
+    await flush();
+    expect(element("memory-summary").textContent).toBe("2 memories");
+
+    const forget = [...element("memory-list").querySelectorAll("button")].find((b) => b.textContent === "Forget");
+    forget!.click();
+    await flush();
+    expect(element("memory-summary").textContent).toBe("1 memory");
+
+    element<HTMLButtonElement>("memory-forget-all").click();
+    await flush();
+    expect(element("memory-summary").textContent).toBe("nothing stored");
+    expect(element<HTMLButtonElement>("memory-forget-all").hidden).toBe(true);
+  });
+
+  it("keeps memory across a page reload when OPFS is there", async () => {
+    const opfs = fakeOpfs();
+    withStorage(opfs.storage);
+
+    fakeCapture();
+    await wire();
+    const socket = await goLive();
+    socket.event({ memory: { callId: "w1", op: "remember", text: "survives a reload", tags: ["opfs"], session: "Voice" } });
+    await flush();
+    page?.stop();
+
+    // A reload: new wiring, new listeners, same store.
+    await wire();
+    await flush();
+    expect(element("memory-summary").textContent).toBe("1 memory");
+    expect(element("memory-list").textContent).toContain("survives a reload");
+    expect(opfs.files.get("voice/memories.json")).toContain("survives a reload");
+
+    // And a search through the broker finds it after the reload.
+    const socket2 = await goLive();
+    socket2.event({ memory: { callId: "s1", op: "search", query: "reload" } });
+    await flush();
+    const found = JSON.parse(
+      String(
+        (vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/memory/result")).at(-1)?.[1] as RequestInit).body,
+      ),
+    );
+    expect(found).toMatchObject({ callId: "s1", ok: true, count: 1 });
+  });
+
+  it("takes the harness's old file once, without duplicating what is already here", async () => {
+    const opfs = fakeOpfs();
+    withStorage(opfs.storage);
+    const original = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/memory/legacy")) {
+        return answer({
+          entries: [
+            { id: "mem_old", text: "stored before the move", tags: ["legacy"], at: "2026-09-12T00:00:00.000Z", session: "Voice" },
+          ],
+          count: 1,
+        });
+      }
+      return original!(input, init);
+    });
+
+    await wire();
+    await flush();
+    expect(element("memory-list").textContent).toContain("stored before the move");
+    const migrated = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/memory/migrated"));
+    expect(JSON.parse(String((migrated?.[1] as RequestInit).body))).toEqual({ count: 1 });
+
+    // A second load must not import the same entry twice.
+    page?.stop();
+    await wire();
+    await flush();
+    expect(element("memory-summary").textContent).toBe("1 memory");
+  });
+});
