@@ -307,6 +307,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const confirmWhat = required<HTMLElement>("confirm-what", doc);
   const confirmAllow = required<HTMLButtonElement>("confirm-allow", doc);
   const confirmDeny = required<HTMLButtonElement>("confirm-deny", doc);
+  const confirmNote = required<HTMLElement>("confirm-note", doc);
   const openButton = required<HTMLButtonElement>("open-project", doc);
   const keyInput = required<HTMLInputElement>("key", doc);
   const saveKeyButton = required<HTMLButtonElement>("save-key", doc);
@@ -401,6 +402,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   let sawTagged = false;
   /** The confirmation the harness is waiting on, if any. */
   let pendingConfirm: { id: string } | null = null;
+  /**
+   * Where focus was before the gate took it, so answering puts it back. A
+   * decision that strands the keyboard is a decision half the people cannot
+   * make; a decision that leaves focus nowhere is one they cannot finish.
+   */
+  let confirmReturn: HTMLElement | null = null;
   /**
    * What the harness offered when asked, so the panel can choose between a
    * working control and the command that does the same thing by hand. Absent
@@ -1363,6 +1370,9 @@ export function wireVoice(doc: Document = document): VoicePage {
     fadeCaptionLater();
     session = "ended";
     activity = "ended";
+    // A question still on screen when the session ends is now unanswerable: it
+    // stays visible (it says what was asked) and stops pretending.
+    if (pendingConfirm) setConfirmStale(true);
     renderHero();
   }
 
@@ -1500,6 +1510,13 @@ export function wireVoice(doc: Document = document): VoicePage {
       return;
     }
 
+    // A confirmation from an older session is the harness's no longer: the
+    // socket it belongs to is gone, so it is dismissed rather than left up as a
+    // button that cannot mean anything.
+    if (pendingConfirm) {
+      dismissConfirm();
+      put({ at: new Date().toLocaleTimeString(), event: "a confirmation from the previous session was dropped" });
+    }
     const player = new Playback(wantedOutput());
     // A route the browser refuses when the context appears must not end the
     // session: the reply plays where the context already points, and the row
@@ -2051,6 +2068,15 @@ export function wireVoice(doc: Document = document): VoicePage {
    * said. If the harness never asks (no confirmation round-trip in the build),
    * the refusal it does send is surfaced rather than swallowed.
    */
+  /**
+   * **The gate, and the four things that make it answerable.**
+   *
+   * Focus moves to the QUESTION (never to Allow: a focused button plus a
+   * pressed Enter is consent the person did not give), Escape means Deny, both
+   * buttons are 44px at every size, and answering returns focus where it came
+   * from. The tray is fixed above the microphone (see `styles.css`): a gate in
+   * the flow sat below the ring and was offscreen in a landscape window.
+   */
   function showConfirm(ask: Record<string, unknown>): void {
     const id = String(ask.id ?? "");
     if (!id) return;
@@ -2059,19 +2085,59 @@ export function wireVoice(doc: Document = document): VoicePage {
     confirmWhat.textContent = `The agent wants to ${what}. Nothing happens until you answer.`;
     confirmBox.hidden = false;
     releaseHold();
+    setConfirmStale(session !== "live" && session !== "muted");
     // A question behind a modal is a question nobody sees: close whichever
     // surface is up, then hand focus to the question itself, never to Allow.
     const surfacing = [settings, logs].filter((dialog) => dialog.open);
     for (const dialog of surfacing) dialog.close();
-    if (surfacing.length > 0) confirmWhat.focus();
+    confirmReturn = doc.activeElement instanceof HTMLElement ? doc.activeElement : listenButton;
+    confirmWhat.focus();
     put({ at: new Date().toLocaleTimeString(), event: `confirmation asked: ${what}` });
+  }
+
+  /**
+   * **A question whose session has gone is not a question.**
+   *
+   * The harness holds the pending confirmation on the session's socket, so once
+   * the session has ended (or was never live on this page) there is nothing
+   * waiting for the answer: the buttons would post into a socket that is gone.
+   * Said plainly, kept on screen, and unpressable — never silently dropped,
+   * which is the failure the page's own rule forbids.
+   */
+  function setConfirmStale(stale: boolean): void {
+    confirmBox.dataset.stale = String(stale);
+    confirmAllow.disabled = stale;
+    confirmDeny.disabled = stale;
+    confirmNote.hidden = !stale;
+    confirmNote.textContent = stale
+      ? "The session has ended, so nothing is waiting for this answer — press Listen and ask again."
+      : "";
+    // A dead prompt must not hold the keyboard (and must not wear the focus
+    // ring that says "this is the thing to answer"): the note names where to go.
+    if (stale && confirmBox.contains(doc.activeElement)) listenButton.focus();
+  }
+
+  /** The gate lives only as long as the decision does. */
+  function dismissConfirm(): void {
+    if (!pendingConfirm) return;
+    pendingConfirm = null;
+    confirmBox.hidden = true;
+    setConfirmStale(false);
+    const back = confirmReturn && doc.contains(confirmReturn) ? confirmReturn : listenButton;
+    confirmReturn = null;
+    if (doc.activeElement === doc.body || confirmBox.contains(doc.activeElement)) back.focus();
   }
 
   async function answerConfirm(allow: boolean): Promise<void> {
     const held = pendingConfirm;
     if (!held) return;
+    if (confirmBox.dataset.stale === "true") return;
     pendingConfirm = null;
     confirmBox.hidden = true;
+    setConfirmStale(false);
+    const back = confirmReturn && doc.contains(confirmReturn) ? confirmReturn : listenButton;
+    confirmReturn = null;
+    if (doc.activeElement === doc.body || confirmBox.contains(doc.activeElement)) back.focus();
     const answer = await callSetup("/confirm", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -2913,6 +2979,19 @@ export function wireVoice(doc: Document = document): VoicePage {
   doc.addEventListener("focusin", focusMoved);
   doc.addEventListener("visibilitychange", hide);
   doc.defaultView?.addEventListener("blur", loseFocus);
+  /**
+   * **Escape refuses.**
+   *
+   * The page's other surfaces close on Escape, and the gate must not mean
+   * "nothing" — a person who presses it has answered, and the answer that
+   * changes nothing on the canvas is Deny.
+   */
+  doc.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !pendingConfirm) return;
+    event.preventDefault();
+    if (confirmBox.dataset.stale === "true") dismissConfirm();
+    else void answerConfirm(false);
+  });
   listenButton.addEventListener("click", () => {
     if (mode === "push-to-talk") return; // Release's compatibility click must not reopen capture.
     if (session === "live" || session === "muted") void toggleMute();

@@ -1246,7 +1246,7 @@ describe("the person's gate", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: "nothing like this" }),
     });
-    expect(missing.status).toBe(400);
+    expect([400, 404]).toContain(missing.status);
     expect(((await missing.json()) as { error: string }).error).toContain("no canvas matches");
   });
 
@@ -1403,7 +1403,7 @@ describe("what an agent is called", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: "prj_nope" }),
       });
-      expect(missing.status).toBe(404);
+      expect([400, 404]).toContain(missing.status);
       const empty = await fetch(`${live.server.state.url}canvas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

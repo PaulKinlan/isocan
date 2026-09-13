@@ -3398,8 +3398,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
    * Nothing is minted: switching is not an edit to either canvas.
    */
   async function switchThisSession(ref: string): Promise<
-    | { ok: true; canvas: { id: string; title: string }; previous: { id: string; title: string }; items: { id: string; title?: string }[]; answer: string }
-    | { ok: false; error: string }
+    | { ok: true; canvas: { id: string; title: string }; previous: { id: string; title: string }; items: { id: string; title?: string }[]; answer: string; unchanged?: boolean }
+    | { ok: false; error: string; notFound?: boolean }
   > {
     const wanted = ref.trim();
     if (!wanted) return { ok: false, error: "a switch needs the canvas to move to" };
@@ -3407,7 +3407,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     try {
       next = matchRef(await target.canvas.ctx.client.listCanvases(), wanted);
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return { ok: false, error: (err as Error).message, notFound: true };
     }
     if (next.id === target.canvasId) {
       return {
@@ -3416,6 +3416,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         previous: { id: target.canvasId, title: target.canvasLabel },
         items: [],
         answer: `this session is already on “${target.canvasLabel}” — nothing to move`,
+        unchanged: true,
       };
     }
     const was = { id: target.canvasId, title: target.canvasLabel };
@@ -3832,11 +3833,19 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
        * a fact a reader can act on.
        */
       if (req.method === "GET" && url.pathname === "/daemons") {
+        let reachable = false;
+        let canvases = 0;
+        try {
+          canvases = (await target.canvas.ctx.client.listCanvases()).length;
+          reachable = true;
+        } catch {}
         respond(200, {
           found: [
             {
               url: target.daemon,
               current: true,
+              reachable,
+              canvases,
               reason:
                 "the daemon this harness attached to when it started — this session's canvas handles, " +
                 "provider socket and presence live there, so it cannot move while it runs",
@@ -3945,7 +3954,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             args: { canvas_ref: wanted, via: "settings" },
             result: { ok: false, error: moved.error },
           });
-          respond(400, { error: moved.error });
+          const status = !wanted ? 400 : moved.notFound ? 404 : 400;
+          respond(status, { error: moved.error });
           return;
         }
         recordToolLog({
@@ -3955,7 +3965,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           args: { canvas_ref: wanted, via: "settings" },
           result: { ok: true, answer: moved.answer, canvasId: moved.canvas.id, from: moved.previous.id },
         });
-        respond(200, { ok: true, canvas: moved.canvas, previous: moved.previous, answer: moved.answer });
+        respond(200, {
+          ok: true,
+          canvas: moved.canvas,
+          previous: moved.previous,
+          answer: moved.answer,
+          ...(moved.unchanged ? { unchanged: true } : {}),
+        });
         return;
       }
       /**
@@ -3982,6 +3998,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const requested = String(asked.name ?? "");
         const renamed = await renameThisAgent(requested);
         if (!renamed.ok) {
+          const code = /too long|a name is required|needs a name/.test(renamed.error)
+            ? 400
+            : /taken|already answers|already has/i.test(renamed.error)
+              ? 409
+              : 502;
           recordToolLog({
             type: "tool_call",
             source: "typed",
@@ -3989,7 +4010,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             args: { name: requested, via: "settings" },
             result: { ok: false, error: renamed.error },
           });
-          respond(400, { error: renamed.error });
+          respond(code, { ok: false, error: renamed.error });
           return;
         }
         // No `say`: this request came from a page that is looking at the
@@ -4015,6 +4036,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           actor: renamed.actor,
           canvas: { id: target.canvasId, title: target.canvasLabel },
           answer: renamed.answer,
+          resumed: renamed.seq === 0,
         });
         return;
       }
