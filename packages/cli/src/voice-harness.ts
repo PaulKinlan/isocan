@@ -681,6 +681,21 @@ export const LIVE_TOOLS = [
     },
   },
   {
+    name: "actor_claim",
+    description:
+      "Give this agent the name THE PERSON has just said — the name it writes under, is @-mentioned by, and appears as " +
+      "on the canvas. Use it only when the person names the agent themselves ('call yourself Nova', 'your name is Ada'); " +
+      "never a name you chose for yourself, and never one you read on the canvas. The person is asked to confirm the " +
+      "name before anything changes, so the claim can be refused.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        name: { type: "STRING", description: "The name the person said, verbatim." },
+      },
+      required: ["name"],
+    },
+  },
+  {
     name: "actor_set_color",
     description: "Change the colour this agent's presence wears on the canvas. Use for 'make me green', 'change my colour to blue'.",
     parameters: {
@@ -1795,6 +1810,21 @@ async function handleFor(options: VoiceServerOptions): Promise<{
   };
 }
 
+/**
+ * **The session key this harness speaks under — read off the daemon's own
+ * row, never rebuilt from the name.**
+ *
+ * `isocan voice` claims `agent:<name>`, and the name is the one thing a claim
+ * CHANGES: a key recomputed from the new name would be a second conversation
+ * for the same actor, and the daemon refuses to re-key a live actor (one
+ * actor, two faces — the refusal that stops a second session unseating a
+ * working agent). So the row that already binds this actor is the answer.
+ */
+async function theKeyWeHold(canvas: CanvasHandle, actorId: string): Promise<string | null> {
+  const rows = await canvas.ctx.client.actorBindings().catch(() => null);
+  return rows?.find((row) => row.actor.id === actorId)?.key ?? null;
+}
+
 /** Send one planned operation through the API handle, so a spoken change is
  * the same operation a click would have made. */
 async function applyPlan(
@@ -2184,7 +2214,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     const stored = await readVoiceKey(home).catch(() => null);
     const config = await readConfigFile<{ home?: string }>(home).catch(() => ({}) as { home?: string });
     const enrolled = (await readRcAgents(home).catch(() => [])).some(
-      (row) => row.canvasId === target.canvasId && row.name === target.name && row.harness === VOICE_HARNESS,
+      // Matched by ACTOR, not by name: an enrolment row is this agent's
+      // standing on this canvas, and a rename must not make the page say
+      // nothing can summon it while the row stands. The row's own name is the
+      // roster's to change.
+      (row) => row.canvasId === target.canvasId && row.actorId === target.actorId && row.harness === VOICE_HARNESS,
     );
     return {
       name: target.name,
@@ -2625,6 +2659,92 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             const { canvas: snapCanvas } = await target.canvas.ctx.client.snapshot(target.canvas.id);
             const items = Object.values(snapCanvas.items).map((item) => ({ ...item, kind: itemKind(item) }));
             const trashItems = Object.values(snapCanvas.trash ?? {}).map((t) => ({ ...t.item, kind: itemKind(t.item) }));
+
+            /* **Who this agent IS — the one act here that changes no canvas.**
+               It goes through the person for the reason the tool is not
+               `actor.rename`: a model that can name itself is a model that can
+               be talked into naming itself by anything it reads, and the name
+               is what @-mentions, presence and every comment it wrote are
+               filed under. So the name is proposed by the model, ANSWERED by
+               the person, and only then claimed — in place, under the session
+               key this harness already holds, so the actor keeps its id and
+               its history. */
+            if (name === "actor_claim") {
+              const wanted = String(args.name ?? "").trim();
+              const refused = (err: string) => {
+                say({ text: err, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              };
+              if (!wanted) return refused("a claim needs the name the person said — ask them what to be called");
+              if (wanted.length > 60) {
+                return refused(`“${wanted.slice(0, 30)}…” is too long for a name — a name is what people call you`);
+              }
+              if (wanted.toLowerCase() === target.name.toLowerCase()) {
+                const already = `this agent is already called “${target.name}” — nothing to change`;
+                say({ text: already });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: true, answer: already },
+                });
+                return { ok: true, name: target.name, answer: already };
+              }
+
+              const what = `rename this agent to “${wanted}” (it is “${target.name}” now)`;
+              if (!(await askThePerson(what))) return refused(`not done — the person did not confirm: ${what}`);
+
+              const key = await theKeyWeHold(target.canvas, target.actorId);
+              if (!key) {
+                return refused("this harness has no session key on this daemon, so there is nothing to rename");
+              }
+              try {
+                const claimed = await target.canvas.ctx.client.claimActor({
+                  type: "actor.claim",
+                  sessionKey: key,
+                  name: wanted,
+                  canvasId: target.canvasId,
+                });
+                const actor = claimed.envelope.actor;
+                const was = target.name;
+                target.name = actor.name;
+                /* The face follows the name. A presence session is created
+                   with a label, so the old one keeps wearing the old name
+                   until it ends — and a face with the wrong name on it is
+                   the exact confusion the registry exists to stop. */
+                if (presenceSessionId) {
+                  await target.canvas.ctx.client.endSession(target.canvasId, presenceSessionId).catch(() => {});
+                  presenceSessionId = null;
+                }
+                await announcePresence("enrolled — nobody is listening right now");
+
+                const answer = `this agent now answers to “${actor.name}” (it was “${was}”)`;
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: "actor.claim", said: `renamed to “${actor.name}”`, target: actor.id },
+                  result: { ok: true, answer, seq: claimed.seq },
+                });
+                recentActions.push({ tool: name, op: "actor.claim", id: actor.id, ack: answer });
+                if (recentActions.length > 20) recentActions.shift();
+                return { ok: true, actor: { id: actor.id, name: actor.name }, answer };
+              } catch (err) {
+                // The daemon's own words: a name somebody already answers to
+                // is a refusal with a reason, and the reason names the way back.
+                return refused(`not renamed — ${(err as Error).message}`);
+              }
+            }
 
             // 1. Read & Inspection tools:
             if (name === "read_canvas") {

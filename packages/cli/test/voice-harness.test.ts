@@ -590,6 +590,175 @@ describe("the person's gate", () => {
   });
 });
 
+describe("what an agent is called", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /**
+   * A live session on a fake provider socket — the shape every tool call in
+   * this file arrives through — plus the two handles a person has: the page's
+   * `/confirm` and the canvas itself.
+   */
+  async function liveServer() {
+    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+    let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
+    class FakeLiveSocket {
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        providerSocket = this;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      confirmTimeoutMs: 2000,
+      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+    });
+    const { WebSocket: WsClient } = await import("ws");
+    const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+    await new Promise<void>((resolve) => clientWs.on("open", () => resolve()));
+    while (!providerSocket) await sleep(10);
+    providerSocket.emit({ setupComplete: {} });
+    await sleep(50);
+    return {
+      server,
+      providerSocket,
+      close: async () => {
+        clientWs.close();
+        await server.close();
+      },
+    };
+  }
+
+  /** The model's call, answered — started without awaiting when the person
+   * has to answer first. */
+  async function callTool(
+    socket: { emit: (message: unknown) => void; sent: string[] },
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ id: string; response: any }> {
+    const before = socket.sent.length;
+    socket.emit({ toolCall: { functionCalls: [{ id, name, args }] } });
+    const deadline = Date.now() + 8000;
+    while (socket.sent.length <= before && Date.now() < deadline) await sleep(10);
+    const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
+    return reply.toolResponse?.functionResponses?.[0];
+  }
+
+  async function canvasNames(): Promise<Record<string, string>> {
+    const res = await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers });
+    return ((await res.json()) as { names?: Record<string, string> }).names ?? {};
+  }
+
+  /** The identity ledger on disk — the home's own record of who a name
+   * belongs to, which is the half a canvas view cannot show. */
+  async function nameRows(): Promise<Record<string, { name: string }>> {
+    const raw = JSON.parse(await fs.readFile(path.join(home, "actors.json"), "utf8")) as {
+      names?: Record<string, { name: string }>;
+    };
+    return raw.names ?? {};
+  }
+
+  it("renames in place when the person names it, and the canvas, the ledger and the face follow", async () => {
+    const live = await liveServer();
+    try {
+      const before = ((await (await fetch(`${live.server.state.url}state`)).json()) as any).agent as {
+        id: string;
+        name: string;
+      };
+      expect(before.name).toBe("Voice");
+      expect((await canvasNames())[before.id]).toBe("Voice");
+
+      // The model proposes; the person answers. Nothing has moved yet.
+      const call = callTool(live.providerSocket, "call-name", "actor_claim", { name: "Nova" });
+      const ask = await theQuestion(live.server.state.url);
+      expect(ask.what).toContain("Nova");
+      expect(ask.what).toContain("Voice");
+      expect((await canvasNames())[before.id], "the name is the person's to give").toBe("Voice");
+
+      expect(await answering(live.server.state.url, ask.id, true)).toEqual({ ok: true, allowed: true });
+      const answered = await call;
+      expect(answered.response.ok).toBe(true);
+
+      // In place: the same actor, so every op it ever wrote is still its own.
+      expect(answered.response.actor.id).toBe(before.id);
+      expect(answered.response.actor.name).toBe("Nova");
+      expect((await canvasNames())[before.id]).toBe("Nova");
+
+      // The home's ledger, and the harness's own account of itself.
+      expect((await nameRows())[before.id]!.name).toBe("Nova");
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.name).toBe("Nova");
+      expect(state.agent.id).toBe(before.id);
+
+      // The face the canvas shows is re-worn, not left with the old name on it.
+      const sessions = (await (
+        await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })
+      ).json()) as { actor: { id: string }; label?: string; name?: string }[];
+      expect(sessions.some((s) => s.actor.id === before.id && (s.label ?? s.name) === "Nova")).toBe(true);
+      expect(sessions.some((s) => s.actor.id === before.id && (s.label ?? s.name) === "Voice")).toBe(false);
+
+      // And /log says a claim was made, named.
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const claim = entries.find((e) => e.op?.type === "actor.claim" && e.result?.ok === true);
+      expect(claim, "the claim is in the harness's own record").toBeDefined();
+      expect(claim.op.said).toContain("Nova");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("changes nothing when the person refuses, and says whose name it is when the daemon refuses", async () => {
+    const live = await liveServer();
+    try {
+      const before = ((await (await fetch(`${live.server.state.url}state`)).json()) as any).agent as {
+        id: string;
+        name: string;
+      };
+
+      // The person says no: the model does not get to name itself.
+      const declined = callTool(live.providerSocket, "call-declined", "actor_claim", { name: "Helper" });
+      const firstAsk = await theQuestion(live.server.state.url);
+      await answering(live.server.state.url, firstAsk.id, false);
+      const refused = await declined;
+      expect(refused.response.ok).toBe(false);
+      expect(refused.response.error).toContain("did not confirm");
+      expect((await nameRows())[before.id]!.name).toBe("Voice");
+
+      // The person says yes to a name somebody on this canvas already answers
+      // to: the daemon refuses, in its own words, and the refusal is shown.
+      const taken = callTool(live.providerSocket, "call-taken", "actor_claim", { name: "Seeder" });
+      const secondAsk = await theQuestion(live.server.state.url);
+      await answering(live.server.state.url, secondAsk.id, true);
+      const clash = await taken;
+      expect(clash.response.ok).toBe(false);
+      expect(clash.response.error).toContain("not renamed");
+      expect(clash.response.error).toContain("Seeder");
+      expect((await nameRows())[before.id]!.name).toBe("Voice");
+      expect((await canvasNames())[before.id]).toBe("Voice");
+    } finally {
+      await live.close();
+    }
+  });
+});
+
 describe("the ACP face", () => {
   it("speaks the wire the rc speaks, and answers a turn with end_turn", async () => {
     const written: unknown[] = [];
