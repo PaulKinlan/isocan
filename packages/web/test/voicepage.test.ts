@@ -896,6 +896,15 @@ describe("configuration behind the settings cog", () => {
 });
 
 describe("the thumb-first conversation layout", () => {
+  it("places secondary controls beneath the microphone in the same stack and focus order", () => {
+    const stack = document.querySelector(".voice-controls")!;
+    expect(stack.contains(element("listen"))).toBe(true);
+    expect(stack.contains(element("mute"))).toBe(true);
+    expect(stack.contains(element("end"))).toBe(true);
+    expect(element("listen").compareDocumentPosition(element("mute")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(element("mute").compareDocumentPosition(element("end")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("keeps both waveforms without a redundant direction legend", () => {
     expect(document.querySelector("#listen #input-wave")).toBeTruthy();
     expect(document.querySelector(".voice-ring #output-wave")).toBeTruthy();

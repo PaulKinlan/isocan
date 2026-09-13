@@ -83,11 +83,7 @@
 
         <p class="voice-state" id="state" role="status">idle — press Listen to start</p>
 
-        <div class="voice-session">
-          <button id="mute" type="button" disabled>Mute</button>
-          <button id="end" type="button" disabled>End</button>
-        </div>
-
+        <div class="voice-controls">
         <div class="voice-mic">
           <svg class="voice-ring" viewBox="0 0 240 240" aria-hidden="true" focusable="false">
             <circle class="voice-orbit" cx="120" cy="120" r="103" />
@@ -102,6 +98,11 @@
               <path class="voice-muted-slash" d="M4 4 20 20" />
             </svg>
           </button>
+        </div>
+        <div class="voice-session">
+          <button id="mute" type="button" disabled>Mute</button>
+          <button id="end" type="button" disabled>End</button>
+        </div>
         </div>
         <p class="voice-bad voice-complaint" id="complaint" role="alert" hidden></p>
 

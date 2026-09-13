@@ -6719,6 +6719,7 @@ body:has(> .voice) { overflow: auto; }
 .voice-turn--you { color: var(--ink-muted); }
 
 /* Mute and End, and nothing else: the microphone is the page's one action. */
+.voice-controls { display: grid; justify-items: center; gap: var(--s3); }
 .voice-session { display: flex; gap: var(--s2); }
 .voice-session button,
 .voice-dialog-head button,
@@ -6726,6 +6727,7 @@ body:has(> .voice) { overflow: auto; }
 .voice-setup-callout button {
   font: inherit;
   font-size: var(--t-sm);
+  min-block-size: 44px;
   padding: var(--s2) var(--s4);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -6969,15 +6971,17 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
 @media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
   .voice-hero {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 1fr auto auto;
-    grid-template-areas: "captions captions" "state mic" "session mic";
+    grid-template-rows: 1fr auto;
+    grid-template-areas: "captions captions" "state controls";
     align-content: stretch;
     column-gap: var(--s5);
   }
   .voice-caption-slot { grid-area: captions; block-size: auto; min-block-size: 60px; }
-  .voice-state { grid-area: state; }
-  .voice-session { grid-area: session; }
-  .voice-mic { grid-area: mic; align-self: end; width: min(40svh, 200px); }
+  .voice-state { grid-area: state; align-self: center; }
+  .voice-controls { grid-area: controls; align-self: end; }
+  /* Reserve the secondary row and its gap before sizing the circle: its
+     centre must still reach the lower third, not push End into the inset. */
+  .voice-mic { width: clamp(56px, calc(2 * (100svh / 3 - var(--voice-safe-bottom) - 44px - var(--s3)) - var(--s2)), 156px); }
   .voice-complaint, .voice-confirm { grid-column: 1 / -1; }
 }
 
