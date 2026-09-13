@@ -330,7 +330,8 @@ describe("the standalone page keeps the controls a person has to press", () => {
     // no disclosure control to open before the key can be reached.
     expect(document.querySelectorAll("#settings details, #settings summary").length).toBe(0);
     // The heading was printed twice — once as the summary, once as an <h2>.
-    expect(document.body.innerHTML.match(/>Key</g)?.length ?? 0).toBe(1);
+    const headings = [...document.querySelectorAll<HTMLElement>("#settings h2, #settings h3")];
+    expect(headings.filter((heading) => (heading.textContent ?? "").trim().startsWith("Key"))).toHaveLength(1);
     expect(element<HTMLButtonElement>("save-key").disabled).toBe(true);
   });
 
@@ -902,6 +903,23 @@ describe("configuration behind the settings cog", () => {
     element<HTMLButtonElement>("settings-open").click();
     element<HTMLButtonElement>("settings-close").click();
     expect(dialog.open).toBe(false);
+  });
+
+  it("opens the help beside a setting from the page's own controller", async () => {
+    await wire();
+    const glyph = document.querySelector<HTMLButtonElement>("#settings .voice-help");
+    const card = document.getElementById(glyph?.getAttribute("commandfor") ?? "");
+    if (!glyph || !card) throw new Error("the settings dialog has no help in it");
+    let open = false;
+    card.showPopover = vi.fn(() => {
+      open = true;
+      card.dispatchEvent(Object.assign(new Event("toggle"), { newState: "open" }));
+    });
+    card.hidePopover = vi.fn(() => (open = false));
+    glyph.click();
+    expect(open).toBe(true);
+    glyph.click();
+    expect(open).toBe(false);
   });
 
   it("makes missing setup actionable inline without automatically opening settings", async () => {

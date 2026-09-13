@@ -43,6 +43,8 @@ import {
   type Output,
   type ScheduleInfo,
 } from "../lib/voiceAudio.ts";
+import { wireSettingsHelp } from "./help.ts";
+import { wireThemeChoice } from "./theme.ts";
 
 /** The input waveform's recent energy samples; not a calibrated dB scale. */
 export const BARS = 28;
@@ -2441,6 +2443,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   settingsClose.addEventListener("click", () => settings.close());
   logsOpen.addEventListener("click", openLogs);
   logsClose.addEventListener("click", () => logs.close());
+  // The "?" beside each setting: hover, click, Escape and one card at a time.
+  wireSettingsHelp(doc);
+  // Light, dark, or whatever the device says — the page's own applier does the
+  // resolving; this is only the control for the stored preference.
+  wireThemeChoice(doc);
   /**
    * **Click-outside, where the platform does not do it for us.**
    *
