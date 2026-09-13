@@ -1893,6 +1893,30 @@ export function theQuestion(plans: readonly PlannedOp[], items: readonly ListedI
     .join("; ");
 }
 
+/**
+ * **The enrolment's name moves too, or the rename is only half done.**
+ *
+ * The rc's row is a cache of the registry's name — `rc.ts` says so in as many
+ * words, "the registry stays the authority on names" — and a cache nobody
+ * refreshes is a lie the person hears: `isocan who`, the agent tray and
+ * `rc turn <name>` all read it, so after a rename they would still be
+ * summoning a name the agent no longer answers to.
+ *
+ * Rows are keyed on (canvasId, actorId), so this is the LABEL moving and never
+ * a new enrolment: the id, the harness, the working directory and the ACP
+ * session handle stay exactly as they were. Every row for this actor in this
+ * home, not only this canvas's — one machine answers for one actor, and its
+ * rows elsewhere would otherwise keep the old name in front of somebody.
+ *
+ * Returns how many rows moved, so the answer can say so instead of implying it.
+ */
+async function renameEnrolments(home: string, actorId: string, name: string): Promise<number> {
+  const rows = await readRcAgents(home).catch(() => []);
+  const mine = rows.filter((row) => row.actorId === actorId && !sameWord(row.name, name));
+  for (const row of mine) await upsertRcAgent(home, { ...row, name });
+  return mine.length;
+}
+
 export interface VoiceServerOptions {
   home: string;
   port?: number;
@@ -2937,12 +2961,54 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   presenceSessionId = null;
                 }
                 await announcePresence("enrolled — nobody is listening right now");
+                /* **The name is recorded in three more places than the
+                   registry, and every one of them is a name a person can
+                   hear.** The claim above moved the authority; these move the
+                   copies — the canvas's enrolment record (what `rc turn
+                   <name>`, the agent tray and `isocan who` read), the rc's
+                   roster row for this machine, and this harness's own record
+                   of who it is. A rename that left any of them behind would
+                   be a rename the person hears contradicted.
+
+                   The standing first. `agent.enroll` is the op the reducer
+                   describes as exactly this — "re-enrolling updates the
+                   record in place: the standing was already there, the rules
+                   (or the name) changed" — so the same actor is enrolled
+                   again with its rules handed back VERBATIM: the name moves,
+                   nothing else does. */
+                let standing = false;
+                try {
+                  const snap = await target.canvas.ctx.client.snapshot(target.canvasId);
+                  const record = (snap.canvas.agents ?? {})[actor.id] as { rules?: unknown } | undefined;
+                  if (record) {
+                    await target.canvas.ctx.client.sendOp(target.canvasId, target.canvas.ctx.actor, {
+                      type: "agent.enroll",
+                      agent: { id: actor.id, name: actor.name },
+                      ...(record.rules !== undefined ? { rules: record.rules } : {}),
+                    });
+                    standing = true;
+                  }
+                } catch {
+                  // The registry rename has already happened and is the truth;
+                  // a copy that could not be refreshed is reported below rather
+                  // than pretended.
+                  standing = false;
+                }
+                const moved = await renameEnrolments(home, actor.id, actor.name).catch(() => 0);
+                await writeVoiceIdentity(home, { actorId: actor.id, sessionKey: key, name: actor.name }).catch(() => {});
                 await rememberWhatIAm();
                 // The page's own headings name the agent; told, so a listening
                 // tab does not keep saying the old name back to the person.
                 announce?.({ agent: { name: actor.name } });
 
-                const answer = `this agent now answers to “${actor.name}” (it was “${was}”)`;
+                const alsoMoved: string[] = [];
+                if (standing) alsoMoved.push(`the enrolment on “${target.canvasLabel}” summons it by that name now`);
+                if (moved > 0) alsoMoved.push(`${moved} machine enrolment row${moved === 1 ? "" : "s"} moved with it`);
+                const answer =
+                  `this agent now answers to “${actor.name}” (it was “${was}”)` +
+                  (alsoMoved.length > 0
+                    ? ` — ${alsoMoved.join(", ")}`
+                    : ` — nothing on this machine had it enrolled, so nothing else had to move`);
                 say({ text: answer });
                 recordToolLog({
                   type: "tool_call",
@@ -2950,7 +3016,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   name,
                   args: args as Record<string, unknown>,
                   op: { type: "actor.claim", said: `renamed to “${actor.name}”`, target: actor.id },
-                  result: { ok: true, answer, seq: claimed.seq },
+                  result: { ok: true, answer, seq: claimed.seq, enrolments: moved, standing },
                 });
                 recentActions.push({ tool: name, op: "actor.claim", id: actor.id, ack: answer });
                 if (recentActions.length > 20) recentActions.shift();
