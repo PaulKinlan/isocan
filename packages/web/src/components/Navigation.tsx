@@ -8,6 +8,7 @@ import { loadSeen, onSeenVisit, rememberSeen } from "../lib/seen.ts";
 import { startInboxPoll } from "../lib/inboxpoll.ts";
 import { useInboxStore } from "../stores/inboxStore.ts";
 import { Inbox } from "./Inbox.tsx";
+import { usePhone } from "../lib/phone.ts";
 
 const CommandPalette = lazy(() => import("./CommandPalette.tsx").then((m) => ({ default: m.CommandPalette })));
 
@@ -16,11 +17,16 @@ const CommandPalette = lazy(() => import("./CommandPalette.tsx").then((m) => ({ 
 export function Navigation({ actor }: { actor: Actor }) {
   const { pathname } = useLocation();
   const addressed = useMatch(`${CANVAS_ROUTE}/*`)?.params.canvasId ?? null;
+  const canvasRoute = useMatch(CANVAS_ROUTE);
+  const phone = usePhone();
   // A route alone is not a working canvas: the home gate may still be
   // asking, refused, or showing the viewer. Those surfaces get navigation.
   const canvasId = useCanvasStore((s) =>
     s.canvasId === addressed && s.project && s.capability !== "view" && !s.refusedHere && !s.takenDown && !s.ended ? addressed : null,
   );
+  // Desktop actions address the canvas and its panels. A phone face or a
+  // covering route cannot show those results, so it keeps global navigation.
+  const actionCanvasId = canvasRoute && !phone ? canvasId : null;
   const mode = useUiStore((s) => s.paletteOpen);
   const setMode = useUiStore((s) => s.setPaletteOpen);
   const state = useInboxStore();
@@ -84,6 +90,6 @@ export function Navigation({ actor }: { actor: Actor }) {
       Inbox{count > 0 ? ` · ${count} new` : ""}{state.error || mine?.unavailable.length ? " · unavailable" : ""}
     </button>}
     {open && <div className={`navigation-inbox-panel${canvasId ? " on-canvas" : ""}`} role="dialog" aria-label="Your inbox"><button className="btn quiet inbox-close" onClick={() => setOpen(false)}>Close inbox</button><Inbox actor={actor} /></div>}
-    {mode && <Suspense fallback={null}><CommandPalette canvasId={canvasId} actor={actor} mode={mode} onMode={setMode} onClose={() => setMode(null)} /></Suspense>}
+    {mode && <Suspense fallback={null}><CommandPalette canvasId={actionCanvasId} actor={actor} mode={mode} onMode={setMode} onClose={() => setMode(null)} /></Suspense>}
   </>;
 }
