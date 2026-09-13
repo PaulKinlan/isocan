@@ -371,6 +371,209 @@ export async function runMemoryTool(
 }
 
 /* ------------------------------------------------------------------ *
+ * Files: read over a folder the person granted, through the page
+ * ------------------------------------------------------------------ */
+
+/** How long a page has to answer a file question before it is a refusal. */
+export const FS_ASK_TIMEOUT_MS = 20_000;
+/** Caps on what ever reaches the model: a folder is not a corpus. */
+export const MAX_FILE_CHARS = 64_000;
+export const MAX_DIR_ENTRIES = 500;
+
+/**
+ * **The folder belongs to the person; the page is the only one who can ask for
+ * it.**
+ *
+ * A `FileSystemDirectoryHandle` is a browser thing — this process cannot hold
+ * one, and must never be able to read a person's disk by itself. So `list_dir`
+ * and `read_file` are not reads the harness performs: they are questions it
+ * asks the page over the socket the page already has, and the page answers
+ * from the handle the person picked with a real click. That is why there is no
+ * daemon directory track in this file and no `fs` import: the capability lives
+ * exactly where the permission lives.
+ *
+ * `folder` is only ever the folder's NAME as the page reported it. The handle
+ * itself never crosses this boundary — nothing here can read anything later
+ * without the page asking again.
+ */
+export interface FsGrantState {
+  folder: string | null;
+  /** When it was granted, ISO. */
+  at?: string;
+}
+
+/** What the page answers for one file question. */
+export interface FsAnswer {
+  ok: boolean;
+  content?: string;
+  entries?: { name: string; kind: "file" | "directory"; size?: number; modified?: string }[];
+  truncated?: boolean;
+  bytes?: number;
+  error?: string;
+}
+
+/**
+ * **A path inside the granted folder, or a refusal that says why.**
+ *
+ * The page is the authority — it holds the handle and does the walking — but a
+ * refusal from here is instant and legible, and a `..` that reaches the page is
+ * a `..` the page must also be trusted to catch. `allowEmpty` is for
+ * `list_dir` (the root of the grant); `read_file` on the folder itself is not a
+ * file and says so.
+ */
+export function safeGrantPath(
+  raw: unknown,
+  opts: { allowEmpty?: boolean } = {},
+): { ok: true; path: string } | { ok: false; error: string } {
+  const given = String(raw ?? "").trim();
+  if (!given || given === "." || given === "./") {
+    return opts.allowEmpty
+      ? { ok: true, path: "" }
+      : { ok: false, error: "a path is required — the granted folder itself is not a file" };
+  }
+  if (/^([a-zA-Z]:)?[\\/]/.test(given) || given.startsWith("~")) {
+    return { ok: false, error: `"${given}" is an absolute path; paths are relative to the granted folder` };
+  }
+  const segments = given.replace(/^\.\//, "").split(/[\\/]/);
+  if (segments.some((one) => one === "..")) {
+    return { ok: false, error: `"${given}" climbs out of the granted folder — nothing outside it can be read` };
+  }
+  return { ok: true, path: segments.filter(Boolean).join("/") };
+}
+
+/** What the broker needs from the page's socket, and nothing else. */
+export interface FileChannel {
+  /** True while a page is on the socket. */
+  connected(): boolean;
+  send(message: unknown): void;
+}
+
+/**
+ * **Ask the page, and wait for the answer.**
+ *
+ * One request at a time is not a limitation worth engineering around: the model
+ * is the only caller, and the page is one reader. Every way this can fail is
+ * named — no page, no grant, no answer in time, the page closing mid-question —
+ * because "the model read nothing and said nothing" is the failure a person
+ * cannot debug.
+ */
+export function createFileBroker(channel: FileChannel, opts: { timeoutMs?: number } = {}) {
+  const timeoutMs = opts.timeoutMs ?? FS_ASK_TIMEOUT_MS;
+  let grant: FsGrantState = { folder: null };
+  const waiting = new Map<
+    string,
+    { resolve: (answer: FsAnswer) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  function settle(callId: string, answer: FsAnswer): boolean {
+    const held = waiting.get(callId);
+    if (!held) return false;
+    clearTimeout(held.timer);
+    waiting.delete(callId);
+    held.resolve(answer);
+    return true;
+  }
+
+  return {
+    state: (): FsGrantState => grant,
+    waiting: (): number => waiting.size,
+    grant: (folder: string | null, at: string = new Date().toISOString()): FsGrantState => {
+      grant = folder ? { folder, at } : { folder: null };
+      return grant;
+    },
+    /** A page went away: every question it owed is refused, not left hanging. */
+    abandon: (): void => {
+      for (const [callId, held] of waiting) {
+        clearTimeout(held.timer);
+        waiting.delete(callId);
+        held.resolve({ ok: false, error: "the page closed before it answered" });
+      }
+    },
+    answer: (callId: string, answer: FsAnswer): boolean => settle(callId, answer),
+    ask: async (op: "list_dir" | "read_file", path: string): Promise<FsAnswer> => {
+      if (!channel.connected()) {
+        return {
+          ok: false,
+          error:
+            "no page is connected — files are read through the page, which is where the person grants the folder",
+        };
+      }
+      if (!grant.folder) {
+        return {
+          ok: false,
+          error: 'no folder has been granted — in the page, press "Choose a folder" and pick one',
+        };
+      }
+      const callId = `fs_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      return await new Promise<FsAnswer>((resolve) => {
+        const timer = setTimeout(() => {
+          waiting.delete(callId);
+          resolve({ ok: false, error: `the page did not answer the ${op} request in time` });
+        }, timeoutMs);
+        waiting.set(callId, { resolve, timer });
+        channel.send({ fs: { callId, op, path, folder: grant.folder } });
+      });
+    },
+  };
+}
+
+export type FileBroker = ReturnType<typeof createFileBroker>;
+
+/**
+ * **The model's two file tools, with the grant and the source in the answer.**
+ *
+ * `source` is the point of the attribution rule: a fact read from a file is
+ * worth nothing to the person if the model cannot say which file it came from,
+ * so every successful read carries `folder/path` back — and the caller records
+ * it in the tool log. Truncation is explicit rather than silent, for the same
+ * reason: a half-read file that looks whole is worse than a refusal.
+ */
+export async function runFileTool(
+  name: "list_dir" | "read_file",
+  args: Record<string, unknown>,
+  ask: (op: "list_dir" | "read_file", path: string) => Promise<FsAnswer>,
+  grant: FsGrantState,
+): Promise<{ ok: boolean; said: string; answer: { ok: boolean; [k: string]: unknown } }> {
+  const checked = safeGrantPath(args.path, { allowEmpty: name === "list_dir" });
+  if (!checked.ok) {
+    return { ok: false, said: checked.error, answer: { ok: false, error: checked.error } };
+  }
+  const answer = await ask(name, checked.path);
+  if (!answer.ok) {
+    const error = answer.error ?? "the page could not read that";
+    return { ok: false, said: error, answer: { ok: false, error, path: checked.path } };
+  }
+  if (name === "list_dir") {
+    const all = answer.entries ?? [];
+    const entries = all.slice(0, MAX_DIR_ENTRIES);
+    const truncated = Boolean(answer.truncated) || all.length > entries.length;
+    const where = `${grant.folder ?? "the granted folder"}${checked.path ? `/${checked.path}` : ""}`;
+    return {
+      ok: true,
+      said: `${entries.length} ${entries.length === 1 ? "entry" : "entries"} in ${where}${truncated ? " (truncated)" : ""}`,
+      answer: { ok: true, folder: grant.folder, path: checked.path, count: entries.length, truncated, entries },
+    };
+  }
+  const full = answer.content ?? "";
+  const content = full.slice(0, MAX_FILE_CHARS);
+  const truncated = Boolean(answer.truncated) || content.length < full.length;
+  const source = `${grant.folder ?? "the granted folder"}/${checked.path}`;
+  return {
+    ok: true,
+    said: `read ${source} (${content.length} chars${truncated ? ", truncated" : ""})`,
+    answer: {
+      ok: true,
+      folder: grant.folder,
+      path: checked.path,
+      source,
+      bytes: answer.bytes ?? Buffer.byteLength(full, "utf8"),
+      truncated,
+      content,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * What a sentence means
  * ------------------------------------------------------------------ */
 
@@ -1153,6 +1356,32 @@ export const LIVE_TOOLS = [
         },
       },
       required: ["text"],
+    },
+  },
+  {
+    name: "list_dir",
+    description:
+      "List files and folders inside the folder the person granted to this harness through the page. " +
+      "The path is relative to that folder (omit it, or use \".\", for the root); nothing outside the " +
+      "grant can be listed or read. Fails with an explanation when no page is connected, or no folder " +
+      "has been granted yet.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        path: { type: "STRING", description: "Relative path inside the granted folder; omit for the root." },
+      },
+    },
+  },
+  {
+    name: "read_file",
+    description:
+      "Read one text file from the folder the person granted, by its path relative to that folder's root. " +
+      "The answer names the file it came from (folder/path) — say which file a fact came from when you use it. " +
+      "Large files come back truncated with a flag rather than silently shortened.",
+    parameters: {
+      type: "OBJECT",
+      properties: { path: { type: "STRING", description: "Relative path of the file inside the granted folder." } },
+      required: ["path"],
     },
   },
   {
@@ -1945,6 +2174,8 @@ export interface VoiceServerOptions {
   /** How long the person has to answer a destructive operation's question.
    * A test shortens it; a person gets a minute. */
   confirmTimeoutMs?: number;
+  /** How long a page has to answer a file question, for a test. */
+  fsTimeoutMs?: number;
   /** The network, for a test. */
   fetchImpl?: typeof fetch;
   /** WebSocket implementation override for tests. */
@@ -2396,6 +2627,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     return pending ? { id: pending.id, what: pending.what } : null;
   }
 
+  /**
+   * Files are read through the page, so this is the same shape as the gate
+   * above: ask over the socket the page already has, wait for the answer, and
+   * refuse in words when it never comes. `announce` is the page's channel and
+   * is null exactly when no page is connected — which is one of the refusals.
+   */
+  const files = createFileBroker(
+    { connected: () => Boolean(announce), send: (message) => announce?.(message) },
+    options.fsTimeoutMs ? { timeoutMs: options.fsTimeoutMs } : {},
+  );
+
   function askThePerson(what: string): Promise<boolean> {
     const timeout = options.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS;
     pending?.resolve(false);
@@ -2451,6 +2693,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       // What the agent keeps for the next session: a count and where it lives,
       // never the contents — the page that wants them asks GET /memory.
       memory: { count: (await readMemories(home).catch(() => [])).length, file: voiceMemoryFile(home) },
+      // The grant, visible: which folder the agent may read through the page,
+      // and since when. The page shows this; nothing here reads it.
+      files: { granted: files.state().folder !== null, folder: files.state().folder, at: files.state().at ?? null },
       // A page that is not on the socket still sees the question: the state
       // poll is how the typed path's confirmation reaches it at all.
       confirm: pendingQuestion(),
@@ -2556,6 +2801,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         respond(200, { ok: true, forgotten: id, remaining: written.length });
         return;
       }
+      if (req.method === "GET" && url.pathname === "/fs") {
+        const state = files.state();
+        respond(200, { ...state, granted: state.folder !== null });
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/log") {
         // The persisted file is the record; the in-memory copy covers entries
         // not yet flushed. Merged by id, so a restart or a raced write cannot
@@ -2629,10 +2879,49 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log, /memory and POST /key, /audio, /utterance, /summons, /session/*, /confirm; DELETE /memory/<id>" });
+        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log, /memory, /fs and POST /key, /audio, /utterance, /summons, /session/*, /confirm, /fs/grant, /fs/result; DELETE /memory/<id>" });
         return;
       }
       const body = await readBody();
+      if (url.pathname === "/fs/grant") {
+        // The page reports the grant, never the handle: this process learns a
+        // folder's NAME and nothing that could read it on its own.
+        const posted = typeof body === "string" ? { folder: body } : body;
+        const named = typeof posted.folder === "string" ? posted.folder.trim() : "";
+        const granted = posted.granted !== false && named !== "";
+        const state = files.grant(granted ? named : null);
+        narrate(granted ? `the person granted a folder: ${named}` : "the person revoked the granted folder");
+        recordToolLog({
+          type: "session_event",
+          event: granted ? `folder granted: ${named}` : "folder grant revoked",
+          details: { kind: granted ? "fs_granted" : "fs_revoked", folder: state.folder },
+        });
+        respond(200, { ok: true, ...state, granted: state.folder !== null });
+        return;
+      }
+      if (url.pathname === "/fs/result") {
+        const posted = typeof body === "string" ? {} : body;
+        const callId = String(posted.callId ?? "");
+        const taken = files.answer(callId, {
+          ok: posted.ok === true,
+          ...(typeof posted.content === "string" ? { content: posted.content } : {}),
+          ...(Array.isArray(posted.entries)
+            ? { entries: posted.entries as NonNullable<FsAnswer["entries"]> }
+            : {}),
+          ...(posted.truncated === true ? { truncated: true } : {}),
+          ...(typeof posted.bytes === "number" ? { bytes: posted.bytes } : {}),
+          ...(typeof posted.error === "string" ? { error: posted.error } : {}),
+        });
+        if (!taken) {
+          respond(200, {
+            ok: false,
+            error: "nothing is waiting for that callId — it expired, or it was already answered",
+          });
+          return;
+        }
+        respond(200, { ok: true });
+        return;
+      }
       if (url.pathname === "/key") {
         if (typeof body === "object" && body.forget === true) {
           await forgetVoiceKey(home);
@@ -2819,6 +3108,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         recordToolLog({ type: "session_event", event: `the page closed with a question unanswered: ${what}`, reason: "page closed" });
       }
       if (announce === say) announce = null;
+      // A question owed by the page that closed is refused, not left hanging.
+      files.abandon();
     });
     const onLog = (entry: ToolLogEntry) => {
       say({ type: "tool_log", entry });
@@ -2938,6 +3229,27 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 });
                 return { ok: false, error: message };
               }
+            }
+
+            // 0b. Files: a question to the page, which holds the grant.
+            if (name === "list_dir" || name === "read_file") {
+              const outcome = await runFileTool(
+                name,
+                args as Record<string, unknown>,
+                (op, path) => files.ask(op, path),
+                files.state(),
+              );
+              narrate(outcome.said);
+              // The folder and the file are recorded with the answer: content
+              // read from a person's disk is attributable, always.
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: outcome.answer,
+              });
+              return outcome.answer;
             }
 
             // 1. Read & Inspection tools:
