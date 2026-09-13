@@ -29,3 +29,49 @@ describe("accepted visits update the local inbox", () => {
     expect(received).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("shared seen-read ownership", () => {
+  it("cancels the last caller's HTTP work and permits an immediate retry", async () => {
+    let signal!: AbortSignal;
+    api.fetchSeen.mockImplementationOnce((_id, given) => {
+      signal = given;
+      return new Promise((_resolve, reject) => given.addEventListener("abort", () => reject(given.reason), { once: true }));
+    });
+    const { loadSeen } = await import("../src/lib/seen.ts");
+    const controller = new AbortController();
+    const pending = loadSeen("usr_cancel", { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    expect(signal.aborted).toBe(true);
+    api.fetchSeen.mockResolvedValueOnce({ marks: {} });
+    expect(await loadSeen("usr_cancel")).toBe(true);
+  });
+
+  it("keeps a shared read alive for an actual visit after navigation cancels", async () => {
+    let signal!: AbortSignal;
+    let finish!: (value: { marks: {} }) => void;
+    api.fetchSeen.mockImplementationOnce((_id, given) => {
+      signal = given;
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    const { loadSeen } = await import("../src/lib/seen.ts");
+    const controller = new AbortController();
+    const navigation = loadSeen("usr_shared", { signal: controller.signal });
+    const visit = loadSeen("usr_shared", { refresh: true });
+    controller.abort();
+    await expect(navigation).rejects.toThrow();
+    expect(signal.aborted).toBe(false);
+    finish({ marks: {} });
+    expect(await visit).toBe(true);
+  });
+
+  it("reports a failed read separately from a fresh empty ledger and retries", async () => {
+    api.fetchSeen.mockRejectedValueOnce(new Error("offline"));
+    const { loadSeen } = await import("../src/lib/seen.ts");
+    expect(await loadSeen("usr_retry")).toBe(false);
+    api.fetchSeen.mockResolvedValueOnce({ marks: {} });
+    expect(await loadSeen("usr_retry")).toBe(true);
+    api.fetchSeen.mockResolvedValueOnce({ marks: { prj_acme: { seq: 2, at: "2026-09-13T00:00:00Z" } } });
+    expect(await loadSeen("usr_retry", { refresh: true })).toBe(true);
+  });
+});

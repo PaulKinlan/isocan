@@ -568,8 +568,8 @@ export async function fetchRefused(canvasId: string): Promise<RefusalNotice | nu
  * the point of the feature is that your other machine finds what this one
  * saw. There is deliberately no way to ask for anybody else's.
  */
-export function fetchSeen(actorId: string): Promise<SeenMarksResponse> {
-  return request("GET", `${SEEN_ROUTE}?actorId=${encodeURIComponent(actorId)}`);
+export function fetchSeen(actorId: string, signal?: AbortSignal): Promise<SeenMarksResponse> {
+  return request("GET", `${SEEN_ROUTE}?actorId=${encodeURIComponent(actorId)}`, undefined, signal);
 }
 
 /** Move the mark for one canvas to the head you had in front of you. Called

@@ -26,7 +26,15 @@ import { fetchSeen, putSeen } from "./api.ts";
  *  rather than a store: it is asked for by two surfaces, changes at most once
  *  per visit, and nothing re-renders when it lands. */
 const cached = new Map<string, SeenMarks>();
-const asking = new Map<string, Promise<void>>();
+interface SeenRead {
+  controller: AbortController;
+  promise: Promise<boolean>;
+  users: number;
+  settled: boolean;
+}
+const asking = new Map<string, SeenRead>();
+/** Preparation is a nicety, so a stalled home cannot hold navigation forever. */
+export const SEEN_READ_TIMEOUT_MS = 8000;
 const visits = new Set<(actorId: string, canvasId: string, mark: SeenMark) => void>();
 
 /** Navigation can clear its count when THIS tab's visit was accepted, without
@@ -47,27 +55,55 @@ export function seenMarks(actorId: string): SeenMarks {
   return cached.get(actorId) ?? {};
 }
 
-/** Ask once per identity. Safe to call on every render; it is a no-op after
- *  the first, and a failure leaves the marks empty rather than retrying in a
- *  loop behind somebody's back. Awaitable, which `noteVisit` depends on. */
-export function loadSeen(actorId: string): Promise<void> {
-  if (cached.has(actorId)) return Promise.resolve();
-  const pending = asking.get(actorId);
-  if (pending) return pending;
-  const work = fetchSeen(actorId)
-    .then(
-      ({ marks }) => {
+/** Share an authoritative read, preserving claim-healing order. A refresh
+ * asks again after an earlier success; a failed read can always be retried.
+ * Each caller owns its wait. Only the last cancellation aborts shared HTTP
+ * work, so a hidden navigation cannot cancel an actual canvas visit. */
+export function loadSeen(
+  actorId: string,
+  options: { signal?: AbortSignal; refresh?: boolean } = {},
+): Promise<boolean> {
+  options.signal?.throwIfAborted();
+  if (!options.refresh && cached.has(actorId)) return Promise.resolve(true);
+  let pending = asking.get(actorId);
+  if (!pending || pending.controller.signal.aborted) {
+    const controller = new AbortController();
+    const read: SeenRead = { controller, users: 0, settled: false, promise: Promise.resolve(false) };
+    read.promise = fetchSeen(actorId, AbortSignal.any([controller.signal, AbortSignal.timeout(SEEN_READ_TIMEOUT_MS)]))
+      .then(({ marks }) => {
+        controller.signal.throwIfAborted();
         rememberSeen(actorId, marks);
-      },
-      () => {
-        if (!cached.has(actorId)) cached.set(actorId, {});
-      },
-    )
-    .finally(() => {
-      asking.delete(actorId);
+        return true;
+      }, () => {
+        controller.signal.throwIfAborted();
+        return false;
+      })
+      .finally(() => {
+        read.settled = true;
+        if (asking.get(actorId) === read) asking.delete(actorId);
+      });
+    asking.set(actorId, read);
+    pending = read;
+  }
+  const read = pending;
+  read.users++;
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const leave = () => {
+      done = true;
+      options.signal?.removeEventListener("abort", cancel);
+      if (--read.users === 0 && !read.settled) read.controller.abort();
+    };
+    const cancel = () => { if (!done) { leave(); reject(options.signal!.reason); } };
+    options.signal?.addEventListener("abort", cancel, { once: true });
+    read.promise.then((available) => {
+      if (done) return;
+      leave(); resolve(available);
+    }, (error) => {
+      if (done) return;
+      leave(); reject(error);
     });
-  asking.set(actorId, work);
-  return work;
+  });
 }
 
 /**
