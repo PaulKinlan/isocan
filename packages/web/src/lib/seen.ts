@@ -1,4 +1,4 @@
-import type { SeenMarks } from "@isocan/core";
+import { mergeSeen, type SeenMark, type SeenMarks } from "@isocan/core";
 import { fetchSeen, putSeen } from "./api.ts";
 
 /**
@@ -25,33 +25,49 @@ import { fetchSeen, putSeen } from "./api.ts";
 /** The marks this tab has read, once per identity. A module-level cache
  *  rather than a store: it is asked for by two surfaces, changes at most once
  *  per visit, and nothing re-renders when it lands. */
-let cached: { actorId: string; marks: SeenMarks } | null = null;
-let asking: Promise<void> | null = null;
+const cached = new Map<string, SeenMarks>();
+const asking = new Map<string, Promise<void>>();
+const visits = new Set<(actorId: string, canvasId: string, mark: SeenMark) => void>();
+
+/** Navigation can clear its count when THIS tab's visit was accepted, without
+ * another poll. Optimistic local timestamps and plain reads never announce. */
+export function onSeenVisit(received: (actorId: string, canvasId: string, mark: SeenMark) => void): () => void {
+  visits.add(received);
+  return () => { visits.delete(received); };
+}
+
+
+/** Inbox reads refresh the shared ledger; only noteVisit writes it. */
+export function rememberSeen(actorId: string, marks: SeenMarks): void {
+  cached.set(actorId, mergeSeen(cached.get(actorId) ?? {}, marks));
+}
 
 /** What the home last told us, and an empty ledger until it has. */
 export function seenMarks(actorId: string): SeenMarks {
-  return cached?.actorId === actorId ? cached.marks : {};
+  return cached.get(actorId) ?? {};
 }
 
 /** Ask once per identity. Safe to call on every render; it is a no-op after
  *  the first, and a failure leaves the marks empty rather than retrying in a
  *  loop behind somebody's back. Awaitable, which `noteVisit` depends on. */
 export function loadSeen(actorId: string): Promise<void> {
-  if (cached?.actorId === actorId) return Promise.resolve();
-  if (asking) return asking;
-  asking = fetchSeen(actorId)
+  if (cached.has(actorId)) return Promise.resolve();
+  const pending = asking.get(actorId);
+  if (pending) return pending;
+  const work = fetchSeen(actorId)
     .then(
       ({ marks }) => {
-        cached = { actorId, marks };
+        rememberSeen(actorId, marks);
       },
       () => {
-        cached = { actorId, marks: {} };
+        if (!cached.has(actorId)) cached.set(actorId, {});
       },
     )
     .finally(() => {
-      asking = null;
+      asking.delete(actorId);
     });
-  return asking;
+  asking.set(actorId, work);
+  return work;
 }
 
 /**
@@ -67,7 +83,7 @@ export function loadSeen(actorId: string): Promise<void> {
  */
 export function noteVisit(canvasId: string, seq: number, actorId: string): void {
   const at = new Date().toISOString();
-  if (cached?.actorId === actorId) cached.marks[canvasId] = { seq, at };
+  if (cached.has(actorId)) cached.get(actorId)![canvasId] = { seq, at };
   /**
    * **After the read, never beside it** — and this is a bug that only a real
    * browser found.
@@ -92,7 +108,8 @@ export function noteVisit(canvasId: string, seq: number, actorId: string): void 
       ({ mark }) => {
         // The home may be AHEAD — another machine of yours got further — and
         // its answer is the one that stands.
-        if (cached?.actorId === actorId) cached.marks[canvasId] = mark;
+        cached.set(actorId, { ...cached.get(actorId), [canvasId]: mark });
+        for (const received of visits) received(actorId, canvasId, mark);
       },
       () => {},
     );

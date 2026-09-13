@@ -1,3 +1,5 @@
+import { INBOX_ROUTE, inboxOn, namesFor, type InboxResponse } from "@isocan/core";
+import { collectInbox, sequenceInbox } from "./inbox.ts";
 import { textAttention } from "@isocan/core";
 import { CLIENT_FEATURES_HEADER, supportsCanvasGroups, GroupConflictError, MigrationBoundaryError } from "@isocan/core";
 import { CanvasGroupsClientError, groupOperation, requireGroupClient } from "./canvas-groups.ts";
@@ -2586,6 +2588,58 @@ export function registerRoutes(
       ...(written ? { bar: written } : {}),
       ...(stillAdmittedBy ? { stillAdmittedBy } : {}),
     } satisfies GrantResponse;
+  });
+
+  /** One person's inbox. Remote entries and marks are read at their actual
+   * home, never from an offline replica whose access may have been withdrawn. */
+  app.get(INBOX_ROUTE, async (req, reply) => {
+    const query = req.query as { actorId?: unknown; canvasId?: unknown; label?: unknown };
+    const actorId = await actingActor(req, query.actorId);
+    if (!actorId) return reply.status(400).send({ error: "an inbox needs an actorId claimed by this badge", code: "bad-op" });
+    const actor = (await actorNamed(actorId))!;
+    const label = typeof query.label === "string" ? query.label.slice(0, 200) : undefined;
+    const only = typeof query.canvasId === "string" ? query.canvasId : undefined;
+    const aborter = new AbortController();
+    const cancel = () => { if (!reply.raw.writableEnded) aborter.abort(); };
+    reply.raw.on("close", cancel);
+    try {
+      let canvases = await engine.listCanvases();
+      if (only !== undefined) {
+        canvases = canvases.filter((canvas) => canvas.id === only);
+        if (canvases.length === 0) return reply.status(404).send({ error: "canvas not found", code: "not-found" });
+      } else {
+        const mayDiscover = canvasDiscovery(req, { shelf: true });
+        const visible: Canvas[] = [];
+        for (const canvas of canvases) if (await mayDiscover(canvas)) visible.push(canvas);
+        canvases = visible;
+      }
+      // Read this person's joined ledgers once, even on a home with many
+      // canvases. No other actor's marks can enter this assembly.
+      let localMarks: Promise<import("@isocan/core").SeenMarks> | undefined;
+      const readMarks = () => localMarks ??= (async () => {
+        const joins = await engine.actorJoins();
+        const ids = actorAliases(joins, resolveActor(joins, actor.id));
+        return mergeSeen(...await Promise.all(ids.map((id) => desk.seenOf(id))));
+      })();
+      return await collectInbox(canvases, async (canvas, signal): Promise<InboxResponse> => {
+        const remote = options.homes?.for(canvas.id) ?? null;
+        if (remote) {
+          const result = await remote.inbox(canvas.id, actor, label, AbortSignal.any([signal, AbortSignal.timeout(8000)]));
+          return { ...result, homes: { ...result.homes, [canvas.id]: options.homes!.homeOf(canvas.id) } };
+        }
+        const down = refusals.of(canvas.id);
+        if (down) throw new TakenDownError(down);
+        await admit(req, canvas.id);
+        const snapshot = await engine.getSnapshot(canvas.id);
+        const marks = await readMarks();
+        return {
+          entries: sequenceInbox(inboxOn(snapshot.canvas, actor, namesFor(actor, label), canvas.id, canvas.title, snapshot.joined), (await engine.getLog(canvas.id)).filter((entry) => entry.seq <= snapshot.lastSeq)),
+          marks: marks[canvas.id] ? { [canvas.id]: marks[canvas.id]! } : {},
+          homes: { [canvas.id]: null },
+          unavailable: [],
+        };
+      }, aborter.signal);
+    } finally { reply.raw.off("close", cancel); }
   });
 
   // ---- seen-marks: what one person has already looked at (#147, #134) ----

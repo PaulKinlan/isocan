@@ -4,12 +4,13 @@ import { groupAncestors, groupScopeRoots, isGroupItem } from "@isocan/core";
 import { enterCanvasGroup, leaveCanvasGroup, openGroupCreation, changeCanvasGroup, groupsEnabled, groupTask } from "../lib/canvasgroups.ts";
 import { CanvasGroupScope } from "../components/CanvasGroupScope.tsx";
 import { type CSSProperties, Suspense, lazy, useEffect, useRef, useState } from "react";
-import { Link, useMatch, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useMatch, useNavigate, useParams } from "react-router-dom";
 import type { Actor } from "@isocan/core";
 import {
   DECK_ROUTE,
   MODULE_PAGE_ROUTE,
   WORKBENCH_ROUTE,
+  THREAD_QUERY,
   anchorOffset,
   itemPath,
   workbenchItemPath,
@@ -69,19 +70,7 @@ const CanvasTools = lazy(() => import("../components/CanvasTools.tsx").then((m) 
 const Scrubber = lazy(() => import("../components/Scrubber.tsx").then((m) => ({ default: m.Scrubber })));
 import { WhatsNew } from "../components/WhatsNew.tsx";
 /**
- * **Loaded when it is opened, not when the canvas is.**
- *
- * The launcher is a modal most sessions never open, and it carried the whole
- * action registry with it — `bundle-bytes` went over its bound the moment it
- * landed, which is exactly the question that ratchet exists to ask. Splitting
- * it is the answer the bound was asking for; raising the bound would have been
- * the answer it was trying to prevent.
- */
-const CommandPalette = lazy(() =>
-  import("../components/CommandPalette.tsx").then((m) => ({ default: m.CommandPalette })),
-);
-/**
- * **The same argument, and the bytes #267 named to reclaim first.** Help is
+ * **Loaded only when it is opened, reclaiming the bytes #267 named.** Help is
  * opened with `?` by somebody who wants it and by nobody else, and it pulled
  * the shortcut tables and the command registry into the first paint to sit
  * there closed. Split here because the ceiling commit says to look for a cheap
@@ -230,8 +219,6 @@ function CanvasSurface({
   /* Read here rather than inside the panel, because the panel is no longer
      mounted while it is shut — the flag has to be the thing that mounts it. */
   const helpOpen = useUiStore((s) => s.helpOpen);
-  const paletteOpen = useUiStore((s) => s.paletteOpen);
-  const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const setHistoryOpen = useUiStore((s) => s.setHistoryOpen);
   const canvas = useCanvasStore((s) => s.past?.canvas ?? s.canvas);
   const moduleDialogOpen = useUiStore((s) => s.moduleDialog !== null);
@@ -262,6 +249,13 @@ function CanvasSurface({
    * refused: a glance costs at most one write.
    */
   const arrived = canvasTitle !== null;
+  const { search } = useLocation();
+  const requestedThread = new URLSearchParams(search).get(THREAD_QUERY);
+  useEffect(() => {
+    if (canvasId && arrived && requestedThread) {
+      void import("../lib/conversation.ts").then((m) => m.openConversation(canvasId, requestedThread));
+    }
+  }, [canvasId, arrived, requestedThread]);
   useEffect(() => {
     if (!canvasId || !arrived) return;
     // One call: `noteVisit` reads before it writes, deliberately — see
@@ -554,6 +548,7 @@ function CanvasSurface({
       if (moves.length > 0) void sendEchoed(canvasId!, actor, moveOp(moves));
     }
     function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
       // A cover route hides the canvas but keeps its selection — Enter
       // arrives full screen with the viewed item still selected, so any
       // shortcut that fired under here would act on the exact thing being
@@ -561,8 +556,6 @@ function CanvasSurface({
       // Esc is the cover's own, bound in capture phase.
       if ((itemId || onWorkbench) && !crossesCover(e)) return;
       if (useUiStore.getState().contextMenu || useUiStore.getState().groupDialog) return;
-      // ⌘K is global — the lane to your emissary opens from anywhere, even
-      // mid-typing in another field.
       /**
        * ⌘C / ⌘V — and the paste works on a DIFFERENT canvas, which is the
        * point. The clipboard is the app's own (`lib/clipboard.ts`), so it
@@ -613,39 +606,6 @@ function CanvasSurface({
           // a paste you have to go looking for.
           if (made.length > 0) selectCreatedItems(canvasId!, made);
         });
-        return;
-      }
-      /**
-       * **⌘K is the launcher now, not a third composer.**
-       *
-       * It opened a bar for messaging your emissary — which the Chat panel and
-       * every comment pin already do, so the keystroke was spent on the third
-       * way to do one thing. It reaches everything instead: fit the screen,
-       * arm a tool, open a panel, run a format, or pick a slash command and
-       * have it typed into the Chat for you.
-       *
-       * Messaging is not lost; it is one row in the list (`Open Chat`), which
-       * is the right weight for something two other surfaces already offer.
-       */
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        const ui = useUiStore.getState();
-        ui.setPaletteOpen(ui.paletteOpen ? null : "commands");
-        return;
-      }
-      /**
-       * **⌘O is the launcher's other face: the switcher.** The same window
-       * ⌘K opens, on the list of canvases — yours lately first — because
-       * "go to the canvas I was just on" is the one trip that deserves a
-       * key of its own rather than a row to find. Pressed on the switcher it
-       * closes it, like ⌘K on the commands; pressed on the commands it flips
-       * them, so the two keys are two doors to one place rather than two
-       * places.
-       */
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
-        e.preventDefault();
-        const ui = useUiStore.getState();
-        ui.setPaletteOpen(ui.paletteOpen === "canvases" ? null : "canvases");
         return;
       }
       /**
@@ -1123,20 +1083,6 @@ function CanvasSurface({
       {/* Offline, refusals, and anything that could not be done at all
           (phase 10). Above the panels for the reason `ArrivalNotice` is:
           it is about the connection, not about what is on the canvas. */}
-      {/* No fallback: the chunk arrives in a few milliseconds from the same
-          origin, and a spinner that flashes for one frame is worse than the
-          palette simply appearing. */}
-      {paletteOpen && (
-        <Suspense fallback={null}>
-          <CommandPalette
-            canvasId={canvasId}
-            actor={actor}
-            mode={paletteOpen}
-            onMode={setPaletteOpen}
-            onClose={() => setPaletteOpen(null)}
-          />
-        </Suspense>
-      )}
       <OfflineBar />
       {/* The history, when somebody asked for it. Mounted here rather than
           inside the viewport because it is chrome ABOUT the canvas, and

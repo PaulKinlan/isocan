@@ -1,3 +1,4 @@
+import { inboxRoute, type InboxResponse } from "@isocan/core";
 import type {
   CanvasGroupMigrationPreview,
   Actor,
@@ -269,10 +270,11 @@ export async function knockOnDoor(): Promise<boolean> {
   }
 }
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const send = () =>
     fetch(url, {
       method,
+      ...(signal ? { signal } : {}),
       headers: { [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
       ...(body !== undefined
         ? { body: JSON.stringify(body) }
@@ -284,6 +286,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   // door (which re-claims on the way back); a `not-your-actor` means the
   // badge is fine and the CLAIM is gone — a tab whose persona the desk no
   // longer remembers — so it claims and comes straight back.
+  signal?.throwIfAborted();
   const recovered =
     res.status === 401
       ? await knockOnDoor()
@@ -1360,4 +1363,9 @@ export async function checkFrameable(
   } catch {
     return { ok: true };
   }
+}
+
+/** One authoritative read, including remote homes; polling never writes marks. */
+export function fetchInbox(actorId: string, signal?: AbortSignal): Promise<InboxResponse> {
+  return request("GET", inboxRoute(actorId), undefined, signal);
 }

@@ -349,3 +349,26 @@ describe("isocan space", () => {
     expect(await strangerCanRead(a)).toBe(200);
   }, 90_000);
 });
+
+it("inbox uses the remote home's addressed comments and marks without writing on read", async () => {
+  const canvasId = await bornCanvas();
+  const snapshot = await homeDaemon.engine.getSnapshot(canvasId);
+  const recipient = snapshot.project.createdBy;
+  const author = await mintTestBadge(homeBase);
+  await author.speakAs(jordan);
+  const response = await fetch(`${homeBase}/api/ops`, {
+    method: "POST", headers: { ...author.headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ canvasId, actor: jordan, op: { type: "thread.create", threadId: "thr_inbox", x: 10, y: 10, anchorItemId: null, comment: { id: "cmt_inbox", body: "Please review the synthetic proposal", mentions: [recipient.id] } } }),
+  });
+  expect(response.status).toBe(200);
+  const found = await cli("inbox", "--mentions", "--new", "--json");
+  expect(found.code, found.stderr).toBe(0);
+  const entries = JSON.parse(found.stdout);
+  expect(entries.map((entry: { threadId: string }) => entry.threadId)).toEqual(["thr_inbox"]);
+  expect(await homeDaemon.desk.seenOf(recipient.id)).toEqual({});
+  const mark = await cli("seen", "--mark", "--canvas", canvasId);
+  expect(mark.code, mark.stderr).toBe(0);
+  const seen = await cli("inbox", "--mentions", "--new", "--json");
+  expect(seen.code, seen.stderr).toBe(0);
+  expect(JSON.parse(seen.stdout)).toEqual([]);
+});

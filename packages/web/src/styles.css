@@ -6690,3 +6690,28 @@ button.mt-card:hover { border-color: var(--accent); }
 .group-migration li { margin-block: 10px; overflow-wrap: anywhere; }
 .group-migration nav { display: flex; align-items: center; gap: 12px; }
 .group-migration > .btn { margin-inline-end: 8px; margin-block: 8px; }
+
+/* The home and the in-app notification read one inbox, with explicit partial
+   failure and ordinary links to conversations at their actual homes. */
+.home-inbox { margin: 24px 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.inbox-heading { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.inbox-heading h2 { margin: 0; font-size: 16px; flex: 1; }
+.inbox-heading label { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.inbox-tally, .inbox-note { color: var(--ink-soft); font-size: 13px; }
+.inbox-unavailable { font-size: 13px; color: var(--ink); }
+.inbox-entries { max-height: 300px; overflow: auto; }
+.inbox-entry { display: block; padding: 12px 0; color: var(--ink); text-decoration: none; border-top: 1px solid var(--line); }
+.inbox-entry:hover { background: var(--chip); }
+.inbox-entry-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 12px; color: var(--ink-soft); }
+.inbox-entry-meta strong { color: var(--ink); }
+.inbox-reason { margin-left: auto; }
+.inbox-body { display: block; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.inbox-home { display: block; color: var(--ink-soft); font-size: 11px; margin-top: 4px; }
+.navigation-inbox { position: fixed; right: 16px; bottom: 16px; z-index: var(--z-float); background: var(--card); box-shadow: var(--shadow-card); }
+.navigation-inbox-panel { position: fixed; right: 16px; bottom: 62px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 100px); overflow: auto; z-index: var(--z-popover); background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop); }
+.navigation-inbox-panel .home-inbox { margin: 0; border: 0; }
+.inbox-close { display: block; margin: 10px 10px 0 auto; }
+
+/* Clear the existing bottom-right zoom row when the canvas is open. */
+.navigation-inbox.on-canvas { bottom: calc(var(--edge) + var(--zoom-row) + 8px); }
+.navigation-inbox-panel.on-canvas { bottom: calc(var(--edge) + var(--zoom-row) + 54px); }

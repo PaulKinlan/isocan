@@ -306,7 +306,6 @@ import {
   personaWarnings,
   runFindings,
   tallyOutcomes,
-  inboxOn,
   inboxNewestFirst,
   newSince,
   latelyOrder,
@@ -9286,44 +9285,16 @@ program
   .action(
     run(async (opts: { canvas?: string; mentions?: boolean; new?: boolean; limit?: string }, cmd: Command) => {
       const ctx = await ctxOf(cmd);
-      const canvases = opts.canvas
-        ? [await resolveCanvas({ ...ctx, canvasRef: opts.canvas })]
-        : await ctx.client.listCanvases();
-      /**
-       * The names you answer to include the label this session is wearing —
-       * an agent called "Percy" this run is @Percy to everybody on the canvas,
-       * and `wait` has always looked for both.
-       */
+      const target = opts.canvas ? await resolveCanvas({ ...ctx, canvasRef: opts.canvas }) : null;
       const session = await readSessionFile(ctx.home, ctx.actor.id).catch(() => null);
-      const names = namesFor(ctx.actor, session?.label ?? null);
-      const entries: InboxEntry[] = [];
-      for (const canvas of canvases) {
-        // One canvas failing to answer must not silence the rest: an inbox
-        // that goes empty because a replica is unreachable is an inbox that
-        // lies in the only direction that matters.
-        const snapshot = await ctx.client.snapshot(canvas.id).catch(() => null);
-        if (!snapshot) continue;
-        entries.push(
-          ...inboxOn(snapshot.canvas, ctx.actor, names, canvas.id, canvas.title, snapshot.joined),
-        );
-      }
-      /**
-       * **What is NEW, from the mark the home keeps** (#147 step 2). A second
-       * function over the entries the routing rule already produced, never a
-       * second filter inside it: "is this for me" has one definition and this
-       * asks a different question — have I looked since. The marks are one
-       * read for every canvas, and a canvas with no mark is entirely new,
-       * which is exactly what an inbox should say about one you have never
-       * opened — the case a browser's `localStorage` could not see.
-       *
-       * Best-effort, for the same reason one unreachable canvas must not
-       * empty the list: a home that cannot answer leaves the marks empty, and
-       * an inbox that shows everything as new is honest, where one that went
-       * quiet would not be.
-       */
-      const { marks } = await ctx.client.seen(ctx.actor.id).catch(() => ({ marks: {} }));
+      const { entries, marks, unavailable } = await ctx.client.inbox(ctx.actor.id, {
+        ...(target ? { canvasId: target.id } : {}),
+        ...(session?.label ? { label: session.label } : {}),
+      });
+      for (const failed of unavailable) console.error(`${failed.canvasId} unavailable: ${failed.error}`);
       const byReason = opts.mentions ? entries.filter((e) => e.reason === "mentioned") : entries;
       const wanted = opts.new ? newSince(byReason, marks) : byReason;
+      if (entries.length === 0 && unavailable.length > 0) throw new Error("Inbox incomplete: some canvases could not be read.");
       const ordered = inboxNewestFirst(wanted).slice(0, Number(opts.limit ?? 20));
       if (ctx.json) return printJson(ordered);
       if (ordered.length === 0) {

@@ -49,6 +49,9 @@ export interface InboxEntry {
   threadId: string;
   comment: Comment;
   reason: InboxReason;
+  /** The originating comment operation, supplied by an authoritative home
+   * while its log retains it. Older or imported comments may omit this. */
+  seq?: number;
 }
 
 /**

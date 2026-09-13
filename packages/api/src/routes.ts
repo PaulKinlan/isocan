@@ -1,3 +1,4 @@
+import { inboxRoute, type InboxResponse } from "@isocan/core";
 import type {
   Actor,
   ActorBindingRecord,
@@ -554,6 +555,11 @@ export class DaemonRoutes {
   endActorSessions(actorId: string, kind?: "web" | "cli"): Promise<{ ended: number }> {
     const query = kind ? `?kind=${kind}` : "";
     return this.request("DELETE", `/api/presence/actors/${actorId}${query}`);
+  }
+
+  /** Authoritative inbox entries and seen marks across the canvases held here. */
+  inbox(actorId: string, options: { canvasId?: string; label?: string } = {}): Promise<InboxResponse> {
+    return this.request("GET", inboxRoute(actorId, options));
   }
 
   listCanvases(): Promise<Canvas[]> {

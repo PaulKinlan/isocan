@@ -165,7 +165,10 @@ export function movedSince(mark: SeenMark | undefined, canvas: Canvas): boolean 
  * not become a second one. This takes entries the rule already produced and
  * asks a different question of them, which is *have I looked since*.
  *
- * Compared on `createdAt` against the mark's `at`, both stamped by the home
+ * Prefer the originating operation sequence when the home supplies it: a
+ * comment arriving after the visited snapshot stays new even if the mark
+ * request reaches the home later. Older/imported comments fall back to
+ * `createdAt` against the mark's `at`, both stamped by the home
  * that holds that canvas, so the two sides of the comparison come from one
  * clock. A canvas with no mark is entirely new, which is exactly what an inbox
  * should say about a canvas you have never opened — the case the browser's
@@ -177,7 +180,7 @@ export function newSince(
 ): InboxEntry[] {
   return entries.filter((entry) => {
     const mark = marks[entry.canvasId];
-    return !mark || entry.comment.createdAt > mark.at;
+    return !mark || (entry.seq !== undefined ? entry.seq > mark.seq : entry.comment.createdAt > mark.at);
   });
 }
 
