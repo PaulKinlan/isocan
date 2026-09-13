@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Actor, HomesResponse, Canvas } from "@isocan/core";
 import { DEFAULT_PORT, newCanvasId, normalizeHomeUrl } from "@isocan/core";
 import { paths, readConfigFile, stalenessOf } from "@isocan/server";
-import { ApiError, type Health } from "./routes.ts";
+import { ApiError, type DaemonRoutes, type Health } from "./routes.ts";
 import { DaemonClient } from "./client.ts";
 import {
   requireIdentity,
@@ -506,11 +506,18 @@ export interface ResolveOptions {
  * it.
  */
 export async function resolveCanvas(ctx: Ctx, opts: ResolveOptions = {}): Promise<Canvas> {
+  if (ctx.canvasRef !== undefined) return resolveCanvasRef(ctx.client, ctx.canvasRef);
   const canvases = await ctx.client.listCanvases();
-  if (ctx.canvasRef !== undefined) return matchRef(canvases, ctx.canvasRef);
   if (ctx.binding) {
-    const bound = canvases.find((p) => p.id === ctx.binding!.canvasId);
+    let bound = canvases.find((p) => p.id === ctx.binding!.canvasId);
     refuseHomeDisagreement(ctx.binding, await ctx.homes(), bound !== undefined, ctx.client.base);
+    if (!bound) {
+      // A committed marker already supplies the address. Discovery may hide
+      // it until this badge enters, while a missing local replica still needs
+      // the existing fetch/materialization path below.
+      try { bound = (await ctx.client.snapshot(ctx.binding.canvasId)).project; }
+      catch (err) { if (!(err instanceof ApiError && err.status === 404)) throw err; }
+    }
     if (bound) {
       await recordDir(ctx.home, ctx.binding.root, bound.id);
       return bound;
@@ -529,7 +536,7 @@ export async function resolveCanvas(ctx: Ctx, opts: ResolveOptions = {}): Promis
     );
   }
   const fallback = (await readConfigFile<HomeDefaultConfig>(ctx.home)).defaultProjectId;
-  if (fallback !== undefined) return matchRef(canvases, fallback);
+  if (fallback !== undefined) return (await ctx.client.snapshot(fallback)).project;
   if (canvases.length === 1) return canvases[0]!;
   if (opts.create) {
     const made = await bindFresh(ctx);
@@ -540,6 +547,16 @@ export async function resolveCanvas(ctx: Ctx, opts: ResolveOptions = {}): Promis
       ? "no canvases yet — create one with `isocan canvas create <title>`"
       : "multiple canvases — pass --canvas <id|title>, or bind this directory to one with `isocan use <canvas>`",
   );
+}
+
+/** An explicit id is an address, so it meets the ordinary admission door.
+ * Discovery is only for names: listing cannot reveal a link-only canvas before
+ * entry, and that must not make a caller's already-known address unusable.
+ * A prj_-qualified value is always exact, including older/adopted ids; no
+ * shortened id is ever expanded against canvases the caller cannot discover. */
+export async function resolveCanvasRef(client: Pick<DaemonRoutes, "snapshot" | "listCanvases">, ref: string): Promise<Canvas> {
+  if (/^prj_[A-Za-z0-9_-]+$/.test(ref)) return (await client.snapshot(ref)).project;
+  return matchRef(await client.listCanvases(), ref);
 }
 
 /** Exact id, then case-insensitive title prefix. */

@@ -80,7 +80,7 @@ it("keeps two stdio sessions attributed, addressed, cancellable and durable acro
     const resource = await client.readResource({ uri: `isocan://canvas/${canvas}/context` });
     expect(JSON.parse((resource.contents[0] as { text: string }).text)).toEqual(await call("read_context_summary"));
     expect((await client.listResourceTemplates()).resourceTemplates).toHaveLength(2);
-    await expect(client.readResource({ uri: "isocan://canvas/prj_unavailable" })).rejects.toThrow(/no canvas matches/);
+    await expect(client.readResource({ uri: "isocan://canvas/prj_unavailable" })).rejects.toThrow(/canvas not found/);
     expect((await routes.snapshot(canvas)).lastSeq).toBe(beforeRead);
     expect(await routes.seen()).toEqual(seenBefore);
 
@@ -140,7 +140,7 @@ it("keeps two stdio sessions attributed, addressed, cancellable and durable acro
     await client?.close();
     watchSpy.mockRestore();
     await daemon.close();
-    await fs.rm(home, { recursive: true, force: true });
-    await fs.rm(work, { recursive: true, force: true });
+    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await fs.rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }, 30_000);

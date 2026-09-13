@@ -41,7 +41,7 @@ import {
   recentActivity,
   type ActivityEntry,
 } from "@isocan/core";
-import { matchRef, resolveCanvas, resolveCtx, type Ctx } from "./ctx.ts";
+import { matchRef, resolveCanvas, resolveCanvasRef, resolveCtx, type Ctx } from "./ctx.ts";
 import { claimSessionIdentity, noIdentityHere, type ExplicitIdentity } from "./identity.ts";
 import { readContextSummary } from "./context-summary.ts";
 import { waitForFeedback, type FeedbackOptions, type FeedbackResult } from "./feedback.ts";
@@ -171,7 +171,7 @@ export class Home {
       const record =
         ref === undefined
           ? await resolveCanvas(this.ctx)
-          : matchRef(await this.ctx.client.listCanvases(), ref);
+          : await resolveCanvasRef(this.ctx.client, ref);
       return new CanvasHandle(this.ctx, record);
     });
   }

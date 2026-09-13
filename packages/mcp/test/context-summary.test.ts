@@ -87,7 +87,7 @@ it("reads live local/inherited layers without leaking private memory or unadmitt
     expect(listed.resources.some((resource) => resource.uri.includes(locked.id))).toBe(false);
     expect(JSON.stringify(listed)).not.toContain("Confidential");
     for (const suffix of ["", "/context"]) {
-      await expect(host.readResource({ uri: `isocan://canvas/${locked.id}${suffix}` })).rejects.toThrow(/no canvas matches/);
+      await expect(host.readResource({ uri: `isocan://canvas/${locked.id}${suffix}` })).rejects.toThrow(/not admitted/);
     }
     const resource = await host.readResource({ uri: `isocan://canvas/${here.id}/context` });
     expect(connections.at(-1)).toBeUndefined();
@@ -96,7 +96,7 @@ it("reads live local/inherited layers without leaking private memory or unadmitt
     expect((await routes.snapshot(here.id)).lastSeq).toBe(seq);
   } finally {
     await host.close(); await server.close(); await daemon.close();
-    await fs.rm(home, { recursive: true, force: true });
-    await fs.rm(otherHome, { recursive: true, force: true });
+    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await fs.rm(otherHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }, 15_000);
