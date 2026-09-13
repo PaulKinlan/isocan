@@ -285,7 +285,7 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
           )}
         </div>
       ))}
-      <button className="tool-btn tool-more" aria-label="More tools" aria-expanded={more} onClick={() => setMore(!more)}>⋯</button>
+      <button className="tool-btn tool-more" data-tip="More tools" aria-label="More tools" aria-expanded={more} onClick={() => setMore(!more)}>⋯</button>
       <div className="tool-sep" />
       <button
         className={`tool-btn${marksOpen ? " active" : ""}`}
