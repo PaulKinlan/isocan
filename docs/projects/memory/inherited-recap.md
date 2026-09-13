@@ -47,6 +47,16 @@ badge recovery and replica forwarding. An unknown/foreign authority refuses;
 a retained replica cannot supply a previous success. Queued assembly rechecks
 the source restriction before opening runtime or archive data.
 
+Security checks use the router's matched API route and decoded parameters,
+not the raw URL spelling. Fastify accepts encoded static segments: an encoded
+`api` or `projects` segment must still require a badge, admission and the same
+source policy. This applies to the shared API openness, Origin, lifecycle,
+capability and source checks, including existing snapshot/history routes.
+Parameter encoding keeps its existing meaning; forwarding retains the actual
+request URL while both homes enforce the matched route. The phase's audit
+found anonymous snapshot/history access and unadmitted recap access when the
+router and raw-path hooks disagreed, so this shared correction precedes closure.
+
 Assembly occurs inside the engine's existing writer queue, which also owns
 GC and mutation. It reads the current runtime and archive coherently, removes
 duplicate seqs and sorts them. The needed recent range must be contiguous and
@@ -95,6 +105,9 @@ Unlinked/excluded, denied, copied-personal, absent-header personal and foreign
 requests prove exclusion before private snapshot/runtime/log/archive/blob
 reads, including authoritative forwarding and unreachable homes. A failed
 head preserves readable design/pins, and the local design still governs.
+Actual HTTP probes also cover encoded static prefixes/suffixes, anonymous and
+unadmitted callers, HEAD and encoded parameters on recap and existing
+snapshot/history routes. URL spelling cannot change the security decision.
 Read-only shared state and frozen manifests remain byte-identical. Run the
 full suite with Firestore and bundle required, workspace typecheck, build and
 real browser acceptance on the final source. No service, credential, paid

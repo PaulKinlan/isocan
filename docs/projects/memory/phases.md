@@ -130,6 +130,8 @@ range; missing required history reports unavailable. A failed head leaves
 readable design/pins intact and local design still governs. Excluded,
 unauthorized, copied-personal, absent-header personal, foreign and unreachable
 sources prove refusal before private source reads, including forwarding.
+Encoded API route spellings must receive the same badge, admission and source
+checks on recap and existing snapshot/history routes, over actual HTTP.
 Shared state/frozen context stay unchanged. Run the full required-emulator
 and bundle suite, typecheck, build and actual browser acceptance without
 raising the entry ceiling. Journey 5 and inherited-recap.md define the scope.
@@ -137,6 +139,10 @@ raising the entry ceiling. Journey 5 and inherited-recap.md define the scope.
 
 ## Trajectory
 
+- **2026-09-13** — The router accepts encoded static URL segments while raw-path
+  guards missed them. Actual HTTP exposed closed snapshot/history data without
+  a badge and recap data to an unadmitted badge. Shared security checks must use
+  the matched API route and decoded parameters before this phase closes.
 - **2026-09-13** — First personal use reserves a private source instead of
   creating canvases on every actor claim. Agents are actors too, and empty
   memory canvases must not multiply across login, retries or rename.
