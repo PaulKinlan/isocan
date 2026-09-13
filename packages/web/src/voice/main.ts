@@ -197,7 +197,6 @@ export function wireVoice(doc: Document = document): VoicePage {
   const inputWave = required<SVGPathElement>("input-wave", doc);
   const outputWave = required<SVGPathElement>("output-wave", doc);
   const captions = required<HTMLElement>("captions", doc);
-  const keepCaptions = required<HTMLInputElement>("keep-captions", doc);
   const copyNote = required<HTMLElement>("copy-note", doc);
   const settings = required<HTMLDialogElement>("settings", doc);
   const settingsOpen = required<HTMLButtonElement>("settings-open", doc);
@@ -209,7 +208,6 @@ export function wireVoice(doc: Document = document): VoicePage {
   const setupCallout = required<HTMLElement>("setup-callout", doc);
   const setupStatus = required<HTMLElement>("setup-status", doc);
   const motion = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
-  keepCaptions.checked = motion?.matches ?? false;
   const stateLine = required<HTMLElement>("state", doc);
   const buildTag = required<HTMLElement>("build-tag", doc);
   const folderName = required<HTMLElement>("folder-name", doc);
@@ -359,9 +357,21 @@ export function wireVoice(doc: Document = document): VoicePage {
     captionTimer = null;
   }
 
+  /**
+   * **A caption is for reading now, not for keeping.**
+   *
+   * It streams in with the words, and it stays long enough to read a sentence
+   * — 50ms a character, never less than 4.5s — and then fades. Persistence
+   * has a home: the transcript in Logs. A caption that stays put is a second
+   * copy of that record, on the one surface meant to be the conversation.
+   *
+   * The fade itself is CSS, so `prefers-reduced-motion` already makes it
+   * instant without a line of code here (the page's blanket rule turns the
+   * transition off).
+   */
   function fadeCaptionLater(): void {
     clearCaptionTimer();
-    if (keepCaptions.checked || !captionText) return;
+    if (!captionText) return;
     const readingTime = Math.max(4500, Math.min(20000, captionText.length * 50));
     captionTimer = setTimeout(() => {
       captionTimer = null;
@@ -1900,11 +1910,6 @@ export function wireVoice(doc: Document = document): VoicePage {
   listenButton.addEventListener("click", () => {
     if (session === "live" || session === "muted") void toggleMute();
     else void listen();
-  });
-  keepCaptions.addEventListener("change", () => {
-    clearCaptionTimer();
-    captions.classList.remove("faded");
-    if (activity !== "speaking") fadeCaptionLater();
   });
   muteButton.addEventListener("click", () => void toggleMute());
   endButton.addEventListener("click", () => void end());

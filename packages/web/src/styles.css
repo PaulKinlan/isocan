@@ -6654,7 +6654,7 @@ body:has(> .voice) { overflow: auto; }
   width: min(100%, 520px);
   block-size: calc(var(--s6) * 5);
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   justify-items: center;
   gap: var(--s2);
 }
@@ -6672,16 +6672,6 @@ body:has(> .voice) { overflow: auto; }
   transition: opacity 800ms ease-out;
 }
 .voice-captions.faded { opacity: 0; }
-.voice-caption-choice {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  min-height: 44px;
-  font-size: var(--t-xs);
-  color: var(--ink-muted);
-  cursor: pointer;
-}
-.voice-caption-choice input { margin: 0; }
 .voice-complaint { margin: 0; max-width: 60ch; text-align: left; }
 
 /* The last exchange, compactly: two lines that grow as the words arrive and
