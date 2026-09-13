@@ -43,15 +43,19 @@ beforeEach(() => {
   document.body.innerHTML = voiceBody;
   // jsdom checks delegation only; native Escape/focus containment are driven
   // in Chrome. Each test gets fresh dialog methods on its own element.
-  const settings = document.getElementById("settings") as HTMLDialogElement;
-  settings.showModal = vi.fn(() => {
-    settings.open = true;
-    (settings.querySelector("[autofocus]") as HTMLElement)?.focus();
-  });
-  settings.close = vi.fn(() => {
-    settings.open = false;
-    settings.dispatchEvent(new Event("close"));
-  });
+  const fakeDialog = (id: string): void => {
+    const dialog = document.getElementById(id) as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => {
+      dialog.open = true;
+      (dialog.querySelector("[autofocus]") as HTMLElement)?.focus();
+    });
+    dialog.close = vi.fn(() => {
+      dialog.open = false;
+      dialog.dispatchEvent(new Event("close"));
+    });
+  };
+  fakeDialog("settings");
+  fakeDialog("logs");
   localStorage.clear();
   stateReply = {};
   logReply = { entries: [] };
@@ -290,8 +294,7 @@ describe("the standalone page keeps the controls a person has to press", () => {
       expect(document.getElementById(id), id).toBeTruthy();
     }
     // Nothing in Settings is folded away: it is one flat scroll, so there is
-    // no disclosure control to open before the key can be reached. The
-    // drawers beside the conversation keep their own expandos.
+    // no disclosure control to open before the key can be reached.
     expect(document.querySelectorAll("#settings details, #settings summary").length).toBe(0);
     // The heading was printed twice — once as the summary, once as an <h2>.
     expect(document.body.innerHTML.match(/>Key</g)?.length ?? 0).toBe(1);
@@ -883,7 +886,6 @@ describe("the thumb-first conversation layout", () => {
     vi.stubGlobal("visualViewport", viewport);
     await wire();
     element<HTMLButtonElement>("settings-open").click();
-    element<HTMLDetailsElement>("key-panel").open = true;
     const field = element<HTMLInputElement>("key");
     field.value = "synthetic draft";
     field.scrollIntoView = vi.fn();
@@ -900,6 +902,55 @@ describe("the thumb-first conversation layout", () => {
     viewport.height = 300;
     viewport.dispatchEvent(new Event("resize"));
     expect(element("settings").style.getPropertyValue("--voice-visible-height")).toBe("420px");
+  });
+});
+
+describe("the record of the conversation, behind its own button", () => {
+  it("keeps the transcript and the tool calls inside the logs dialog", async () => {
+    await wire();
+    const logs = element<HTMLDialogElement>("logs");
+    expect(logs.open).toBe(false);
+    for (const id of ["transcript", "log", "copy-log", "copy-note", "transcript-panel", "log-panel"])
+      expect(logs.contains(element(id)), id).toBe(true);
+    // Flat, like the settings: the record is read by scrolling, not by
+    // opening something inside it.
+    expect(logs.querySelectorAll("details, summary").length).toBe(0);
+  });
+
+  it("opens from its button, and keeps recording into the same rows", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const logs = element<HTMLDialogElement>("logs");
+    const button = element<HTMLButtonElement>("logs-open");
+    const socket = await goLive();
+    stateReply = { session: "live" };
+    socket.event({ type: "tool_log", entry: { name: "read_canvas", details: { kind: "heard", text: "read the canvas" } } });
+    const logged = element("log").children.length;
+    const turn = element("transcript").firstChild;
+
+    button.click();
+    expect(logs.showModal).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(element("logs-title"));
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+
+    // The record keeps recording while it is being read, and into the same
+    // nodes: no re-render, no gap while the dialog is open.
+    socket.event({ type: "tool_log", entry: { name: "rename_item", details: { kind: "reply", text: "renamed it" } } });
+    expect(element("log").children.length).toBe(logged + 1);
+    expect(element("log").textContent).toContain("tool: rename_item");
+    expect(element("transcript").firstChild).toBe(turn);
+    expect(element("transcript").textContent).toContain("renamed it");
+
+    element<HTMLButtonElement>("logs-close").click();
+    expect(logs.open).toBe(false);
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    // Reopening shows the same rows, not a rebuild of them.
+    button.click();
+    expect(element("transcript").firstChild).toBe(turn);
+  });
+});
   });
 });
 

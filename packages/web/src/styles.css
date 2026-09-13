@@ -6482,7 +6482,11 @@ body:has(> .voice) { overflow: auto; }
 .voice-stage { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
 .voice-stage > * { min-width: 0; }
 .voice-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
-.voice-settings-open {
+/* The cog and the logs button travel together, so one wrapper keeps them
+   adjacent however wide the header is — space-between would push them apart
+   into the gaps instead. */
+.voice-head-actions { display: flex; align-items: center; gap: var(--s2); }
+.voice-head-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6495,7 +6499,7 @@ body:has(> .voice) { overflow: auto; }
   color: var(--ink);
   cursor: pointer;
 }
-.voice-settings-open svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+.voice-head-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
 .voice-head h1 {
   margin: 0;
   font-size: var(--t-xs);
@@ -6727,7 +6731,8 @@ body:has(> .voice) { overflow: auto; }
 /* Mute and End, and nothing else: the microphone is the page's one action. */
 .voice-session { display: flex; gap: var(--s2); }
 .voice-session button,
-.voice-settings-head button,
+.voice-dialog-head button,
+.voice-dialog-part-title button,
 .voice-setup-callout button {
   font: inherit;
   font-size: var(--t-sm);
@@ -6740,44 +6745,6 @@ body:has(> .voice) { overflow: auto; }
 }
 .voice-session button:disabled { opacity: 0.45; cursor: default; }
 
-/* One document scroll surface; opening a drawer never traps a nested scroll. */
-.voice-drawers {
-  display: grid;
-  align-content: start;
-  gap: var(--s1);
-  border-top: 1px solid var(--line);
-  padding-top: var(--s3);
-}
-.voice-quiet { border: 0; padding: 0; }
-.voice-quiet > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s2);
-  margin: 0;
-  padding: var(--s2) 0;
-  min-height: 44px;
-  font-size: var(--t-xs);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  font-weight: 600;
-  cursor: pointer;
-  list-style: none;
-}
-.voice-quiet > summary::-webkit-details-marker { display: none; }
-.voice-quiet > summary::after { content: "+"; font-size: var(--t-sm); line-height: 1; margin-left: var(--s2); }
-.voice-quiet[open] > summary::after { content: "−"; }
-.voice-quiet > summary button {
-  font: inherit;
-  font-size: var(--t-xs);
-  padding: var(--s1) var(--s2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card);
-  color: var(--ink);
-  cursor: pointer;
-}
 .voice-summary-first { flex: 1 1 auto; min-width: 0; }
 .voice-summary {
   flex: 1 1 auto;
@@ -6896,7 +6863,7 @@ body:has(> .voice) { overflow: auto; }
 }
 .voice-keyrow button:disabled { opacity: 0.45; cursor: default; }
 
-/* One scroll surface: the drawer scrolls, the log does not scroll inside it.
+/* One scroll surface: the dialog scrolls, the log does not scroll inside it.
    Two nested vertical tracks on one screen was the review's second finding. */
 .voice-log { list-style: none; margin: 0; padding: 0 0 var(--s3); display: grid; gap: 0; }
 .voice-log li {
@@ -6922,8 +6889,9 @@ body:has(> .voice) { overflow: auto; }
 .voice-answered { color: var(--accent-text); }
 .voice-event { color: var(--ink-muted); }
 
-/* Configuration is modal, but never opens itself on first run. */
-.voice-settings {
+/* Both dialogs are the same surface: native, modal, one scroll container, a
+   sticky head whose Close never leaves the screen, and no disclosure inside. */
+.voice-dialog {
   --voice-visible-height: 100dvh;
   --voice-visible-top: 0px;
   position: fixed;
@@ -6942,13 +6910,13 @@ body:has(> .voice) { overflow: auto; }
   background: var(--card);
   color: var(--ink);
 }
-.voice-settings::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
-body:has(.voice-settings[open]) { overflow: hidden; }
+.voice-dialog::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
+body:has(.voice-dialog[open]) { overflow: hidden; }
 /* Pinned to the top of the dialog's own scrollport, because the dialog is the
    only scroll container on this surface and Close is the way out of it — it
    was measured 70px above the viewport at the end of a short landscape
    scroll, which is a control that has left rather than one that is reached. */
-.voice-settings-head {
+.voice-dialog-head {
   position: sticky;
   inset-block-start: 0;
   z-index: 1;
@@ -6960,14 +6928,14 @@ body:has(.voice-settings[open]) { overflow: hidden; }
   padding-block: var(--s5);
   background: var(--card);
 }
-.voice-settings-head h2 { margin: 0; font-size: var(--t-lg); }
-.voice-settings :is(button, select, input), .voice-setup-callout button { min-block-size: 44px; }
-.voice-settings :is(input, select) { font-size: 16px; }
+.voice-dialog-head h2 { margin: 0; font-size: var(--t-lg); }
+.voice-dialog :is(button, select, input), .voice-setup-callout button { min-block-size: 44px; }
+.voice-dialog :is(input, select) { font-size: 16px; }
 /* Flat, not folded: a heading per part and everything under it visible, so a
    person reads the whole state of the thing by scrolling once. One scroll
    container only — the dialog itself — never a scrolling region inside it. */
-.voice-settings-part { border-top: 1px solid var(--line-soft); }
-.voice-settings-part-title {
+.voice-dialog-part { border-top: 1px solid var(--line-soft); }
+.voice-dialog-part-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -6980,9 +6948,11 @@ body:has(.voice-settings[open]) { overflow: hidden; }
   text-transform: uppercase;
   color: var(--ink-muted);
 }
+/* Copy sits where the log's own summary used to put it, and wears the same
+   chrome as every other button in a dialog. */
 .voice-setup-callout { display: grid; justify-items: center; gap: var(--s1); font-size: var(--t-sm); }
 .voice-setup-callout p { margin: 0; color: var(--ink-muted); }
-.voice-settings .voice-complaint { margin-bottom: var(--s4); }
+.voice-dialog .voice-complaint { margin-bottom: var(--s4); }
 
 @media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   .voice {
@@ -6994,11 +6964,9 @@ body:has(.voice-settings[open]) { overflow: hidden; }
   /* Keep the thumb target at the bottom of the first screen as browser bars
      retract. History remains below it in document flow, not another track. */
   .voice-stage { min-block-size: calc(100svh - var(--voice-safe-top) - var(--voice-safe-bottom)); }
-  .voice-quiet > summary { flex-wrap: wrap; row-gap: var(--s1); }
   .voice-summary { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
   .voice-session button { min-height: 44px; padding: var(--s2) var(--s5); }
   .voice-confirm-acts button { min-height: 44px; }
-  .voice-drawers { padding-bottom: var(--s4); margin-top: var(--s4); }
   .voice-hero { padding: var(--s3) 0 0; gap: var(--s3); align-content: end; }
   .voice-mic { width: min(64vw, 30svh, 240px); }
   .voice-glyph { width: 38px; height: 38px; }

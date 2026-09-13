@@ -32,8 +32,9 @@
   <body>
     <!--
       Conversation stays first. Connection and key controls live intact in
-      Settings; missing prerequisites remain visible inline without opening
-      the modal. Transcript and tool calls stay with the conversation.
+      Settings, the transcript and tool calls in Logs — both one press away,
+      so the page itself is the conversation and the record is not. Missing
+      prerequisites remain visible inline without opening either.
 
       Vite serves this file directly (HMR included) and `src/voice/main.ts` is
       its only script; there is no identity gate, no router and no React.
@@ -52,12 +53,23 @@
              the integration build; a build without it says so rather than
              showing a tag that is not true. -->
         <span class="voice-build" id="build-tag" title="the build this page was served from"></span>
-        <button class="voice-settings-open" id="settings-open" type="button" aria-label="Voice settings" aria-haspopup="dialog" aria-controls="settings" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M10 2h4l.5 3 2.5 1.5 2.8-1 2 3.5-2.4 2v2l2.4 2-2 3.5-2.8-1L14.5 19 14 22h-4l-.5-3L7 17.5l-2.8 1-2-3.5 2.4-2v-2l-2.4-2 2-3.5 2.8 1L9.5 5Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </button>
+        <div class="voice-head-actions">
+          <!-- The record of the conversation, one press away, like the cog.
+               Both dialogs are the same native element with the same
+               closedby behaviour and the same light-dismiss fallback. -->
+          <button class="voice-head-button" id="logs-open" type="button" aria-label="Logs" aria-haspopup="dialog" aria-controls="logs" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="4.5" y="3.5" width="15" height="17" rx="2" />
+              <path d="M8.5 9h7M8.5 13h7M8.5 17h4" />
+            </svg>
+          </button>
+          <button class="voice-head-button" id="settings-open" type="button" aria-label="Voice settings" aria-haspopup="dialog" aria-controls="settings" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M10 2h4l.5 3 2.5 1.5 2.8-1 2 3.5-2.4 2v2l2.4 2-2 3.5-2.8-1L14.5 19 14 22h-4l-.5-3L7 17.5l-2.8 1-2-3.5 2.4-2v-2l-2.4-2 2-3.5 2.8 1L9.5 5Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <section class="voice-hero" id="hero" data-state="idle" data-activity="idle" aria-label="Microphone">
@@ -108,35 +120,45 @@
       </section>
       </div>
 
-      <div class="voice-drawers">
-        <details class="voice-quiet" id="transcript-panel">
-          <summary>Recent transcript</summary>
-          <ol class="voice-transcript" id="transcript" aria-label="Recent transcript"></ol>
-        </details>
-        <details class="voice-quiet" id="log-panel">
-          <summary>
-            <span class="voice-summary-first">Tool calls</span>
-            <button id="copy-log" type="button">Copy</button>
-          </summary>
-          <p class="voice-hint" id="copy-note" role="status"></p>
-          <ol class="voice-log" id="log"></ol>
-        </details>
-      </div>
-
       <!-- closedby="any" is the platform's own light dismiss: a click on the
            backdrop, plus Escape and the mobile back gesture. Its trap is that
            a backdrop click reports the DIALOG as the event target — so the
            browsers without closedBy get the same rule by hand in main.ts,
            hit-tested against this box rather than against the target. -->
-      <dialog class="voice-settings" id="settings" closedby="any" aria-labelledby="settings-title">
-        <header class="voice-settings-head">
+      <dialog class="voice-dialog" id="logs" closedby="any" aria-labelledby="logs-title">
+        <header class="voice-dialog-head">
+          <h2 id="logs-title" tabindex="-1" autofocus>Logs</h2>
+          <button id="logs-close" type="button">Close logs</button>
+        </header>
+
+        <!-- Flat, like Settings: a person reads the whole record by scrolling
+             once. The transcript keeps its nodes across a close (renderTranscript
+             reuses the rows it made), and the log keeps recording the same
+             entries whether or not anybody has this open. -->
+        <section class="voice-dialog-part" id="transcript-panel" aria-labelledby="transcript-title">
+          <h3 class="voice-dialog-part-title" id="transcript-title">Recent transcript</h3>
+          <ol class="voice-transcript" id="transcript" aria-label="Recent transcript"></ol>
+        </section>
+
+        <section class="voice-dialog-part" id="log-panel" aria-labelledby="log-title">
+          <h3 class="voice-dialog-part-title" id="log-title">
+            <span class="voice-summary-first">Tool calls</span>
+            <button id="copy-log" type="button">Copy</button>
+          </h3>
+          <p class="voice-hint" id="copy-note" role="status"></p>
+          <ol class="voice-log" id="log"></ol>
+        </section>
+      </dialog>
+
+      <dialog class="voice-dialog" id="settings" closedby="any" aria-labelledby="settings-title">
+        <header class="voice-dialog-head">
           <h2 id="settings-title" tabindex="-1" autofocus>Voice settings</h2>
           <button id="settings-close" type="button">Close settings</button>
         </header>
         <!-- Flat on purpose: one scroll, no disclosure. Everything the cog
              holds is readable by scrolling, so nothing has to be opened. -->
-        <section class="voice-settings-part" id="connection-panel" aria-labelledby="connection-title">
-          <h3 class="voice-settings-part-title" id="connection-title">
+        <section class="voice-dialog-part" id="connection-panel" aria-labelledby="connection-title">
+          <h3 class="voice-dialog-part-title" id="connection-title">
             Connected to
             <span class="voice-summary" id="connection-summary">unknown</span>
           </h3>
@@ -211,8 +233,8 @@
           </section>
         </section>
 
-        <section class="voice-settings-part" id="key-panel" aria-labelledby="key-title">
-          <h3 class="voice-settings-part-title" id="key-title">Key</h3>
+        <section class="voice-dialog-part" id="key-panel" aria-labelledby="key-title">
+          <h3 class="voice-dialog-part-title" id="key-title">Key</h3>
           <p class="voice-hint">
             The key drives <b>Gemini Live</b> — the conversation itself. The harness stores it at
             <code>~/.isocan/voice/key.json</code> (0600); this page posts it once over loopback and keeps no copy. The
