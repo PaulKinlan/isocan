@@ -19,6 +19,7 @@ import {
   sortCanvases,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
+  newCanvasId,
   newCommentId,
   newThreadId,
   newVersionId,
@@ -900,6 +901,21 @@ export const LIVE_TOOLS = [
   },
 
   // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
+  {
+    name: "project_create",
+    description:
+      "Create a new canvas (project), with the title THE PERSON gave it. Use for 'make a new canvas called Launch plan', " +
+      "'start a project for the redesign'. It is created, not entered: this session stays where it is until someone " +
+      "switches to it.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        title: { type: "STRING", description: "The canvas's title, in the person's words." },
+        description: { type: "STRING", description: "Optional one-line description." },
+      },
+      required: ["title"],
+    },
+  },
   {
     name: "project_list",
     description:
@@ -2756,6 +2772,60 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             }
 
             // 1. Read & Inspection tools:
+            if (name === "project_create") {
+              const title = String(args.title ?? "").trim();
+              if (!title) {
+                const err = "a new canvas needs a title — ask the person what to call it";
+                say({ text: err, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              }
+              const canvasId = newCanvasId();
+              const description = typeof args.description === "string" ? args.description.trim() : "";
+              try {
+                /* Home-scoped, exactly as `isocan canvas create` sends it:
+                   the envelope names no canvas, because the canvas does not
+                   exist until this op makes it. */
+                const ack = await target.canvas.ctx.client.sendOp(null, target.canvas.ctx.actor, {
+                  type: "project.create",
+                  canvasId,
+                  title,
+                  ...(description ? { description } : {}),
+                });
+                const answer =
+                  `created the canvas “${title}” [${canvasId}] — this session is still on “${target.canvasLabel}”; ` +
+                  `switch to it when the person wants to work there`;
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: "project.create", said: `made the canvas “${title}”`, target: canvasId },
+                  result: { ok: true, answer, seq: ack.seq, canvasId },
+                });
+                recentActions.push({ tool: name, op: "project.create", id: canvasId, ack: answer });
+                if (recentActions.length > 20) recentActions.shift();
+                return { ok: true, canvas: { id: canvasId, title }, answer };
+              } catch (err) {
+                const message = `the canvas was not made — ${(err as Error).message}`;
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+            }
             if (name === "project_list") {
               /* **The shelf is out of the way unless it is asked for** (#194),
                  and the rule is `inScope` — the same one the app's home list

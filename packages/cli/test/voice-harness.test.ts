@@ -123,11 +123,15 @@ async function post(url: string, body: unknown): Promise<any> {
 
 /** Every op the canvas has, oldest first, with who sent it — the watched log
  * replayed from zero, which is what `isocan tail --since 0` walks. */
-async function log(): Promise<{ type: string; actor: string }[]> {
+async function log(ids: string[] = ["prj_1"]): Promise<{ type: string; actor: string }[]> {
   const res = await fetch(`${base}/api/oplog/watch`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...badge.headers },
-    body: JSON.stringify({ cursors: { prj_1: 0 }, only: ["prj_1"], waitMs: 0 }),
+    body: JSON.stringify({
+      cursors: Object.fromEntries(ids.map((id) => [id, 0])),
+      only: ids,
+      waitMs: 0,
+    }),
   });
   const body = (await res.json()) as {
     entries?: { envelope: { actor: { id: string }; op: { type: string } } }[];
@@ -825,6 +829,48 @@ describe("the projects this session can work on", () => {
     const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
     return reply.toolResponse?.functionResponses?.[0];
   }
+
+  it("makes a canvas the person asked for, and leaves the session where it was", async () => {
+    const live = await liveServer();
+    try {
+      const made = await callTool(live.providerSocket, "call-create", "project_create", {
+        title: "Launch plan",
+        description: "the redesign",
+      });
+      expect(made.response.ok).toBe(true);
+      const canvasId = made.response.canvas.id as string;
+      expect(canvasId).toMatch(/^prj_/);
+
+      // The home lists it, and its own log holds its birth — the same
+      // `project.create` `isocan canvas create` sends, sent as this agent.
+      const canvases = (await (await fetch(`${base}/api/projects`, { headers: badge.headers })).json()) as {
+        id: string;
+        title: string;
+      }[];
+      expect(canvases.find((c) => c.id === canvasId)?.title).toBe("Launch plan");
+      const born = (await log([canvasId])).find((e) => e.type === "project.create");
+      expect(born, "a new canvas's log starts with its own birth").toBeDefined();
+      expect(born!.actor).not.toBe(seeder.id);
+
+      // Created, not entered: the session is still on the canvas it was on,
+      // because nothing was switched and the answer says so.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.canvas.id).toBe("prj_1");
+      expect(made.response.answer).toContain("still on");
+
+      // A canvas with no name is refused rather than made blank.
+      const blank = await callTool(live.providerSocket, "call-blank", "project_create", { title: "   " });
+      expect(blank.response.ok).toBe(false);
+      expect(blank.response.error).toContain("title");
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_create" && e.result?.ok === true);
+      expect(row.op.type).toBe("project.create");
+      expect(row.result.canvasId).toBe(canvasId);
+    } finally {
+      await live.close();
+    }
+  });
 
   it("lists the canvases a person can work on, marks where the session is, and leaves the shelf out", async () => {
     // A second canvas, and a third put away. The shelf rule is core's
