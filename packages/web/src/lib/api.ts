@@ -236,7 +236,7 @@ let lastDoorRefusal: { message: string; refusal?: RefusalNotice } | null = null;
  * recovery is a 401 followed by a `not-your-actor` on the first action after
  * it — the canvas would flinch, once, for good.
  */
-export async function knockOnDoor(): Promise<boolean> {
+export async function knockOnDoor(claimIdentity = true): Promise<boolean> {
   try {
     const res = await fetch(DOOR_ROUTE, {
       method: "POST",
@@ -263,14 +263,19 @@ export async function knockOnDoor(): Promise<boolean> {
       return false;
     }
     lastDoorRefusal = null;
-    await reclaimNow();
+    // An actor.claim can need a new badge too, but must not wait on the
+    // identity recovery promise that is waiting for this very claim.
+    if (claimIdentity) await reclaimNow();
     return true;
   } catch {
     return false;
   }
 }
 
-async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(
+  method: string, url: string, body?: unknown, signal?: AbortSignal,
+  recovery: "identity" | "badge" = "identity",
+): Promise<T> {
   const send = () =>
     fetch(url, {
       method,
@@ -289,8 +294,8 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
   signal?.throwIfAborted();
   const recovered =
     res.status === 401
-      ? await knockOnDoor()
-      : json?.code === "not-your-actor" && (await reclaimNow());
+      ? await knockOnDoor(recovery === "identity")
+      : recovery === "identity" && json?.code === "not-your-actor" && (await reclaimNow());
   if (recovered) {
     signal?.throwIfAborted();
     res = await send();
@@ -323,7 +328,9 @@ async function reclaimNow(): Promise<boolean> {
  * actor: the claim resolves who is speaking, and the response envelope
  * carries the answer. */
 export function claimActor(op: ActorClaimOp): Promise<PostOpResponse> {
-  return request("POST", "/api/ops", { canvasId: null, clientId: CLIENT_ID, op });
+  // A refused claim is final for this identity attempt. It may recover a
+  // missing badge once, but cannot re-enter (or join) its own claim recovery.
+  return request("POST", "/api/ops", { canvasId: null, clientId: CLIENT_ID, op }, undefined, "badge");
 }
 
 /**
