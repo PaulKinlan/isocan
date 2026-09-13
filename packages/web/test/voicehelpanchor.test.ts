@@ -14,7 +14,7 @@ import { rules, withoutComments } from "./cssrules.ts";
  *
  * This is a guard on the sheet rather than on the page because that is where
  * the mistake lives. What it can prove is that the names line up; where a card
- * actually lands is driven in Chrome by `scripts/voice-help-evidence.mjs`.
+ * actually lands is driven in Chrome by `scripts/voice-settings-evidence.mjs`.
  */
 
 const voiceHtml = readFileSync(path.join(process.cwd(), "packages/web/voice.html"), "utf8");
@@ -37,20 +37,20 @@ describe("the anchor each help card hangs from", () => {
     expect([...declared.keys()].sort()).toEqual(anchors.map((id) => `--${id}`).sort());
   });
 
-  it("names the row the glyph and its card both live in", () => {
+  it("names the container the glyph and its card both live in", () => {
     for (const [name, selector] of declared) {
       const id = name.replace(/^--/, "");
       if (selector.includes(`commandfor="${id}"`)) continue;
-      // The key panel is the exception and the reason this check exists: its
-      // glyph sits in the heading and its card does not, so the name goes on
-      // the section — and the section has to really hold both halves.
-      const section = voiceHtml.slice(
-        voiceHtml.indexOf('id="key-panel"'),
-        voiceHtml.indexOf("</section>", voiceHtml.indexOf('id="key-panel"')),
-      );
-      expect(selector, `${id} is named on a row that holds it`).toBe("#settings #key-panel");
-      expect(section).toContain(`commandfor="${id}"`);
-      expect(section).toContain(`id="${id}"`);
+      // A panel is the exception and the reason this check exists: its glyph
+      // sits in the heading and its card does not, so the name goes on the
+      // section — and the section has to really hold both halves.
+      const container = /#([\w-]+)/.exec(selector.replace("#settings", ""))?.[1];
+      expect(container, `${selector} names a container`).toBeTruthy();
+      const at = voiceHtml.indexOf(`id="${container}"`);
+      expect(at, `${container} is in the page`).toBeGreaterThan(-1);
+      const section = voiceHtml.slice(at, voiceHtml.indexOf("</section>", at));
+      expect(section, container).toContain(`commandfor="${id}"`);
+      expect(section, container).toContain(`id="${id}"`);
     }
   });
 

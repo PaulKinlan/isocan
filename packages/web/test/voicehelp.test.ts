@@ -15,7 +15,7 @@ import { wireSettingsHelp } from "../src/voice/help.ts";
  *
  * What a browser alone can prove — where the card lands, whether it overflows,
  * whether two of them can be on screen at once — is driven in Chrome by
- * `scripts/voice-help-evidence.mjs`, not asserted here.
+ * `scripts/voice-settings-evidence.mjs`, not asserted here.
  */
 
 const voiceHtml = readFileSync(path.resolve(process.cwd(), "packages/web/voice.html"), "utf8");

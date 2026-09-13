@@ -1,41 +1,56 @@
 #!/usr/bin/env node
 /**
- * **The "?" beside a setting, proved in a real browser.**
+ * **The voice settings dialog, driven in a real browser: the "?" help beside
+ * every setting, and the light/dark/system theme choice.**
  *
  * The functional-verification rule says interaction only a browser can prove
- * is proved by driving a browser. This is that for the help cards, and it
+ * is proved by driving a browser. This is that for the settings surface, and it
  * exists because the claims that matter here are all ones a jsdom test cannot
- * make: where a card lands, whether it leaves the screen at 420, whether the
- * platform's own popover machinery or ours is doing the work, and what a
- * screen reader is actually told.
+ * make: where a help card lands, whether it leaves the screen at 420, whether
+ * the platform's own popover machinery or ours is doing the work, what a screen
+ * reader is actually told, and whether the theme row repaints the page through
+ * the page's OWN pre-paint applier rather than through a second opinion about
+ * what "system" means.
  *
  * What it measures, and why each is not optional:
  *
- *   - **Every card, at both widths**, opened by a real click on its glyph, with
- *     the geometry of where it landed: the anchored position, the flips, and
- *     whether it stayed inside the viewport and inside the dialog's column.
+ *   - **Every help card, at both widths**, opened by a real click on its glyph,
+ *     with the geometry of where it landed: the anchored position, the flips,
+ *     and whether it stayed inside the viewport. Plus a short window (420x320),
+ *     where the last fallback is the only one left.
  *   - **Hover**, with real mouse events, because "hover opens it" is a claim
  *     about the pointer, not about a handler existing.
- *   - **Keyboard**, with real Enter and Escape, reading back both the card's
- *     state and `document.activeElement`: Escape must close the card and NOT
- *     the dialog, which is the one way a help affordance can lose somebody's
- *     place in the settings they were editing.
- *   - **Two at once**, which is what `popover="hint"` is supposed to prevent
+ *   - **Keyboard**, with real Enter, Space and Escape, reading back both the
+ *     card's state and `document.activeElement`: Escape must close the card and
+ *     NOT the dialog, which is the one way a help affordance can lose
+ *     somebody's place in the settings they were editing.
+ *   - **Two at once**, which is what `popover="hint"` is supposed to prevent,
  *     and what a browser that does not know the value will not prevent for us.
  *   - **No reflow**: the row's box and the dialog's scroll height, before and
  *     after a card opens. A help that moves the setting it explains is worse
  *     than no help.
- *   - **The accessibility tree**, not the attributes: the description a
- *     screen reader gets for the control, and the name it gets for the glyph.
+ *   - **The accessibility tree**, not the attributes: the description a screen
+ *     reader gets for the control and for the glyph, and the name of a heading
+ *     that has a control beside it.
+ *   - **The three theme states**, selected in turn, each with the theme the
+ *     page resolved and the line that says which it is; the device flipped
+ *     under "Use system" with no reload (proved by a mark left on the window);
+ *     a pinned choice ignoring the device and surviving a reload; the arrow
+ *     keys and Space moving the radio group.
  *   - **The platform's answers**, printed: whether this browser has `hint`,
  *     invoker commands, anchor positioning and `closedby`, and what it does
  *     with a popover value it does not know.
+ *
+ * Both reports are written by one script because both subjects are the same
+ * dialog on the same page: the stub harness, the throwaway vite and the page
+ * helpers are the expensive part, and copying them is the mistake this repo has
+ * already named once (see `scripts/lib/browser.mjs`).
  *
  * A stub harness on a free port answers `/state`; the throwaway vite is pointed
  * at it with `ISOCAN_VOICE_HARNESS`, so nothing here touches the real harness
  * on 7654 or anybody's canvas.
  *
- *   node scripts/voice-help-evidence.mjs [--out <dir>]
+ *   node scripts/voice-settings-evidence.mjs [--out <dir>]
  */
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -47,12 +62,19 @@ import { browser, until } from "./lib/browser.mjs";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outIndex = process.argv.indexOf("--out");
 const outDir = outIndex > -1 ? path.resolve(process.argv[outIndex + 1]) : path.join(repo, "reports", "voice-help");
+// The theme row is a different item from the help, so its pictures and report
+// live under their own name — but it is the same dialog on the same page, so
+// the same run measures both.
+const themeDir = path.join(path.dirname(outDir), "voice-theme");
 mkdirSync(outDir, { recursive: true });
+mkdirSync(themeDir, { recursive: true });
 // A previous run's pictures are cleared first: evidence.md is rewritten every
 // time, and a screenshot left from an older code path would be evidence of a
 // state this run never measured.
-for (const file of readdirSync(outDir)) {
-  if (file.endsWith(".png")) rmSync(path.join(outDir, file), { force: true });
+for (const dir of [outDir, themeDir]) {
+  for (const file of readdirSync(dir)) {
+    if (file.endsWith(".png")) rmSync(path.join(dir, file), { force: true });
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -60,6 +82,13 @@ const begun = Date.now();
 const steps = [];
 const step = (line) => {
   steps.push(line);
+  console.log(`  ${line}`);
+};
+/** The theme row's own steps, for its own report: the two subjects share a
+ *  browser and a page, not a page of evidence. */
+const themeSteps = [];
+const themeStep = (line) => {
+  themeSteps.push(line);
   console.log(`  ${line}`);
 };
 const say = (line) => console.log(`  ${line}`);
@@ -125,15 +154,22 @@ const b = await browser({ flags: ["--window-size=1440,980"] });
  * own centre — so a screenshot here is a photograph of the state the numbers
  * describe, not of whatever happened to be on screen afterwards.
  */
-const shot = async (name, id) => {
-  const painted = await b.ev(`(() => { const card = document.getElementById(${JSON.stringify(id)});
-    const r = card.getBoundingClientRect();
-    const hit = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
-    return { open: card.matches(":popover-open"), onTop: Boolean(hit && card.contains(hit)) }; })()`);
-  if (!painted.open || !painted.onTop) step(`${name}: the card under the shutter was open ${painted.open}, painted at its centre ${painted.onTop}`);
+const shot = async (name, id = null, dir = outDir) => {
+  // With an id: the card named must be the thing painted at its own centre, so
+  // the picture is of the state the numbers describe. Without one (the theme
+  // row, where no card is open) the shutter is the state as measured.
+  let holds = true;
+  if (id) {
+    const painted = await b.ev(`(() => { const card = document.getElementById(${JSON.stringify(id)});
+      const r = card.getBoundingClientRect();
+      const hit = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+      return { open: card.matches(":popover-open"), onTop: Boolean(hit && card.contains(hit)) }; })()`);
+    holds = painted.open && painted.onTop;
+    if (!holds) step(`${name}: the card under the shutter was open ${painted.open}, painted at its centre ${painted.onTop}`);
+  }
   const { data } = await b.send("Page.captureScreenshot", { format: "png" });
-  writeFileSync(path.join(outDir, `${name}.png`), Buffer.from(data, "base64"));
-  return `${name}.png${painted.open && painted.onTop ? "" : " (NOT the state the numbers describe)"}`;
+  writeFileSync(path.join(dir, `${name}.png`), Buffer.from(data, "base64"));
+  return `${name}.png${holds ? "" : " (NOT the state the numbers describe)"}`;
 };
 
 /** Real keys, through the browser's own input pipeline. Enter and Space carry
@@ -230,6 +266,14 @@ async function ensureDialog() {
   await until(b, `document.getElementById("settings").open`, "the settings dialog to come back");
 }
 
+/** A real reload of the page, waited on the load event rather than a clock. */
+async function reload() {
+  const loaded = b.once("Page.loadEventFired");
+  await b.send("Page.reload");
+  await loaded;
+  await until(b, `document.getElementById("daemon")?.textContent === "http://127.0.0.1:4441"`, "the page to come back");
+}
+
 /** Open every card in turn, by a real click on its glyph, and record where it landed. */
 async function sweep(label) {
   const rows = [];
@@ -315,15 +359,17 @@ try {
   const wideLight = await sweep("1440 light");
 
   /* No reflow: the row's own box and the dialog's scroll height, before and
-     after a card opens. Nothing about the setting may move. */
+     after a card opens. Nothing about the setting may move. Measured in the
+     dialog's SCROLL coordinates, because reaching a glyph further down scrolls
+     the dialog and a viewport-relative box would call that a reflow. */
   await ensureDialog();
-  const before = await b.ev(`(() => { const row = document.querySelector('[commandfor="help-microphone"]').closest("div").getBoundingClientRect();
-    const dialog = document.getElementById("settings");
-    return { row: [Math.round(row.top), Math.round(row.bottom), Math.round(row.left), Math.round(row.right)], scroll: dialog.scrollHeight }; })()`);
+  const rowBox = () => b.ev(`(() => { const dialog = document.getElementById("settings");
+    const box = dialog.getBoundingClientRect();
+    const row = document.querySelector('[commandfor="help-microphone"]').closest("div").getBoundingClientRect();
+    return { row: [Math.round(row.top - box.top + dialog.scrollTop), Math.round(row.bottom - box.top + dialog.scrollTop), Math.round(row.left - box.left), Math.round(row.right - box.left)], scroll: dialog.scrollHeight }; })()`);
+  const before = await rowBox();
   await openCard("help-microphone");
-  const after = await b.ev(`(() => { const row = document.querySelector('[commandfor="help-microphone"]').closest("div").getBoundingClientRect();
-    const dialog = document.getElementById("settings");
-    return { row: [Math.round(row.top), Math.round(row.bottom), Math.round(row.left), Math.round(row.right)], scroll: dialog.scrollHeight }; })()`);
+  const after = await rowBox();
   step(
     `reflow: the row is ${JSON.stringify(before.row)} before and ${JSON.stringify(after.row)} after the card opens (${JSON.stringify(before.row) === JSON.stringify(after.row) ? "unmoved" : "MOVED"}); ` +
       `the dialog scrolls ${before.scroll}px of content either way (${before.scroll === after.scroll ? "unchanged" : "CHANGED"})`,
@@ -506,6 +552,162 @@ try {
   const touchOpen = await b.ev(`[...document.querySelectorAll(".voice-help-card:popover-open")].map((c) => c.id)`);
   step(`touch at 420: a tap opened ${JSON.stringify(touchOpen)} — the whole path for a phone, where nothing hovers`);
   await escape();
+
+  /* ---- the theme row ----------------------------------------------------
+     Three states, each selected by a real click on its LABEL (the 44px target,
+     not the 20px radio), and each read back off the page: the radio that is
+     checked, the attribute the stylesheet paints from, and the line that says
+     which theme those two add up to. */
+  await b.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 980, deviceScaleFactor: 1, mobile: false });
+  await b.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+  await b.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
+  // Nothing stored: the state of a page nobody has chosen on yet.
+  await b.ev(`localStorage.removeItem("isocan.theme")`);
+  await reload();
+  await ensureDialog();
+
+  const themeState = () =>
+    b.ev(`(() => ({
+      checked: [...document.querySelectorAll("#theme-panel input")].find((i) => i.checked)?.value ?? "none",
+      theme: document.documentElement.dataset.theme,
+      line: document.getElementById("theme-now")?.textContent ?? "",
+    }))()`);
+  const chooseTheme = async (value) => {
+    await b.ev(`document.querySelector('#theme-panel input[value="${value}"]').closest("label").scrollIntoView({ block: "center" })`);
+    await sleep(80);
+    const at = await centre(`#theme-panel label:has(input[value="${value}"])`);
+    await clickAt(at.x, at.y);
+    await sleep(150);
+  };
+
+  const themeStates = [{ value: "(nothing chosen)", ...(await themeState()) }];
+  const themeShots = [];
+  for (const [value, file] of [
+    ["dark", "01-theme-dark"],
+    ["light", "02-theme-light"],
+    ["system", "03-theme-system"],
+  ]) {
+    await chooseTheme(value);
+    themeStates.push({ value, ...(await themeState()) });
+    themeShots.push(await shot(file, null, themeDir));
+  }
+  for (const state of themeStates)
+    themeStep(`theme: ${state.value} → radio "${state.checked}", page ${state.theme}, row says "${state.line}"`);
+
+  /* The device flips while the page is open, under Use system. The mark left on
+     the window is what says the page did not reload to get there. */
+  await b.ev(`window.__samePageInstance = "yes"`);
+  await b.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await sleep(300);
+  const flipped = await themeState();
+  const sameInstance = await b.ev(`window.__samePageInstance ?? "no"`);
+  themeStep(
+    `theme: the device flips to dark under Use system → page ${flipped.theme}, row says "${flipped.line}" ` +
+      (sameInstance === "yes" ? "(the same page instance: no reload)" : "(THE PAGE RELOADED)"),
+  );
+
+  /* Pinned is pinned: the device's own answer stops mattering, and the choice
+     outlives the page. */
+  await chooseTheme("dark");
+  await b.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
+  await sleep(250);
+  const pinned = await themeState();
+  await reload();
+  const afterReload = await themeState();
+  themeStep(
+    `theme: pinned to dark with the device on light → page ${pinned.theme}, row says "${pinned.line}"; ` +
+      `after a reload: page ${afterReload.theme}, radio "${afterReload.checked}", row says "${afterReload.line}"`,
+  );
+
+  /* The radio group's own keys: the arrow moves the choice AND the theme, and
+     Space selects. Real keys, through the browser's input pipeline. */
+  await ensureDialog();
+  await b.ev(`document.querySelector("#theme-panel input:checked").focus()`);
+  const focusedRadio = await b.ev(`document.activeElement.value`);
+  await key("ArrowRight", "ArrowRight", 39);
+  await sleep(200);
+  const arrowed = await themeState();
+  await key(" ", "Space", 32, " ");
+  await sleep(200);
+  const spacedChoice = await themeState();
+  themeStep(
+    `theme by keyboard: ArrowRight from "${focusedRadio}" moved the choice to "${arrowed.checked}" and the page to ${arrowed.theme}; ` +
+      `Space then selected "${spacedChoice.checked}" with the page ${spacedChoice.theme}`,
+  );
+
+  /* The row on a phone, beside its own "?": the dialog is narrower than the
+     three choices are wide, and the card has to land without leaving it. */
+  await b.send("Emulation.setDeviceMetricsOverride", { width: 420, height: 860, deviceScaleFactor: 2, mobile: true });
+  await sleep(250);
+  await ensureDialog();
+  await b.ev(`document.getElementById("theme-panel").scrollIntoView({ block: "center" })`);
+  await sleep(120);
+  const row = await b.ev(`(() => {
+    const panel = document.getElementById("theme-panel").getBoundingClientRect();
+    const dialog = document.getElementById("settings").getBoundingClientRect();
+    return {
+      panel: [Math.round(panel.left), Math.round(panel.right)],
+      dialog: [Math.round(dialog.left), Math.round(dialog.right)],
+      choices: [...document.querySelectorAll("#theme-panel .voice-theme-choice")].map((label) => {
+        const r = label.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.right), Math.round(r.height)];
+      }),
+      glyph: (() => { const r = document.querySelector('[commandfor="help-theme"]').getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.right), Math.round(r.width), Math.round(r.height)]; })(),
+      // The radio itself must stay a radio: the settings surface puts a 44px
+      // minimum on every input, and a stretched radio is what that looks like
+      // when it is not taken back off this one.
+      radios: [...document.querySelectorAll("#theme-panel input")].map((input) => {
+        const r = input.getBoundingClientRect();
+        return [Math.round(r.width), Math.round(r.height)];
+      }),
+      scrollWidth: document.documentElement.scrollWidth,
+      vw: innerWidth,
+    };
+  })()`);
+  themeStep(
+    `theme at 420: the panel spans ${row.panel[0]}..${row.panel[1]} inside the dialog's ${row.dialog[0]}..${row.dialog[1]}; ` +
+      `the choices are [left, right, height] ${JSON.stringify(row.choices)} (44px targets); the radios are [w, h] ${JSON.stringify(row.radios)}; the "?" is ${row.glyph[2]}x${row.glyph[3]} at ${row.glyph[0]}..${row.glyph[1]}; ` +
+      `document ${row.scrollWidth}px of ${row.vw}px`,
+  );
+  await openCard("help-theme");
+  const themeCard = (await b.ev(GEOMETRY)).find((one) => one.id === "help-theme");
+  const themeNarrowShot = await shot("04-theme-420-with-help", "help-theme", themeDir);
+  themeStep(`theme at 420: its help card landed ${themeCard.where} at ${JSON.stringify(themeCard.card)}, inside the viewport: ${themeCard.insideViewport}`);
+  await escape();
+  await b.send("Emulation.setEmulatedMedia", { features: [] });
+
+  const themeErrors = b.takeErrors();
+  if (themeErrors.length) themeStep(`theme page errors: ${JSON.stringify(themeErrors)}`);
+
+  const themeLines = [
+    `# Voice settings — the theme choice, browser evidence`,
+    ``,
+    `Run ${new Date().toISOString()} in ${((Date.now() - begun) / 1000).toFixed(1)}s, by the same script that`,
+    `drives the help cards (\`scripts/voice-settings-evidence.mjs\`): same dialog, same page, same real browser.`,
+    ``,
+    `- browser: ${platform.chrome}`,
+    `- three states, each selected by a real click on its label: ${themeStates.map((s) => `${s.value} → radio "${s.checked}", page ${s.theme}`).join("; ")}`,
+    `- what the row said: ${themeStates.map((s) => `${s.value}: "${s.line}"`).join("; ")}`,
+    `- the device flipped to dark under Use system: page ${flipped.theme}, row "${flipped.line}", ` +
+      (sameInstance === "yes" ? "the same page instance (no reload)" : "THE PAGE RELOADED"),
+    `- pinned to dark with the device on light: page ${pinned.theme}, row "${pinned.line}"`,
+    `- after a reload: page ${afterReload.theme}, radio "${afterReload.checked}", row "${afterReload.line}"`,
+    `- keyboard: ArrowRight from "${focusedRadio}" chose "${arrowed.checked}" (page ${arrowed.theme}), Space chose "${spacedChoice.checked}" (page ${spacedChoice.theme})`,
+    `- at 420: the panel ${row.panel[0]}..${row.panel[1]} inside the dialog ${row.dialog[0]}..${row.dialog[1]}, choices ${JSON.stringify(row.choices)}, radios ${JSON.stringify(row.radios)}, "?" ${row.glyph[2]}x${row.glyph[3]}, document ${row.scrollWidth}px of ${row.vw}px`,
+    `- at 420, the row's help card: ${themeCard.where} at ${JSON.stringify(themeCard.card)}, inside the viewport: ${themeCard.insideViewport}`,
+    `- theme page errors: ${themeErrors.length ? JSON.stringify(themeErrors) : "none"}`,
+    ``,
+    `## Steps`,
+    ...themeSteps.map((line) => `- ${line}`),
+    ``,
+    `## Screenshots`,
+    ...themeShots.map((file) => `- ${file} — the theme row with that choice made`),
+    `- ${themeNarrowShot} — the same row at 420 with its "?" card open`,
+    ``,
+  ];
+  writeFileSync(path.join(themeDir, "evidence.md"), themeLines.join("\n"));
+  console.log(`  theme evidence written to ${path.join(themeDir, "evidence.md")}`);
 
   const errors = b.takeErrors();
   if (errors.length) step(`page errors: ${JSON.stringify(errors)}`);

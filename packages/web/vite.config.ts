@@ -63,7 +63,7 @@ export default defineConfig({
       // the audio socket survives HMR. `ws: true` for /harness/audio.
       "/harness": {
         // `ISOCAN_VOICE_HARNESS` lets a driver point a throwaway vite at its
-        // own stub harness (`scripts/voice-help-evidence.mjs`) instead of the
+        // own stub harness (`scripts/voice-settings-evidence.mjs`) instead of the
         // one on 7654, which is somebody's live session.
         target: process.env.ISOCAN_VOICE_HARNESS ?? "http://127.0.0.1:7654",
         changeOrigin: true,

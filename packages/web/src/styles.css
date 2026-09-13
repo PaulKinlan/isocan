@@ -6885,6 +6885,7 @@ body:has(> .voice) { overflow: auto; }
 #settings .voice-facts > div:has([commandfor="help-localfiles"]) { --help-anchor: --help-localfiles; }
 #settings .voice-facts > div:has([commandfor="help-microphone"]) { --help-anchor: --help-microphone; }
 #settings #key-panel { --help-anchor: --help-key; }
+#settings #theme-panel { --help-anchor: --help-theme; }
 
 #settings .voice-help { anchor-name: var(--help-anchor, none); }
 
@@ -7104,6 +7105,34 @@ body:has(.voice-settings[open]) { overflow: hidden; }
 .voice-setup-callout { display: grid; justify-items: center; gap: var(--s1); font-size: var(--t-sm); }
 .voice-setup-callout p { margin: 0; color: var(--ink-muted); }
 .voice-settings .voice-complaint { margin-bottom: var(--s4); }
+
+/* The theme choices. Native radios in a native fieldset, so the arrow keys,
+   the group and the checked state are the platform's rather than a second
+   interpretation of them — and the LABEL is the 44px target, because a radio
+   stretched to 44px is a worse control than a comfortable label. Note the
+   ordering: `.voice-settings :is(button, select, input)` sets a 44px minimum
+   on inputs above, and this is the rule that takes it back off the radio. */
+.voice-theme {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--s4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.voice-theme-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-block-size: 44px;
+  cursor: pointer;
+}
+.voice-theme-choice input {
+  inline-size: 20px;
+  block-size: 20px;
+  min-block-size: 0;
+  margin: 0;
+}
 
 @media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   .voice {

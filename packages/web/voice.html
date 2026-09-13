@@ -269,6 +269,25 @@
           </div>
           <p class="voice-hint" id="key-note" role="status" hidden></p>
         </section>
+
+        <!-- The one preference here that is about this page rather than about
+             the harness: the theme. Radios, not a button group, so the arrow
+             keys and the announced state are the platform's. -->
+        <section class="voice-settings-part" id="theme-panel" aria-labelledby="theme-title">
+          <div class="voice-settings-part-title">
+            <h3 id="theme-title">Theme</h3>
+            <button class="voice-help" type="button" commandfor="help-theme" command="toggle-popover" aria-label="About the theme" aria-describedby="help-theme"><span class="voice-help-glyph" aria-hidden="true">?</span></button>
+          </div>
+          <fieldset class="voice-theme" id="theme-choices" aria-labelledby="theme-title" aria-describedby="help-theme">
+            <label class="voice-theme-choice"><input type="radio" name="theme" value="light" />Light</label>
+            <label class="voice-theme-choice"><input type="radio" name="theme" value="dark" />Dark</label>
+            <label class="voice-theme-choice"><input type="radio" name="theme" value="system" />Use system</label>
+          </fieldset>
+          <p class="voice-hint" id="theme-now" role="status"></p>
+          <div class="voice-help-card" popover="hint" id="help-theme">
+            <p>Use system follows your device's setting and keeps following it when the device changes; Light and Dark pin this page to one of them until you pick Use system again. Pinning is what you want when the device's choice is wrong for where you are — a phone that turns dark at sunset, a projector that needs light.</p>
+          </div>
+        </section>
       </dialog>
     </div>
 
