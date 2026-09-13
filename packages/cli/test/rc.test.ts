@@ -1,14 +1,17 @@
 import { CANVAS_GROUPS_FEATURE, CLIENT_FEATURES_HEADER, formatBadgeToken } from "@isocan/core";
-import { describe, expect, it } from "vitest";
+import { adoptRcAgent, type RcAgentRow } from "../src/rc.ts";
+import { describe, expect, it, vi } from "vitest";
 import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   answeringFor,
   badge,
   base,
   collect,
   dimitri,
+  daemon,
   home,
   isocan,
   nico,
@@ -46,6 +49,51 @@ import {
 useRcHome();
 
 describe("the enrolment record, in two halves", () => {
+  it("publishes enrolment only after the rc can read its working directory", async () => {
+    const submit = daemon.engine.submit.bind(daemon.engine);
+    let observed: RcAgentRow[] = [];
+    let adopted: boolean | undefined;
+    const gate = vi.spyOn(daemon.engine, "submit").mockImplementation(async (request) => {
+      if (request.op.type === "agent.enroll") {
+        // This intercepts the writer BEFORE it can publish an op or wake an
+        // actor. No timer decides whether the configuration was ready.
+        observed = await rcRows();
+        adopted = await adoptRcAgent(home, { canvasId: "prj_1", actorId: request.op.agent.id, name: request.op.agent.name, cwd: "/wrong-default", harness: null, sessionId: null });
+      }
+      return submit(request);
+    });
+    try {
+      const run = await isocan("agent", "add", "Acme builder");
+      expect(run.code, run.stderr).toBe(0);
+      expect(observed).toMatchObject([{ name: "Acme builder", cwd: await fs.realpath(home) }]);
+      expect(adopted).toBe(false);
+    } finally { gate.mockRestore(); }
+  });
+
+  it("a receipt dropped after acceptance leaves the prepared rc configuration intact", async () => {
+    let response: ServerResponse | undefined;
+    const capture = (request: IncomingMessage, reply: ServerResponse) => {
+      if (request.method === "POST" && request.url === "/api/ops") response = reply;
+    };
+    daemon.app.server.prependListener("request", capture);
+    const submit = daemon.engine.submit.bind(daemon.engine);
+    const gate = vi.spyOn(daemon.engine, "submit").mockImplementation(async (request) => {
+      const accepted = await submit(request);
+      if (request.op.type === "agent.enroll") response!.destroy();
+      return accepted;
+    });
+    try {
+      const run = await isocan("agent", "add", "Acme lost receipt");
+      expect(run.code).not.toBe(0);
+      const agent = Object.values(await snapshotAgents()).find((a) => a.actor.name === "Acme lost receipt");
+      expect(agent).toBeDefined();
+      expect(await rcRows()).toMatchObject([{ actorId: agent!.actor.id, cwd: await fs.realpath(home) }]);
+    } finally {
+      gate.mockRestore();
+      daemon.app.server.removeListener("request", capture);
+    }
+  });
+
   it("`isocan agent add` writes both halves — and the actor exists before any session", async () => {
     const run = await isocan("agent", "add", "Sian");
     expect(run.code).toBe(0);

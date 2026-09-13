@@ -483,7 +483,7 @@ import { CLI_MODULES } from "./modules.ts";
 import { loadRuntimeModules } from "./runtime-modules.ts";
 import type { CliHost, EnrolTemplate } from "./modulehost.ts";
 import { harnessSessions } from "@isocan/api";
-import { adoptRcAgent, gateTurn, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, type GuardState, type RcAgentRow } from "./rc.ts";
+import { adoptRcAgent, gateTurn, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, withPreparedRcAgent, type GuardState, type RcAgentRow } from "./rc.ts";
 import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
 import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
@@ -12564,8 +12564,8 @@ async function resolveListen(
 /**
  * The enrolment's two moves plus its records, shared by the verbs and the
  * rc's web-ask handler (agent-custody mechanism 2): claim the actor
- * first-claim on THIS machine's badge, enroll it, seed its cursor at the
- * enrolment op, write the rc half. Whoever calls this is the machine that
+ * first-claim on THIS machine's badge, prepare the rc half, enroll it, and
+ * seed its cursor at the enrolment op. Whoever calls this is the machine that
  * answers for the agent — which is the custody design in one sentence.
  */
 async function mintAndEnrol(
@@ -12590,23 +12590,23 @@ async function mintAndEnrol(
     name,
   });
   const agent = claimed.envelope.actor;
-  const enrolled = await ctx.client.sendOp(canvasId, ctx.actor, {
-    type: "agent.enroll",
-    agent,
-    ...(opts.rules !== undefined ? { rules: opts.rules } : {}),
-  });
-  // Seed the durable cursor at enrolment.
-  await ctx.client
-    .parkClaim({ canvasId, actorId: agent.id, seedAt: enrolled.seq })
-    .catch(() => {});
-  await upsertRcAgent(ctx.home, {
+  const enrolled = await withPreparedRcAgent(ctx.home, {
     canvasId,
     actorId: agent.id,
     name: agent.name,
     harness: opts.harness,
     cwd: opts.cwd,
     sessionId: null,
-  });
+  }, () => ctx.client.sendOp(canvasId, ctx.actor, {
+    type: "agent.enroll",
+    agent,
+    ...(opts.rules !== undefined ? { rules: opts.rules } : {}),
+  }));
+  // Publishing can immediately wake the rc, so its configuration already
+  // exists. Seed the durable cursor at enrolment, as before.
+  await ctx.client
+    .parkClaim({ canvasId, actorId: agent.id, seedAt: enrolled.seq })
+    .catch(() => {});
   return agent;
 }
 
