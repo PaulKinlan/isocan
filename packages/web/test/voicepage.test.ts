@@ -289,9 +289,10 @@ describe("the standalone page keeps the controls a person has to press", () => {
     for (const id of ["key", "save-key", "test-key", "forget-key"]) {
       expect(document.getElementById(id), id).toBeTruthy();
     }
-    // The drawer that carries the missing piece opens itself on a first run:
-    // stateReply is empty here, so there is no canvas, no actor and no key.
-    expect(document.querySelector("details[open]")).toBeTruthy();
+    // Nothing in Settings is folded away: it is one flat scroll, so there is
+    // no disclosure control to open before the key can be reached. The
+    // drawers beside the conversation keep their own expandos.
+    expect(document.querySelectorAll("#settings details, #settings summary").length).toBe(0);
     // The heading was printed twice — once as the summary, once as an <h2>.
     expect(document.body.innerHTML.match(/>Key</g)?.length ?? 0).toBe(1);
     expect(element<HTMLButtonElement>("save-key").disabled).toBe(true);

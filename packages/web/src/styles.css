@@ -6968,8 +6968,25 @@ body:has(.voice-settings[open]) { overflow: hidden; }
   background: var(--card);
 }
 .voice-settings-head h2 { margin: 0; font-size: var(--t-lg); }
-.voice-settings :is(button, select, input, summary), .voice-setup-callout button { min-block-size: 44px; }
+.voice-settings :is(button, select, input), .voice-setup-callout button { min-block-size: 44px; }
 .voice-settings :is(input, select) { font-size: 16px; }
+/* Flat, not folded: a heading per part and everything under it visible, so a
+   person reads the whole state of the thing by scrolling once. One scroll
+   container only — the dialog itself — never a scrolling region inside it. */
+.voice-settings-part { border-top: 1px solid var(--line-soft); }
+.voice-settings-part-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin: 0;
+  padding-block: var(--s3);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
 .voice-setup-callout { display: grid; justify-items: center; gap: var(--s1); font-size: var(--t-sm); }
 .voice-setup-callout p { margin: 0; color: var(--ink-muted); }
 .voice-settings .voice-complaint { margin-bottom: var(--s4); }

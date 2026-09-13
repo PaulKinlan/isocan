@@ -225,7 +225,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const versionLine = required<HTMLElement>("version", doc);
   const updatedLine = required<HTMLElement>("updated", doc);
   const complaintLine = required<HTMLElement>("complaint", doc);
-  const connectionPanel = required<HTMLDetailsElement>("connection-panel", doc);
+  const connectionPanel = required<HTMLElement>("connection-panel", doc);
   const connectionSummary = required<HTMLElement>("connection-summary", doc);
   const setupBox = required<HTMLElement>("setup", doc);
   const setupNote = required<HTMLElement>("setup-note", doc);
@@ -509,9 +509,8 @@ export function wireVoice(doc: Document = document): VoicePage {
         }`
       : "no harness answered";
 
-    // Expand the section inside Settings, never the modal itself. Missing
-    // prerequisites also have an inline pointer beside the conversation.
-    if (missing.length > 0) connectionPanel.open = true;
+    // Missing prerequisites also get an inline pointer beside the
+    // conversation; the modal never opens itself on first run.
     renderSetup();
   }
 
@@ -1281,9 +1280,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (!audio.key) {
       const li = setupStep(`No ${audio.provider === "no provider" ? "provider" : audio.provider} key is stored — the harness cannot open a Live session without one.`);
       setupAction(li, "Add a key", () => {
-        connectionPanel.open = false;
-        const keyPanel = doc.getElementById("key-panel") as HTMLDetailsElement | null;
-        if (keyPanel) keyPanel.open = true;
+        // The settings surface is flat, so the field is already on screen:
+        // focusing it is what scrolls it into view.
         keyInput.focus();
       });
     }
