@@ -872,6 +872,77 @@ describe("the projects this session can work on", () => {
     }
   });
 
+  it("renames the canvas this session is on, and the page's own account of itself with it", async () => {
+    const live = await liveServer();
+    try {
+      const renamed = await callTool(live.providerSocket, "call-rename-canvas", "project_update", {
+        title: "Winter work",
+      });
+      expect(renamed.response.ok).toBe(true);
+      expect(renamed.response.canvas).toEqual({ id: "prj_1", title: "Winter work" });
+
+      const canvases = (await (await fetch(`${base}/api/projects`, { headers: badge.headers })).json()) as {
+        id: string;
+        title: string;
+      }[];
+      expect(canvases.find((c) => c.id === "prj_1")?.title).toBe("Winter work");
+      expect((await log())[0]!.type).toBe("project.create");
+      const last = (await log()).at(-1)!;
+      expect(last.type).toBe("project.update");
+      expect(last.actor).not.toBe(seeder.id);
+
+      // The harness's own account of itself follows — the header, the facts
+      // panel and the tool context all read this one label.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.canvas).toEqual({ title: "Winter work", id: "prj_1" });
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_update" && e.result?.ok === true);
+      expect(row.op.type).toBe("project.update");
+      expect(row.op.said).toContain("Voice test");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("edits another canvas by name, and refuses a canvas nobody can find or an empty edit", async () => {
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    const live = await liveServer();
+    try {
+      const other = await callTool(live.providerSocket, "call-other", "project_update", {
+        canvas_ref: "Launch plan",
+        title: "Launch plan v2",
+        description: "the redesign",
+      });
+      expect(other.response.ok).toBe(true);
+      const canvases = (await (await fetch(`${base}/api/projects`, { headers: badge.headers })).json()) as {
+        id: string;
+        title: string;
+      }[];
+      expect(canvases.find((c) => c.id === "prj_2")?.title).toBe("Launch plan v2");
+      // ...and the session did not move to the canvas it edited.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.canvas.id).toBe("prj_1");
+
+      const missing = await callTool(live.providerSocket, "call-missing", "project_update", {
+        canvas_ref: "nothing like this",
+        title: "Nope",
+      });
+      expect(missing.response.ok).toBe(false);
+      expect(missing.response.error).toContain("no canvas matches");
+
+      const empty = await callTool(live.providerSocket, "call-empty", "project_update", {});
+      expect(empty.response.ok).toBe(false);
+      expect(empty.response.error).toContain("nothing to change");
+    } finally {
+      await live.close();
+    }
+  });
+
   it("lists the canvases a person can work on, marks where the session is, and leaves the shelf out", async () => {
     // A second canvas, and a third put away. The shelf rule is core's
     // (`inScope`), and this is the only place it is checked through the tool.

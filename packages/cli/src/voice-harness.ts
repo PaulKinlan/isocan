@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
 import { readConfigFile, readMarker } from "@isocan/server";
 import { statSync } from "node:fs";
-import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
+import { connect, matchRef, type CanvasHandle, type ListedItem } from "@isocan/api";
 import {
   BROWSER_MIME,
   canvasUrlWithPass,
@@ -901,6 +901,22 @@ export const LIVE_TOOLS = [
   },
 
   // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
+  {
+    name: "project_update",
+    description:
+      "Rename or re-describe a canvas (project). With no canvas_ref it is the canvas this session is working on; " +
+      "give a title or id to change another one. Use for 'rename this canvas to Launch plan', 'call the project " +
+      "Winter work', 'give it a description'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        canvas_ref: { type: "STRING", description: "A canvas title (or prefix) or id. Default: this session's canvas." },
+        title: { type: "STRING", description: "The new title." },
+        description: { type: "STRING", description: "The new one-line description." },
+      },
+      required: [],
+    },
+  },
   {
     name: "project_create",
     description:
@@ -2772,6 +2788,79 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             }
 
             // 1. Read & Inspection tools:
+            if (name === "project_update") {
+              const hasTitle = typeof args.title === "string" && args.title.trim() !== "";
+              const hasDescription = typeof args.description === "string" && args.description.trim() !== "";
+              if (!hasTitle && !hasDescription) {
+                const err = "nothing to change — a canvas edit needs a new title or a description";
+                say({ text: err, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              }
+              const ref = typeof args.canvas_ref === "string" ? args.canvas_ref.trim() : "";
+              let canvas: { id: string; title: string };
+              try {
+                /* `matchRef` is the one spelling of "which canvas did they
+                   mean" — id exact, then a unique title prefix — shared with
+                   `--canvas` everywhere else, so a spoken reference and a
+                   typed one cannot disagree. */
+                canvas = ref
+                  ? matchRef(await target.canvas.ctx.client.listCanvases(), ref)
+                  : { id: target.canvasId, title: target.canvasLabel };
+              } catch (err) {
+                const message = (err as Error).message;
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+              const patch: { title?: string; description?: string } = {
+                ...(hasTitle ? { title: String(args.title).trim() } : {}),
+                ...(hasDescription ? { description: String(args.description).trim() } : {}),
+              };
+              try {
+                const ack = await target.canvas.ctx.client.sendOp(canvas.id, target.canvas.ctx.actor, {
+                  type: "project.update",
+                  patch,
+                });
+                if (canvas.id === target.canvasId && patch.title !== undefined) target.canvasLabel = patch.title;
+                const answer = `updated “${canvas.title}” [${canvas.id}]${patch.title ? ` — now “${patch.title}”` : ""}`;
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: "project.update", said: `renamed the canvas “${canvas.title}”`, target: canvas.id },
+                  result: { ok: true, answer, seq: ack.seq },
+                });
+                recentActions.push({ tool: name, op: "project.update", id: canvas.id, ack: answer });
+                if (recentActions.length > 20) recentActions.shift();
+                return { ok: true, canvas: { id: canvas.id, title: patch.title ?? canvas.title }, answer };
+              } catch (err) {
+                const message = `the canvas was not changed — ${(err as Error).message}`;
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+            }
             if (name === "project_create") {
               const title = String(args.title ?? "").trim();
               if (!title) {
