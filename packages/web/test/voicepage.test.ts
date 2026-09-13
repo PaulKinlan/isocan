@@ -813,6 +813,13 @@ describe("configuration behind the settings cog", () => {
 });
 
 describe("the thumb-first conversation layout", () => {
+  it("keeps both waveforms without a redundant direction legend", () => {
+    expect(document.querySelector("#listen #input-wave")).toBeTruthy();
+    expect(document.querySelector(".voice-ring #output-wave")).toBeTruthy();
+    expect(document.querySelector(".voice-signal-key")).toBeNull();
+    expect(element("hero").textContent).not.toMatch(/You inside|Voice outside/);
+  });
+
   it("places captions before the microphone in DOM order, not just with CSS order", () => {
     expect(element("captions").compareDocumentPosition(element("listen")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector(".voice-stage")!.contains(element("hero"))).toBe(true);
