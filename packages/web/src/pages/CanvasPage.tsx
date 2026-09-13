@@ -25,7 +25,7 @@ import {
   useCanvasStore,
 } from "../stores/canvasStore.ts";
 import { useUiStore } from "../stores/uiStore.ts";
-import { pasteInto } from "../lib/clipboard.ts";
+import { captureClipboard, pasteInto } from "../lib/clipboard.ts";
 import { redo, sendOp, undo } from "../lib/api.ts";
 import { deleteItems, downloadItem } from "../lib/itemactions.ts";
 import { applyLocalEcho, flashNotice, sendEchoed } from "../stores/canvasStore.ts";
@@ -90,7 +90,7 @@ import { Minimap } from "../components/Minimap.tsx";
 import { revealItem, zoomBy, zoomTo100, zoomToFit, zoomToSelection } from "../lib/zoomactions.ts";
 import { findNextItem, nearestToPoint, type Direction } from "../lib/spatialnav.ts";
 import { screenToWorld } from "../lib/viewport.ts";
-import { TrashPanel } from "../components/TrashPanel.tsx";
+import { TrashPanel } from "../components/LazyTrashPanel.tsx";
 import { MainThreadPanel } from "../components/MainThreadPanel.tsx";
 import { RailStrip } from "../components/RailStrip.tsx";
 import { openPanel } from "../lib/panels.ts";
@@ -590,8 +590,9 @@ function CanvasSurface({
           .filter((item): item is NonNullable<typeof item> => Boolean(item));
         if (picked.length === 0) return; // nothing selected: leave ⌘C alone
         e.preventDefault();
-        ui.setClipboard({ canvasId: canvasId!, items: picked });
-        flashNotice(`Copied ${picked.length} item${picked.length === 1 ? "" : "s"}`);
+        const copied = captureClipboard(canvasId!, picked.map((item) => item.id));
+        ui.setClipboard(copied);
+        flashNotice(`Copied ${copied.items.length} item${copied.items.length === 1 ? "" : "s"}`);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v" && !isTyping(e.target)) {
@@ -1097,7 +1098,7 @@ function CanvasSurface({
       {canEdit && <CanvasTools canvasId={canvasId} actor={actor} />}
       <ZoomControls canvasId={canvasId} actor={actor} />
       <Minimap />
-      {canEdit && <TrashPanel canvasId={canvasId} actor={actor} />}
+      {canEdit && <TrashPanel key={canvasId} canvasId={canvasId} actor={actor} />}
       <RailStrip canvasId={canvasId} actor={actor} />
       <MainThreadPanel canvasId={canvasId} actor={actor} />
       <FilesPanel canvasId={canvasId} actor={actor} />

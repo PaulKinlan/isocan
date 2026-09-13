@@ -63,7 +63,7 @@ describe("a lazy() call sits below the import that names it", () => {
     const importedAt = broken.findIndex((line) => /^\s*import\s.*\blazy\b.*from\s+"react"/.test(line));
     expect(callLine(broken)).toBeLessThan(importedAt);
 
-    const fixed = [broken[1], broken[0]];
+    const fixed = [broken[1]!, broken[0]!];
     const fixedImport = fixed.findIndex((line) => /^\s*import\s.*\blazy\b.*from\s+"react"/.test(line));
     expect(callLine(fixed)).toBeGreaterThan(fixedImport);
   });
