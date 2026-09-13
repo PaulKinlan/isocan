@@ -41,6 +41,7 @@
     "fastify": "^5.2.1",
     "nanoid": "^5.0.9",
     "tsx": "^4.19.2",
+    "undici": "^7.29.0",
     "ws": "^8.18.0",
     "zod": "^4.5.1",
     "unified": "^11.0.5",
@@ -57,7 +58,6 @@
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^5.7.3",
-    "undici": "^7.29.0",
     "vitest": "^3.0.5"
   }
 }
