@@ -951,8 +951,6 @@ describe("the record of the conversation, behind its own button", () => {
     expect(element("transcript").firstChild).toBe(turn);
   });
 });
-  });
-});
 
 describe("the build tag tells the truth about what is being tested", () => {
   it("says the tag was not injected rather than inventing one", () => {
