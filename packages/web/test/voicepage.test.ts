@@ -795,15 +795,29 @@ describe("the setup panel says what this harness cannot do", () => {
 describe("configuration behind the settings cog", () => {
   it("keeps the controls intact in a closed dialog, without starting audio", async () => {
     stateReply = LIVE;
+    // A browser that can route output, so the pair below reads as values
+    // rather than as the no-API sentence (which has its own test).
+    routable();
     await wire();
     const dialog = element<HTMLDialogElement>("settings");
     expect(dialog.open).toBe(false);
-    for (const id of ["connection-panel", "key-panel", "daemon-field", "mic-fact", "save-key", "test-key", "forget-key"])
+    for (const id of [
+      "connection-panel",
+      "key-panel",
+      "daemon-field",
+      "mic-fact",
+      "output-fact",
+      "save-key",
+      "test-key",
+      "forget-key",
+    ])
       expect(dialog.contains(element(id)), id).toBe(true);
-    // The microphone's CONTROL is beside the microphone; what the facts hold
-    // is the answer — which device this page is listening through.
+    // The CONTROLS are beside the microphone; what the facts hold is the
+    // answer — both ends of the sound, in the panel, as a pair.
     expect(dialog.contains(element("device"))).toBe(false);
-    expect(element("mic-fact").textContent).toBe("the system default microphone");
+    expect(dialog.contains(element("output"))).toBe(false);
+    expect(element("mic-fact").textContent).toBe("System default");
+    expect(element("output-fact").textContent).toBe("System default");
     expect(element("setup-callout").hidden).toBe(true);
     const key = element<HTMLInputElement>("key");
     key.value = "synthetic-not-a-key";
@@ -1075,11 +1089,66 @@ describe("the two ends of the sound", () => {
     const said = element("device-note").textContent ?? "";
     expect(said).toContain("Studio monitors could not be used");
     expect(said).toContain("The reply is playing on the system default.");
+    // The panel says the same thing the row does: the device the reply is on,
+    // not the one that was asked for.
+    expect(element("output-fact").textContent).toBe("System default");
     // And the log carries the refusal, which is where a person looks to find
     // out why their speakers stayed silent.
     expect([...document.querySelectorAll("#log li")].map((li) => li.textContent).join(" ")).toContain(
       "Studio monitors could not be used",
     );
+  });
+});
+
+describe("the two ends of the sound, in the facts panel", () => {
+  it("names both ends as a pair, in the order of the path", async () => {
+    routable();
+    nameDevices(() => [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+    ]);
+    await wire();
+    const rows = [...document.querySelectorAll(".voice-facts div")];
+    const mic = rows.find((row) => row.querySelector("dt")?.textContent === "Microphone");
+    const output = rows.find((row) => row.querySelector("dt")?.textContent === "Output");
+    // A panel that named one end of the path would describe half of it, and a
+    // person should not have to hunt: the two rows are adjacent.
+    expect(mic?.nextElementSibling).toBe(output);
+    expect(element("mic-fact").textContent).toBe("System default");
+    expect(element("output-fact").textContent).toBe("System default");
+  });
+
+  it("follows the route, and the device it is on after the device goes away", async () => {
+    routable();
+    const spokes = [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+    ];
+    nameDevices(() => spokes);
+    await wire();
+    const output = element<HTMLSelectElement>("output");
+    output.value = "spk-1";
+    output.dispatchEvent(new Event("change"));
+    await flush();
+    expect(element("output-fact").textContent).toBe("Desk speakers");
+    // The same fact the pill carries, in the same words, so the panel and the
+    // row beside the microphone cannot disagree when a speaker walks away.
+    spokes.splice(1, 1);
+    await vi.advanceTimersByTimeAsync(2100);
+    await flush();
+    expect(element("output-fact").textContent).toBe("Desk speakers — not connected");
+    expect([...element<HTMLSelectElement>("output").options].map((one) => one.textContent)).toContain(
+      "Desk speakers — not connected",
+    );
+  });
+
+  it("says the audio path rather than a choice, when the browser cannot route", async () => {
+    // jsdom has no AudioContext at all: the browser that has no say in this.
+    nameDevices(() => [{ kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" }]);
+    localStorage.setItem("isocan.voice.outputId", "spk-1");
+    localStorage.setItem("isocan.voice.outputName", "Desk speakers");
+    await wire();
+    expect(element("output-fact").textContent).toBe("System default (this browser cannot choose another)");
   });
 });
 

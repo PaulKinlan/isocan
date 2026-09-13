@@ -273,6 +273,29 @@ try {
   step(`rows: chosen output ${JSON.stringify(before.chosen)}; note ${JSON.stringify(before.note)}`);
   const openShot = await shot(b, "01-rows-1440-light");
 
+  /*
+   * The settings panel, opened: both ends of the sound as FACTS.
+   *
+   * The controls are the pills beside the microphone and they stay there; a
+   * panel that names one end of the path describes half of it, so the two rows
+   * are read here — in the same words the pills use, in the order of the path.
+   */
+  const readFacts = async () => ({
+    mic: await b.ev(`document.getElementById("mic-fact").textContent`),
+    output: await b.ev(`document.getElementById("output-fact").textContent`),
+    order: await b.ev(
+      `[...document.querySelectorAll(".voice-facts > div")].map((row) => row.querySelector("dt")?.textContent).filter((one) => one === "Microphone" || one === "Output")`,
+    ),
+  });
+  await b.ev(`document.getElementById("settings-open").click()`);
+  await until(b, `document.getElementById("settings").open`, "the settings panel");
+  await sleep(300);
+  const facts = await readFacts();
+  const factsShot = await shot(b, "02-facts-panel-1440-light");
+  await b.ev(`document.getElementById("settings-close").click()`);
+  await sleep(200);
+  step(`facts panel: Microphone ${JSON.stringify(facts.mic)}, Output ${JSON.stringify(facts.output)}, rows in the order ${facts.order.join(" → ")} — ${factsShot}`);
+
   /* The picker, opened the way a person opens it. The rows the browser will
      actually offer are drawn by the browser in the top layer — including the
      long device names and whichever one is selected — which is a different
@@ -282,7 +305,7 @@ try {
     await b.send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
   }
   await sleep(600);
-  const pickerShot = await shot(b, "02-output-picker-1440-light");
+  const pickerShot = await shot(b, "03-output-picker-1440-light");
   await b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await sleep(300);
 
@@ -334,7 +357,7 @@ try {
   const aIndex = sinkIndex(aSink);
   const routed = chromeStreams().filter((one) => one.sink === aIndex);
   const [playedA, playedB] = [peakOf(await duringA), peakOf(await duringB)];
-  const playingShot = await shot(b, "03-playing-1440-light");
+  const playingShot = await shot(b, "04-playing-1440-light");
   step(`reply: 25 frames (2.5 s of 440 Hz at half scale) sent by the harness`);
   step(`reply: ${aSink}.monitor peak ${playedA}, ${bSink}.monitor (control) peak ${playedB} — ${playedA > 4000 && playedB < 500 ? "only the chosen device received it" : "NOT the clean result this claims"}`);
   step(`reply: PulseAudio renders ${routed.length} Chrome stream(s) for the page on sink ${aIndex} (${aSink})${routed.length ? `, first #${routed[0].index}` : " — NONE, which would mean the tone went somewhere else"}`);
@@ -356,7 +379,16 @@ try {
   pactl("unload-module", aModule);
   await until(b, `!document.getElementById("device-note").hidden`, "the page to notice the device is gone", 15_000);
   const gone = await read();
-  const goneShot = await shot(b, "04-gone-device-1440-light");
+  const goneShot = await shot(b, "05-gone-device-1440-light");
+  // And the panel agrees with the pill, in the same words: a chosen device that
+  // walked away says so in both places.
+  await b.ev(`document.getElementById("settings-open").click()`);
+  await until(b, `document.getElementById("settings").open`, "the settings panel after the unplug");
+  await sleep(300);
+  const goneFacts = await readFacts();
+  await b.ev(`document.getElementById("settings-close").click()`);
+  await sleep(200);
+  step(`facts panel after the unplug: Output ${JSON.stringify(goneFacts.output)}`);
   step(`unplugged: ${aSink} unloaded (${gone.output.length} output rows)`);
   step(`unplugged: rows now ${JSON.stringify(gone.output)}; selection ${JSON.stringify(gone.chosen)}`);
   step(`unplugged: note ${JSON.stringify(gone.note)}`);
@@ -375,11 +407,11 @@ try {
 
   /* Both controls at both widths, in both themes — the page's own theme
      mechanism, so what is photographed is what a person would get. */
-  const shots = [goneShot, openShot, pickerShot];
+  const shots = [goneShot, openShot, factsShot, pickerShot];
   for (const [width, theme, number] of [
-    [420, "light", 5],
-    [420, "dark", 6],
-    [1440, "dark", 7],
+    [420, "light", 6],
+    [420, "dark", 7],
+    [1440, "dark", 8],
   ]) {
     await b.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await setTheme(b, theme);
@@ -437,7 +469,7 @@ try {
     await until(withheldBrowser, `document.querySelectorAll("#output option").length > 0`, "the rows with no permission asked");
     await setTheme(withheldBrowser, "light");
     states.withheld = await lookAt(withheldBrowser);
-    const file = await shot(withheldBrowser, "08-names-withheld-1440-light");
+    const file = await shot(withheldBrowser, "09-names-withheld-1440-light");
     shots.push(file);
     step(`no permission asked: microphone rows ${JSON.stringify(states.withheld.mic)}, output rows ${JSON.stringify(states.withheld.output)}`);
     step(`no permission asked: note ${JSON.stringify(states.withheld.note)} — ${file}`);
@@ -456,7 +488,7 @@ try {
     await until(noApiBrowser, `document.querySelectorAll("#output option").length > 0`, "the rows in a browser with no output routing");
     await setTheme(noApiBrowser, "light");
     states.noApi = await lookAt(noApiBrowser);
-    const file = await shot(noApiBrowser, "09-no-output-api-1440-light");
+    const file = await shot(noApiBrowser, "10-no-output-api-1440-light");
     shots.push(file);
     step(`no output API: output rows ${JSON.stringify(states.noApi.output)}, control disabled ${states.noApi.disabled}`);
     step(`no output API: note ${JSON.stringify(states.noApi.note)} — ${file}`);
@@ -482,6 +514,8 @@ try {
     `- setSinkId is per AudioContext (measured): the capture context stays on the system default while the playback context is routed, so only the reply moves`,
     `- after the device was unplugged: the same browser (pid ${routedPid}, stream #${routedStream}) had its audio rendered on sink ${movedTo?.sink}, which is ${movedTo?.sink === defaultIndex ? `the system default (${defaultSink})` : "NOT the system default"}`,
     ``,
+    `- facts panel at load: Microphone ${JSON.stringify(facts.mic)}, Output ${JSON.stringify(facts.output)} (rows ${facts.order.join(" then ")})`,
+    `- facts panel after the unplug: Output ${JSON.stringify(goneFacts.output)}`,
     `- microphone row: ${JSON.stringify(before.mic)}`,
     `- output row: ${JSON.stringify(before.output)}`,
     `- output at load: ${JSON.stringify(before.chosen)} (nothing chosen yet) then ${JSON.stringify(aLabel)} (${JSON.stringify(stored)})`,
