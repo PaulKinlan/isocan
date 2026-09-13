@@ -64,6 +64,10 @@ an Operation. Automatic local link/space migration consults it as well as the
 home's primary and preserved personal records; adopting a private source must
 not create a local link grant. Source reads still ask the authority, and an
 unreachable home remains a refusal rather than permission to use the replica.
+Ordinary teleport cannot transfer this home-owned binding and consent. It
+refuses a personal source before reading its log/blobs or creating destination
+state; preserving private custody across a move needs a separate design.
+Deliberate owner export remains available and does not retarget the binding.
 
 ## Explicit consent, independent of a browser heartbeat
 
