@@ -630,6 +630,24 @@ which cannot reduce groups must stop before group state/ops reach it and
 show an upgrade requirement. Reconcile/reject queued legacy writes explicitly
 at cutover; do not let a new meaning silently attach to an old queued request.
 
+Phase 5 requires **canvas-groups-v4**. Literal v3 reducers cannot apply the
+new mode/boundary and legacy-trash migration effects. Keep actual v1–v3
+historical replay, but require v4 for group state and migration records,
+including existing subscriptions, snapshot adoption, tails and forwarded
+original callers. Migration remains one bounded `group.change` intent with
+typed effects for the touched live/trash structural fields and mode/boundary;
+it is not an arbitrary operation list or a whole-canvas replacement.
+
+Capability alone does not identify a queued write's meaning: an upgraded
+client may have queued it while the canvas was still legacy. Preserve that
+originating mode (or an equivalent cutover precondition) through local queue
+persistence and forwarding. A mismatch at the writer explicitly refuses or
+reconciles the request, preserving a reviewable outcome. Never silently retry
+it as a fresh group-mode request. New public canvas creation defaults to group
+mode at the writer; explicit legacy mode remains available for deliberate
+compatibility/import fixtures. Historical `project.create` replay keeps its
+original default, so reading an old log never converts it.
+
 The migration is one recorded, idempotent change per canvas, with a preview:
 
 1. Read all live and trashed legacy areas/items at one authoritative revision.
