@@ -40,7 +40,7 @@ link-only entry.
    canvas appears in that space and starts with no birth link grant.
 2. Rowan reaches it through the space's invitation. An unrelated account
    cannot enter it merely by learning its address.
-3. Maya performs the same act with `isocan canvas new --space Design`.
+3. Maya performs the same act with `isocan canvas create --space Design`.
    Membership and access match the web-created canvas.
 4. An account without ownership of the space is refused creation there by
    the daemon, including a caller bypassing the UI.
