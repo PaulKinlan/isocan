@@ -1,7 +1,9 @@
 import { itemsTouchedBy, lensActs, opWords, type CanvasContents, type LogEntry, type SeenMark } from "@isocan/core";
 /** Captured before this visit advances the authoritative mark. */
 export interface PriorVisit { canvasId: string; actorId: string; head: number; mark: SeenMark | null; available: boolean }
-export interface VisitChange { seq: number; words: string; itemIds: string[]; threadId: string | null }
+interface VisitChange { seq: number; words: string; itemIds: string[]; threadId: string | null }
+/** Fold only the absence interval, using core activity words and explicit op targets;
+ * an incomplete retained log must say so instead of inventing the missing history. */
 export function visitDigest(prior: PriorVisit, canvas: CanvasContents, entries: readonly LogEntry[]) {
   const from = prior.mark?.seq;
   if (!prior.available) return { notice: "Previous visit unavailable.", rows: [] as VisitChange[] };

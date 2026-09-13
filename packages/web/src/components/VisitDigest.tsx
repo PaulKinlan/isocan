@@ -3,6 +3,7 @@ import { getOplog } from "../lib/api.ts";
 import { visitDigest, type PriorVisit } from "../lib/visitdigest.ts";
 import { useCanvasStore } from "../stores/canvasStore.ts";
 import type { LogEntry } from "@isocan/core";
+/** Show the prior-visit interval beside Chat, with live destinations and explicit missing-history states. */
 export function VisitDigest({ prior, onItem, onThread }: { prior: PriorVisit | null; onItem: (id: string) => void; onThread: (id: string) => void }) {
   const canvas = useCanvasStore((s) => s.canvas);
   const [history, setHistory] = useState<LogEntry[] | null>(null);

@@ -17,6 +17,7 @@ import { ZoomControls } from "./ZoomControls.tsx";
 import { Minimap } from "./Minimap.tsx";
 import "./phone.css";
 const CanvasTools = lazy(() => import("./CanvasTools.tsx").then((m) => ({ default: m.CanvasTools })));
+/** Retain this visit’s chosen tab and node across width changes, without saving a desktop preference. */
 export type PhoneVisit = { tab: "Chat" | "Canvas" | "Agents"; itemId: string | null; plan: boolean };
 const directions: [Direction, string, string][] = [["ArrowLeft", "left", "←"], ["ArrowUp", "up", "↑"], ["ArrowDown", "down", "↓"], ["ArrowRight", "right", "→"]];
 

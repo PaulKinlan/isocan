@@ -7,7 +7,7 @@ import path from "node:path";
 import { browser, throughTheDoor, until } from "./lib/browser.mjs";
 import { DaemonClient, connect } from "../index.mjs";
 const { startDaemon } = await import("@isocan/server");
-const { newCanvasId } = await import("@isocan/core");
+const { newCanvasId, BADGE_COOKIE } = await import("@isocan/core");
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const home = await mkdtemp(path.join(tmpdir(), "isocan-mobile-"));
 const out = process.env.MOBILE_PROOF_DIR;
@@ -44,7 +44,19 @@ try {
   await size(375);
   const loaded = b.once("Page.loadEventFired"); await b.send("Page.navigate", { url: origin }); await loaded;
   await throughTheDoor(b, origin, "Morgan", "mobile-proof");
-  await b.ev(`(async () => { const actorId = JSON.parse(localStorage.getItem("isocan.identity")).id; const r = await fetch("/api/seen/${id}", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actorId, seq: ${priorSeq} }) }); if (!r.ok) throw new Error(await r.text()); })()`);
+  const cookie = (await b.send("Network.getCookies", { urls: [origin] })).cookies.find((row) => row.name === BADGE_COOKIE);
+  assert(cookie, "the synthetic browser holds its own badge");
+  class BrowserBadgeClient extends DaemonClient {
+    constructor() {
+      super(origin, home);
+      this.fetcher = (input, init) => {
+        const headers = new Headers(init?.headers); headers.delete("Authorization"); headers.set("Cookie", `${cookie.name}=${cookie.value}`);
+        return fetch(input, { ...init, headers });
+      };
+    }
+  }
+  const browserActor = await b.ev('JSON.parse(localStorage.getItem("isocan.identity"))');
+  await new BrowserBadgeClient().markSeen(id, priorSeq, browserActor.id);
   await b.ev(`localStorage.setItem("isocan.minimap", "1"); localStorage.setItem("isocan.mainpanel.${id}", "closed"); localStorage.setItem("isocan.filespanel.${id}", "open")`);
   await b.send("Page.navigate", { url: `${origin}/p/${id}` });
   await until(b, '!!document.querySelector(".phone-face .main-panel textarea")', "Chat first");

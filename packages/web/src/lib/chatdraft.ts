@@ -5,6 +5,7 @@ const drafts = create<{ values: Record<string, string>; set: (key: string, value
   values: {},
   set: (key, value) => set((state) => ({ values: { ...state.values, [key]: typeof value === "function" ? value(state.values[key] ?? "") : value } })),
 }));
+/** Share the unsent text between the phone and desktop frames of the same conversation. */
 export function useChatDraft(canvasId: string, actorId: string) {
   const key = JSON.stringify([canvasId, actorId]);
   const value = drafts((s) => s.values[key] ?? "");

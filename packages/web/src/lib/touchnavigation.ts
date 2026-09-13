@@ -38,6 +38,7 @@ export function touchNavigation(step: (direction: Direction) => void, plan?: () 
     consumeClick() { const value = flipped; flipped = false; return value; },
   };
 }
+/** Keep one gesture recognizer alive while route callbacks change after each step. */
 export function useTouchNavigation(step: (direction: Direction) => void, plan?: () => void, thirds = false) {
   const action = useRef({ step, plan }); action.current = { step, plan };
   const state = useRef<ReturnType<typeof touchNavigation> | null>(null);

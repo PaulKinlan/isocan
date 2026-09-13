@@ -35,7 +35,7 @@ interface SeenRead {
 }
 const asking = new Map<string, SeenRead>();
 /** Preparation is a nicety, so a stalled home cannot hold navigation forever. */
-export const SEEN_READ_TIMEOUT_MS = 8000;
+const SEEN_READ_TIMEOUT_MS = 8000;
 const visits = new Set<(actorId: string, canvasId: string, mark: SeenMark) => void>();
 
 /** Navigation can clear its count when THIS tab's visit was accepted, without
