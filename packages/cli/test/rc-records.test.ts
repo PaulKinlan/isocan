@@ -9,7 +9,7 @@ import { adoptRcAgent, readRcAgents, setRcSessionId, upsertRcAgent, withPrepared
 let home: string;
 const row: RcAgentRow = { canvasId: "prj_test", actorId: "usr_test", name: "Acme designer", harness: "fake", cwd: "/prepared", sessionId: null };
 beforeEach(async () => { home = await fs.mkdtemp(path.join(os.tmpdir(), "isocan-rc-records-")); });
-afterEach(async () => { await fs.rm(home, { recursive: true, force: true }); });
+afterEach(async () => { await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 describe("prepared enrolment configuration", () => {
   it("publishes only after adoption and dispatch can read the prepared directory", async () => {
@@ -44,11 +44,11 @@ describe("prepared enrolment configuration", () => {
   });
 
   it("an uncertain receipt preserves prepared configuration and a missing home is created", async () => {
-    home = path.join(home, "new-home");
-    await expect(withPreparedRcAgent(home, row, async () => { throw new TypeError("socket closed"); })).rejects.toThrow("socket closed");
-    expect(await readRcAgents(home)).toEqual([row]);
-    await expect(withPreparedRcAgent(home, { ...row, cwd: "/remote-accepted" }, async () => { throw new ApiError(409, "local replica append fenced"); })).rejects.toThrow("fenced");
-    expect(await readRcAgents(home)).toEqual([{ ...row, cwd: "/remote-accepted" }]);
+    const nested = path.join(home, "new-home");
+    await expect(withPreparedRcAgent(nested, row, async () => { throw new TypeError("socket closed"); })).rejects.toThrow("socket closed");
+    expect(await readRcAgents(nested)).toEqual([row]);
+    await expect(withPreparedRcAgent(nested, { ...row, cwd: "/remote-accepted" }, async () => { throw new ApiError(409, "local replica append fenced"); })).rejects.toThrow("fenced");
+    expect(await readRcAgents(nested)).toEqual([{ ...row, cwd: "/remote-accepted" }]);
   });
 
   it("independent CLI processes updating the file preserve every row", async () => {
