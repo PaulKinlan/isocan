@@ -27,6 +27,7 @@ it("reads live local/inherited layers without leaking private memory or unadmitt
   const here = await make(routes, owner, "Acme Work");
   const library = await make(routes, owner, "Acme Library");
   const personal = await make(routes, owner, "Acme Personal");
+  const excludedLibrary = await make(routes, owner, "Acme excluded library");
   const locked = await make(otherRoutes, stranger, "Confidential source title");
   const linkGrant = (await otherRoutes.grants(locked.id)).grants.find((grant) => grant.subject === "link")!;
   await otherRoutes.revokeGrant(locked.id, linkGrant.id, stranger.id);
@@ -45,6 +46,7 @@ it("reads live local/inherited layers without leaking private memory or unadmitt
     await library.set(excluded, { properties: { context: "excluded" } });
     await add(library, "Acme excluded nested pin", { context: "pinned" }, excluded);
     await add(personal, "Personal memory must not be assembled", { context: "pinned" });
+    await add(excludedLibrary, "Excluded inherited memory", { context: "pinned" });
     await add(locked, "Confidential pin title", { context: "pinned" });
     const localExcluded = (await here.groups.new("Acme local excluded group")).itemId!;
     await here.set(localExcluded, { properties: { context: "excluded" } });
@@ -58,6 +60,8 @@ it("reads live local/inherited layers without leaking private memory or unadmitt
     await link(locked.id, "Unavailable card");
     await link(personal.id, "Personal card", "personal");
     await link(newCanvasId(), "Elsewhere card", "inherit", "https://elsewhere.invalid");
+    const excludedCard = await link(excludedLibrary.id, "Excluded inheritance edge");
+    await here.groups.add(localExcluded, [excludedCard.id]);
     const read = async (): Promise<{ layers: ContextLayer[] }> => {
       const result = await host.callTool({ name: "read_context_summary", arguments: { canvas: here.id, session: "explicit-caller" } });
       expect(result.isError, JSON.stringify(result)).toBeUndefined();
@@ -79,6 +83,7 @@ it("reads live local/inherited layers without leaking private memory or unadmitt
     expect(first.layers[2]).toMatchObject({ pieces: [], refused: expect.any(String) });
     expect(first.layers[3]).toMatchObject({ pieces: [], refused: expect.stringContaining("not read from here") });
     expect(asked.mock.calls.some(([id]) => id === personal.id)).toBe(false);
+    expect(asked.mock.calls.some(([id]) => id === excludedLibrary.id)).toBe(false);
     expect(JSON.stringify(first)).not.toMatch(/Confidential|Personal memory|excluded nested pin|local excluded pin/);
     await library.set(pin.id, { removeProperties: ["context"] });
     expect((await read()).layers[1]!.pieces.some((piece) => piece.name === "Pinned items")).toBe(false);
