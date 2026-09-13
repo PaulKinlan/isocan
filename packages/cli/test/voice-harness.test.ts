@@ -151,6 +151,40 @@ async function namesOnCanvas(): Promise<Record<string, string>> {
 const item = (title: string, id = title, x = 100, y = 100): ListedItem =>
   ({ id, title, x, y, kind: "text", createdAt: new Date(2026, 0, 1).toISOString() }) as ListedItem;
 
+/** The question the harness is holding, read the way the page reads it — off
+ * `/state`, which is the only route a tab that missed the socket has. */
+async function theQuestion(baseUrl: string): Promise<{ id: string; what: string }> {
+  const deadline = Date.now() + 5000;
+  let last = "";
+  while (Date.now() < deadline) {
+    const s = (await (await fetch(`${baseUrl}state`)).json()) as { confirm?: { id: string; what: string } | null };
+    if (s.confirm) return s.confirm;
+    last = JSON.stringify(s).slice(0, 400);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`the harness never asked the person; last state: ${last}`);
+}
+
+/** The person's click, in HTTP form: what the page posts, and the only thing
+ * that opens the gate. */
+async function answering(baseUrl: string, id: string, allow: boolean): Promise<{ ok: boolean; allowed?: boolean }> {
+  const r = await fetch(`${baseUrl}confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, allow }),
+  });
+  return (await r.json()) as { ok: boolean; allowed?: boolean };
+}
+
+async function utterance(baseUrl: string, text: string): Promise<{ sent: string[]; failed: string[]; reply: string; state: string }> {
+  const r = await fetch(`${baseUrl}utterance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, source: "typed" }),
+  });
+  return (await r.json()) as { sent: string[]; failed: string[]; reply: string; state: string };
+}
+
 /** The CLI, with this test's temp home and daemon — the same launcher the acp
  * suite uses, so the machine badge and the identity resolution are the real
  * ones. */
@@ -454,6 +488,108 @@ describe("the page", () => {
   });
 });
 
+describe("the person's gate", () => {
+  let close: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    await close?.();
+    close = null;
+  });
+
+  /** The same server, with the window short: a test cannot wait a minute for
+   * a question nobody is going to answer. */
+  async function serve() {
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      confirmTimeoutMs: 700,
+    });
+    close = server.close;
+    return server;
+  }
+
+  it("holds a typed delete until the person answers: a yes sends it, a no does not", async () => {
+    const server = await serve();
+
+    // The no. The question is asked, and asking is not doing: the item is
+    // still on the canvas while it stands.
+    const deniedRun = utterance(server.state.url, "delete the Checkout screen");
+    const deniedAsk = await theQuestion(server.state.url);
+    expect(deniedAsk.what).toContain("Checkout screen");
+    expect((await items()).map((i) => i.title)).toContain("Checkout screen");
+    expect(await answering(server.state.url, deniedAsk.id, false)).toEqual({ ok: true, allowed: false });
+
+    const denied = await deniedRun;
+    expect(denied.state).toBe("refused");
+    expect(denied.sent).toEqual([]);
+    expect((await items()).map((i) => i.title)).toContain("Checkout screen");
+    expect((await log()).some((e) => e.type === "item.delete")).toBe(false);
+
+    // The yes, on the same sentence — the person is the difference.
+    const allowedRun = utterance(server.state.url, "delete the Checkout screen");
+    const allowedAsk = await theQuestion(server.state.url);
+    expect(allowedAsk.id).not.toBe(deniedAsk.id);
+    expect(await answering(server.state.url, allowedAsk.id, true)).toEqual({ ok: true, allowed: true });
+
+    const allowed = await allowedRun;
+    expect(allowed.failed).toEqual([]);
+    expect((await items()).map((i) => i.title)).not.toContain("Checkout screen");
+    expect((await log()).at(-1)!.type).toBe("item.delete");
+
+    // Both answers are in the record, with the question they answered — which
+    // is the only thing that can say, a week later, whether it asked first.
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as { entries: any[] }).entries;
+    expect(entries.some((e) => e.details?.kind === "confirm_requested")).toBe(true);
+    expect(entries.some((e) => e.details?.kind === "confirm_declined")).toBe(true);
+    expect(entries.some((e) => e.details?.kind === "confirm_allowed")).toBe(true);
+  });
+
+  it("reads no answer as a no, and says so rather than pretending it happened", async () => {
+    const server = await serve();
+    const run = utterance(server.state.url, "delete the Checkout screen");
+    await theQuestion(server.state.url);
+
+    const out = await run;
+    expect(out.state).toBe("refused");
+    expect(out.reply).toContain("did not confirm");
+    expect((await items()).map((i) => i.title)).toContain("Checkout screen");
+
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as { entries: any[] }).entries;
+    const expired = entries.find((e) => e.reason === "no answer");
+    expect(expired, "the expiry is in the log, with its reason").toBeDefined();
+    // And the question is gone: a stale question on the page is a person
+    // answering something that already happened.
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as { confirm: unknown };
+    expect(state.confirm).toBeNull();
+  });
+
+  it("answers an answer that is not the question being asked", async () => {
+    const server = await serve();
+    const run = utterance(server.state.url, "delete the Checkout screen");
+    const ask = await theQuestion(server.state.url);
+
+    const stale = await answering(server.state.url, "cfm_not_the_one", true);
+    expect(stale.ok).toBe(false);
+    expect(await answering(server.state.url, ask.id, false)).toEqual({ ok: true, allowed: false });
+    await run;
+  });
+
+  it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
+    const server = await serve();
+    const page = await (await fetch(server.state.url)).text();
+    expect(page).toContain('id="confirm"');
+    expect(page).toContain('id="confirm-what"');
+    expect(page).toContain("Yes, do it");
+    expect(page).toContain('post("/confirm"');
+    // A question asked while the tab was closed still finds it: the poll reads
+    // it off /state, which the socket-less typed path never announces on.
+    expect(page).toContain("showConfirm(s.confirm || null)");
+  });
+});
+
 describe("the ACP face", () => {
   it("speaks the wire the rc speaks, and answers a turn with end_turn", async () => {
     const written: unknown[] = [];
@@ -714,6 +850,9 @@ describe("the Live API path", () => {
       identity: { session: "Voice", harness: "agent" },
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
+      // A gate nobody answers must not hold a test for a minute: a short
+      // window, exactly as a person would get if they walked away.
+      confirmTimeoutMs: 2000,
       WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
     });
 
@@ -903,6 +1042,9 @@ describe("the Live API path", () => {
       identity: { session: "Voice", harness: "agent" },
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
+      // A gate nobody answers must not hold a test for a minute: a short
+      // window, exactly as a person would get if they walked away.
+      confirmTimeoutMs: 2000,
       WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
     });
 
@@ -968,7 +1110,9 @@ describe("the Live API path", () => {
       });
       while (providerSocket.sent.length < 4) await new Promise((r) => setTimeout(r, 10));
 
-      // 4. DELETE (delete_item)
+      // 4. DELETE (delete_item) — through the gate, because that is the whole
+      // point of it: the operation lands when the PERSON says yes, and the
+      // model's tool call is only the question.
       providerSocket.emit({
         toolCall: {
           functionCalls: [
@@ -980,6 +1124,12 @@ describe("the Live API path", () => {
           ],
         },
       });
+      const asked = await theQuestion(server.state.url);
+      expect(asked.what).toContain("Handwritten Arrow");
+      // Asked, not done: the sketch is still on the canvas while the question
+      // stands, which is the difference between a gate and a log line.
+      expect((await items()).some((i) => i.title === "Handwritten Arrow"), "nothing is deleted while the question stands").toBe(true);
+      expect(await answering(server.state.url, asked.id, true)).toEqual({ ok: true, allowed: true });
       while (providerSocket.sent.length < 5) await new Promise((r) => setTimeout(r, 10));
 
       const afterDelete = await items();
