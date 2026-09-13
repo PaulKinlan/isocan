@@ -4131,6 +4131,80 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (url.pathname === "/memory/result") {
+        const posted = typeof body === "string" ? {} : body;
+        const callId = String(posted.callId ?? "");
+        const taken = memories.answer(callId, {
+          ok: posted.ok === true,
+          ...(typeof posted.id === "string" ? { id: posted.id } : {}),
+          ...(typeof posted.at === "string" ? { at: posted.at } : {}),
+          ...(Array.isArray(posted.tags) ? { tags: posted.tags.filter((t) => typeof t === "string") } : {}),
+          ...(posted.memory && typeof posted.memory === "object" ? { memory: posted.memory as Memory } : {}),
+          ...(Array.isArray(posted.memories) ? { memories: posted.memories as Memory[] } : {}),
+          ...(typeof posted.count === "number" ? { count: posted.count } : {}),
+          ...(Array.isArray(posted.recentIds) ? { recentIds: posted.recentIds.filter((r) => typeof r === "string") } : {}),
+          ...(typeof posted.error === "string" ? { error: posted.error } : {}),
+        });
+        if (!taken) {
+          respond(200, {
+            ok: false,
+            error: "nothing is waiting for that callId — it expired, or it was already answered",
+          });
+          return;
+        }
+        respond(200, { ok: true });
+        return;
+      }
+      if (url.pathname === "/memory/migrated") {
+        const posted = typeof body === "string" ? {} : body;
+        const count = typeof posted.count === "number" ? posted.count : 0;
+        const kept = await retireLegacyMemories(home);
+        narrate(kept ? `legacy memories retired to ${path.basename(kept)} (${count} imported)` : "no legacy memories to retire");
+        recordToolLog({
+          type: "session_event",
+          event: kept ? `legacy memories migrated to the page's store (${count} entries)` : "legacy memory file absent at migration",
+          details: { kind: "memory_migrated", count, kept: kept ? path.basename(kept) : null },
+        });
+        respond(200, { ok: true, migrated: count, kept: kept ? path.basename(kept) : null });
+        return;
+      }
+      if (url.pathname === "/fs/grant") {
+        const posted = typeof body === "string" ? { folder: body } : body;
+        const named = typeof posted.folder === "string" ? posted.folder.trim() : "";
+        const granted = posted.granted !== false && named !== "";
+        const state = files.grant(granted ? named : null);
+        narrate(granted ? `the person granted a folder: ${named}` : "the person revoked the granted folder");
+        recordToolLog({
+          type: "session_event",
+          event: granted ? `folder granted: ${named}` : "folder grant revoked",
+          details: { kind: granted ? "fs_granted" : "fs_revoked", folder: state.folder },
+        });
+        respond(200, { ok: true, ...state, granted: state.folder !== null });
+        return;
+      }
+      if (url.pathname === "/fs/result") {
+        const posted = typeof body === "string" ? {} : body;
+        const callId = String(posted.callId ?? "");
+        const taken = files.answer(callId, {
+          ok: posted.ok === true,
+          ...(typeof posted.content === "string" ? { content: posted.content } : {}),
+          ...(Array.isArray(posted.entries)
+            ? { entries: posted.entries as NonNullable<FsAnswer["entries"]> }
+            : {}),
+          ...(posted.truncated === true ? { truncated: true } : {}),
+          ...(typeof posted.bytes === "number" ? { bytes: posted.bytes } : {}),
+          ...(typeof posted.error === "string" ? { error: posted.error } : {}),
+        });
+        if (!taken) {
+          respond(200, {
+            ok: false,
+            error: "nothing is waiting for that callId — it expired, or it was already answered",
+          });
+          return;
+        }
+        respond(200, { ok: true });
+        return;
+      }
+      if (url.pathname === "/key") {
         if (typeof body === "object" && body.forget === true) {
           await forgetVoiceKey(home);
           narrate("key forgotten");
