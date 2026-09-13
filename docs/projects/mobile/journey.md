@@ -21,11 +21,23 @@ Canvas and Agents are the other two tabs, in that order. Switching tabs does
 not lose a draft, change the desktop's panel preferences or write a seen-mark
 for a canvas nobody visited.
 
-The Canvas tab keeps the spatial canvas, with a sheet listing its items.
-Morgan opens a row and reads that item in the existing viewer. The Agents
+The Canvas tab is the [node walk](../../research/2026-09-05-mobile-web.md#the-node-walk--the-model-stage-1-was-missing)
+added on 13 September. Morgan stands in one item and steps through live
+screen edges; an edge is offered exactly when `findNextItem` would move in
+that direction. Dead edges do nothing. The current node's thread opens as a
+sheet, and pinch-out reveals the spatial plan with that node still marked.
+Stepping changes Morgan's view only. Existing spatial ordering supplies the
+candidates; a new group-first order is a separate product decision. The Agents
 tab uses the existing agent roster; opening an agent's stage reaches the
 same viewer. A read-only admission retains its capability and never gains a
 composer or editing action that it cannot use.
+
+Chat carries cards for items that the existing request/output relationship
+actually connects to a message. Tapping a card enters that node. No geometry
+or author/time guess may claim that a message produced an unrelated item.
+At entry, a while-away digest uses the prior authoritative seen-mark before
+the ordinary visit advances it. Rows open the items or threads they name;
+unavailable history is stated, not filled with made-up changes or attendance.
 
 ## Journey 2: Touch does one thing at a time
 

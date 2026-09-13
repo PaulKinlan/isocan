@@ -6,8 +6,10 @@ is no new operation; gestures reach the intents both clients already share.
 
 **Where we are:** stage 0's pan, pinch and basic narrow layout shipped before
 this continuation. Finish its controls, then stage 1's phone face and stage
-2's presentation input. Emulated proofs run here; physical-phone acceptance
-is a named remaining hand.
+2's presentation input. The node-walk revision from `origin/main` was
+incorporated before implementation: stage 1 uses the existing directional
+walk, then the prior-visit digest and request-linked Chat cards. Emulated
+proofs run here; physical-phone acceptance is a named remaining hand.
 
 ## Stage 0 — Finish touch controls
 
@@ -24,8 +26,10 @@ the full suite and typecheck. Judge gesture feel on an actual phone.
 **Status: NOT STARTED.**
 
 **Proof:** journey 1 on a synthetic canvas through the real browser. Submit
-Chat through the UI and inspect its daemon record; open an item from the
-sheet and an agent stage from the roster. Repeat with a read admission.
+Chat through the UI and inspect its daemon record; walk live/dead node edges,
+open the node thread, pinch out to the marked plan and open an agent stage
+from the roster. Prove digest rows against a prior seen-mark and Chat cards
+against real request/output relationships. Repeat with a read admission.
 Resize both ways without losing desktop preferences or a Chat draft. Run
 the full suite and typecheck; check the composer with a real phone keyboard.
 
@@ -45,6 +49,11 @@ and are outside this continuation. A native app remains refused.
 
 ## Trajectory
 
+- **2026-09-13** — `origin/main` added the node walk while this continuation
+  was being briefed. Chat-first remains settled; the Canvas tab inherits the
+  desktop's spatial neighbor rule and stepping remains local navigation.
+  Group-first ordering and making the walk the primary face remain separate
+  product choices, so this build changes neither by implication.
 - **2026-09-13** — Open: physical-phone keyboard behavior, Safari toolbar
   changes and gesture feel need a phone. Desktop touch emulation is useful
   evidence about events and layout, and cannot close those observations.
