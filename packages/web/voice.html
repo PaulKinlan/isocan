@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Voice</title>
     <meta name="color-scheme" content="light dark" />
@@ -44,6 +44,7 @@
         <ellipse cx="600" cy="440" rx="520" ry="420" />
         <ellipse cx="600" cy="440" rx="680" ry="555" />
       </svg>
+      <div class="voice-stage">
       <header class="voice-head">
         <h1>Voice</h1>
         <!-- The build this page was served from: Paul uses it to know he is
@@ -60,6 +61,23 @@
       </header>
 
       <section class="voice-hero" id="hero" data-state="idle" data-activity="idle" aria-label="Microphone">
+        <div class="voice-caption-slot">
+          <div class="voice-captions" id="captions" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false" aria-label="Voice captions"></div>
+          <div class="voice-setup-callout" id="setup-callout" hidden>
+            <p id="setup-status" role="status"></p>
+            <button id="setup-open" type="button" aria-haspopup="dialog" aria-controls="settings">Open settings</button>
+          </div>
+          <label class="voice-caption-choice"><input id="keep-captions" type="checkbox" /> Keep captions visible</label>
+        </div>
+
+        <p class="voice-state" id="state" role="status">idle — press Listen to start</p>
+        <p class="voice-signal-key"><span>You inside</span><span>Voice outside</span></p>
+
+        <div class="voice-session">
+          <button id="mute" type="button" disabled>Mute</button>
+          <button id="end" type="button" disabled>End</button>
+        </div>
+
         <div class="voice-mic">
           <svg class="voice-ring" viewBox="0 0 240 240" aria-hidden="true" focusable="false">
             <circle class="voice-orbit" cx="120" cy="120" r="103" />
@@ -76,23 +94,6 @@
           </button>
         </div>
 
-        <p class="voice-state" id="state" role="status">idle — press Listen to start</p>
-        <p class="voice-signal-key"><span>You inside</span><span>Voice outside</span></p>
-
-        <div class="voice-session">
-          <button id="mute" type="button" disabled>Mute</button>
-          <button id="end" type="button" disabled>End</button>
-        </div>
-
-        <div class="voice-caption-slot">
-          <div class="voice-captions" id="captions" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false" aria-label="Voice captions"></div>
-          <label class="voice-caption-choice"><input id="keep-captions" type="checkbox" /> Keep captions visible</label>
-        </div>
-
-        <div class="voice-setup-callout" id="setup-callout" hidden>
-          <p id="setup-status" role="status"></p>
-          <button id="setup-open" type="button" aria-haspopup="dialog" aria-controls="settings">Open settings</button>
-        </div>
         <p class="voice-bad voice-complaint" id="complaint" role="alert" hidden></p>
 
         <!-- The permission gate, when the harness asks. It is not a dialog on
@@ -106,6 +107,7 @@
           </div>
         </section>
       </section>
+      </div>
 
       <div class="voice-drawers">
         <details class="voice-quiet" id="transcript-panel">

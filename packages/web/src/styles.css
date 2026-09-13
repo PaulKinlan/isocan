@@ -6435,7 +6435,7 @@ button.mt-card:hover { border-color: var(--accent); }
   --s6: 32px;
 
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   gap: var(--s4);
   min-block-size: 100dvb;
   isolation: isolate;
@@ -6479,6 +6479,8 @@ body:has(> .voice) { overflow: auto; }
 /* `hidden` loses to a display declaration; the setup block shipped visible
    with no session to set up. Say it once, for everything in the page. */
 .voice [hidden] { display: none; }
+.voice-stage { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
+.voice-stage > * { min-width: 0; }
 .voice-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
 .voice-settings-open {
   display: inline-flex;
@@ -6934,11 +6936,14 @@ body:has(> .voice) { overflow: auto; }
 
 /* Configuration is modal, but never opens itself on first run. */
 .voice-settings {
+  --voice-visible-height: 100dvh;
+  --voice-visible-top: 0px;
   position: fixed;
-  inset-block: var(--s4) auto;
+  inset-block: calc(var(--voice-visible-top) + max(var(--s4), env(safe-area-inset-top))) auto;
+  inset-inline: max(var(--s4), env(safe-area-inset-left)) max(var(--s4), env(safe-area-inset-right));
   margin-block: 0;
-  width: min(640px, calc(100% - var(--s6)));
-  max-block-size: calc(100dvh - 2 * var(--s4));
+  width: min(640px, calc(100% - max(var(--s4), env(safe-area-inset-left)) - max(var(--s4), env(safe-area-inset-right))));
+  max-block-size: calc(var(--voice-visible-height) - max(var(--s4), env(safe-area-inset-top)) - max(var(--s4), env(safe-area-inset-bottom)));
   overflow: auto;
   overscroll-behavior: contain;
   padding: var(--s5);
@@ -6957,19 +6962,44 @@ body:has(.voice-settings[open]) { overflow: hidden; }
 .voice-setup-callout p { margin: 0; color: var(--ink-muted); }
 .voice-settings .voice-complaint { margin-bottom: var(--s4); }
 
-@media (max-width: 720px) {
-  .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s3); }
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
+  .voice {
+    --voice-safe-top: max(var(--s3), env(safe-area-inset-top));
+    --voice-safe-bottom: max(var(--s3), env(safe-area-inset-bottom));
+    display: block;
+    padding: var(--voice-safe-top) max(var(--s3), env(safe-area-inset-right)) var(--voice-safe-bottom) max(var(--s3), env(safe-area-inset-left));
+  }
+  /* Keep the thumb target at the bottom of the first screen as browser bars
+     retract. History remains below it in document flow, not another track. */
+  .voice-stage { min-block-size: calc(100svh - var(--voice-safe-top) - var(--voice-safe-bottom)); }
   .voice-quiet > summary { flex-wrap: wrap; row-gap: var(--s1); }
-  /* The marker stays on the label's line, and the summary takes its own: the
-     alternative was a lone "+" below two lines of truncated text. */
   .voice-summary { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
   .voice-session button { min-height: 44px; padding: var(--s2) var(--s5); }
   .voice-confirm-acts button { min-height: 44px; }
-  .voice-drawers { padding-bottom: var(--s4); }
-  .voice-hero { padding: var(--s4) 0; gap: var(--s3); }
+  .voice-drawers { padding-bottom: var(--s4); margin-top: var(--s4); }
+  .voice-hero { padding: var(--s3) 0 0; gap: var(--s3); align-content: end; }
+  .voice-mic { width: min(64vw, 30svh, 240px); }
   .voice-glyph { width: 38px; height: 38px; }
   .voice-facts { grid-template-columns: minmax(0, 1fr); }
-  .voice-caption-slot { block-size: calc(var(--s6) * 5); }
+  .voice-caption-slot { block-size: min(160px, 22svh); }
+  .voice-caption-choice { min-block-size: 44px; }
+  .voice :is(button, select, summary) { min-block-size: 44px; min-inline-size: 44px; }
+}
+
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .voice-hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 1fr auto auto auto;
+    grid-template-areas: "captions captions" "state mic" "signals mic" "session mic";
+    align-content: stretch;
+    column-gap: var(--s5);
+  }
+  .voice-caption-slot { grid-area: captions; block-size: auto; min-block-size: 60px; }
+  .voice-state { grid-area: state; }
+  .voice-signal-key { grid-area: signals; }
+  .voice-session { grid-area: session; }
+  .voice-mic { grid-area: mic; align-self: end; width: min(40svh, 200px); }
+  .voice-complaint, .voice-confirm { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
