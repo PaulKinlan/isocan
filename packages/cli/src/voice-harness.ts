@@ -1648,6 +1648,19 @@ export async function checkKey(
   }
 }
 
+/**
+ * **The operations a person has to agree to.**
+ *
+ * Every one of these destroys something a person can see: an item on the
+ * canvas, or a set of them. Keyed on the OPERATION, not the tool name, so a
+ * second tool that deletes something is gated by existing and the typed path
+ * is gated by the same rule as the spoken one.
+ */
+export const DESTRUCTIVE_OPS = new Set(["item.delete", "items.delete"]);
+
+/** How long the person has to answer before the gate closes itself. */
+export const CONFIRM_TIMEOUT_MS = 60_000;
+
 export interface VoiceServerOptions {
   home: string;
   port?: number;
@@ -1664,6 +1677,9 @@ export interface VoiceServerOptions {
   model?: string;
   /** The socket address, for a test that needs a local stand-in. */
   liveUrl?: (key: string) => string;
+  /** How long the person has to answer a destructive operation's question.
+   * A test shortens it; a person gets a minute. */
+  confirmTimeoutMs?: number;
   /** The network, for a test. */
   fetchImpl?: typeof fetch;
   /** WebSocket implementation override for tests. */
@@ -1692,6 +1708,9 @@ export interface VoiceServerState {
   lines: string[];
   session: { state: "idle" | "live" | "muted" | "ended" };
   toolLog: ToolLogEntry[];
+  /** A destructive operation waiting for the person's answer, if any: the
+   * page renders it and posts the answer back to /confirm. */
+  confirm: { id: string; what: string } | null;
 }
 
 /**
@@ -2083,6 +2102,51 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     options.onLine?.(line);
   };
 
+  /**
+   * **The gate the model cannot open.**
+   *
+   * A destructive operation is held here until the PERSON answers: the page is
+   * told what is about to happen and posts `/confirm` with a yes or a no. No
+   * answer within the window is a no — an unattended microphone is not
+   * consent — and a second question replaces the first, because a person can
+   * only answer one thing at a time.
+   *
+   * A model-supplied `force` or `confirmed` argument is not consulted: it never
+   * reaches this function, which is the point.
+   */
+  let pending: { id: string; what: string; resolve: (allow: boolean) => void } | null = null;
+  let announce: ((message: unknown) => void) | null = null;
+
+  function askThePerson(what: string): Promise<boolean> {
+    const timeout = options.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS;
+    pending?.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const id = `cfm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const timer = setTimeout(() => {
+        if (pending?.id !== id) return;
+        pending = null;
+        recordToolLog({ type: "session_event", event: `the confirmation expired: ${what}`, reason: "no answer" });
+        narrate(`confirmation expired without an answer: ${what}`);
+        announce?.({ confirm: null });
+        resolve(false);
+      }, timeout);
+      pending = {
+        id,
+        what,
+        resolve: (allow) => {
+          clearTimeout(timer);
+          if (pending?.id === id) pending = null;
+          resolve(allow);
+        },
+      };
+      // Recorded as well as asked: the log is the only place that can answer
+      // "did it ask before it deleted that?" a week later.
+      recordToolLog({ type: "session_event", event: `waiting for the person: ${what}`, details: { kind: "confirm_requested", id, what } });
+      narrate(`confirmation requested: ${what}`);
+      announce?.({ confirm: { id, what } });
+    });
+  }
+
   /** Everything the page — and a check — needs to say what this harness is
    * connected to: the canvas by title AND id, the daemon, the home it answers
    * to, the actor and whether it is enrolled, and the provider and model the
@@ -2105,6 +2169,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       agent: { name: target.name, id: target.actorId, enrolled },
       provider: { name: stored?.provider ?? null, model: options.model ?? LIVE_MODEL, key: stored !== null },
       session: { state: sessionState },
+      // A page that is not on the socket still sees the question: the state
+      // poll is how the typed path's confirmation reaches it at all.
+      confirm: pending ? { id: pending.id, what: pending.what } : null,
     };
   };
 
@@ -2194,6 +2261,29 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const merged = Array.from(map.values());
         merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
         respond(200, { entries: merged, count: merged.length });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/confirm") {
+        const body = await readBody();
+        const asked = typeof body === "string" ? {} : body;
+        const id = String(asked.id ?? "");
+        if (!pending || pending.id !== id) {
+          respond(200, {
+            ok: false,
+            error: `nothing is waiting for ${id ? `"${id}"` : "an answer"} — it was already answered, or it expired`,
+          });
+          return;
+        }
+        const allow = asked.allow === true;
+        const what = pending.what;
+        pending.resolve(allow);
+        recordToolLog({
+          type: "session_event",
+          event: allow ? `the person allowed: ${what}` : `the person declined: ${what}`,
+          details: { kind: allow ? "confirm_allowed" : "confirm_declined", what },
+        });
+        narrate(allow ? `allowed by the person: ${what}` : `declined by the person: ${what}`);
+        respond(200, { ok: true, allowed: allow });
         return;
       }
       if (req.method === "POST" && url.pathname === "/session/start") {
@@ -2302,6 +2392,23 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const items = await target.canvas.items();
         const ctx: PlanContext = { items, mainThreadId: target.mainThreadId };
         const { plans, what } = planVoice(text, ctx);
+        /* The same gate as the spoken path, keyed on the operation: a typed
+           "delete the Greeting" is the same act as a spoken one, so it is the
+           same question. */
+        const destroying = plans.filter((one) => DESTRUCTIVE_OPS.has(one.op.type));
+        if (destroying.length > 0) {
+          const askWhat = destroying.map((one) => one.said).join("; ");
+          if (!(await askThePerson(askWhat))) {
+            respond(200, {
+              reply: `not done — the person did not confirm: ${askWhat}`,
+              sent: [],
+              failed: [],
+              state: "refused",
+              source,
+            });
+            return;
+          }
+        }
         const sent: string[] = [];
         const failed: string[] = [];
         for (const plan of plans) {
@@ -2396,6 +2503,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     const say = (message: unknown) => {
       if (page.readyState === page.OPEN) page.send(JSON.stringify(message));
     };
+    announce = say;
+    // A tab that closed is not a yes: the question dies with the page that
+    // could have answered it.
+    page.on("close", () => {
+      if (pending) {
+        const what = pending.what;
+        pending.resolve(false);
+        recordToolLog({ type: "session_event", event: `the page closed with a question unanswered: ${what}`, reason: "page closed" });
+      }
+      if (announce === say) announce = null;
+    });
     const onLog = (entry: ToolLogEntry) => {
       say({ type: "tool_log", entry });
     };
@@ -2691,9 +2809,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               return { ok: true, cleared: true };
             }
 
-            // Destructive action confirmation guard
+            // Not gated but ABSENT: emptying the trash and deleting the whole
+            // project have no operation behind them here, so there is nothing
+            // to confirm. Said plainly, because "requires confirmation" would
+            // promise a door that does not exist.
             if (name === "trash_empty" || name === "project_delete") {
-              const err = "destructive actions require explicit confirmation in the UI; voice agents cannot execute this unattended";
+              const err =
+                `${name} is not wired to this harness — there is no operation behind it, so nothing was changed. ` +
+                "A person does that in the app, where the canvas can be seen while it happens.";
               say({ text: err });
               recordToolLog({
                 type: "tool_call",
@@ -2718,6 +2841,28 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 result: { ok: false, error: err },
               });
               return { ok: false, error: err };
+            }
+
+            /* A destructive plan stops here until the person says yes, and
+               the model is told what they said. Nothing is minted before the
+               answer: the gate is above the apply, not beside it. */
+            const destroying = plan.plans.filter((one) => DESTRUCTIVE_OPS.has(one.op.type));
+            if (destroying.length > 0) {
+              const what = destroying.map((one) => one.said).join("; ");
+              const allowed = await askThePerson(what);
+              if (!allowed) {
+                const err = `not done — the person did not confirm: ${what}`;
+                say({ text: err });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: destroying[0]!.op.type, said: `not confirmed — ${what}` },
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              }
             }
 
             const { ready, refused } = resolveLivePlans(plan.plans, items, trashItems);
@@ -2837,6 +2982,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     lines,
     session: { state: sessionState },
     toolLog,
+    confirm: pending ? { id: pending.id, what: pending.what } : null,
   };
   await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
   await fs.writeFile(
