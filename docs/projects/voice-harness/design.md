@@ -123,9 +123,21 @@ hand" — which is how a person came to be told to claim his own name in a
 terminal. `POST /actor`, `POST /enrol`, `GET /canvases` and `POST /canvas` are
 served now, each routing through the same function its tool counterpart uses, so
 a rename, an enrolment or a switch behaves the same whichever surface asked.
-`GET /daemons` + `POST /daemon` are deliberately a different question: the daemon
-is what the harness attaches to at START, and the page's picker is where a person
-changes it.
+`GET /daemons` answers with the one daemon the harness is attached to — and why
+that is the only entry — while `POST /daemon` refuses in the harness's own words
+and names the remedy (`isocan voice --port <port>`): the daemon is what the
+process attached to at START, and telling somebody mid-flight would mean
+re-resolving every handle it holds.
+
+**A known residual, machine-local on purpose**: a rename on machine A cannot
+reach machine B's rc roster row. That row is a cache of the registry's name and
+it lives in a machine-local file (`rc-agents.json`) that by design never
+replicates. What holds the line is elsewhere: canvas state's enrolment record —
+which every summons reads — moved with the rename, so a stale local row cannot
+summon the wrong agent, and machine B's next start RESUMES the binding rather
+than asserting the stale name it was launched with. The residual is an untidy
+label in a file on a machine nobody has re-enrolled from, and a synced roster is
+its own decision rather than a tail on this one.
 
 ## What is not built yet
 
