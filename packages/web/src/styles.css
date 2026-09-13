@@ -726,10 +726,22 @@ img { height: auto; }
 .share-link-text { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
 /* The link's capability, indented under the toggle it qualifies: it is a
    property of the link, not a fourth sharing control. */
-/* Three rungs in a 340px popover: the row wraps rather than running past
-   the panel's edge, and each radio keeps its whole label on one line. */
-.share-link-mode { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 8px; }
-.share-link-mode .btn { flex: 1 1 auto; justify-content: center; white-space: nowrap; font-size: 12px; padding: 5px 10px; }
+/* Three rungs in a 340px popover. The three labels want 309px and the row has
+   306, so a wrapping row put "Presentation Viewer" on a line of its own —
+   two rungs above one, which reads as a group and an afterthought rather than
+   three positions of one control. So the row never wraps: the rungs share it
+   and shrink, and a label with nowhere left to go wraps INSIDE its own box.
+   Three cells of equal height either way, whatever a machine's font measures. */
+.share-link-mode { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 5px; padding-left: 8px; }
+.share-link-mode .btn {
+  /* `block`, not the `.btn` inline-flex: a flex item's anonymous text box has
+     an automatic minimum size and would spill out of a narrowed rung rather
+     than wrap inside it. `1 1 auto` shares the row out by how long each label
+     is, so the shortest rung is not handed a third of a row it does not need. */
+  display: block; flex: 1 1 auto; min-width: 0;
+  text-align: center; white-space: normal;
+  font-size: 12px; padding: 5px 8px;
+}
 /* Who made the canvas — the answer to "why can I not change that", and on a
    shared canvas simply useful. Quiet: it is a fact, not a control. */
 .share-owner { margin: 0; font-size: 11.5px; color: var(--ink-muted); }
