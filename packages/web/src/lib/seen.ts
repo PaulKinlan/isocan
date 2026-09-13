@@ -1,3 +1,4 @@
+import type { PriorVisit } from "./visitdigest.ts";
 import { mergeSeen, type SeenMark, type SeenMarks } from "@isocan/core";
 import { fetchSeen, putSeen } from "./api.ts";
 
@@ -117,36 +118,16 @@ export function loadSeen(
  * since the mark is still written, because a REVISIT is the fact "lately"
  * needs and the merge takes the later instant on its own.
  */
-export function noteVisit(canvasId: string, seq: number, actorId: string): void {
-  const at = new Date().toISOString();
-  if (cached.has(actorId)) cached.get(actorId)![canvasId] = { seq, at };
-  /**
-   * **After the read, never beside it** — and this is a bug that only a real
-   * browser found.
-   *
-   * A fresh page load holds a badge whose CLAIM on this persona the home may
-   * have forgotten, so the first request asserting an actor comes back
-   * `not-your-actor`. `lib/api.ts` heals exactly that, once, by re-claiming
-   * and replaying — but the healing is guarded by a single `reclaiming` flag,
-   * so of two requests fired in the same tick only one gets to heal and the
-   * other fails for good. Fired together, the read healed and the WRITE was
-   * the one that died: marks stopped being written on every load after the
-   * first, silently, because a mark is deliberately allowed to fail quietly.
-   *
-   * Sequencing is the whole fix. The read goes first, heals the claim if it
-   * needs healing, and the write follows a claim that is already good. It
-   * costs a round trip on a nicety and buys a feature that works on the
-   * second page load.
-   */
-  void loadSeen(actorId)
-    .then(() => putSeen(canvasId, seq, actorId))
-    .then(
-      ({ mark }) => {
-        // The home may be AHEAD — another machine of yours got further — and
-        // its answer is the one that stands.
-        cached.set(actorId, { ...cached.get(actorId), [canvasId]: mark });
-        for (const received of visits) received(actorId, canvasId, mark);
-      },
-      () => {},
-    );
+export async function noteVisit(canvasId: string, seq: number, actorId: string): Promise<PriorVisit> {
+  // A fresh read captures what the home knew BEFORE this arrival. A cached
+  // optimistic timestamp would describe the visit we are about to record.
+  // Read before write also preserves the badge's one-at-a-time claim healing.
+  const available = await loadSeen(actorId, { refresh: true });
+  const mark = seenMarks(actorId)[canvasId];
+  const prior: PriorVisit = { canvasId, actorId, head: seq, available, mark: available && mark ? { ...mark } : null };
+  void putSeen(canvasId, seq, actorId).then(({ mark: accepted }) => {
+    rememberSeen(actorId, { [canvasId]: accepted });
+    for (const received of visits) received(actorId, canvasId, accepted);
+  }, () => {});
+  return prior;
 }

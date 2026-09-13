@@ -65,6 +65,7 @@ const ModuleDialogs = lazy(() => import("../components/ModuleDialogs.tsx").then(
 import { useChromeHidden } from "../lib/hideable.ts";
 import { Viewer } from "../components/Viewer.tsx";
 import { usePhone } from "../lib/phone.ts";
+import type { PriorVisit } from "../lib/visitdigest.ts";
 import type { PhoneVisit } from "../components/PhoneFace.tsx";
 const PhoneFace = lazy(() => import("../components/PhoneFace.tsx").then((m) => ({ default: m.PhoneFace })));
 const CanvasTools = lazy(() => import("../components/CanvasTools.tsx").then((m) => ({ default: m.CanvasTools })));
@@ -259,6 +260,7 @@ function CanvasSurface({
     phoneVisitKey.current = `${canvasId}:${actor.id}`;
     phoneVisit.current = { tab: wbItemId ? "Canvas" : "Chat", itemId: wbItemId ?? null, plan: false };
   }
+  const [priorVisit, setPriorVisit] = useState<PriorVisit | null>(null);
   const arrived = canvasTitle !== null;
   const { search } = useLocation();
   const requestedThread = new URLSearchParams(search).get(THREAD_QUERY);
@@ -271,10 +273,13 @@ function CanvasSurface({
     if (!canvasId || !arrived) return;
     // One call: `noteVisit` reads before it writes, deliberately — see
     // `lib/seen.ts`, where the reason is a bug a browser found.
-    noteVisit(canvasId, useCanvasStore.getState().lastSeq, actor.id);
+    let live = true;
+    setPriorVisit(null);
+    void noteVisit(canvasId, useCanvasStore.getState().lastSeq, actor.id).then((prior) => { if (live) setPriorVisit(prior); });
     // `arrived` rather than the title itself: the head is only worth
     // recording once the snapshot has landed, and a RENAME while you stand
     // here is not a second visit.
+    return () => { live = false; };
   }, [canvasId, actor.id, arrived]);
   const switching = useUiStore((s) => s.switching);
   const connection = useCanvasStore((s) => s.connection);
@@ -1116,7 +1121,7 @@ function CanvasSurface({
         </Suspense>
       )}
       <OwnCursor actor={actor} />
-      {phone && <Suspense><PhoneFace key={`${canvasId}:${actor.id}`} canvasId={canvasId} actor={actor} visit={phoneVisit} /></Suspense>}
+      {phone && <Suspense><PhoneFace key={`${canvasId}:${actor.id}`} canvasId={canvasId} actor={actor} visit={phoneVisit} prior={priorVisit?.canvasId === canvasId && priorVisit.actorId === actor.id ? priorVisit : null} /></Suspense>}
       {/* Last, so it covers the panels and the toolbar: full screen means the
           screen. Driven by the route rather than by state — see
           FullScreen.tsx for why that distinction is the whole design. */}

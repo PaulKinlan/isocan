@@ -93,7 +93,7 @@ describe("lately, shared across your machines", () => {
      * canvas opened after the first page load recorded nothing.
      */
     const seen = bare(read("../src/lib/seen.ts"));
-    expect(seen).toMatch(/loadSeen\(actorId\)\s*\.then\(\(\) => putSeen\(/);
+    expect(seen.indexOf("await loadSeen(actorId, { refresh: true })")).toBeLessThan(seen.indexOf("void putSeen("));
     expect(page, "and the page asks for one thing, not two in a row").not.toContain("loadSeen(");
   });
 

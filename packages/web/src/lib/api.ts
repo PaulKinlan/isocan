@@ -656,8 +656,8 @@ export function getSnapshot(canvasId: string): Promise<CanvasSnapshotResponse> {
  * `since=0` because every caller wants the whole log; a caller that wants a
  * tail can pass one.
  */
-export function getOplog(canvasId: string, since = 0): Promise<LogEntry[]> {
-  return request("GET", `/api/projects/${encodeURIComponent(canvasId)}/oplog?since=${since}`);
+export function getOplog(canvasId: string, since = 0, signal?: AbortSignal): Promise<LogEntry[]> {
+  return request("GET", `/api/projects/${encodeURIComponent(canvasId)}/oplog?since=${since}`, undefined, signal);
 }
 
 /**

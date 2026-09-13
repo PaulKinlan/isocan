@@ -7,7 +7,13 @@
 .phone-header > span { font-size: 12px; color: var(--ink-muted); }
 .phone-face button { border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); padding: 8px 12px; }
 .phone-body { flex: 1; min-height: 0; position: relative; }
-.phone-body > .main-panel { position: relative; inset: auto; width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+.phone-chat { height: 100%; display: flex; flex-direction: column; }
+.phone-chat > .main-panel { position: relative; inset: auto; width: 100%; flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+.phone-digest { flex-shrink: 0; padding: 12px; border-bottom: 1px solid var(--line); max-height: 35%; overflow-y: auto; font-size: 12px; }
+.phone-digest summary { font-weight: 600; min-height: 44px; cursor: pointer; }
+.phone-digest p { color: var(--ink-muted); margin: 0 0 8px; }
+.phone-digest > div { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 0; }
+.phone-digest button { font-size: 12px; }
 .phone-face .main-panel textarea, .phone-face .thread-popover textarea { font-size: 16px; }
 .phone-tabs { display: flex; gap: 4px; padding: 8px 8px max(8px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--card); flex-shrink: 0; }
 .phone-tabs button { flex: 1; }

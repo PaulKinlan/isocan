@@ -36,6 +36,7 @@ try {
   await client.sendOp(null, h.actor, { type: "project.create", canvasId: id, title: "Acme mobile" });
   const canvas = await h.canvas(id);
   const first = await canvas.add({ title: "First", content: "# First\nA synthetic mobile example.", mime: "text/markdown", at: { x: 0, y: 0 }, size: { width: 300, height: 240 } });
+  const priorSeq = (await client.snapshot(id)).lastSeq;
   const second = await canvas.add({ title: "Second", content: "# Second\nThe next node.", mime: "text/markdown", at: { x: 500, y: 0 }, size: { width: 300, height: 240 } });
   await canvas.comment(first.id, "Discuss the first node here.");
   const session = await client.createSession(id, h.actor, "Synthetic agent", "proof");
@@ -43,9 +44,22 @@ try {
   await size(375);
   const loaded = b.once("Page.loadEventFired"); await b.send("Page.navigate", { url: origin }); await loaded;
   await throughTheDoor(b, origin, "Morgan", "mobile-proof");
+  await b.ev(`(async () => { const actorId = JSON.parse(localStorage.getItem("isocan.identity")).id; const r = await fetch("/api/seen/${id}", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actorId, seq: ${priorSeq} }) }); if (!r.ok) throw new Error(await r.text()); })()`);
   await b.ev(`localStorage.setItem("isocan.minimap", "1"); localStorage.setItem("isocan.mainpanel.${id}", "closed"); localStorage.setItem("isocan.filespanel.${id}", "open")`);
   await b.send("Page.navigate", { url: `${origin}/p/${id}` });
   await until(b, '!!document.querySelector(".phone-face .main-panel textarea")', "Chat first");
+  await until(b, '!!document.querySelector(".phone-digest [data-change-seq]")', "prior-seen digest");
+  const digestSeqs = await b.ev('[...document.querySelectorAll(".phone-digest [data-change-seq]")].map(e => Number(e.dataset.changeSeq))');
+  assert(digestSeqs.every(seq => seq > priorSeq), "digest starts after prior mark");
+  assert(digestSeqs.includes(priorSeq+1), "visit did not erase the preceding insertion");
+  await shot("phone-digest");
+  const navigationHead = (await client.snapshot(id)).lastSeq;
+  await tap('.phone-digest button'); await until(b, '!!document.querySelector(".phone-sheet")', "digest conversation link");
+  await tap('[aria-label="Close conversation"]');
+  await tap('.phone-digest > div:last-child button');
+  assert.equal(await b.ev('document.querySelector(".phone-node").dataset.nodeId'), second.id, "digest item link");
+  assert.equal((await client.snapshot(id)).lastSeq, navigationHead, "navigation writes no operation");
+  await tap('.phone-tabs button:nth-child(1)');
   await tap(".phone-face .main-panel textarea"); await b.send("Input.insertText", { text: "A real phone question" });
   await tap(".phone-face .main-panel button[type=submit]");
   await until(b, 'document.querySelector(".phone-face .main-msgs").textContent.includes("A real phone question")', "posted Chat");
@@ -53,6 +67,7 @@ try {
   await tap(".phone-face .main-panel textarea"); await b.send("Input.insertText", { text: "An unsent draft" }); await shot("phone-chat");
   await tap('.phone-tabs button:nth-child(2)');
   await until(b, '!!document.querySelector(".phone-node")', "node face");
+  await tap(".edge-left");
   assert.equal(await b.ev('document.querySelector(".phone-node").dataset.nodeId'), first.id);
   await tap('.edge-right'); assert.equal(await b.ev('document.querySelector(".phone-node").dataset.nodeId'), second.id);
   assert.equal(await b.ev('document.querySelector(".edge-right").disabled'), true, "dead edge has no destination");
