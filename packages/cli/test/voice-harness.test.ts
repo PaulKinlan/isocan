@@ -722,6 +722,62 @@ describe("the person's gate", () => {
     await run;
   });
 
+  it("takes a claim from the page's own drawer: POST /actor names the agent, no second question", async () => {
+    const server = await serve();
+    const before = ((await (await fetch(`${server.state.url}state`)).json()) as any).agent as {
+      id: string;
+      name: string;
+    };
+    expect(before.name).toBe("Voice");
+
+    // What the settings drawer sends when a person presses "Claim this name".
+    const claimed = await fetch(`${server.state.url}actor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Nova" }),
+    });
+    expect(claimed.status).toBe(200);
+    const body = (await claimed.json()) as { ok: boolean; actor: { id: string; name: string }; answer: string };
+    expect(body.ok).toBe(true);
+    expect(body.actor).toEqual({ id: before.id, name: "Nova" });
+    expect(body.answer).toContain("Nova");
+
+    // The person pressed a button; nothing is waiting for them to answer
+    // their own question.
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(state.confirm, "no gate for the person's own press").toBeNull();
+    expect(state.name).toBe("Nova");
+    expect(state.agent.id).toBe(before.id);
+    expect((await namesOnCanvas())[before.id]).toBe("Nova");
+
+    // And it is in the record, saying it came from the drawer rather than
+    // from the microphone.
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries as any[];
+    const row = entries.find((e) => e.name === "actor_claim" && e.result?.ok === true);
+    expect(row.args.via).toBe("settings");
+    expect(row.source, "a person's press, not the model").toBe("typed");
+    expect(row.op.type).toBe("actor.claim");
+
+    // A name somebody answers to is refused in the daemon's own words, so the
+    // page can print the sentence verbatim.
+    const taken = await fetch(`${server.state.url}actor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Seeder" }),
+    });
+    expect(taken.status).toBe(400);
+    expect(((await taken.json()) as { error: string }).error).toContain("Seeder");
+    expect(((await (await fetch(`${server.state.url}state`)).json()) as any).name).toBe("Nova");
+
+    // A blank name is refused rather than quietly doing nothing.
+    const blank = await fetch(`${server.state.url}actor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "  " }),
+    });
+    expect(blank.status).toBe(400);
+  });
+
   it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
     const server = await serve();
     const page = await (await fetch(server.state.url)).text();
