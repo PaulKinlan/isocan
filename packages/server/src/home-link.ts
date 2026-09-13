@@ -42,6 +42,7 @@ import {
   CLIENT_FEATURES_HEADER,
   CLIENT_FEATURES_PARAM,
   ATTEST_ROUTE,
+  askTemplate,
   narrowed,
   groupActingRoute,
   groupMemberRoute,
@@ -1314,6 +1315,11 @@ export class HomeLink implements HomeConnection {
             askId: message.askId,
             name: message.name,
             from: message.from,
+            // Re-read, not trusted: the home that relayed it read it once too.
+            ...(() => {
+              const t = askTemplate(message);
+              return "error" in t ? {} : t;
+            })(),
           });
         }
         return;

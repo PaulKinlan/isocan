@@ -11,7 +11,6 @@ import { type Tool, useUiStore } from "../stores/uiStore.ts";
 import { pan, pinch, screenToWorld, worldToScreen, zoomAt, type TwoPoints } from "../lib/viewport.ts";
 import { moduleDropFor } from "../modules.ts";
 import { creationDestination, selectCreatedItems } from "../lib/groupplacement.ts";
-import { webHostFor } from "../lib/modulehost.ts";
 import { newGroupId } from "@isocan/core";
 import { type Sample, coastFrame, flickVelocity } from "../lib/inertia.ts";
 import { zoomToBox, zoomToItem } from "../lib/zoomactions.ts";
@@ -1004,7 +1003,9 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
       if (claim) {
         const data = e.dataTransfer.getData(claim.mimeType);
         try {
-          const host = webHostFor(canvasId, actor, destination);
+          const couldEdit = canEditNow();
+          const { webHostFor } = await import("../lib/modulehost.ts");
+          const host = webHostFor(canvasId, actor, destination, couldEdit);
           const ops = await claim.run({
             canvasId,
             ...destination,

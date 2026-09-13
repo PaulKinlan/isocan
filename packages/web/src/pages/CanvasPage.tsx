@@ -54,9 +54,13 @@ const Workbench = lazy(() =>
  * visit for a gesture that needs a deliberate keystroke or a URL.
  */
 const FullScreen = lazy(() => import("../components/FullScreen.tsx").then((m) => ({ default: m.FullScreen })));
-import { DeckPrint } from "../components/DeckPrint.tsx";
-import { ModulePage } from "../components/ModulePage.tsx";
-import { ModuleOverlays } from "../components/ModuleOverlays.tsx";
+/** Printing is a deliberate route, so its HTML exporter is absent from first paint. */
+const DeckPrint = lazy(() => import("../components/DeckPrint.tsx").then((m) => ({ default: m.DeckPrint })));
+const ModulePage = lazy(() => import("../components/ModulePage.tsx").then((m) => ({ default: m.ModulePage })));
+const ModuleOverlays = lazy(() => import("../components/ModuleOverlays.tsx").then((m) => ({ default: m.ModuleOverlays })));
+import { modules } from "../modules.ts";
+/** Module chrome loads when a module supplies it or a person opens its dialog. */
+const ModuleDialogs = lazy(() => import("../components/ModuleDialogs.tsx").then((m) => ({ default: m.ModuleDialogs })));
 import { useChromeHidden } from "../lib/hideable.ts";
 import { Viewer } from "../components/Viewer.tsx";
 import { CanvasTools } from "../components/CanvasTools.tsx";
@@ -230,6 +234,10 @@ function CanvasSurface({
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const setHistoryOpen = useUiStore((s) => s.setHistoryOpen);
   const canvas = useCanvasStore((s) => s.past?.canvas ?? s.canvas);
+  const moduleDialogOpen = useUiStore((s) => s.moduleDialog !== null);
+  useUiStore((s) => s.modulesGeneration);
+  useUiStore((s) => s.experiments);
+  const moduleOverlaysVisible = modules().some((module) => module.overlays?.length);
   const groupDialogOpen = useUiStore((s) => s.groupDialog !== null);
   // The canvas's own title, for the tab. Subscribed separately from the
   // contents so a rename repaints the tab and an item move does not.
@@ -1080,7 +1088,10 @@ function CanvasSurface({
       {/* Module overlays: screen-space trays against an edge (#156). Above the
           canvas and below the app's own chrome, so a module can add to the
           screen without covering the controls the app promises. */}
-      <ModuleOverlays canvasId={canvasId!} actor={actor} />
+      {moduleOverlaysVisible && <Suspense fallback={null}><ModuleOverlays canvasId={canvasId!} actor={actor} /></Suspense>}
+      {/* A module's popup, opened by a command or a palette entry and
+          never by itself (proposed: `dialogs`). */}
+      {moduleDialogOpen && <Suspense fallback={null}><ModuleDialogs canvasId={canvasId!} actor={actor} /></Suspense>}
       <Toolbar actor={actor} onIdentity={onIdentity} />
       <CanvasGroupScope />
       {groupDialogOpen && <Suspense fallback={null}><CanvasGroupPanel canvasId={canvasId} actor={actor} /></Suspense>}
@@ -1157,8 +1168,8 @@ function CanvasSurface({
       )}
       {/* The deck on paper: every slide stacked, printed one to a sheet. A
           route like full screen, mounted here so it reads the open replica. */}
-      {onDeck && <DeckPrint canvasId={canvasId} />}
-      {pageSegment && <ModulePage canvasId={canvasId} segment={pageSegment} actor={actor} />}
+      {onDeck && <Suspense fallback={null}><DeckPrint canvasId={canvasId} /></Suspense>}
+      {pageSegment && <Suspense fallback={null}><ModulePage canvasId={canvasId} segment={pageSegment} actor={actor} /></Suspense>}
       {/* The other cover: same architecture, different room. Lazy, so the
           canvas path never pays for it; Suspense falls back to nothing for
           the frame the chunk takes. */}

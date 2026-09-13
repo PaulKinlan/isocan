@@ -1,3 +1,4 @@
+import { CANVAS_GROUPS_FEATURE, CLIENT_FEATURES_HEADER, formatBadgeToken } from "@isocan/core";
 import { describe, expect, it } from "vitest";
 import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
@@ -340,6 +341,81 @@ describe("the web doors' mechanics (phase 2.5)", () => {
     rc.kill("SIGINT");
     await done;
   }, 30_000);
+
+  it("a web ask naming a template gets a working directory from a module on THIS machine (proposed: templates)", async () => {
+    const rc = spawnCli(["rc"]);
+    let out = "";
+    rc.stdout!.setEncoding("utf8");
+    rc.stdout!.on("data", (chunk) => (out += chunk));
+    const done = new Promise<void>((resolve) => rc.on("close", () => resolve()));
+    await until(async () => out, (o) => o.includes("answering on"), "the rc to come up");
+
+    const parked = () => until(async () => {
+      const response = await fetch(`${base}/api/projects/prj_1/rc`, { headers: badge.headers });
+      return response.json() as Promise<{ parked?: boolean }>;
+    }, (state) => state.parked === true, "the rc's live park");
+    await parked();
+
+    // What the design competition's Fight button sends: a name, a template
+    // id and strings — never code. The template is the module's, installed
+    // in this build; the rc runs it here, into a directory it chooses. Asked
+    // by the rc's owner: since owner-only summons (#269) a template ask meets
+    // the same gate as a plain one, and this machine is Nico's. Asked on the
+    // badge this machine already holds — a test badge may not become somebody
+    // live here, and the owner's own surface is what the Fight button is.
+    const { auth } = JSON.parse(await fs.readFile(path.join(home, "identity.json"), "utf8")) as {
+      auth: Record<string, { badgeId: string; secret: string }>;
+    };
+    const [mine] = Object.values(auth);
+    const asOwner = (body: unknown): Promise<any> =>
+      fetch(`${base}/api/projects/prj_1/agents/ask`, {
+        method: "POST",
+        headers: { [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE, "Content-Type": "application/json", Authorization: `Bearer ${formatBadgeToken(mine!.badgeId, mine!.secret)}` },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+    const asked = await asOwner({
+      name: "Less but Better",
+      from: nico,
+      template: "design-competition.fighter",
+      args: { pack: "rams", bout: "itm_bout", lane: "Less but Better", canvas: "prj_1" },
+    });
+    expect(asked.ok, JSON.stringify(asked)).toBe(true);
+    await until(async () => out, (o) => o.includes("from the template design-competition.fighter"), "the template ask narrated");
+    await until(rcRows, (r) => r.some((row) => row.name === "Less but Better"), "the enrolment");
+    const row = (await rcRows()).find((r) => r.name === "Less but Better")!;
+    expect(await fs.realpath(row.cwd)).toBe(await fs.realpath(path.join(home, "templates", "design-competition.fighter", "prj_1", "less-but-better")));
+    expect(await fs.readFile(path.join(row.cwd, "AGENTS.md"), "utf8")).toMatch(/You are Less but Better/);
+
+    // Somebody else's template ask is refused at the door like any ask would
+    // be — a template names what to write, never whose machine may be asked.
+    await parked();
+    const theirs = await post("/api/projects/prj_1/agents/ask", {
+      name: "Road Signs",
+      from: dimitri,
+      template: "design-competition.fighter",
+      args: { pack: "kare", bout: "itm_bout", lane: "Road Signs", canvas: "prj_1" },
+    });
+    expect(theirs).toMatchObject({ code: "not-your-rc" });
+    expect(theirs.error).toContain("Nico's");
+
+    // A template nobody installed here is refused by id, and enrols nobody.
+    await parked();
+    await asOwner({ name: "Stranger", from: nico, template: "nobody.here" });
+    await until(async () => out, (o) => o.includes("no module on this machine offers the template nobody.here"), "the refusal");
+    expect((await rcRows()).some((r) => r.name === "Stranger")).toBe(false);
+
+    rc.kill("SIGINT");
+    await done;
+  }, 30_000);
+
+  it("refuses at the door an ask whose template is not an id and strings", async () => {
+    const res = await fetch(`${base}/api/projects/prj_1/agents/ask`, {
+      method: "POST",
+      headers: { ...badge.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Sly", from: dimitri, template: "../../bin/sh" }),
+    });
+    expect(res.status).toBe(400);
+  });
 
   it("an rc that starts late reconciles the enrolments it missed", async () => {
     // Enrolled from the web while NO rc ran — the record works with nothing
