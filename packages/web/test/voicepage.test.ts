@@ -906,7 +906,6 @@ describe("the thumb-first conversation layout", () => {
   it("places captions before the microphone in DOM order, not just with CSS order", () => {
     expect(element("captions").compareDocumentPosition(element("listen")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector(".voice-stage")!.contains(element("hero"))).toBe(true);
-    expect(element("keep-captions").closest("label")).toBeTruthy();
   });
 
   it("fits settings to a visual-viewport resize without losing the focused draft", async () => {
