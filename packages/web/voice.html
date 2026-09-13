@@ -175,8 +175,7 @@
           <p class="voice-hint">
             The key drives <b>Gemini Live</b> — the conversation itself. The harness stores it at
             <code>~/.isocan/voice/key.json</code> (0600); this page posts it once over loopback and keeps no copy. The
-            provider is the judge, and it answers below in its own words. An OpenAI key pasted by hand still drives the
-            harness's transcription fallback — it is not offered here, because only Gemini Live holds a conversation.
+            provider checks the key when you press Test key. This harness uses Gemini Live only.
           </p>
           <div class="voice-keyrow">
             <input id="key" type="password" aria-label="provider key" placeholder="paste your Gemini API key" autocomplete="off" />

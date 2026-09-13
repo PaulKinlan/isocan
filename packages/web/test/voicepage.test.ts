@@ -140,6 +140,7 @@ const element = <T extends HTMLElement>(id: string): T => {
  * about the page changes for it: this is the same `wireVoice` a browser gets.
  */
 class FakeSocket {
+  static readonly OPEN = 1;
   static latest: FakeSocket | null = null;
   readyState = 1;
   binaryType = "";
@@ -167,8 +168,9 @@ class FakeSocket {
   }
 }
 
-function fakeCapture(): void {
+function fakeCapture(): { frame(): void } {
   FakeSocket.latest = null;
+  let worklet: FakeWorklet | null = null;
   class FakeContext {
     sampleRate = 48000;
     private createdAt = performance.now();
@@ -191,6 +193,7 @@ function fakeCapture(): void {
     async close() {}
   }
   class FakeWorklet {
+    constructor() { worklet = this; }
     port = { onmessage: null as unknown, postMessage: () => undefined };
     connect(): void {}
     disconnect(): void {}
@@ -217,6 +220,7 @@ function fakeCapture(): void {
   // which is how the page builds the socket address.
   (URL as unknown as { createObjectURL: () => string }).createObjectURL = () => "blob:worklet";
   (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => undefined;
+  return { frame: () => (worklet?.port.onmessage as ((event: { data: Float32Array }) => void) | null)?.({ data: new Float32Array(128).fill(0.25) }) };
 }
 
 /** Start a session and hand back the socket the page opened. */
@@ -492,7 +496,8 @@ describe("mic-centred conversation feedback", () => {
     await wire();
     element<HTMLButtonElement>("listen").click();
     expect(element("hero").dataset.activity).toBe("connecting");
-    expect(element<HTMLButtonElement>("listen").disabled).toBe(true);
+    expect(element<HTMLButtonElement>("listen").disabled).toBe(false);
+    expect(element<HTMLButtonElement>("listen").getAttribute("aria-disabled")).toBe("true");
     element<HTMLButtonElement>("listen").click();
     await flush();
     await flush();
@@ -562,6 +567,56 @@ describe("mic-centred conversation feedback", () => {
     expect(stop).toHaveBeenCalledOnce();
     expect(FakeSocket.latest).toBeNull();
     expect(element("hero").dataset.activity).toBe("ended");
+  });
+
+  it("a state poll started before Mute cannot undo its feedback", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    await goLive();
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let release!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation((url, init) => String(url).endsWith("/state")
+      ? new Promise((resolve) => { release = resolve; }) : original(url, init));
+    await vi.advanceTimersByTimeAsync(2000);
+    element<HTMLButtonElement>("mute").click();
+    await flush();
+    release(answer({ session: "live" }));
+    await flush();
+    expect(element("hero").dataset.activity).toBe("muted");
+    expect(element<HTMLButtonElement>("listen").getAttribute("aria-label")).toBe("Unmute microphone");
+  });
+
+  it("a refused mute update does not undo the local microphone mute", async () => {
+    const mic = fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    stateReply = { session: "live" };
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("simulated lost acknowledgement"));
+    element<HTMLButtonElement>("mute").click();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2100);
+    mic.frame();
+    expect(socket.sent).toHaveLength(0);
+    expect(element("hero").dataset.state).toBe("live");
+    expect(element("hero").dataset.activity).toBe("muted");
+    expect(element("hero").dataset.muted).toBe("true");
+  });
+
+  it("a new Listen after ending muted starts with input enabled", async () => {
+    const mic = fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    await goLive();
+    element<HTMLButtonElement>("mute").click();
+    await flush();
+    element<HTMLButtonElement>("end").click();
+    await flush();
+    const restarted = await goLive();
+    mic.frame();
+    expect(restarted.sent).toHaveLength(1);
+    expect(element("hero").dataset.muted).toBe("false");
   });
 
   it("a rejected old decode cannot end a new session", async () => {

@@ -137,11 +137,11 @@ const TEXT_TAIL_MS = 700;
  * **The state line says which microphone, because "it is using the wrong one"
  * is not diagnosable from a word like "live".**
  */
-function stateWords(activity: Activity, session: SessionState, microphone: string): string {
+function stateWords(activity: Activity, muted: boolean, microphone: string): string {
   if (activity === "connecting") return "connecting…";
   if (activity === "thinking") return "thinking…";
   if (activity === "speaking") {
-    return session === "muted" ? "speaking — you are muted" : "speaking";
+    return muted ? "speaking — you are muted" : "speaking";
   }
   if (activity === "muted") return `muted — ${microphone} is still open`;
   if (activity === "listening") return `listening — ${microphone}`;
@@ -240,20 +240,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   let facts: State | null = null;
   let session: SessionState = "idle";
   let muted = false;
+  let muting = false;
   let entries: LogEntry[] = [];
   let mics: Input[] = [];
   let chosenId = storedDevice();
-  /**
-   * **The key is a Gemini Live key, and the page says so by not offering a
-   * choice.**
-   *
-   * The panel used to carry a provider dropdown with two options, which was a
-   * small lie: only Gemini Live holds the conversation. The harness still
-   * accepts an `sk-` key for its transcription fallback, so pasting one by
-   * hand keeps working — it is just not advertised as a peer of the thing that
-   * actually does the talking. The provider posted with the key is the one the
-   * page means.
-   */
+  /** The current harness stores Gemini keys; the field also supports older builds. */
   const provider = "gemini";
   /** Read once, before any request goes out: the stored value wins. */
   let daemonWant = storedDaemon();
@@ -310,22 +301,26 @@ export function wireVoice(doc: Document = document): VoicePage {
    */
   function renderHero(): void {
     hero.dataset.state = session;
+    hero.dataset.muted = String(muted);
     if (opening) activity = "connecting";
     else if (session === "idle" || session === "ended") activity = session;
-    else if (session === "muted" && activity !== "speaking") activity = "muted";
+    else if (muted && activity !== "speaking") activity = "muted";
     else if (session === "live" && (activity === "idle" || activity === "ended" || activity === "muted"))
       activity = "listening";
     hero.dataset.activity = activity;
-    listenButton.disabled = opening;
+    // Keep keyboard focus through an async start; guards refuse repeat presses.
+    listenButton.disabled = false;
+    listenButton.setAttribute("aria-disabled", String(opening || muting));
+    listenButton.setAttribute("aria-busy", String(opening || muting));
     const running = session === "live" || session === "muted";
     listenButton.setAttribute("aria-label", running ? (muted ? "Unmute microphone" : "Mute microphone") : "Listen");
     listenButton.title = running ? (muted ? "Unmute microphone" : "Mute microphone") : "Start listening";
-    muteButton.disabled = session !== "live" && session !== "muted";
+    muteButton.disabled = opening || muting || (session !== "live" && session !== "muted");
     endButton.disabled = !opening && (session === "idle" || session === "ended");
     muteButton.textContent = muted ? "Unmute" : "Mute";
     stateLine.textContent = stateWords(
       activity,
-      session,
+      muted,
       mics.find((one) => one.id === chosenId)?.label ?? "the default microphone",
     );
   }
@@ -627,6 +622,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   const refresh = async (): Promise<void> => {
+    if (muting) return;
     const epoch = generation;
     try {
       const next = await fetchState();
@@ -643,7 +639,8 @@ export function wireVoice(doc: Document = document): VoicePage {
       const running = sessionFrom(next);
       if (running) {
         session = running;
-        muted = running === "muted";
+        // A refused harness update must not undo a local microphone mute.
+        muted = Boolean(held?.muted) || running === "muted";
         renderHero();
       }
       // Only the poll's own complaint is the poll's to clear. An action that
@@ -745,6 +742,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     generation++;
     captureEpoch++;
     opening = false;
+    muting = false;
+    muted = false;
     socket?.close();
     socket = null;
     held?.stop();
@@ -1017,6 +1016,9 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   async function toggleMute(): Promise<void> {
+    if (opening || muting || disposed) return;
+    const epoch = ++generation;
+    muting = true;
     const next = !muted;
     muted = next;
     if (held) held.muted = next;
@@ -1028,10 +1030,19 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (!next && activity === "muted") activity = "listening";
     renderHero();
     put({ at: new Date().toLocaleTimeString(), event: next ? "muted (session still open)" : "unmuted" });
-    await (next ? muteSession() : unmuteSession()).catch((err) => {
+    try {
+      await (next ? muteSession() : unmuteSession());
+    } catch (err) {
+      if (epoch !== generation) return;
       complaint = String((err as Error).message ?? err);
       renderComplaint();
-    });
+    } finally {
+      if (epoch === generation) {
+        muting = false;
+        generation++;
+        renderHero();
+      }
+    }
   }
 
   async function end(): Promise<void> {
