@@ -289,9 +289,10 @@ describe("the standalone page keeps the controls a person has to press", () => {
     for (const id of ["key", "save-key", "test-key", "forget-key"]) {
       expect(document.getElementById(id), id).toBeTruthy();
     }
-    // The drawer that carries the missing piece opens itself on a first run:
-    // stateReply is empty here, so there is no canvas, no actor and no key.
-    expect(document.querySelector("details[open]")).toBeTruthy();
+    // Nothing in Settings is folded away: it is one flat scroll, so there is
+    // no disclosure control to open before the key can be reached. The
+    // drawers beside the conversation keep their own expandos.
+    expect(document.querySelectorAll("#settings details, #settings summary").length).toBe(0);
     // The heading was printed twice — once as the summary, once as an <h2>.
     expect(document.body.innerHTML.match(/>Key</g)?.length ?? 0).toBe(1);
     expect(element<HTMLButtonElement>("save-key").disabled).toBe(true);
@@ -766,6 +767,57 @@ describe("configuration behind the settings cog", () => {
     expect(element("key")).toBe(key);
     expect(key.value).toBe("synthetic-not-a-key");
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/session/start"))).toBe(false);
+  });
+
+  it("dismisses from a click outside the dialog, and not from one inside it", async () => {
+    await wire();
+    const dialog = element<HTMLDialogElement>("settings");
+    // The declarative half: a browser with `closedBy` does all of this itself.
+    // jsdom has no `closedBy`, so what runs below is the Safari fallback.
+    expect(dialog.getAttribute("closedby")).toBe("any");
+    // jsdom has no layout either, so the dialog says where its box is.
+    dialog.getBoundingClientRect = () => ({ left: 100, top: 50, right: 500, bottom: 400 } as DOMRect);
+    const clickAt = (target: EventTarget, clientX: number, clientY: number) =>
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX, clientY }));
+    const pressAt = (target: EventTarget, clientX: number, clientY: number) =>
+      target.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX, clientY }));
+
+    element<HTMLButtonElement>("settings-open").click();
+    expect(dialog.open).toBe(true);
+    // The click that OPENED it is a click outside it (the cog is out there):
+    // dismissing on `click` would close what it just opened.
+    clickAt(document.body, 10, 10);
+    expect(dialog.open).toBe(true);
+
+    // The press is what decides. On the backdrop it reports the page BODY as
+    // its target in Chrome, measured — so the target cannot decide this.
+    pressAt(document.body, 10, 10);
+    expect(dialog.open).toBe(false);
+
+    // A press on the dialog's own padding reports the DIALOG as the target,
+    // which is the other half of that trap: `target === dialog` alone would
+    // dismiss whenever somebody pressed the edge of the panel.
+    element<HTMLButtonElement>("settings-open").click();
+    pressAt(dialog, 300, 395);
+    expect(dialog.open).toBe(true);
+    // A press on the content is a press on a child, not a dismissal.
+    pressAt(element("settings-title"), 10, 10);
+    expect(dialog.open).toBe(true);
+    // A native popup paints outside the dialog's box while belonging to it.
+    pressAt(element("device"), 900, 900);
+    expect(dialog.open).toBe(true);
+
+    // The mirror case: a backdrop press that reports the DIALOG as its target
+    // (Safari does this where Chrome reports the body) — same target as the
+    // padding press above, opposite outcome. The coordinates are the whole
+    // difference, and this is the assertion that fails if they are dropped.
+    element<HTMLButtonElement>("settings-open").click();
+    pressAt(dialog, 10, 10);
+    expect(dialog.open).toBe(false);
+
+    element<HTMLButtonElement>("settings-open").click();
+    element<HTMLButtonElement>("settings-close").click();
+    expect(dialog.open).toBe(false);
   });
 
   it("makes missing setup actionable inline without automatically opening settings", async () => {

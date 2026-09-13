@@ -124,16 +124,23 @@
         </details>
       </div>
 
-      <dialog class="voice-settings" id="settings" aria-labelledby="settings-title">
+      <!-- closedby="any" is the platform's own light dismiss: a click on the
+           backdrop, plus Escape and the mobile back gesture. Its trap is that
+           a backdrop click reports the DIALOG as the event target — so the
+           browsers without closedBy get the same rule by hand in main.ts,
+           hit-tested against this box rather than against the target. -->
+      <dialog class="voice-settings" id="settings" closedby="any" aria-labelledby="settings-title">
         <header class="voice-settings-head">
           <h2 id="settings-title" tabindex="-1" autofocus>Voice settings</h2>
           <button id="settings-close" type="button">Close settings</button>
         </header>
-        <details class="voice-quiet" id="connection-panel" open>
-          <summary>
+        <!-- Flat on purpose: one scroll, no disclosure. Everything the cog
+             holds is readable by scrolling, so nothing has to be opened. -->
+        <section class="voice-settings-part" id="connection-panel" aria-labelledby="connection-title">
+          <h3 class="voice-settings-part-title" id="connection-title">
             Connected to
             <span class="voice-summary" id="connection-summary">unknown</span>
-          </summary>
+          </h3>
           <section class="voice-facts-strip" aria-label="Connection">
             <div class="voice-setup" id="setup" hidden>
               <h3>Set this up</h3>
@@ -203,10 +210,10 @@
             </dl>
 
           </section>
-        </details>
+        </section>
 
-        <details class="voice-quiet" id="key-panel">
-          <summary>Key</summary>
+        <section class="voice-settings-part" id="key-panel" aria-labelledby="key-title">
+          <h3 class="voice-settings-part-title" id="key-title">Key</h3>
           <p class="voice-hint">
             The key drives <b>Gemini Live</b> — the conversation itself. The harness stores it at
             <code>~/.isocan/voice/key.json</code> (0600); this page posts it once over loopback and keeps no copy. The
@@ -221,7 +228,7 @@
             <button id="forget-key" type="button">Forget</button>
           </div>
           <p class="voice-hint" id="key-note" role="status" hidden></p>
-        </details>
+        </section>
       </dialog>
     </div>
 

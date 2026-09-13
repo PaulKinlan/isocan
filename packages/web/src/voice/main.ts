@@ -230,7 +230,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const versionLine = required<HTMLElement>("version", doc);
   const updatedLine = required<HTMLElement>("updated", doc);
   const complaintLine = required<HTMLElement>("complaint", doc);
-  const connectionPanel = required<HTMLDetailsElement>("connection-panel", doc);
+  const connectionPanel = required<HTMLElement>("connection-panel", doc);
   const connectionSummary = required<HTMLElement>("connection-summary", doc);
   const setupBox = required<HTMLElement>("setup", doc);
   const setupNote = required<HTMLElement>("setup-note", doc);
@@ -514,9 +514,8 @@ export function wireVoice(doc: Document = document): VoicePage {
         }`
       : "no harness answered";
 
-    // Expand the section inside Settings, never the modal itself. Missing
-    // prerequisites also have an inline pointer beside the conversation.
-    if (missing.length > 0) connectionPanel.open = true;
+    // Missing prerequisites also get an inline pointer beside the
+    // conversation; the modal never opens itself on first run.
     renderSetup();
   }
 
@@ -1292,9 +1291,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (!audio.key) {
       const li = setupStep(`No ${audio.provider === "no provider" ? "provider" : audio.provider} key is stored — the harness cannot open a Live session without one.`);
       setupAction(li, "Add a key", () => {
-        connectionPanel.open = false;
-        const keyPanel = doc.getElementById("key-panel") as HTMLDetailsElement | null;
-        if (keyPanel) keyPanel.open = true;
+        // The settings surface is flat, so the field is already on screen:
+        // focusing it is what scrolls it into view.
         keyInput.focus();
       });
     }
@@ -1829,6 +1827,49 @@ export function wireVoice(doc: Document = document): VoicePage {
   settingsOpen.addEventListener("click", openSettings);
   setupOpen.addEventListener("click", openSettings);
   settingsClose.addEventListener("click", () => settings.close());
+  /**
+   * **Click-outside, where the platform does not do it for us.**
+   *
+   * `closedby="any"` on the dialog in voice.html is the whole feature in
+   * Chrome 134+ and Firefox 141+. Safari has no `closedBy` (it is still only
+   * in preview, so this path runs for real), and it has three traps worth
+   * naming, because the obvious implementation fails all three:
+   *
+   * 1. A click on the dialog's own padding reports the DIALOG as its event
+   *    target, exactly like a backdrop click — so `target === dialog` would
+   *    close the panel whenever somebody pressed its edge.
+   * 2. A click on the backdrop over the page body reports the BODY as its
+   *    target (measured in Chrome), so a listener bound to the dialog would
+   *    miss the very click this exists for.
+   * 3. The click that OPENS the dialog is itself a click outside it (the cog
+   *    is outside the box), so dismissing on `click` closes the dialog in the
+   *    same dispatch that opened it.
+   *
+   * The coordinates answer (1) and (2) — they are the test the HTML spec names
+   * for the nearest clicked dialog, 4.11.5 — and the pointerdown answers (3):
+   * the press that opens the dialog lands while it is still shut. Listening on
+   * the document is safe because a modal dialog makes the page behind inert.
+   * Anything belonging to the dialog's own tree still counts as inside, since
+   * a native popup reports coordinates where the popup is painted.
+   */
+  if (!("closedBy" in HTMLDialogElement.prototype)) {
+    doc.addEventListener("pointerdown", (event) => {
+      if (!settings.open) return;
+      const box = settings.getBoundingClientRect();
+      const onTheDialog =
+        event.clientX >= box.left && event.clientX <= box.right &&
+        event.clientY >= box.top && event.clientY <= box.bottom;
+      // A press on the dialog's own box is not a press outside it — including
+      // the padding, which reports the dialog as its target.
+      if (onTheDialog) return;
+      // Anything owned by the dialog still counts as inside, though: a native
+      // popup reports the coordinates where the popup is painted, and the
+      // dialog itself is excluded here so that a backdrop press reporting the
+      // dialog as its target still gets decided by the coordinates above.
+      if (event.target !== settings && settings.contains(event.target as Node)) return;
+      settings.close();
+    });
+  }
   settings.addEventListener("close", () => {
     hero.insertBefore(complaintLine, confirmBox);
     settingsOpen.setAttribute("aria-expanded", "false");
