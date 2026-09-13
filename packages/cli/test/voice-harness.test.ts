@@ -257,6 +257,60 @@ async function liveServer() {
 }
 
 /**
+ * **A fresh `isocan voice`, the way a person (or the rc) starts one** — the
+ * real verb, in a real process, on a free port. It stands until it is killed,
+ * so this waits for the line that says it is listening (or for it to exit with
+ * a refusal), reads `/state` back, and stops it.
+ *
+ * The subject is the NAME it claims, not the audio: a restart is where a
+ * rename either survives or is quietly undone.
+ */
+async function startFreshVoice(env: Record<string, string>): Promise<{
+  started: boolean;
+  state: { name: string; agent: { id: string; name: string }; canvas: { id: string; title: string } } | null;
+  said: string;
+}> {
+  const port = 9000 + Math.floor(Math.random() * 900);
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, ISOCAN_HARNESS: "agent" };
+  for (const name of harnessVars) delete childEnv[name];
+  const child = spawn(process.execPath, [cliBin, "voice", "--voice-port", String(port)], {
+    env: { ...childEnv, ISOCAN_HOME: home, ISOCAN_PORT: new URL(base).port, ...env },
+    cwd: home,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let said = "";
+  child.stdout!.setEncoding("utf8");
+  child.stdout!.on("data", (chunk) => (said += chunk));
+  child.stderr!.setEncoding("utf8");
+  child.stderr!.on("data", (chunk) => (said += chunk));
+  let url: string | null = null;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const found = said.match(/talk at (http:\/\/127\.0\.0\.1:\d+\/)/);
+    if (found) {
+      url = found[1]!;
+      break;
+    }
+    if (child.exitCode !== null) break;
+    await sleep(50);
+  }
+  let state: { name: string; agent: { id: string; name: string }; canvas: { id: string; title: string } } | null = null;
+  if (url) {
+    // The page and a check read the same three facts; this is the machine
+    // readable door.
+    for (let i = 0; i < 100 && !state; i++) {
+      state = (await fetch(`${url}state`).then((r) => r.json()).catch(() => null)) as typeof state;
+      if (!state) await sleep(50);
+    }
+  }
+  child.kill("SIGTERM");
+  await sleep(200);
+  child.kill("SIGKILL");
+  await sleep(50);
+  return { started: url !== null, state, said };
+}
+
+/**
  * The model's call, answered. Started without awaiting when the person has to
  * answer first, and then awaited — the tool response only arrives after the
  * gate opens.
@@ -1075,6 +1129,55 @@ describe("the projects this session can work on", () => {
     } finally {
       await live.close();
     }
+  });
+});
+
+describe("the harness's name across a restart", () => {
+  const enrollVoice = async () => {
+    const enrolled = await isocan(["rc", "add", "Voice", "--harness", "voice", "--dir", home], {
+      ISOCAN_SESSION_ID: "Voice",
+      ISOCAN_HARNESS: "agent",
+    });
+    expect(enrolled.code, enrolled.stderr).toBe(0);
+  };
+
+  it("resumes the actor it renamed, rather than re-asserting the name it was started with", async () => {
+    await enrollVoice();
+    const live = await liveServer();
+    let renamedActor = "";
+    try {
+      const before = ((await (await fetch(`${live.server.state.url}state`)).json()) as any).agent as { id: string; name: string };
+      expect(before.name).toBe("Voice");
+      renamedActor = before.id;
+
+      // Rename, by voice, through the gate.
+      const call = callTool(live.providerSocket, "restart-rename", "actor_claim", { name: "Nova" });
+      const ask = await theQuestion(live.server.state.url);
+      await answering(live.server.state.url, ask.id, true);
+      expect((await call).response.ok).toBe(true);
+    } finally {
+      await live.close();
+    }
+
+    // 1. A fresh start under the NEW name — what a person types, and what a
+    // renamed enrolment injects. This was a hard refusal before: the harness
+    // rebuilt the key from the name, and `agent:Nova` is a key it never held.
+    const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: "Nova" });
+    expect(asNew.started, `a fresh \`isocan voice\` should start:\n${asNew.said.slice(-600)}`).toBe(true);
+    expect(asNew.state!.name).toBe("Nova");
+    expect(asNew.state!.agent.id, "the same actor, not a second one wearing the name").toBe(renamedActor);
+
+    // 2. A fresh start under the OLD name — a stale enrolment, or a shell with
+    // the old export. It must resume, not rename back.
+    const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+    expect(asOld.started, `a fresh \`isocan voice\` should start:\n${asOld.said.slice(-600)}`).toBe(true);
+    expect(asOld.state!.name, "the old name is not asserted back over the new one").toBe("Nova");
+    expect(asOld.state!.agent.id).toBe(renamedActor);
+    expect(asOld.said, "and it says whose name is stale, rather than obeying it").toContain("stale");
+
+    // 3. One actor, one name, on the canvas: no fork.
+    const names = Object.values(await namesOnCanvas());
+    expect(names.filter((n) => n === "Nova" || n === "Voice")).toEqual(["Nova"]);
   });
 });
 

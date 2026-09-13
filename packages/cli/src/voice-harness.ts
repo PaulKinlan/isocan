@@ -27,7 +27,8 @@ import {
   siteLabel,
   type InkStroke,
 } from "@isocan/core";
-import { readRcAgents } from "./rc.ts";
+import { enrolmentKey } from "./acp.ts";
+import { readRcAgents, upsertRcAgent } from "./rc.ts";
 import { voicePage } from "./voice-harness-page.ts";
 
 /**
@@ -146,6 +147,140 @@ export async function writeVoiceKey(home: string, value: VoiceKey): Promise<stri
 
 export async function forgetVoiceKey(home: string): Promise<void> {
   await fs.rm(voiceKeyFile(home), { force: true });
+}
+
+export function voiceIdentityFile(home: string): string {
+  return path.join(voiceDir(home), "identity.json");
+}
+
+/**
+ * **Which actor this microphone speaks as, and the key it holds it under.**
+ *
+ * The two are not the same thing, and treating them as one is what made a
+ * rename half-happen. An agent is FIRST claimed under `agent:<name>`
+ * (`enrolmentKey`), and that is fine at birth — but the key then lives on the
+ * badge for the life of the actor, while the NAME is a label the registry owns
+ * and the person can change at the microphone. A start that rebuilds the key
+ * from the name presents a key nobody holds (refused: "Nova is taken here") or,
+ * worse, the key that IS held under the old name and renames the actor back.
+ *
+ * So the identity is recorded: the actor id and the key, with the name as a
+ * copy of the label for saying what this harness is without a round trip.
+ * Nothing downstream may treat the key as who somebody is — the id is the
+ * identity, and the name is a label.
+ */
+export interface VoiceIdentity {
+  actorId: string;
+  sessionKey: string;
+  /** The name the actor went by when this was written — a label, refreshed on
+   * every claim. The registry is the authority. */
+  name: string;
+}
+
+export async function readVoiceIdentity(home: string): Promise<VoiceIdentity | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(voiceIdentityFile(home), "utf8")) as VoiceIdentity;
+    if (!parsed?.actorId || !parsed?.sessionKey) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeVoiceIdentity(home: string, value: VoiceIdentity): Promise<void> {
+  await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
+  const file = voiceIdentityFile(home);
+  await fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  await fs.chmod(file, 0o600);
+}
+
+export async function forgetVoiceIdentity(home: string): Promise<void> {
+  await fs.rm(voiceIdentityFile(home), { force: true });
+}
+
+/** `agent:Voice` → the identity `connect({ identity })` takes. The key was
+ * built as `<harness>:<session>` and only the first colon splits it. */
+export function identityFromKey(sessionKey: string): { harness: string; session: string } {
+  const at = sessionKey.indexOf(":");
+  return at < 0
+    ? { harness: "agent", session: sessionKey }
+    : { harness: sessionKey.slice(0, at), session: sessionKey.slice(at + 1) };
+}
+
+/**
+ * **Claim who this microphone is — resuming rather than re-asserting.**
+ *
+ * With a remembered identity the claim carries NO name, which is the op's own
+ * rule for a key already worn: *"Who am I?" / "hand me a name"* — a key that
+ * is mine comes back with the name it goes by now. So a restart after a rename
+ * resumes the actor under the key it was bound with and is told the new name,
+ * instead of asserting the stale one from the environment.
+ *
+ * Without one (first run on this machine) the name is the key, exactly as
+ * before: `agent:<name>` is claimed with the name, which mints or resumes.
+ *
+ * A remembered key the daemon refuses — the badge lost its claims, or the
+ * actor was withdrawn — is forgotten and the first-run path takes over, said
+ * out loud rather than swallowed. A claim is idempotent, so this costs one
+ * round trip per start and nothing else.
+ */
+export async function claimVoiceIdentity(options: {
+  home: string;
+  client: {
+    claimActor: (op: { type: "actor.claim"; sessionKey: string; name?: string; canvasId?: string }) => Promise<{
+      envelope: { actor: { id: string; name: string } };
+    }>;
+  };
+  /** The name asked for: `--as`, the injected session, or the default. */
+  name: string;
+  canvasId?: string;
+  onLine?: (line: string) => void;
+}): Promise<{ actor: { id: string; name: string }; harness: string; session: string }> {
+  const say = options.onLine ?? (() => {});
+  const remembered = await readVoiceIdentity(options.home).catch(() => null);
+  if (remembered) {
+    try {
+      const { envelope } = await options.client.claimActor({
+        type: "actor.claim",
+        sessionKey: remembered.sessionKey,
+      });
+      const actor = envelope.actor;
+      await writeVoiceIdentity(options.home, {
+        actorId: actor.id,
+        sessionKey: remembered.sessionKey,
+        name: actor.name,
+      });
+      /* The name asked for is a label somebody else is still using. Said, not
+         obeyed: obeying it is how a restart used to rename the actor back. */
+      if (options.name && !sameWord(actor.name, options.name)) {
+        say(
+          `this harness answers as “${actor.name}” — the name it was started with (“${options.name}”) is stale, ` +
+            `and nothing was renamed. To change what it is called, say so at the microphone.`,
+        );
+      }
+      return { actor, ...identityFromKey(remembered.sessionKey) };
+    } catch (err) {
+      say(`could not resume “${remembered.name}” (${remembered.actorId}) — ${(err as Error).message}; claiming afresh`);
+      await forgetVoiceIdentity(options.home).catch(() => {});
+    }
+  }
+  const sessionKey = enrolmentKey(options.name);
+  const { envelope } = await options.client.claimActor({
+    type: "actor.claim",
+    sessionKey,
+    name: options.name,
+    ...(options.canvasId !== undefined ? { canvasId: options.canvasId } : {}),
+  });
+  const actor = envelope.actor;
+  await writeVoiceIdentity(options.home, { actorId: actor.id, sessionKey, name: actor.name });
+  return { actor, ...identityFromKey(sessionKey) };
+}
+
+/** Two names are the same name when they differ only in case and space — the
+ * comparison the registry makes (`sameName`), kept local because the question
+ * here is whether a LABEL moved, not whether a name is free. */
+function sameWord(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 /* ------------------------------------------------------------------ *
@@ -2119,6 +2254,21 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
    * what moves is the session, not a copy of it.
    */
   let target = await handleFor(options);
+  /**
+   * **The harness writes down who it is.** The record is what makes a restart
+   * resume this actor under the key it is bound with, so it cannot be the CLI
+   * verb's private business: a harness started by a test, by a script or by
+   * `rc`'s detached spawn is the same harness, and a rename it made has to
+   * survive the next start of any of them. The key comes off the daemon's own
+   * row rather than being rebuilt from the name — the name is the thing a
+   * rename changes.
+   */
+  {
+    const key = await theKeyWeHold(target.canvas, target.actorId).catch(() => null);
+    if (key) {
+      await writeVoiceIdentity(home, { actorId: target.actorId, sessionKey: key, name: target.name }).catch(() => {});
+    }
+  }
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;

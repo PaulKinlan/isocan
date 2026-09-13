@@ -463,7 +463,14 @@ import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
 import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
 import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
-import { DEFAULT_VOICE_PORT, VOICE_HARNESS, isocanHome, runVoiceAdapter, startVoiceServer } from "./voice-harness.ts";
+import {
+  DEFAULT_VOICE_PORT,
+  VOICE_HARNESS,
+  claimVoiceIdentity,
+  isocanHome,
+  runVoiceAdapter,
+  startVoiceServer,
+} from "./voice-harness.ts";
 import {
   noSandboxLine,
   policyFor,
@@ -15056,28 +15063,35 @@ program
       const ctx = await ctxOf(cmd);
       const { canvas: p } = await canvasAndSnapshot(ctx);
       const port = Number(opts.voicePort ?? DEFAULT_VOICE_PORT);
-      // The claim is idempotent and it is the enrolment in miniature: the desk
-      // hands back the same actor for the same session key, so a second start
-      // resumes the one voice rather than minting a stranger.
-      await ctx.client.claimActor({
-        type: "actor.claim",
-        sessionKey: enrolmentKey(name),
+      /**
+       * **Who this microphone is.** On the first run the name is the key
+       * (`agent:<name>`, the enrolment in miniature, idempotent so a second
+       * start resumes the one voice rather than minting a stranger) — and on
+       * every run after that the harness knows which actor it speaks as and
+       * under which key, so a name the person changed at the microphone is not
+       * asserted back over the top of it. `voice-harness.ts` explains why the
+       * two are not the same thing.
+       */
+      const who = await claimVoiceIdentity({
+        home,
+        client: ctx.client,
         name,
         canvasId: p.id,
+        onLine: (line) => console.log(rcLine("voice", line)),
       });
       const server = await startVoiceServer({
         home,
         port,
-        identity: { session: name, harness: "agent" },
+        identity: { session: who.session, harness: who.harness },
         canvas: p.id,
         onLine: (line) => console.log(rcLine("voice", line)),
       });
       console.log(`\n  ${server.state.name} is listening on the canvas — talk at ${server.state.url}\n`);
       const roster = await readRcAgents(ctx.home);
-      if (!roster.some((r) => r.canvasId === p.id && r.name === name)) {
+      if (!roster.some((r) => r.canvasId === p.id && r.actorId === who.actor.id)) {
         console.log(
-          `  not enrolled as a harness yet — the microphone speaks as ${name} either way, but nothing can summon it.\n` +
-            `  to invite it:  isocan rc add ${name} --harness ${VOICE_HARNESS}\n` +
+          `  not enrolled as a harness yet — the microphone speaks as ${who.actor.name} either way, but nothing can summon it.\n` +
+            `  to invite it:  isocan rc add ${who.actor.name} --harness ${VOICE_HARNESS}\n` +
             `  (which needs "acpAdapters": {"${VOICE_HARNESS}": ["node", "<this isocan.js>", "voice", "--acp"]} in ~/.isocan/config.json)\n`,
         );
       }
