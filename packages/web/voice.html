@@ -83,13 +83,14 @@
 
         <p class="voice-state" id="state" role="status">idle — press Listen to start</p>
 
+        <p class="voice-shortcut" id="shortcut">Space toggles the microphone</p>
         <div class="voice-controls">
         <div class="voice-mic">
           <svg class="voice-ring" viewBox="0 0 240 240" aria-hidden="true" focusable="false">
             <circle class="voice-orbit" cx="120" cy="120" r="103" />
             <path id="output-wave" />
           </svg>
-          <button id="listen" type="button" aria-label="Listen" title="Start listening">
+          <button id="listen" type="button" aria-label="Listen" title="Start listening" aria-keyshortcuts="Space" aria-describedby="shortcut">
             <svg class="voice-input" viewBox="0 0 128 128" aria-hidden="true" focusable="false"><path id="input-wave" /></svg>
             <svg class="voice-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 3.5a2.75 2.75 0 0 0-2.75 2.75v5a2.75 2.75 0 0 0 5.5 0v-5A2.75 2.75 0 0 0 12 3.5Z" />
@@ -195,6 +196,17 @@
         </header>
         <!-- Flat on purpose: one scroll, no disclosure. Everything the cog
              holds is readable by scrolling, so nothing has to be opened. -->
+        <section class="voice-dialog-part" id="mode-panel">
+          <label class="voice-pick" for="input-mode">
+            Microphone mode
+            <select id="input-mode" aria-describedby="mode-note">
+              <option value="toggle">Toggle</option>
+              <option value="push-to-talk">Push to talk</option>
+            </select>
+          </label>
+          <p class="voice-hint" id="mode-note">Push to talk stops the microphone on release. It does not send or end a turn.</p>
+        </section>
+
         <section class="voice-dialog-part" id="connection-panel" aria-labelledby="connection-title">
           <div class="voice-dialog-part-title">
             <h3 id="connection-title">
