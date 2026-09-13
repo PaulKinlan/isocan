@@ -2813,6 +2813,57 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       /**
+       * **`GET /daemons` + `POST /daemon` — the one the harness cannot change
+       * from here, said rather than 405'd.**
+       *
+       * The daemon is not a preference of the session: it is what this process
+       * attached to at START, and the handles it is holding — the canvas
+       * client, the provider socket, the presence sessions, the identity — all
+       * belong to it. Telling somebody that mid-flight would mean re-resolving
+       * every one of them to satisfy a control nobody needs, so the honest
+       * answer is the truth of the shape: here is the daemon this harness is
+       * on, and here is the command that starts it against another one.
+       *
+       * `found` is the shape the page reads (`{found: [...]}`), and the entry
+       * carries why it is the only one, because "the list has one item" is not
+       * a fact a reader can act on.
+       */
+      if (req.method === "GET" && url.pathname === "/daemons") {
+        respond(200, {
+          found: [
+            {
+              url: target.daemon,
+              current: true,
+              reason:
+                "the daemon this harness attached to when it started — this session's canvas handles, " +
+                "provider socket and presence live there, so it cannot move while it runs",
+            },
+          ],
+          current: target.daemon,
+        });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/daemon") {
+        const body = await readBody();
+        const asked = typeof body === "string" ? {} : body;
+        const wanted = String(asked.url ?? "").trim();
+        const remedy = "isocan voice --port <port>";
+        const error =
+          `this harness cannot change daemon while it runs: it attached to ${target.daemon} at start, and this ` +
+          `session's canvas handles, provider socket and presence are that daemon's. ` +
+          `Stop it and start it against the one you want — ${remedy}` +
+          (wanted ? ` (asked for ${wanted})` : "");
+        recordToolLog({
+          type: "tool_call",
+          source: "typed",
+          name: "daemon_change",
+          args: { url: wanted, via: "settings" },
+          result: { ok: false, error },
+        });
+        respond(400, { error, current: target.daemon, remedy });
+        return;
+      }
+      /**
        * **`POST /enrol` — the drawer's "Enrol from here".**
        *
        * The page's step for an actor nothing can summon posts `{ name }`; the

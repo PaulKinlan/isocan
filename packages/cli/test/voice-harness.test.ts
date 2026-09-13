@@ -778,6 +778,45 @@ describe("the person's gate", () => {
     expect(blank.status).toBe(400);
   });
 
+  it("answers the daemon picker honestly: the one it is on, and a refusal that names the remedy", async () => {
+    const server = await serve();
+
+    // What the drawer's probe reads.
+    const listed = await fetch(`${server.state.url}daemons`);
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as {
+      found: { url: string; current: boolean; reason: string }[];
+      current: string;
+    };
+    expect(body.found).toHaveLength(1);
+    expect(body.found[0]!.url).toBe(base);
+    expect(body.found[0]!.current).toBe(true);
+    expect(body.found[0]!.reason, "one item is not a fact anybody can act on").toContain("attached");
+
+    // What "Use this daemon" posts — a refusal, not a 405 and not a lie, and
+    // the refusal says what to do instead.
+    const refused = await fetch(`${server.state.url}daemon`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "http://127.0.0.1:9999" }),
+    });
+    expect(refused.status).toBe(400);
+    const refusal = (await refused.json()) as { error: string; remedy: string; current: string };
+    expect(refusal.error).toContain("cannot change daemon while it runs");
+    expect(refusal.error).toContain("isocan voice --port");
+    expect(refusal.error, "the value asked for is named back").toContain("http://127.0.0.1:9999");
+    expect(refusal.remedy).toBe("isocan voice --port <port>");
+    expect(refusal.current).toBe(base);
+
+    // And it was not applied: the harness is still attached where it was.
+    const after = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(after.daemon).toBe(base);
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries as any[];
+    const row = entries.find((e) => e.name === "daemon_change");
+    expect(row.result.ok).toBe(false);
+    expect(row.args.via).toBe("settings");
+  });
+
   it("takes an enrolment from the page: POST /enrol stands the agent up, once, and says what is missing", async () => {
     const server = await serve();
     const before = ((await (await fetch(`${server.state.url}state`)).json()) as any).agent as { id: string; enrolled: boolean };

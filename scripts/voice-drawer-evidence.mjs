@@ -220,6 +220,37 @@ try {
   await shot("01b-enrolled");
   step("enrolled from the drawer — no CLI, no config edit");
 
+  /* ---- the daemon, which this harness cannot change while it runs ---- */
+  await b.ev(
+    `(() => {
+      const field = document.getElementById("daemon-field");
+      field.value = "http://127.0.0.1:9999";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      document.getElementById("daemon-use").click();
+      return true;
+    })()`,
+  );
+  await until(
+    b,
+    `document.getElementById("daemon-note").textContent.includes("refused")`,
+    "the drawer to show the harness's refusal",
+  );
+  const daemonNote = await b.ev(`document.getElementById("daemon-note").textContent.trim()`);
+  evidence.daemonRefusal = daemonNote;
+  expect(daemonNote.includes("refused"), `the drawer says the harness refused: ${JSON.stringify(daemonNote)}`);
+  expect(
+    !daemonNote.includes("does not offer"),
+    "and it is the harness's own refusal, not a build that cannot answer",
+  );
+  const daemons = await (await fetch(`${harnessUrl}daemons`)).json();
+  evidence.daemons = daemons;
+  expect(
+    daemons.found.length === 1 && daemons.found[0].url === facts0.daemon,
+    `GET /daemons names the one it is on: ${JSON.stringify(daemons.found?.map((d) => d.url))}`,
+  );
+  await shot("01c-daemon-refused");
+  step(`daemon: the harness refused the move and named the remedy — ${daemonNote.slice(0, 140)}`);
+
   // 2. Type a name and press the button — no CLI, no config.
   await b.ev(`(() => {
     const input = document.querySelector('#setup-steps input[aria-label="actor name"]');
@@ -367,10 +398,10 @@ writeFileSync(
     `Screenshots: 01-drawer-open.png, 02-name-typed.png, 03-claimed.png,\n` +
     `04-canvas-chosen.png.\n` +
     `Raw: evidence.json.\n\n` +
-    `What is not covered here: \`GET /daemons\` + \`POST /daemon\` — the daemon is\n` +
-    `what the harness attaches to at start, so that pair is a different question\n` +
-    `(answered or refused, never 405). Everything else in the contract is walked\n` +
-    `above: enrol, claim, and the canvas picker.\n`,
+    `Every door in the contract is walked above: enrol, claim, the canvas\n` +
+    `picker, and the daemon pair — which answers with the one it is attached to\n` +
+    `and refuses the move with the command that does it instead, because a\n` +
+    `harness cannot re-attach mid-flight and saying so is more useful than a 405.\n`,
 );
 console.log(`\n  ${steps.length} steps, ${((Date.now() - begun) / 1000).toFixed(1)}s — evidence in ${path.relative(repo, outDir)}`);
 
