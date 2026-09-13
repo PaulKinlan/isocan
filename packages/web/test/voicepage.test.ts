@@ -183,11 +183,38 @@ class FakeSocket {
   }
 }
 
-function fakeCapture(): { frame(): void } {
+/** A fake context's routing surface: what a page reads back out of Chrome. */
+interface SinkableFake {
+  sinkId: string;
+}
+
+/**
+ * A refusal in the shape Chrome throws it, so the page's words can be checked.
+ */
+function notAllowed(): Error {
+  const err = new Error("The request is not allowed by the user agent or the platform in the current context.");
+  err.name = "NotAllowedError";
+  return err;
+}
+
+function fakeCapture(): { frame(): void; contexts: SinkableFake[]; refused: Set<string> } {
   FakeSocket.latest = null;
   let worklet: FakeWorklet | null = null;
+  /** Every context the page built, in the order it built them. */
+  const contexts: SinkableFake[] = [];
+  /** A device this browser will not route to, as Chrome refuses a denied one. */
+  const refused = new Set<string>();
   class FakeContext {
     sampleRate = 48000;
+    /** What `AudioContext.setSinkId` leaves behind, and the page reads back. */
+    sinkId = "";
+    constructor() {
+      contexts.push(this);
+    }
+    async setSinkId(id: string): Promise<void> {
+      if (refused.has(id)) throw notAllowed();
+      this.sinkId = id;
+    }
     private createdAt = performance.now();
     get currentTime() { return (performance.now() - this.createdAt) / 1000; }
     state = "running";
@@ -219,6 +246,8 @@ function fakeCapture(): { frame(): void } {
       enumerateDevices: async () => [
         { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
         { kind: "audioinput", deviceId: "mic-2", label: "Headset" },
+        { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+        { kind: "audiooutput", deviceId: "spk-locked", label: "Studio monitors" },
       ],
       getUserMedia: async () => ({
         getAudioTracks: () => [{ label: "Fake microphone", getSettings: () => ({}) }],
@@ -235,7 +264,11 @@ function fakeCapture(): { frame(): void } {
   // which is how the page builds the socket address.
   (URL as unknown as { createObjectURL: () => string }).createObjectURL = () => "blob:worklet";
   (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => undefined;
-  return { frame: () => (worklet?.port.onmessage as ((event: { data: Float32Array }) => void) | null)?.({ data: new Float32Array(128).fill(0.25) }) };
+  return {
+    frame: () => (worklet?.port.onmessage as ((event: { data: Float32Array }) => void) | null)?.({ data: new Float32Array(128).fill(0.25) }),
+    contexts,
+    refused,
+  };
 }
 
 /** Start a session and hand back the socket the page opened. */
@@ -303,12 +336,16 @@ describe("the standalone page keeps the controls a person has to press", () => {
 
   it("offers the microphone, the session controls and the device picker", async () => {
     await wire();
-    for (const id of ["listen", "mute", "end", "device", "input-wave", "output-wave", "log"]) {
+    for (const id of ["listen", "mute", "end", "device", "output", "device-note", "input-wave", "output-wave", "log"]) {
       expect(document.getElementById(id), id).toBeTruthy();
     }
     expect(document.querySelector("#listen #input-wave")).toBeTruthy();
     expect(document.querySelector("#listen #output-wave")).toBeNull();
     expect(document.querySelectorAll("#meter, #bars, #peak, .voice-scale")).toHaveLength(0);
+    // Both ends of the sound live beside the microphone, not in Settings.
+    const hero = element("hero");
+    expect(hero.contains(element("device"))).toBe(true);
+    expect(hero.contains(element("output"))).toBe(true);
   });
 
   it("offers a way to open the project it is driving", async () => {
@@ -321,6 +358,9 @@ describe("the standalone page keeps the controls a person has to press", () => {
 describe("state wiring, without a component tree", () => {
   it("unwraps the session and enables the controls that follow from it", async () => {
     stateReply = LIVE;
+    // A device this browser remembers is the one the state line names; the
+    // picker beside the microphone is where that choice gets changed.
+    localStorage.setItem("isocan.voice.deviceId", "mic-1");
     await wire();
     expect(element<HTMLElement>("hero").dataset.state).toBe("live");
     expect(element<HTMLButtonElement>("listen").disabled).toBe(false);
@@ -382,15 +422,24 @@ describe("the log renders what the harness sends", () => {
 });
 
 describe("devices, keys and the project link", () => {
-  it("lists the microphones and remembers the one chosen", async () => {
+  it("lists the named microphones, under the system default", async () => {
     await wire();
     const device = element<HTMLSelectElement>("device");
-    expect([...device.options].map((one) => one.textContent)).toEqual(["Desk microphone", "Headset"]);
-    expect(device.value).toBe("mic-1");
+    // The browser's own "default" alias is not a device, so the page draws its
+    // own row for that and lists the devices by name under it.
+    expect([...device.options].map((one) => one.textContent)).toEqual([
+      "System default microphone",
+      "Desk microphone",
+      "Headset",
+    ]);
+    // Nothing has been chosen, so nothing is claimed: the row says the system
+    // default, which is the microphone the browser would open.
+    expect(device.value).toBe("");
     device.value = "mic-2";
     device.dispatchEvent(new Event("change"));
     await flush();
     expect(localStorage.getItem("isocan.voice.deviceId")).toBe("mic-2");
+    expect(localStorage.getItem("isocan.voice.deviceName")).toBe("Headset");
     expect(element<HTMLSelectElement>("device").value).toBe("mic-2");
   });
 
@@ -781,8 +830,12 @@ describe("configuration behind the settings cog", () => {
     await wire();
     const dialog = element<HTMLDialogElement>("settings");
     expect(dialog.open).toBe(false);
-    for (const id of ["connection-panel", "key-panel", "daemon-field", "device", "save-key", "test-key", "forget-key"])
-      expect(dialog.contains(element(id))).toBe(true);
+    for (const id of ["connection-panel", "key-panel", "daemon-field", "mic-fact", "save-key", "test-key", "forget-key"])
+      expect(dialog.contains(element(id)), id).toBe(true);
+    // The microphone's CONTROL is beside the microphone; what the facts hold
+    // is the answer — which device this page is listening through.
+    expect(dialog.contains(element("device"))).toBe(false);
+    expect(element("mic-fact").textContent).toBe("the system default microphone");
     expect(element("setup-callout").hidden).toBe(true);
     const key = element<HTMLInputElement>("key");
     key.value = "synthetic-not-a-key";
@@ -1004,6 +1057,205 @@ describe("the build tag tells the truth about what is being tested", () => {
     } finally {
       delete (globalThis as Record<string, unknown>).__VOICE_BUILD_INFO__;
     }
+  });
+});
+
+/** A context with the one method output routing needs, and nothing else. */
+function routable(): void {
+  vi.stubGlobal(
+    "AudioContext",
+    class {
+      sinkId = "";
+      async setSinkId(id: string): Promise<void> {
+        this.sinkId = id;
+      }
+    },
+  );
+}
+
+/**
+ * The devices the browser is willing to name, and a way to unplug one.
+ *
+ * The rows are read through a function so a test can change them and fire the
+ * browser's own `devicechange`, which is the only signal a page gets.
+ */
+function nameDevices(rows: () => { kind: string; deviceId: string; label: string }[]): () => void {
+  const listeners: (() => void)[] = [];
+  const existing = (navigator.mediaDevices ?? {}) as unknown as Record<string, unknown>;
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: {
+      ...existing,
+      enumerateDevices: async () => rows(),
+      addEventListener: (_type: string, run: () => void) => listeners.push(run),
+      removeEventListener: () => undefined,
+    },
+  });
+  return () => listeners.forEach((run) => run());
+}
+
+/**
+ * **Both ends of the sound, and every state that is not "as chosen".**
+ *
+ * The microphone picker worked already; what it never had was a companion, a
+ * state for a device that went away, or an honest story about a browser that
+ * cannot route output at all. Each test below is a fact a person could
+ * otherwise be lied to about.
+ */
+describe("the two ends of the sound", () => {
+  it("lists the named speakers under a system default row, and nothing blank", async () => {
+    routable();
+    nameDevices(() => [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audioinput", deviceId: "default", label: "Default" },
+      { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+      { kind: "audiooutput", deviceId: "default", label: "Default" },
+    ]);
+    await wire();
+    // The browser's own "default" alias is not a device; the page draws its
+    // own row for that and lists the named devices beneath it.
+    expect([...element<HTMLSelectElement>("device").options].map((one) => one.textContent)).toEqual([
+      "System default microphone",
+      "Desk microphone",
+    ]);
+    expect([...element<HTMLSelectElement>("output").options].map((one) => one.textContent)).toEqual([
+      "System default",
+      "Desk speakers",
+    ]);
+    expect(element("device-note").hidden).toBe(true);
+  });
+
+  it("does not number devices the browser will not name", async () => {
+    routable();
+    // What Chrome 152 answers before this page has been allowed a microphone:
+    // one nameless entry per kind, with the ids withheld as well.
+    nameDevices(() => [
+      { kind: "audioinput", deviceId: "", label: "" },
+      { kind: "audiooutput", deviceId: "", label: "" },
+    ]);
+    await wire();
+    expect([...element<HTMLSelectElement>("device").options].map((one) => one.textContent)).toEqual([
+      "System default microphone",
+    ]);
+    expect([...element<HTMLSelectElement>("output").options].map((one) => one.textContent)).toEqual([
+      "System default",
+    ]);
+    expect(element("device-note").hidden).toBe(false);
+    expect(element("device-note").textContent).toContain("hidden until this page is allowed");
+  });
+
+  it("keeps the row and says so when the browser cannot route output", async () => {
+    // jsdom has no Web Audio at all, which is the same code path a browser
+    // without AudioContext.setSinkId takes: the control stays, the choice
+    // does not, and the row says where the reply goes instead.
+    nameDevices(() => [{ kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" }]);
+    await wire();
+    expect(element<HTMLSelectElement>("output").disabled).toBe(true);
+    expect(element<HTMLSelectElement>("output").value).toBe("");
+    expect(element("device-note").textContent).toContain("cannot choose an output device");
+  });
+
+  it("applies the speaker chosen before the reply ever played", async () => {
+    const mic = fakeCapture();
+    nameDevices(() => [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+    ]);
+    localStorage.setItem("isocan.voice.outputId", "spk-1");
+    localStorage.setItem("isocan.voice.outputName", "Desk speakers");
+    await wire();
+    const socket = await goLive();
+    // No context exists until the first chunk of a reply, so this is the
+    // "stored choice meets a brand new context" path, not the picker's.
+    expect(mic.contexts).toHaveLength(1);
+    socket.audio();
+    await flush();
+    await flush();
+    expect(mic.contexts.at(-1)?.sinkId).toBe("spk-1");
+  });
+
+  it("moves a reply that is already playing to another speaker", async () => {
+    const mic = fakeCapture();
+    nameDevices(() => [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+    ]);
+    await wire();
+    const socket = await goLive();
+    socket.audio();
+    await flush();
+    await flush();
+    const player = mic.contexts.at(-1);
+    expect(player?.sinkId).toBe("");
+    const output = element<HTMLSelectElement>("output");
+    output.value = "spk-1";
+    output.dispatchEvent(new Event("change"));
+    await flush();
+    expect(player?.sinkId).toBe("spk-1");
+    expect(element("device-note").hidden).toBe(true);
+  });
+
+  it("names a chosen speaker that is gone, and moves the reply to the default", async () => {
+    const mic = fakeCapture();
+    let rows = [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audiooutput", deviceId: "spk-1", label: "Desk speakers" },
+    ];
+    const devicechange = nameDevices(() => rows);
+    localStorage.setItem("isocan.voice.outputId", "spk-1");
+    localStorage.setItem("isocan.voice.outputName", "Desk speakers");
+    await wire();
+    const socket = await goLive();
+    socket.audio();
+    await flush();
+    await flush();
+    const player = mic.contexts.at(-1);
+    expect(player?.sinkId).toBe("spk-1");
+    // Unplugged: out of the browser's list. Chrome on Linux fires NO
+    // `devicechange` for a sink that goes away (measured on 152), so the
+    // state poll is what re-reads the list — this is that tick.
+    rows = rows.filter((one) => one.deviceId !== "spk-1");
+    devicechange(); // still honoured where the platform does announce it
+    await vi.advanceTimersByTimeAsync(2100);
+    await flush();
+    await flush();
+    expect(player?.sinkId).toBe("");
+    const output = element<HTMLSelectElement>("output");
+    expect([...output.options].map((one) => one.textContent)).toEqual([
+      "System default",
+      "Desk speakers — not connected",
+    ]);
+    // The selection stays on the device that is gone — it is what was chosen,
+    // and it is named rather than swapped out under the person.
+    expect(output.value).toBe("spk-1");
+    expect([...output.options][1]!.disabled).toBe(true);
+    expect(element("device-note").textContent).toContain("Desk speakers is not connected");
+  });
+
+  it("reports a refused route with where the reply actually went", async () => {
+    const mic = fakeCapture();
+    nameDevices(() => [
+      { kind: "audioinput", deviceId: "mic-1", label: "Desk microphone" },
+      { kind: "audiooutput", deviceId: "spk-locked", label: "Studio monitors" },
+    ]);
+    mic.refused.add("spk-locked");
+    await wire();
+    const socket = await goLive();
+    socket.audio();
+    await flush();
+    await flush();
+    const output = element<HTMLSelectElement>("output");
+    output.value = "spk-locked";
+    output.dispatchEvent(new Event("change"));
+    await flush();
+    const said = element("device-note").textContent ?? "";
+    expect(said).toContain("Studio monitors could not be used");
+    expect(said).toContain("The reply is playing on the system default.");
+    // And the log carries the refusal, which is where a person looks to find
+    // out why their speakers stayed silent.
+    expect([...document.querySelectorAll("#log li")].map((li) => li.textContent).join(" ")).toContain(
+      "Studio monitors could not be used",
+    );
   });
 });
 
