@@ -122,7 +122,12 @@
         </details>
       </div>
 
-      <dialog class="voice-settings" id="settings" aria-labelledby="settings-title">
+      <!-- closedby="any" is the platform's own light dismiss: a click on the
+           backdrop, plus Escape and the mobile back gesture. Its trap is that
+           a backdrop click reports the DIALOG as the event target — so the
+           browsers without closedBy get the same rule by hand in main.ts,
+           hit-tested against this box rather than against the target. -->
+      <dialog class="voice-settings" id="settings" closedby="any" aria-labelledby="settings-title">
         <header class="voice-settings-head">
           <h2 id="settings-title" tabindex="-1" autofocus>Voice settings</h2>
           <button id="settings-close" type="button">Close settings</button>
