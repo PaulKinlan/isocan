@@ -1,8 +1,8 @@
 ---
-status: designed
+status: partial
 since: 2026-09-13
 see: roles, multiuser, switcher
-note: finish hosted discovery and creation inside a space; listing must not reveal link-only canvases, and both clients must reach the existing private space-birth envelope
+note: discovery verified 13 Sep across hosted listings and known-address entry; CLI and browser space creation/refusal proved, with the native selector gesture still requiring a browser walk
 ---
 
 # Hosted sharing — the journeys
