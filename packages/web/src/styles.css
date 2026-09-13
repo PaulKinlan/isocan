@@ -7380,7 +7380,6 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
   .voice-mic { width: clamp(56px, calc(2 * (100svh / 3 - var(--voice-safe-bottom) - 44px - var(--s3)) - var(--s2)), 156px); }
   .voice-complaint, .voice-confirm { grid-column: 1 / -1; }
 }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .voice *, .voice *::before, .voice *::after { animation: none !important; transition: none !important; }
