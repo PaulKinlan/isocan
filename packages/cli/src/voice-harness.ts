@@ -3451,66 +3451,6 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         respond(200, { entries: merged, count: merged.length });
         return;
       }
-      /**
-       * **`POST /actor` — the person naming this agent, from the settings
-       * drawer.**
-       *
-       * The page's contract (bead `isocan-xsh.8`, and `docs/voice.md` from the
-       * person's side) is one POST with `{ name }`, answered with the new actor
-       * or a refusal shown VERBATIM — "that name is taken" is the daemon's
-       * sentence and the page prints it as it stands. It runs the same
-       * `renameThisAgent` the model's tool call runs, so the two cannot drift
-       * about the actor id, the key, or any of the copies of the name.
-       *
-       * No question is asked here, and that is the one difference. The gate
-       * exists because a MODEL's proposal must become the person's decision;
-       * this request IS the person's decision — they are at the page, and the
-       * drawer's button is what sent it. Asking them to confirm their own
-       * click would be a second question with one answer, in the vocabulary
-       * the page reserves for the model ("The agent wants to …").
-       */
-      if (req.method === "POST" && url.pathname === "/actor") {
-        const body = await readBody();
-        const asked = typeof body === "string" ? {} : body;
-        const requested = String(asked.name ?? "");
-        const renamed = await renameThisAgent(requested);
-        if (!renamed.ok) {
-          recordToolLog({
-            type: "tool_call",
-            source: "typed",
-            name: "actor_claim",
-            args: { name: requested, via: "settings" },
-            result: { ok: false, error: renamed.error },
-          });
-          respond(400, { error: renamed.error });
-          return;
-        }
-        // No `say`: this request came from a page that is looking at the
-        // answer already. The live socket — if a tab has one open — is told by
-        // `renameThisAgent`, and every tab reads /state.
-        recordToolLog({
-          type: "tool_call",
-          source: "typed",
-          name: "actor_claim",
-          args: { name: requested, via: "settings" },
-          op: { type: "actor.claim", said: `renamed to “${renamed.actor.name}”`, target: renamed.actor.id },
-          result: {
-            ok: true,
-            answer: renamed.answer,
-            via: "settings",
-            ...(renamed.seq ? { seq: renamed.seq } : {}),
-            enrolments: renamed.rows,
-            standing: renamed.standing,
-          },
-        });
-        respond(200, {
-          ok: true,
-          actor: renamed.actor,
-          canvas: { id: target.canvasId, title: target.canvasLabel },
-          answer: renamed.answer,
-        });
-        return;
-      }
       if (req.method === "POST" && url.pathname === "/confirm") {
         const body = await readBody();
         const asked = typeof body === "string" ? {} : body;
@@ -3588,15 +3528,32 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             : /taken|already answers|already has/i.test(refused)
               ? 409
               : 502;
+          recordToolLog({
+            type: "tool_call",
+            source: "typed",
+            name: "actor_claim",
+            args: { name: String(posted.name ?? ""), via: "settings" },
+            result: { ok: false, error: refused },
+          });
           respond(code, { ok: false, error: refused });
           return;
         }
         const answer = { ok: true, actor: { id: outcome.actorId, name: outcome.name }, resumed: outcome.unchanged === true, answer: outcome.answer };
         narrate(`claimed from the page: ${outcome.name} (${outcome.actorId ?? "?"})${outcome.unchanged ? " — already that name" : ""}`);
         recordToolLog({
-          type: "session_event",
-          event: `the person claimed the name “${outcome.name}” from the page`,
-          details: { kind: "actor_claimed_from_page", actorId: outcome.actorId, moved: outcome.moved ?? 0 },
+          type: "tool_call",
+          source: "typed",
+          name: "actor_claim",
+          args: { name: outcome.name, via: "settings" },
+          op: { type: "actor.claim", said: `renamed to “${outcome.name}”`, target: outcome.actorId },
+          result: {
+            ok: true,
+            answer: outcome.answer,
+            via: "settings",
+            ...(outcome.seq ? { seq: outcome.seq } : {}),
+            enrolments: outcome.moved,
+            standing: outcome.standing,
+          },
         });
         respond(200, answer);
         return;

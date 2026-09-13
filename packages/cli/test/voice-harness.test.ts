@@ -1086,7 +1086,7 @@ describe("the person's gate", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Seeder" }),
     });
-    expect(taken.status).toBe(400);
+    expect(taken.status).toBe(409);
     expect(((await taken.json()) as { error: string }).error).toContain("Seeder");
     expect(((await (await fetch(`${server.state.url}state`)).json()) as any).name).toBe("Nova");
 
