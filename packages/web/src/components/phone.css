@@ -41,3 +41,6 @@
 .phone-plan-surface .minimap { bottom: 8px; left: 8px; }
 .phone-plan-surface .tool-rail { right: 8px; max-height: calc(100% - 140px); }
 .phone-current-node { position: absolute; outline: calc(4px / var(--scale)) solid var(--accent); outline-offset: calc(5px / var(--scale)); pointer-events: none; z-index: 1; }
+
+/* Text is its own scroll container: retain vertical reading and local sideways swipes. */
+.phone-node .md-view { touch-action: pan-y; }

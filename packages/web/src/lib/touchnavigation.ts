@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { Direction } from "./spatialnav.ts";
 type Point = { x: number; y: number };
-const interactive = "a, button, input, textarea, select, iframe, audio, video, [contenteditable=true], [data-touch-scroll]";
+const interactive = "a, button, input, textarea, select, iframe, audio, video, pre, [contenteditable=true], [data-touch-scroll]";
 /** One gesture has one outcome. Native content and vertical scrolling keep theirs. */
 export function touchNavigation(step: (direction: Direction) => void, plan?: () => void, thirds = false) {
   const points = new Map<number, Point>();
