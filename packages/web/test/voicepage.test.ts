@@ -812,6 +812,38 @@ describe("configuration behind the settings cog", () => {
   });
 });
 
+describe("the thumb-first conversation layout", () => {
+  it("places captions before the microphone in DOM order, not just with CSS order", () => {
+    expect(element("captions").compareDocumentPosition(element("listen")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".voice-stage")!.contains(element("hero"))).toBe(true);
+    expect(element("keep-captions").closest("label")).toBeTruthy();
+  });
+
+  it("fits settings to a visual-viewport resize without losing the focused draft", async () => {
+    const viewport = Object.assign(new EventTarget(), { height: 844, offsetTop: 0 });
+    vi.stubGlobal("visualViewport", viewport);
+    await wire();
+    element<HTMLButtonElement>("settings-open").click();
+    element<HTMLDetailsElement>("key-panel").open = true;
+    const field = element<HTMLInputElement>("key");
+    field.value = "synthetic draft";
+    field.scrollIntoView = vi.fn();
+    field.focus();
+    viewport.height = 420;
+    viewport.offsetTop = 80;
+    viewport.dispatchEvent(new Event("resize"));
+    expect(element("settings").style.getPropertyValue("--voice-visible-height")).toBe("420px");
+    expect(element("settings").style.getPropertyValue("--voice-visible-top")).toBe("80px");
+    expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    expect(document.activeElement).toBe(field);
+    expect(field.value).toBe("synthetic draft");
+    page!.stop();
+    viewport.height = 300;
+    viewport.dispatchEvent(new Event("resize"));
+    expect(element("settings").style.getPropertyValue("--voice-visible-height")).toBe("420px");
+  });
+});
+
 describe("the build tag tells the truth about what is being tested", () => {
   it("says the tag was not injected rather than inventing one", () => {
     expect(buildWords()).toBe("build tag not injected");

@@ -1502,6 +1502,21 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
+  // A mobile keyboard can shrink the visual viewport without changing dvh.
+  // Keep the settings scroll surface, and its focused input, in visible space.
+  const viewport = doc.defaultView?.visualViewport;
+  function fitSettings(): void {
+    if (!viewport) return; // CSS viewport units remain the fallback.
+    settings.style.setProperty("--voice-visible-height", `${viewport.height}px`);
+    settings.style.setProperty("--voice-visible-top", `${viewport.offsetTop}px`);
+    const focused = doc.activeElement;
+    if (settings.open && focused instanceof HTMLElement && settings.contains(focused) && focused.matches("input, select, textarea"))
+      focused.scrollIntoView({ block: "nearest" });
+  }
+  viewport?.addEventListener("resize", fitSettings);
+  viewport?.addEventListener("scroll", fitSettings);
+  fitSettings();
+
   function openSettings(): void {
     if (disposed || settings.open) return;
     // One alert node, moved into the active surface rather than duplicated
@@ -1569,6 +1584,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   return {
     stop(): void {
       disposed = true;
+      viewport?.removeEventListener("resize", fitSettings);
+      viewport?.removeEventListener("scroll", fitSettings);
       if (settings.open) settings.close();
       generation++;
       captureEpoch++;
