@@ -825,6 +825,46 @@ describe("the projects this session can work on", () => {
     }
   });
 
+  it("the whole walk in one sitting: create a canvas, list it, switch to it, speak a command", async () => {
+    const live = await liveServer();
+    try {
+      // 1. A canvas, from a sentence the person said.
+      const made = await callTool(live.providerSocket, "walk-create", "project_create", { title: "Winter work" });
+      expect(made.response.ok).toBe(true);
+      const winter = made.response.canvas.id as string;
+
+      // 2. Where the session is, and what else there is.
+      const listed = await callTool(live.providerSocket, "walk-list", "project_list");
+      expect(listed.response.current).toBe("prj_1");
+      expect((listed.response.canvases as { title: string }[]).map((c) => c.title)).toContain("Winter work");
+
+      // 3. Move there — and the harness's own account of itself moves.
+      const moved = await callTool(live.providerSocket, "walk-switch", "project_switch", { canvas_ref: "Winter work" });
+      expect(moved.response.canvas).toEqual({ id: winter, title: "Winter work" });
+      expect(((await (await fetch(`${live.server.state.url}state`)).json()) as any).canvas.id).toBe(winter);
+
+      // 4. A command, spoken after the move. The canvas and the log agree: the
+      // operation is in the NEW canvas's oplog, and the harness's /log reads
+      // create → switch → add, in that order.
+      const spoken = await callTool(live.providerSocket, "walk-say", "add_item", {
+        title: "Kick-off notes",
+        text: "what the plan says",
+      });
+      expect(spoken.response.ok).toBe(true);
+      expect((await log([winter])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      expect(((await (await fetch(`${live.server.state.url}state`)).json()) as any).canvas.id).toBe(winter);
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const walked = entries
+        .filter((e) => ["project_create", "project_switch", "add_item"].includes(e.name))
+        .map((e) => e.name);
+      expect(walked).toEqual(["project_create", "project_switch", "add_item"]);
+    } finally {
+      await live.close();
+    }
+  });
+
   it("switches the session to another canvas, and the log, the tool context and the page follow it", async () => {
     await post("/api/ops", {
       canvasId: null,
