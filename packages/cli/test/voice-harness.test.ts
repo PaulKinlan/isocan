@@ -1343,6 +1343,37 @@ describe("the name the enrolment summons", () => {
       await live.close();
     }
   });
+
+  /**
+   * **The record is a convenience; the badge's row is the truth.** A machine
+   * that holds the binding but not `voice/identity.json` — a second machine
+   * enrolled in the same actor, or a home whose `voice/` directory was cleared
+   * — would rebuild the key from the name it was started with and rename the
+   * actor back. So the first-run path resumes too, whenever the key it would
+   * claim is a key this badge already holds.
+   */
+  it("resumes on a machine that holds the row but not the harness's own record", async () => {
+    const live = await enrolledAndRenamed();
+    const actorId = live.row.actorId;
+    try {
+      await live.close();
+      await fs.rm(path.join(home, "voice", "identity.json"), { force: true });
+
+      const noRecord = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+      expect(noRecord.started, `a fresh \`isocan voice\` should start:\n${noRecord.said.slice(-400)}`).toBe(true);
+      expect(noRecord.state!.name, "the binding is enough to resume: no rename back").toBe("Nova");
+      expect(noRecord.state!.agent.id).toBe(actorId);
+      expect(noRecord.said).toContain("stale");
+
+      // And the record it just wrote is the same identity it resumed.
+      const identity = JSON.parse(
+        await fs.readFile(path.join(home, "voice", "identity.json"), "utf8"),
+      ) as { actorId: string; sessionKey: string; name: string };
+      expect(identity).toEqual({ actorId, sessionKey: "agent:Voice", name: "Nova" });
+    } finally {
+      await live.close();
+    }
+  });
 });
 
 describe("the harness's name across a restart", () => {

@@ -221,6 +221,7 @@ export async function claimVoiceIdentity(options: {
     claimActor: (op: { type: "actor.claim"; sessionKey: string; name?: string; canvasId?: string }) => Promise<{
       envelope: { actor: { id: string; name: string } };
     }>;
+    actorBindings: () => Promise<{ key: string; actor: { id: string } }[]>;
   };
   /** The name asked for: `--as`, the injected session, or the default. */
   name: string;
@@ -229,18 +230,36 @@ export async function claimVoiceIdentity(options: {
 }): Promise<{ actor: { id: string; name: string }; harness: string; session: string }> {
   const say = options.onLine ?? (() => {});
   const remembered = await readVoiceIdentity(options.home).catch(() => null);
-  if (remembered) {
+  const wanted = enrolmentKey(options.name);
+  const rows = await options.client.actorBindings().catch(() => null);
+
+  /**
+   * **A key this badge already holds is a conversation, and a claim under it
+   * is a resumption.**
+   *
+   * Two ways to know the key: the record this harness keeps (it remembers the
+   * key even when the name has moved away from it), and the daemon's own row —
+   * which is what a machine that holds the binding but not the record has: a
+   * second machine's enrolment, or a home whose `voice/` directory was cleared.
+   * Either way the name is NOT asserted, and that is the rule that matters: a
+   * claim that names an actor already bound is a rename, so a machine would
+   * rename the agent back without meaning to.
+   *
+   * The name's key is only asserted on the first claim — the enrolment in
+   * miniature, where the name IS the key.
+   */
+  const resume =
+    remembered && (rows === null || rows.some((row) => row.key === remembered.sessionKey))
+      ? remembered.sessionKey
+      : rows?.some((row) => row.key === wanted)
+        ? wanted
+        : null;
+
+  if (resume) {
     try {
-      const { envelope } = await options.client.claimActor({
-        type: "actor.claim",
-        sessionKey: remembered.sessionKey,
-      });
+      const { envelope } = await options.client.claimActor({ type: "actor.claim", sessionKey: resume });
       const actor = envelope.actor;
-      await writeVoiceIdentity(options.home, {
-        actorId: actor.id,
-        sessionKey: remembered.sessionKey,
-        name: actor.name,
-      });
+      await writeVoiceIdentity(options.home, { actorId: actor.id, sessionKey: resume, name: actor.name });
       /* The name asked for is a label somebody else is still using. Said, not
          obeyed: obeying it is how a restart used to rename the actor back. */
       if (options.name && !sameWord(actor.name, options.name)) {
@@ -249,22 +268,25 @@ export async function claimVoiceIdentity(options: {
             `and nothing was renamed. To change what it is called, say so at the microphone.`,
         );
       }
-      return { actor, ...identityOfKey(remembered.sessionKey) };
+      return { actor, ...identityOfKey(resume) };
     } catch (err) {
-      say(`could not resume “${remembered.name}” (${remembered.actorId}) — ${(err as Error).message}; claiming afresh`);
+      // A remembered key the daemon refuses (the badge lost its claims, the
+      // actor was withdrawn) is forgotten out loud and claimed afresh.
+      say(`could not resume what this harness remembered — ${(err as Error).message}; claiming afresh`);
       await forgetVoiceIdentity(options.home).catch(() => {});
+      if (resume === wanted) throw err;
     }
   }
-  const sessionKey = enrolmentKey(options.name);
+
   const { envelope } = await options.client.claimActor({
     type: "actor.claim",
-    sessionKey,
+    sessionKey: wanted,
     name: options.name,
     ...(options.canvasId !== undefined ? { canvasId: options.canvasId } : {}),
   });
   const actor = envelope.actor;
-  await writeVoiceIdentity(options.home, { actorId: actor.id, sessionKey, name: actor.name });
-  return { actor, ...identityOfKey(sessionKey) };
+  await writeVoiceIdentity(options.home, { actorId: actor.id, sessionKey: wanted, name: actor.name });
+  return { actor, ...identityOfKey(wanted) };
 }
 
 /** Two names are the same name when they differ only in case and space — the
