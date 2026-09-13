@@ -1,3 +1,4 @@
+import { useChatDraft } from "../lib/chatdraft.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Markdown } from "../lib/markdown.tsx";
 import type { Actor, CanvasContents, Comment, CommentThread, Item } from "@isocan/core";
@@ -208,14 +209,14 @@ export function MainThreadPanel({ canvasId, actor }: { canvasId: string; actor: 
     // No pan: the viewport being restored was saved WITH this rail open, so
     // it is already correct. Panning here would slide the canvas sideways on
     // every load.
-    openPanel(canvasId, stored, false);
+    openPanel(canvasId, stored, false, false);
   }, [canvasId]);
 
   useEffect(() => {
     if (!canvas || initedFor.current === canvasId) return;
     initedFor.current = canvasId;
     // Never chosen here: a canvas that already has a main thread opens with it.
-    openPanel(canvasId, mainThread(canvas) ? "main" : null, false);
+    openPanel(canvasId, mainThread(canvas) ? "main" : null, false, false);
   }, [canvas, canvasId]);
 
   // Closed, the panel has no surface of its own — its toggle (wearing the
@@ -339,22 +340,26 @@ export function MainThreadBody({
   canvasId,
   actor,
   docked = true,
+  onOpenItem,
 }: {
   canvasId: string;
   actor: Actor;
   docked?: boolean;
+  onOpenItem?: ((id: string) => void) | undefined;
 }) {
-  return <Panel key={canvasId} canvasId={canvasId} actor={actor} docked={docked} />;
+  return <Panel key={canvasId} canvasId={canvasId} actor={actor} docked={docked} onOpenItem={onOpenItem} />;
 }
 
 function Panel({
   canvasId,
   actor,
   docked = true,
+  onOpenItem,
 }: {
   canvasId: string;
   actor: Actor;
   docked?: boolean;
+  onOpenItem?: ((id: string) => void) | undefined;
 }) {
   // A subscription, not a read: the chips have to appear and vanish as the
   // selection changes under the pointer.
@@ -366,8 +371,8 @@ function Panel({
   const names = useActorNames();
   const canvas = useCanvasStore((s) => s.canvas);
   const thread = canvas ? mainThread(canvas) : null;
-  useLaneFollow(canvas, thread);
-  const [draft, setDraft] = useState("");
+  useLaneFollow(onOpenItem ? null : canvas, onOpenItem ? null : thread);
+  const [draft, setDraft] = useChatDraft(canvasId, actor.id);
   const context = useMessageContext(canvasId, messageContextRoots(canvas, draft, selected));
   const sending = useMessageSend(canvasId, context, draft);
   const canEdit = useCanEdit();
@@ -459,7 +464,7 @@ function Panel({
        *
        * Deliberately reintroducing it would trip `chrome.test.ts`.
        */}
-      <PanelHead
+      {!onOpenItem && <PanelHead
         glyph={<ChatGlyph size={13} />}
         /* The same word the button that opens it says. It read "Main thread"
            under a button that said "Main" — two labels for one panel, and both
@@ -470,13 +475,13 @@ function Panel({
         closeTitle="Collapse"
         closeLabel="Collapse the Chat"
         onClose={() => openMainPanel(canvasId, false)}
-      />
+      />}
       <div
         className="main-scroll"
         ref={scrollRef}
         onClick={(e) => {
           const itemId = chipTarget(e);
-          if (itemId) catapultBesidePanel(itemId);
+          if (itemId) (onOpenItem ?? catapultBesidePanel)(itemId);
         }}
       >
         <div className="main-msgs">
@@ -523,11 +528,11 @@ function Panel({
                     {withoutCommand(comment.body)}
                   </Markdown>
                 </div>
-                {canvas && thread && <LaneChips canvas={canvas} thread={thread} comment={comment} />}
+                {!onOpenItem && canvas && thread && <LaneChips canvas={canvas} thread={thread} comment={comment} />}
                 {comment.context ? <ContextManifestView manifest={comment.context} comment={{ threadId: thread.id, commentId: comment.id }} /> : (comment.items ?? [])
                   .filter((id, i, all) => all.indexOf(id) === i)
                   .map((itemId) => (
-                    <ItemCard key={itemId} canvasId={canvasId} itemId={itemId} />
+                    <ItemCard key={itemId} canvasId={canvasId} itemId={itemId} onOpenItem={onOpenItem} />
                   ))}
               </CommentFold>
               {/* The refusal is the control (#272): the Chat reaches everyone,
@@ -601,7 +606,7 @@ function Panel({
  * it, and pointing at it opens the same peek the panel and the rim open,
  * beside the panel, while the item itself lights up on the canvas.
  */
-function ItemCard({ canvasId, itemId }: { canvasId: string; itemId: string }) {
+function ItemCard({ canvasId, itemId, onOpenItem }: { canvasId: string; itemId: string; onOpenItem?: ((id: string) => void) | undefined }) {
   const item = useCanvasStore((s) => s.canvas?.items[itemId]);
   const panelWidth = useUiStore((s) => s.panelWidth);
   const [peekTop, setPeekTop] = useState<number | null>(null);
@@ -617,9 +622,10 @@ function ItemCard({ canvasId, itemId }: { canvasId: string; itemId: string }) {
     <>
       <button
         className="mt-card"
-        onClick={() => catapultBesidePanel(itemId)}
+        onClick={() => (onOpenItem ?? catapultBesidePanel)(itemId)}
         aria-label={`Fly to ${item.title}`}
         onPointerEnter={(e) => {
+          if (onOpenItem) return;
           const rect = e.currentTarget.getBoundingClientRect();
           setPeekTop(rect.top + rect.height / 2);
           useUiStore.getState().setPeeked(itemId);

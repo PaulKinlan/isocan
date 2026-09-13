@@ -64,6 +64,9 @@ import { modules } from "../modules.ts";
 const ModuleDialogs = lazy(() => import("../components/ModuleDialogs.tsx").then((m) => ({ default: m.ModuleDialogs })));
 import { useChromeHidden } from "../lib/hideable.ts";
 import { Viewer } from "../components/Viewer.tsx";
+import { usePhone } from "../lib/phone.ts";
+import type { PhoneVisit } from "../components/PhoneFace.tsx";
+const PhoneFace = lazy(() => import("../components/PhoneFace.tsx").then((m) => ({ default: m.PhoneFace })));
 const CanvasTools = lazy(() => import("../components/CanvasTools.tsx").then((m) => ({ default: m.CanvasTools })));
 /** Asked for by a keystroke and unmounted when closed, so it need not be in
  *  the bytes a first visit downloads. */
@@ -248,6 +251,14 @@ function CanvasSurface({
    * it. A write per op would be exactly the per-thread mistake the design
    * refused: a glance costs at most one write.
    */
+  const narrow = usePhone();
+  const phone = narrow && !itemId && !onDeck && !pageSegment;
+  const phoneVisit = useRef<PhoneVisit>({ tab: "Chat", itemId: null, plan: false });
+  const phoneVisitKey = useRef("");
+  if (phoneVisitKey.current !== `${canvasId}:${actor.id}`) {
+    phoneVisitKey.current = `${canvasId}:${actor.id}`;
+    phoneVisit.current = { tab: wbItemId ? "Canvas" : "Chat", itemId: wbItemId ?? null, plan: false };
+  }
   const arrived = canvasTitle !== null;
   const { search } = useLocation();
   const requestedThread = new URLSearchParams(search).get(THREAD_QUERY);
@@ -549,6 +560,7 @@ function CanvasSurface({
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.defaultPrevented) return;
+      if (phone) return; // the visible phone face owns navigation; no hidden canvas writes
       // A cover route hides the canvas but keeps its selection — Enter
       // arrives full screen with the viewed item still selected, so any
       // shortcut that fired under here would act on the exact thing being
@@ -903,7 +915,7 @@ function CanvasSurface({
     // location does, and this effect's cleanup flushes a pending nudge — so
     // depending on it would flush mid-gesture every time the URL moved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasId, actor, itemId, onWorkbench]);
+  }, [canvasId, actor, itemId, phone, onWorkbench]);
 
   if (!canvasId) return null;
 
@@ -1015,7 +1027,7 @@ function CanvasSurface({
     // `resizing-panel` while the panel's edge is being dragged: chrome that
     // steps aside for the panel eases to its new place, which is right for the
     // one step of opening and wrong for a width changing every frame.
-    <div className={`canvas-page${panelResizing ? " resizing-panel" : ""}${canEdit ? "" : " read-only"}`}>
+    <div className={`canvas-page${phone ? " phone-layout" : ""}${panelResizing ? " resizing-panel" : ""}${canEdit ? "" : " read-only"}`}>
       {/* Covered, the canvas keeps its state and stops its paint:
           `visibility` preserves layout and the stores keep replaying, so Esc
           lands at the zoom you left without the covered surface spending
@@ -1028,7 +1040,7 @@ function CanvasSurface({
         className={`canvas-surface${switching ? ` switching-${switching}` : ""}`}
         style={{ visibility: itemId || onWorkbench ? "hidden" : "visible" }}
       >
-        <CanvasViewport canvasId={canvasId} actor={actor} />
+        {!phone && <CanvasViewport canvasId={canvasId} actor={actor} />}
       </div>
       {/* A wash of the ground under the top controls, so they read over a
           busy canvas (lib/hideable.ts, "canvas.topfade"). Over the items,
@@ -1073,7 +1085,7 @@ function CanvasSurface({
       <Minimap />
       {canEdit && <TrashPanel key={canvasId} canvasId={canvasId} actor={actor} />}
       <RailStrip canvasId={canvasId} actor={actor} />
-      <MainThreadPanel canvasId={canvasId} actor={actor} />
+      {!phone && <MainThreadPanel canvasId={canvasId} actor={actor} />}
       <FilesPanel canvasId={canvasId} actor={actor} />
       <AgentTray canvasId={canvasId} actor={actor} />
       <ContextPanel canvasId={canvasId} actor={actor} />
@@ -1104,6 +1116,7 @@ function CanvasSurface({
         </Suspense>
       )}
       <OwnCursor actor={actor} />
+      {phone && <Suspense><PhoneFace key={`${canvasId}:${actor.id}`} canvasId={canvasId} actor={actor} visit={phoneVisit} /></Suspense>}
       {/* Last, so it covers the panels and the toolbar: full screen means the
           screen. Driven by the route rather than by state — see
           FullScreen.tsx for why that distinction is the whole design. */}
@@ -1119,7 +1132,7 @@ function CanvasSurface({
       {/* The other cover: same architecture, different room. Lazy, so the
           canvas path never pays for it; Suspense falls back to nothing for
           the frame the chunk takes. */}
-      {onWorkbench && (
+      {onWorkbench && !phone && (
         <Suspense fallback={null}>
           <Workbench
             canvasId={canvasId}
