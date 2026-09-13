@@ -130,9 +130,16 @@ describe("`--names` is a flag the script really has, wherever a guard promises i
   it.each([...asked])("`measure.mjs %s --names` runs, and answers with more than the count", (metric) => {
     // execFileSync throws on a non-zero exit, so "the script accepts it" is
     // asserted by getting here at all.
-    const opts = { cwd: repo, encoding: "utf8" as const, timeout: 120_000 };
-    const named = execFileSync("node", [measure, metric, "--names"], opts).trim();
-    const count = execFileSync("node", [measure, metric], opts).trim();
+    const named = execFileSync("node", [measure, metric, "--names"], {
+      cwd: repo,
+      encoding: "utf8",
+      timeout: 120_000,
+    }).trim();
+    const count = execFileSync("node", [measure, metric], {
+      cwd: repo,
+      encoding: "utf8",
+      timeout: 120_000,
+    }).trim();
     expect(named, `\`${metric} --names\` printed the count and nothing else`).not.toBe(count);
     expect(named, `\`${metric} --names\` printed a bare number`).not.toMatch(/^\d+$/);
   }, 120_000);
@@ -144,9 +151,18 @@ describe("`--names` is a flag the script really has, wherever a guard promises i
    * on, and the reader would have no way to tell which of the two was lying.
    */
   it("prints the copied bodies, who declared each, and who repeats it — adding up to the count", () => {
-    const opts = { cwd: repo, encoding: "utf8" as const, timeout: 120_000 };
-    const out = execFileSync("node", [measure, "copied-rules", "--names"], opts);
-    const count = Number(execFileSync("node", [measure, "copied-rules"], opts).trim());
+    const out = execFileSync("node", [measure, "copied-rules", "--names"], {
+      cwd: repo,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    const count = Number(
+      execFileSync("node", [measure, "copied-rules"], {
+        cwd: repo,
+        encoding: "utf8",
+        timeout: 120_000,
+      }).trim(),
+    );
 
     const perBody = [...out.matchAll(/^\S.*?  (\d+) cop(?:y|ies)$/gm)].map((m) => Number(m[1]));
     expect(perBody.length, "no copied bodies printed").toBeGreaterThan(0);
