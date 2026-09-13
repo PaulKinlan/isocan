@@ -31,17 +31,9 @@
   </head>
   <body>
     <!--
-      **The voice page: one microphone, and everything else behind a drawer.**
-
-      The page was a tall stacked form — six equal panels, each holding one
-      value — which reads as "here is some information" rather than "speak".
-      This is the shape Paul pointed at ("nice and compact, look like an LLM
-      UI, or at least the voice modes in OpenAI or Claude apps"): a single
-      centred microphone that says what it is doing, a quiet waveform, the last
-      exchange, and four drawers at the bottom holding the facts, the key and
-      the tool log. Nothing was deleted — the facts, the key controls and the
-      log are all still here, and a first run that is missing something (no
-      key, no enrolment) opens the drawer that says so without being asked.
+      Conversation stays first. Connection and key controls live intact in
+      Settings; missing prerequisites remain visible inline without opening
+      the modal. Transcript and tool calls stay with the conversation.
 
       Vite serves this file directly (HMR included) and `src/voice/main.ts` is
       its only script; there is no identity gate, no router and no React.
@@ -59,6 +51,12 @@
              the integration build; a build without it says so rather than
              showing a tag that is not true. -->
         <span class="voice-build" id="build-tag" title="the build this page was served from"></span>
+        <button class="voice-settings-open" id="settings-open" type="button" aria-label="Voice settings" aria-haspopup="dialog" aria-controls="settings" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M10 2h4l.5 3 2.5 1.5 2.8-1 2 3.5-2.4 2v2l2.4 2-2 3.5-2.8-1L14.5 19 14 22h-4l-.5-3L7 17.5l-2.8 1-2-3.5 2.4-2v-2l-2.4-2 2-3.5 2.8 1L9.5 5Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
       </header>
 
       <section class="voice-hero" id="hero" data-state="idle" data-activity="idle" aria-label="Microphone">
@@ -91,13 +89,17 @@
           <label class="voice-caption-choice"><input id="keep-captions" type="checkbox" /> Keep captions visible</label>
         </div>
 
+        <div class="voice-setup-callout" id="setup-callout" hidden>
+          <p id="setup-status" role="status"></p>
+          <button id="setup-open" type="button" aria-haspopup="dialog" aria-controls="settings">Open settings</button>
+        </div>
         <p class="voice-bad voice-complaint" id="complaint" role="alert" hidden></p>
 
         <!-- The permission gate, when the harness asks. It is not a dialog on
              purpose: it sits where the microphone is, it says what the agent
              wants to do, and it waits. -->
         <section class="voice-confirm" id="confirm" hidden aria-live="assertive">
-          <p class="voice-confirm-what" id="confirm-what"></p>
+          <p class="voice-confirm-what" id="confirm-what" tabindex="-1"></p>
           <div class="voice-confirm-acts">
             <button id="confirm-allow" type="button">Allow</button>
             <button id="confirm-deny" type="button">Deny</button>
@@ -110,14 +112,29 @@
           <summary>Recent transcript</summary>
           <ol class="voice-transcript" id="transcript" aria-label="Recent transcript"></ol>
         </details>
-        <details class="voice-quiet" id="connection-panel">
+        <details class="voice-quiet" id="log-panel">
+          <summary>
+            <span class="voice-summary-first">Tool calls</span>
+            <button id="copy-log" type="button">Copy</button>
+          </summary>
+          <p class="voice-hint" id="copy-note" role="status"></p>
+          <ol class="voice-log" id="log"></ol>
+        </details>
+      </div>
+
+      <dialog class="voice-settings" id="settings" aria-labelledby="settings-title">
+        <header class="voice-settings-head">
+          <h2 id="settings-title" tabindex="-1" autofocus>Voice settings</h2>
+          <button id="settings-close" type="button">Close settings</button>
+        </header>
+        <details class="voice-quiet" id="connection-panel" open>
           <summary>
             Connected to
             <span class="voice-summary" id="connection-summary">unknown</span>
           </summary>
           <section class="voice-facts-strip" aria-label="Connection">
             <div class="voice-setup" id="setup" hidden>
-              <h2>Set this up</h2>
+              <h3>Set this up</h3>
               <p class="voice-hint" id="setup-note"></p>
               <ul class="voice-steps" id="setup-steps"></ul>
             </div>
@@ -185,18 +202,9 @@
             <button id="test-key" type="button">Test key</button>
             <button id="forget-key" type="button">Forget</button>
           </div>
-          <p class="voice-hint" id="key-note" hidden></p>
+          <p class="voice-hint" id="key-note" role="status" hidden></p>
         </details>
-
-        <details class="voice-quiet" id="log-panel">
-          <summary>
-            <span class="voice-summary-first">Tool calls</span>
-            <button id="copy-log" type="button">Copy</button>
-          </summary>
-          <p class="voice-hint" id="copy-note" role="status"></p>
-          <ol class="voice-log" id="log"></ol>
-        </details>
-      </div>
+      </dialog>
     </div>
 
     <script type="module">

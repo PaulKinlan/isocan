@@ -41,6 +41,17 @@ function answer(data: unknown): Response {
 
 beforeEach(() => {
   document.body.innerHTML = voiceBody;
+  // jsdom checks delegation only; native Escape/focus containment are driven
+  // in Chrome. Each test gets fresh dialog methods on its own element.
+  const settings = document.getElementById("settings") as HTMLDialogElement;
+  settings.showModal = vi.fn(() => {
+    settings.open = true;
+    (settings.querySelector("[autofocus]") as HTMLElement)?.focus();
+  });
+  settings.close = vi.fn(() => {
+    settings.open = false;
+    settings.dispatchEvent(new Event("close"));
+  });
   localStorage.clear();
   stateReply = {};
   logReply = { entries: [] };
@@ -729,6 +740,75 @@ describe("the setup panel says what this harness cannot do", () => {
     await flush();
     const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/canvas"));
     expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ id: "prj_2" });
+  });
+});
+
+describe("configuration behind the settings cog", () => {
+  it("keeps the controls intact in a closed dialog, without starting audio", async () => {
+    stateReply = LIVE;
+    await wire();
+    const dialog = element<HTMLDialogElement>("settings");
+    expect(dialog.open).toBe(false);
+    for (const id of ["connection-panel", "key-panel", "daemon-field", "device", "save-key", "test-key", "forget-key"])
+      expect(dialog.contains(element(id))).toBe(true);
+    expect(element("setup-callout").hidden).toBe(true);
+    const key = element<HTMLInputElement>("key");
+    key.value = "synthetic-not-a-key";
+    element<HTMLButtonElement>("settings-open").click();
+    expect(dialog.showModal).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(element("settings-title"));
+    expect(element("settings-open").getAttribute("aria-expanded")).toBe("true");
+    expect(dialog.contains(element("complaint"))).toBe(true);
+    element<HTMLButtonElement>("settings-close").click();
+    expect(dialog.open).toBe(false);
+    expect(element("hero").contains(element("complaint"))).toBe(true);
+    element<HTMLButtonElement>("settings-open").click();
+    expect(element("key")).toBe(key);
+    expect(key.value).toBe("synthetic-not-a-key");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/session/start"))).toBe(false);
+  });
+
+  it("makes missing setup actionable inline without automatically opening settings", async () => {
+    await wire();
+    const dialog = element<HTMLDialogElement>("settings");
+    expect(dialog.open).toBe(false);
+    expect(element("setup-callout").hidden).toBe(false);
+    expect(element("setup-status").textContent).toContain("Needs setup");
+    element<HTMLButtonElement>("setup-open").click();
+    expect(dialog.open).toBe(true);
+    expect(element("setup-steps").textContent).toContain("isocan rc add");
+    expect(element("setup-steps").textContent).toContain("acpAdapters");
+  });
+
+  it("does not replace a focused setup field on identical state polls", async () => {
+    await wire();
+    element<HTMLButtonElement>("settings-open").click();
+    const field = element("setup-steps").querySelector("input")!;
+    field.value = "Test voice";
+    field.focus();
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(element("setup-steps").querySelector("input")).toBe(field);
+    expect(document.activeElement).toBe(field);
+    expect(field.value).toBe("Test voice");
+  });
+
+  it("surfaces an explicit permission question rather than leaving it behind the modal", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    element<HTMLButtonElement>("settings-open").click();
+    socket.event({ confirm: { id: "synthetic_confirmation", what: "delete a test item" } });
+    expect(element<HTMLDialogElement>("settings").open).toBe(false);
+    expect(document.activeElement).toBe(element("confirm-what"));
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/confirm"))).toBe(false);
+  });
+
+  it("closes its dialog when the page is disposed", async () => {
+    await wire();
+    element<HTMLButtonElement>("settings-open").click();
+    page!.stop();
+    expect(element<HTMLDialogElement>("settings").open).toBe(false);
   });
 });
 

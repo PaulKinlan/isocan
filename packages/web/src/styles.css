@@ -6470,7 +6470,7 @@ body:has(> .voice) { overflow: auto; }
 }
 .voice ::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .voice :is(input, select) { caret-color: var(--accent-text); accent-color: var(--accent); }
-.voice :is(button, input, select, summary):focus-visible {
+.voice :is(button, input, select, summary, [tabindex="-1"]):focus-visible {
   outline: 2px solid var(--accent-text);
   outline-offset: 4px;
 }
@@ -6479,7 +6479,21 @@ body:has(> .voice) { overflow: auto; }
 /* `hidden` loses to a display declaration; the setup block shipped visible
    with no session to set up. Say it once, for everything in the page. */
 .voice [hidden] { display: none; }
-.voice-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.voice-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.voice-settings-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  block-size: 44px;
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+.voice-settings-open svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
 .voice-head h1 {
   margin: 0;
   font-size: var(--t-xs);
@@ -6722,7 +6736,9 @@ body:has(> .voice) { overflow: auto; }
 
 /* Mute and End, and nothing else: the microphone is the page's one action. */
 .voice-session { display: flex; gap: var(--s2); }
-.voice-session button {
+.voice-session button,
+.voice-settings-head button,
+.voice-setup-callout button {
   font: inherit;
   font-size: var(--t-sm);
   padding: var(--s2) var(--s4);
@@ -6830,7 +6846,7 @@ body:has(> .voice) { overflow: auto; }
 /* The setup half: what is missing, what the harness cannot do yet, and the
    command that does it by hand. Visible, never a silent absence. */
 .voice-setup { display: grid; gap: var(--s2); border-top: 1px solid var(--line-soft); padding-top: var(--s3); }
-.voice-setup h2 {
+.voice-setup h3 {
   margin: 0;
   font-size: var(--t-xs);
   letter-spacing: 0.1em;
@@ -6915,6 +6931,31 @@ body:has(> .voice) { overflow: auto; }
 .voice-op { color: var(--good); }
 .voice-answered { color: var(--accent-text); }
 .voice-event { color: var(--ink-muted); }
+
+/* Configuration is modal, but never opens itself on first run. */
+.voice-settings {
+  position: fixed;
+  inset-block: var(--s4) auto;
+  margin-block: 0;
+  width: min(640px, calc(100% - var(--s6)));
+  max-block-size: calc(100dvh - 2 * var(--s4));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--s5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
+.voice-settings::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
+body:has(.voice-settings[open]) { overflow: hidden; }
+.voice-settings-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
+.voice-settings-head h2 { margin: 0; font-size: var(--t-lg); }
+.voice-settings :is(button, select, input, summary), .voice-setup-callout button { min-block-size: 44px; }
+.voice-settings :is(input, select) { font-size: 16px; }
+.voice-setup-callout { display: grid; justify-items: center; gap: var(--s1); font-size: var(--t-sm); }
+.voice-setup-callout p { margin: 0; color: var(--ink-muted); }
+.voice-settings .voice-complaint { margin-bottom: var(--s4); }
 
 @media (max-width: 720px) {
   .voice { padding: var(--s4) var(--s3) var(--s5); gap: var(--s3); }

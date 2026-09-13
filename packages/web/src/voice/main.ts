@@ -199,6 +199,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   const captions = required<HTMLElement>("captions", doc);
   const keepCaptions = required<HTMLInputElement>("keep-captions", doc);
   const copyNote = required<HTMLElement>("copy-note", doc);
+  const settings = required<HTMLDialogElement>("settings", doc);
+  const settingsOpen = required<HTMLButtonElement>("settings-open", doc);
+  const settingsClose = required<HTMLButtonElement>("settings-close", doc);
+  const setupOpen = required<HTMLButtonElement>("setup-open", doc);
+  const setupCallout = required<HTMLElement>("setup-callout", doc);
+  const setupStatus = required<HTMLElement>("setup-status", doc);
   const motion = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
   keepCaptions.checked = motion?.matches ?? false;
   const stateLine = required<HTMLElement>("state", doc);
@@ -238,6 +244,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const copyLogButton = required<HTMLButtonElement>("copy-log", doc);
 
   let facts: State | null = null;
+  let setupSignature = "";
   let session: SessionState = "idle";
   let muted = false;
   let muting = false;
@@ -502,9 +509,8 @@ export function wireVoice(doc: Document = document): VoicePage {
         }`
       : "no harness answered";
 
-    // A first run that is missing something must not hide it behind the same
-    // drawer as a working session's logs: the drawer opens itself, and says
-    // what is missing, until there is nothing missing.
+    // Expand the section inside Settings, never the modal itself. Missing
+    // prerequisites also have an inline pointer beside the conversation.
     if (missing.length > 0) connectionPanel.open = true;
     renderSetup();
   }
@@ -656,6 +662,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       stateComplaint = true;
       complaint = String((err as Error).message ?? err);
       renderComplaint();
+      renderSetup();
     }
   };
 
@@ -1211,12 +1218,20 @@ export function wireVoice(doc: Document = document): VoicePage {
    * is ever left as a dead end.
    */
   function renderSetup(): void {
-    setupSteps.replaceChildren();
     const audio = audioFacts(facts);
     const enrolled = Boolean(facts?.agent?.enrolled);
     const hasCanvas = Boolean(facts?.canvas?.id);
-    const unreachable = !facts && Boolean(complaint);
+    const unreachable = !facts && stateComplaint;
     const needed = unreachable || !hasCanvas || !enrolled || !audio.key;
+    setupCallout.hidden = !(facts || unreachable) || !needed;
+    const missing = [!hasCanvas && "canvas", !enrolled && "enrolled actor", !audio.key && "key"].filter(Boolean);
+    const status = unreachable ? "Harness unavailable. Open settings for setup." : `Needs setup: ${missing.join(", ")}.`;
+    if (setupStatus.textContent !== status) setupStatus.textContent = status;
+    // Polling identical facts must not discard a name being typed or focus.
+    const signature = JSON.stringify([facts?.canvas, facts?.agent?.id, facts?.agent?.name, enrolled, audio, unreachable, offered.canvases]);
+    if (signature === setupSignature) return;
+    setupSignature = signature;
+    setupSteps.replaceChildren();
     setupBox.hidden = !needed;
     if (!needed) return;
     setupNote.textContent = unreachable
@@ -1378,6 +1393,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     const what = typeof ask.what === "string" ? ask.what : String(ask.name ?? "an operation");
     confirmWhat.textContent = `The agent wants to ${what}. Nothing happens until you answer.`;
     confirmBox.hidden = false;
+    if (settings.open) {
+      settings.close();
+      // Surface the question, never focus Allow or treat the model as consent.
+      confirmWhat.focus();
+    }
     put({ at: new Date().toLocaleTimeString(), event: `confirmation asked: ${what}` });
   }
 
@@ -1482,6 +1502,25 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
+  function openSettings(): void {
+    if (disposed || settings.open) return;
+    // One alert node, moved into the active surface rather than duplicated
+    // into an inert background. Closing restores its conversation location.
+    settings.insertBefore(complaintLine, connectionPanel);
+    settings.showModal();
+    settingsOpen.setAttribute("aria-expanded", "true");
+  }
+
+  settingsOpen.addEventListener("click", openSettings);
+  setupOpen.addEventListener("click", openSettings);
+  settingsClose.addEventListener("click", () => settings.close());
+  settings.addEventListener("close", () => {
+    hero.insertBefore(complaintLine, confirmBox);
+    settingsOpen.setAttribute("aria-expanded", "false");
+    // Native restoration handles the opener; setup may have hidden it since.
+    if (!disposed && doc.activeElement === doc.body) settingsOpen.focus();
+  });
+
   listenButton.addEventListener("click", () => {
     if (session === "live" || session === "muted") void toggleMute();
     else void listen();
@@ -1530,6 +1569,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   return {
     stop(): void {
       disposed = true;
+      if (settings.open) settings.close();
       generation++;
       captureEpoch++;
       clearCaptionTimer();
