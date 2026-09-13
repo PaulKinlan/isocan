@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
+import { shelvePatch } from "@isocan/core";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 import {
   DEFAULT_VOICE_PORT,
@@ -753,6 +754,116 @@ describe("what an agent is called", () => {
       expect(clash.response.error).toContain("Seeder");
       expect((await nameRows())[before.id]!.name).toBe("Voice");
       expect((await canvasNames())[before.id]).toBe("Voice");
+    } finally {
+      await live.close();
+    }
+  });
+});
+
+describe("the projects this session can work on", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /** The same fake provider socket every live test builds, in one place. */
+  async function liveServer() {
+    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+    let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
+    class FakeLiveSocket {
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        providerSocket = this;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      confirmTimeoutMs: 2000,
+      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+    });
+    const { WebSocket: WsClient } = await import("ws");
+    const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+    await new Promise<void>((resolve) => clientWs.on("open", () => resolve()));
+    while (!providerSocket) await sleep(10);
+    providerSocket.emit({ setupComplete: {} });
+    await sleep(50);
+    return {
+      server,
+      providerSocket,
+      close: async () => {
+        clientWs.close();
+        await server.close();
+      },
+    };
+  }
+
+  async function callTool(
+    socket: { emit: (message: unknown) => void; sent: string[] },
+    id: string,
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<{ id: string; response: any }> {
+    const before = socket.sent.length;
+    socket.emit({ toolCall: { functionCalls: [{ id, name, args }] } });
+    const deadline = Date.now() + 8000;
+    while (socket.sent.length <= before && Date.now() < deadline) await sleep(10);
+    const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
+    return reply.toolResponse?.functionResponses?.[0];
+  }
+
+  it("lists the canvases a person can work on, marks where the session is, and leaves the shelf out", async () => {
+    // A second canvas, and a third put away. The shelf rule is core's
+    // (`inScope`), and this is the only place it is checked through the tool.
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_old", title: "Put away" },
+    });
+    await post("/api/ops", {
+      canvasId: "prj_old",
+      actor: seeder,
+      op: { type: "project.update", patch: shelvePatch(new Date().toISOString()) },
+    });
+
+    const live = await liveServer();
+    try {
+      const listed = await callTool(live.providerSocket, "call-list", "project_list");
+      expect(listed.response.ok).toBe(true);
+      const titles = (listed.response.canvases as { id: string; title: string }[]).map((c) => c.title);
+      expect(titles).toContain("Voice test");
+      expect(titles).toContain("Launch plan");
+      expect(titles, "a shelved canvas is not in the way").not.toContain("Put away");
+      expect(listed.response.current).toBe("prj_1");
+      // The model has to be able to NAME one to switch to it, and the id is
+      // what every other tool takes.
+      expect(listed.response.answer).toContain("[prj_2]");
+      expect(listed.response.answer).toContain("(this session is here)");
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_list");
+      expect(row, "a read is a read: nothing was minted").toBeDefined();
+      expect(row.op).toBeUndefined();
+      expect(row.result.ok).toBe(true);
     } finally {
       await live.close();
     }

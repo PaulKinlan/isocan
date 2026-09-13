@@ -14,7 +14,9 @@ import {
   drawingSvg,
   drawingViewBox,
   inkBounds,
+  inScope,
   itemKind,
+  sortCanvases,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
   newCommentId,
@@ -898,6 +900,13 @@ export const LIVE_TOOLS = [
   },
 
   // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
+  {
+    name: "project_list",
+    description:
+      "List the canvases (projects) this home has, each with its id, and mark the one this session is working on. " +
+      "Use for 'what projects are there', 'list my canvases', 'where am I'.",
+    parameters: { type: "OBJECT", properties: {} },
+  },
   {
     name: "read_canvas",
     description: "Inspect the canvas: list all active items, their titles, kinds, positions, and current versions.",
@@ -2747,6 +2756,39 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             }
 
             // 1. Read & Inspection tools:
+            if (name === "project_list") {
+              /* **The shelf is out of the way unless it is asked for** (#194),
+                 and the rule is `inScope` — the same one the app's home list
+                 and `isocan canvas list` use, so "my projects" means one thing
+                 on every surface. The session's own canvas is listed whatever
+                 it is: a person asked where they are. */
+              const canvases = await target.canvas.ctx.client.listCanvases();
+              const shown = sortCanvases(
+                canvases.filter((c) => inScope(c, "live") || c.id === target.canvasId),
+                "recent",
+              );
+              const answer =
+                shown.length === 0
+                  ? "this home has no canvases yet"
+                  : shown
+                      .map((c) => `${c.title}${c.id === target.canvasId ? " (this session is here)" : ""} [${c.id}]`)
+                      .join("; ");
+              say({ text: answer });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, count: shown.length, answer },
+              });
+              return {
+                ok: true,
+                count: shown.length,
+                current: target.canvasId,
+                canvases: shown.map((c) => ({ id: c.id, title: c.title })),
+                answer,
+              };
+            }
             if (name === "read_canvas") {
               const summary = items.map((i) => ({
                 id: i.id,
