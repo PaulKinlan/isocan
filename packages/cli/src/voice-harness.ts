@@ -2486,6 +2486,134 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     };
   };
 
+  /**
+   * **One name-move, two doors.**
+   *
+   * `POST /actor` (the person, in the settings drawer) and the model's
+   * `actor_claim` tool are the same act: the daemon claims the name, and every
+   * copy of it on this machine moves with the authority. This body used to live
+   * inside the tool handler, which is exactly why the page had no way to claim
+   * a name — the capability existed for the model and not for the person.
+   *
+   * `ask` is the whole difference between the two doors. The model must ask the
+   * person first, because a rename it decided on its own is not the person's to
+   * hear about afterwards. A request that arrives from the page's drawer IS the
+   * person acting: the button press is the confirmation, and answering
+   * Allow/Deny for the name they just typed would be a second confirmation of
+   * the same act. The gate is not weakened — it is not consulted because it has
+   * already been satisfied by the hand that asked.
+   */
+  async function claimName(
+    wantedRaw: unknown,
+    opts: { ask: boolean },
+  ): Promise<{
+    ok: boolean;
+    actorId?: string;
+    name?: string;
+    answer: string;
+    error?: string;
+    /** The agent already answered to this name; nothing moved. */
+    unchanged?: boolean;
+    moved?: number;
+    standing?: boolean;
+    seq?: number;
+  }> {
+    const wanted = String(wantedRaw ?? "").trim();
+    if (!wanted) return { ok: false, answer: "", error: "a name is required" };
+    if (wanted.length > 60) {
+      return {
+        ok: false,
+        answer: "",
+        error: `“${wanted.slice(0, 30)}…” is too long for a name — a name is what people call you`,
+      };
+    }
+    if (wanted.toLowerCase() === target.name.toLowerCase()) {
+      return {
+        ok: true,
+        actorId: target.actorId,
+        name: target.name,
+        unchanged: true,
+        answer: `this agent is already called “${target.name}” — nothing to change`,
+      };
+    }
+    const what = `rename this agent to “${wanted}” (it is “${target.name}” now)`;
+    if (opts.ask && !(await askThePerson(what))) {
+      return { ok: false, answer: "", error: `not done — the person did not confirm: ${what}` };
+    }
+    const key = await theKeyWeHold(target.canvas, target.actorId);
+    if (!key) {
+      return {
+        ok: false,
+        answer: "",
+        error: "this harness has no session key on this daemon, so there is nothing to rename",
+      };
+    }
+    let claimed: Awaited<ReturnType<typeof target.canvas.ctx.client.claimActor>>;
+    try {
+      claimed = await target.canvas.ctx.client.claimActor({
+        type: "actor.claim",
+        sessionKey: key,
+        name: wanted,
+        canvasId: target.canvasId,
+      });
+    } catch (err) {
+      // The daemon's own words: a name somebody already answers to is a refusal
+      // with a reason, and the reason names the way back.
+      return { ok: false, answer: "", error: `not renamed — ${(err as Error).message}` };
+    }
+    const actor = claimed.envelope.actor;
+    const was = target.name;
+    target.name = actor.name;
+    /* The face follows the name. A presence session is created with a label, so
+       the old one keeps wearing the old name until it ends — and a face with
+       the wrong name on it is the exact confusion the registry exists to stop. */
+    if (presenceSessionId) {
+      await target.canvas.ctx.client.endSession(target.canvasId, presenceSessionId).catch(() => {});
+      presenceSessionId = null;
+    }
+    await announcePresence("enrolled — nobody is listening right now");
+    /* **The name is recorded in three more places than the registry, and every
+       one of them is a name a person can hear.** The claim above moved the
+       authority; these move the copies — the canvas's enrolment record (what
+       `rc turn <name>`, the agent tray and `isocan who` read), the rc's roster
+       row for this machine, and this harness's own record of who it is. A
+       rename that left any of them behind would be a rename the person hears
+       contradicted. */
+    let standing = false;
+    try {
+      const snap = await target.canvas.ctx.client.snapshot(target.canvasId);
+      const record = (snap.canvas.agents ?? {})[actor.id] as { rules?: unknown } | undefined;
+      if (record) {
+        await target.canvas.ctx.client.sendOp(target.canvasId, target.canvas.ctx.actor, {
+          type: "agent.enroll",
+          agent: { id: actor.id, name: actor.name },
+          ...(record.rules !== undefined ? { rules: record.rules } : {}),
+        });
+        standing = true;
+      }
+    } catch {
+      // The registry rename has already happened and is the truth; a copy that
+      // could not be refreshed is reported rather than pretended.
+      standing = false;
+    }
+    const moved = await renameEnrolments(home, actor.id, actor.name).catch(() => 0);
+    await writeVoiceIdentity(home, { actorId: actor.id, sessionKey: key, name: actor.name }).catch(() => {});
+    await rememberWhatIAm();
+    // The page's own headings name the agent; told, so a listening tab does not
+    // keep saying the old name back to the person.
+    announce?.({ agent: { name: actor.name } });
+
+    const alsoMoved: string[] = [];
+    if (standing) alsoMoved.push(`the enrolment on “${target.canvasLabel}” summons it by that name now`);
+    if (moved > 0) alsoMoved.push(`${moved} machine enrolment row${moved === 1 ? "" : "s"} moved with it`);
+    const answer =
+      `this agent now answers to “${actor.name}” (it was “${was}”)` +
+      (alsoMoved.length > 0
+        ? ` — ${alsoMoved.join(", ")}`
+        : ` — nothing on this machine had it enrolled, so nothing else had to move`);
+    return { ok: true, actorId: actor.id, name: actor.name, answer, moved, standing, seq: claimed.seq };
+  }
+
   const server = http.createServer((req, res) => {
     const t0 = performance.now();
     let reqBytes = 0;
@@ -2634,10 +2762,50 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log and POST /key, /audio, /utterance, /summons, /session/*" });
+        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log and POST /actor, /key, /audio, /utterance, /summons, /session/*, /confirm" });
         return;
       }
       const body = await readBody();
+      if (url.pathname === "/actor") {
+        /**
+         * **The door the page was missing.** The settings drawer's claim
+         * control posts here; before this, the only way to name the agent was
+         * the model's tool or the CLI, which is the capability on the wrong
+         * side of the glass.
+         *
+         * It shares `claimName` with `actor_claim` — one implementation of the
+         * move, so the daemon's authority, the enrolment copies, the presence
+         * label and this harness's own record of who it is all move together
+         * either way. `ask: false` because the drawer's press IS the person:
+         * see the note on `claimName`.
+         *
+         * The shapes are the frozen contract on bead `isocan-xsh.8`: 400 for a
+         * name that cannot be a name, 409 for one the canvas already answers
+         * to, 502 for the daemon's own refusal — verbatim, never paraphrased —
+         * and 200 with the actor's id and name when it lands.
+         */
+        const posted = typeof body === "string" ? {} : body;
+        const outcome = await claimName(posted.name, { ask: false });
+        if (!outcome.ok) {
+          const refused = outcome.error ?? "the claim failed";
+          const code = /too long|a name is required/.test(refused)
+            ? 400
+            : /taken|already answers|already has/i.test(refused)
+              ? 409
+              : 502;
+          respond(code, { ok: false, error: refused });
+          return;
+        }
+        const answer = { ok: true, actor: { id: outcome.actorId, name: outcome.name }, resumed: outcome.unchanged === true, answer: outcome.answer };
+        narrate(`claimed from the page: ${outcome.name} (${outcome.actorId ?? "?"})${outcome.unchanged ? " — already that name" : ""}`);
+        recordToolLog({
+          type: "session_event",
+          event: `the person claimed the name “${outcome.name}” from the page`,
+          details: { kind: "actor_claimed_from_page", actorId: outcome.actorId, moved: outcome.moved ?? 0 },
+        });
+        respond(200, answer);
+        return;
+      }
       if (url.pathname === "/key") {
         if (typeof body === "object" && body.forget === true) {
           await forgetVoiceKey(home);
@@ -2919,126 +3087,46 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                key this harness already holds, so the actor keeps its id and
                its history. */
             if (name === "actor_claim") {
-              const wanted = String(args.name ?? "").trim();
-              const refused = (err: string) => {
-                say({ text: err, bad: true });
+              const outcome = await claimName(args.name, { ask: true });
+              if (!outcome.ok) {
+                const error = outcome.error ?? "the claim failed";
+                say({ text: error, bad: true });
                 recordToolLog({
                   type: "tool_call",
                   source: "live",
                   name,
                   args: args as Record<string, unknown>,
-                  result: { ok: false, error: err },
+                  result: { ok: false, error },
                 });
-                return { ok: false, error: err };
-              };
-              if (!wanted) return refused("a claim needs the name the person said — ask them what to be called");
-              if (wanted.length > 60) {
-                return refused(`“${wanted.slice(0, 30)}…” is too long for a name — a name is what people call you`);
+                return { ok: false, error };
               }
-              if (wanted.toLowerCase() === target.name.toLowerCase()) {
-                const already = `this agent is already called “${target.name}” — nothing to change`;
-                say({ text: already });
-                recordToolLog({
-                  type: "tool_call",
-                  source: "live",
-                  name,
-                  args: args as Record<string, unknown>,
-                  result: { ok: true, answer: already },
+              say({ text: outcome.answer });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                ...(outcome.unchanged
+                  ? {}
+                  : { op: { type: "actor.claim", said: `renamed to “${outcome.name}”`, target: outcome.actorId } }),
+                result: {
+                  ok: true,
+                  answer: outcome.answer,
+                  ...(outcome.seq !== undefined ? { seq: outcome.seq } : {}),
+                  ...(outcome.moved !== undefined ? { enrolments: outcome.moved } : {}),
+                  ...(outcome.standing !== undefined ? { standing: outcome.standing } : {}),
+                },
+              });
+              if (!outcome.unchanged) {
+                recentActions.push({
+                  tool: name,
+                  op: "actor.claim",
+                  ...(outcome.actorId ? { id: outcome.actorId } : {}),
+                  ack: outcome.answer,
                 });
-                return { ok: true, name: target.name, answer: already };
-              }
-
-              const what = `rename this agent to “${wanted}” (it is “${target.name}” now)`;
-              if (!(await askThePerson(what))) return refused(`not done — the person did not confirm: ${what}`);
-
-              const key = await theKeyWeHold(target.canvas, target.actorId);
-              if (!key) {
-                return refused("this harness has no session key on this daemon, so there is nothing to rename");
-              }
-              try {
-                const claimed = await target.canvas.ctx.client.claimActor({
-                  type: "actor.claim",
-                  sessionKey: key,
-                  name: wanted,
-                  canvasId: target.canvasId,
-                });
-                const actor = claimed.envelope.actor;
-                const was = target.name;
-                target.name = actor.name;
-                /* The face follows the name. A presence session is created
-                   with a label, so the old one keeps wearing the old name
-                   until it ends — and a face with the wrong name on it is
-                   the exact confusion the registry exists to stop. */
-                if (presenceSessionId) {
-                  await target.canvas.ctx.client.endSession(target.canvasId, presenceSessionId).catch(() => {});
-                  presenceSessionId = null;
-                }
-                await announcePresence("enrolled — nobody is listening right now");
-                /* **The name is recorded in three more places than the
-                   registry, and every one of them is a name a person can
-                   hear.** The claim above moved the authority; these move the
-                   copies — the canvas's enrolment record (what `rc turn
-                   <name>`, the agent tray and `isocan who` read), the rc's
-                   roster row for this machine, and this harness's own record
-                   of who it is. A rename that left any of them behind would
-                   be a rename the person hears contradicted.
-
-                   The standing first. `agent.enroll` is the op the reducer
-                   describes as exactly this — "re-enrolling updates the
-                   record in place: the standing was already there, the rules
-                   (or the name) changed" — so the same actor is enrolled
-                   again with its rules handed back VERBATIM: the name moves,
-                   nothing else does. */
-                let standing = false;
-                try {
-                  const snap = await target.canvas.ctx.client.snapshot(target.canvasId);
-                  const record = (snap.canvas.agents ?? {})[actor.id] as { rules?: unknown } | undefined;
-                  if (record) {
-                    await target.canvas.ctx.client.sendOp(target.canvasId, target.canvas.ctx.actor, {
-                      type: "agent.enroll",
-                      agent: { id: actor.id, name: actor.name },
-                      ...(record.rules !== undefined ? { rules: record.rules } : {}),
-                    });
-                    standing = true;
-                  }
-                } catch {
-                  // The registry rename has already happened and is the truth;
-                  // a copy that could not be refreshed is reported below rather
-                  // than pretended.
-                  standing = false;
-                }
-                const moved = await renameEnrolments(home, actor.id, actor.name).catch(() => 0);
-                await writeVoiceIdentity(home, { actorId: actor.id, sessionKey: key, name: actor.name }).catch(() => {});
-                await rememberWhatIAm();
-                // The page's own headings name the agent; told, so a listening
-                // tab does not keep saying the old name back to the person.
-                announce?.({ agent: { name: actor.name } });
-
-                const alsoMoved: string[] = [];
-                if (standing) alsoMoved.push(`the enrolment on “${target.canvasLabel}” summons it by that name now`);
-                if (moved > 0) alsoMoved.push(`${moved} machine enrolment row${moved === 1 ? "" : "s"} moved with it`);
-                const answer =
-                  `this agent now answers to “${actor.name}” (it was “${was}”)` +
-                  (alsoMoved.length > 0
-                    ? ` — ${alsoMoved.join(", ")}`
-                    : ` — nothing on this machine had it enrolled, so nothing else had to move`);
-                say({ text: answer });
-                recordToolLog({
-                  type: "tool_call",
-                  source: "live",
-                  name,
-                  args: args as Record<string, unknown>,
-                  op: { type: "actor.claim", said: `renamed to “${actor.name}”`, target: actor.id },
-                  result: { ok: true, answer, seq: claimed.seq, enrolments: moved, standing },
-                });
-                recentActions.push({ tool: name, op: "actor.claim", id: actor.id, ack: answer });
                 if (recentActions.length > 20) recentActions.shift();
-                return { ok: true, actor: { id: actor.id, name: actor.name }, answer };
-              } catch (err) {
-                // The daemon's own words: a name somebody already answers to
-                // is a refusal with a reason, and the reason names the way back.
-                return refused(`not renamed — ${(err as Error).message}`);
               }
+              return { ok: true, actor: { id: outcome.actorId, name: outcome.name }, answer: outcome.answer };
             }
 
             // 1. Read & Inspection tools:
