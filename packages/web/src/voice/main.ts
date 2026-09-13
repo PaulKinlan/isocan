@@ -827,7 +827,12 @@ export function wireVoice(doc: Document = document): VoicePage {
     const chosen = kind === "input" ? chosenId : chosenOutputId;
     const nameKey = kind === "input" ? DEVICE_NAME_KEY : OUTPUT_NAME_KEY;
     const rows: DeviceRow[] = [
-      { value: "", text: kind === "input" ? "System default microphone" : "System default", gone: false },
+      // The same words on both pills, because the glyph and the label under it
+      // already say which end of the sound each one is: "System default
+      // microphone" was 100px of the input pill's width saying "microphone" a
+      // third time, and it is the width that decides whether a real device
+      // name fits beside it on a phone.
+      { value: "", text: "System default", gone: false },
     ];
     for (const one of found) rows.push({ value: one.id, text: one.label, gone: false });
     if (chosen && !found.some((one) => one.id === chosen)) {
@@ -843,7 +848,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   function fillSelect(select: HTMLSelectElement, rows: DeviceRow[]): void {
-    select.replaceChildren();
+    // Only the OPTIONS: a customizable select carries an authored button, and
+    // `replaceChildren` would delete the shape with the rows (the browser then
+    // rebuilds a default one, and the control quietly stops being the control
+    // this stylesheet was written for).
+    for (const option of [...select.options]) option.remove();
     for (const row of rows) {
       const option = doc.createElement("option");
       option.value = row.value;

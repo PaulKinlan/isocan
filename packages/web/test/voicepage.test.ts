@@ -424,7 +424,7 @@ describe("devices, keys and the project link", () => {
     // The browser's own "default" alias is not a device, so the page draws its
     // own row for that and lists the devices by name under it.
     expect([...device.options].map((one) => one.textContent)).toEqual([
-      "System default microphone",
+      "System default",
       "Desk microphone",
       "Headset",
     ]);
@@ -953,7 +953,7 @@ describe("the two ends of the sound", () => {
     // The browser's own "default" alias is not a device; the page draws its
     // own row for that and lists the named devices beneath it.
     expect([...element<HTMLSelectElement>("device").options].map((one) => one.textContent)).toEqual([
-      "System default microphone",
+      "System default",
       "Desk microphone",
     ]);
     expect([...element<HTMLSelectElement>("output").options].map((one) => one.textContent)).toEqual([
@@ -973,7 +973,7 @@ describe("the two ends of the sound", () => {
     ]);
     await wire();
     expect([...element<HTMLSelectElement>("device").options].map((one) => one.textContent)).toEqual([
-      "System default microphone",
+      "System default",
     ]);
     expect([...element<HTMLSelectElement>("output").options].map((one) => one.textContent)).toEqual([
       "System default",

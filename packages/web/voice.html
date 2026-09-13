@@ -76,15 +76,15 @@
           </button>
         </div>
 
-        <p class="voice-state" id="state" role="status">idle — press Listen to start</p>
-        <p class="voice-signal-key"><span>You inside</span><span>Voice outside</span></p>
-
         <!--
-          Both ends of the sound, beside the microphone rather than in
-          Settings: choosing a device is part of using voice, not configuring
-          it. Deliberately small and unaccented — the ring above is the page's
-          one loud thing — but every state that is not "as chosen" is said in
-          #device-note below rather than left to a silent default.
+          Both ends of the sound, immediately under the ring rather than under
+          two lines of text: choosing a device is part of using voice, not
+          configuring it, and a row two lines away from the microphone reads as
+          detached from it. Side by side at every width and small, and on a
+          wide window the pair sits BESIDE the ring instead (styles.css),
+          which is the same intent on the axis where there is room for it.
+          Every state that is not "as chosen" is said in #device-note below
+          rather than left to a silent default.
         -->
         <div class="voice-devices">
           <div class="voice-device">
@@ -94,7 +94,13 @@
               <path d="M12 17.75V21" />
             </svg>
             <label class="voice-only" for="device">Microphone</label>
-            <select id="device"></select>
+            <!-- The authored button is what lets the closed control truncate a
+                 long name (`selectedcontent` below) while the LIST shows it in
+                 full. A browser without the customizable select ignores both
+                 elements and reads the options exactly as before. -->
+            <select id="device">
+              <button><selectedcontent></selectedcontent></button>
+            </select>
           </div>
           <div class="voice-device">
             <svg class="voice-device-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -103,10 +109,19 @@
               <path d="M18.75 6.25a8 8 0 0 1 0 11.5" />
             </svg>
             <label class="voice-only" for="output">Output</label>
-            <select id="output"></select>
+            <!-- The authored button is what lets the closed control truncate a
+                 long name (`selectedcontent` below) while the LIST shows it in
+                 full. A browser without the customizable select ignores both
+                 elements and reads the options exactly as before. -->
+            <select id="output">
+              <button><selectedcontent></selectedcontent></button>
+            </select>
           </div>
         </div>
         <p class="voice-device-note" id="device-note" role="status" hidden></p>
+
+        <p class="voice-state" id="state" role="status">idle — press Listen to start</p>
+        <p class="voice-signal-key"><span>You inside</span><span>Voice outside</span></p>
 
         <div class="voice-session">
           <button id="mute" type="button" disabled>Mute</button>

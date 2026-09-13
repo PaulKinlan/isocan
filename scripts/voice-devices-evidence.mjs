@@ -32,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { browser, until } from "./lib/browser.mjs";
+import { decodePng, inkInStrip, inkRows } from "./lib/png.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outIndex = process.argv.indexOf("--out");
@@ -405,38 +406,110 @@ try {
   step(`after unplug: Chrome ${routedPid}'s stream is now rendered on sink ${movedTo?.sink} (${movedTo?.sink === defaultIndex ? `the system default, ${defaultSink}` : "NOT the system default — check the note"}), and the control sink peak was ${controlAfter}`);
   const moved = movedTo?.sink === defaultIndex;
 
-  /* Both controls at both widths, in both themes — the page's own theme
-     mechanism, so what is photographed is what a person would get. */
+  /**
+   * The two pixel facts about one pill, from a clipped screenshot of it: how
+   * much ink is in its right 16px (the arrow that says "this opens"), and where
+   * the text's rows sit against the pill's centre line. Light theme, because
+   * "ink" here means darker than the card.
+   */
+  const measurePill = async (id, [width, height]) => {
+    await b.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    await sleep(250);
+    const box = await b.ev(`(() => { const r = document.querySelector("#${id}").closest(".voice-device").getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+    const { data } = await b.send("Page.captureScreenshot", { format: "png", clip: { x: box.x, y: box.y, width: box.w, height: box.h, scale: 1 } });
+    const png = decodePng(Buffer.from(data, "base64"));
+    const glyph = inkRows(png, { left: 0, right: 22 });
+    const text = inkRows(png, { left: 22, right: Math.max(0, png.width - 24) });
+    return {
+      width: Math.round(box.w),
+      centre: (png.height - 1) / 2,
+      glyph: [glyph.first, glyph.last],
+      text: [text.first, text.last],
+      arrowInk: inkInStrip(png, { left: Math.max(0, png.width - 16), right: png.width }),
+    };
+  };
+
+  /*
+   * **The rows, measured the way Paul asked:** the microphone's centre, the
+   * pills' centre relative to it, both widths, both orientations, the drawn
+   * pill against the target a thumb has to hit, and whether anything leaves
+   * the window.
+   */
   const shots = [goneShot, openShot, factsShot, pickerShot];
-  for (const [width, theme, number] of [
-    [420, "light", 6],
-    [420, "dark", 7],
-    [1440, "dark", 8],
+  const geometry = [];
+  for (const [width, height, theme, shotName, label] of [
+    [420, 900, "light", "06-rows-420-light", "narrow portrait"],
+    [420, 900, "dark", "07-rows-420-dark", "narrow portrait, dark"],
+    [1440, 900, "dark", "08-rows-1440-dark", "desktop, dark"],
+    [844, 390, "light", "11-landscape-844x390", "phone landscape"],
+    [390, 844, "light", "12-portrait-390x844", "phone portrait"],
+    [1240, 800, "light", "13-beside-ring-1240x800", "smallest window that puts them beside the ring"],
   ]) {
-    await b.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await b.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     await setTheme(b, theme);
-    const narrow = await b.ev(`(() => {
-      const row = document.querySelector(".voice-devices").getBoundingClientRect();
-      const pills = [...document.querySelectorAll(".voice-device")].map((p) => p.getBoundingClientRect());
-      const hero = document.querySelector(".voice-hero").getBoundingClientRect();
+    const measured = await b.ev(`(() => {
+      const rect = (sel) => document.querySelector(sel).getBoundingClientRect();
+      const mic = rect(".voice-mic");
+      const row = rect(".voice-devices");
+      const pills = [...document.querySelectorAll(".voice-device")].map((p) => {
+        const r = p.getBoundingClientRect();
+        const skin = getComputedStyle(p, "::before");
+        const select = p.querySelector("select").getBoundingClientRect();
+        return { w: Math.round(r.width), drawn: parseFloat(skin.blockSize), target: Math.round(select.height), top: Math.round(r.top) };
+      });
       return {
-        viewport: window.innerWidth,
-        document: document.documentElement.scrollWidth,
-        rowLeft: Math.round(row.left),
-        rowRight: Math.round(row.right),
-        pills: pills.map((r) => Math.round(r.width)),
-        pillHeights: pills.map((r) => Math.round(r.height)),
-        pillTheme: document.documentElement.dataset.theme,
-        stacked: pills.length > 1 && Math.round(pills[1].top) > Math.round(pills[0].top),
-        mic: Math.round(document.querySelector(".voice-mic").getBoundingClientRect().width),
-        heroWidth: Math.round(hero.width),
-        theme: document.documentElement.dataset.theme,
+        viewport: [window.innerWidth, window.innerHeight],
+        document: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+        micCentre: Math.round(mic.top + mic.height / 2),
+        rowCentre: Math.round(row.top + row.height / 2),
+        rowTop: Math.round(row.top),
+        pills,
+        sameLine: pills.length > 1 && Math.abs(pills[0].top - pills[1].top) < 2,
+        besideRing: row.left > mic.right,
+        note: !document.getElementById("device-note").hidden,
       };
     })()`);
-    const file = await shot(b, `0${number}-rows-${width}-${theme}`);
+    const file = await shot(b, shotName);
     shots.push(file);
-    step(`layout: ${width}px ${theme} — document ${narrow.document}px, device row ${narrow.rowLeft}…${narrow.rowRight} of ${narrow.viewport}, pill widths ${JSON.stringify(narrow.pills)} heights ${JSON.stringify(narrow.pillHeights)}${narrow.stacked ? " (stacked)" : " (one line)"}, microphone ${narrow.mic}px of a ${narrow.heroWidth}px hero — ${file}`);
+    const delta = measured.rowCentre - measured.micCentre;
+    const horizontal = measured.document[0] - measured.viewport[0];
+    const vertical = measured.document[1] - measured.viewport[1];
+    step(
+      `layout: ${label} (${width}×${height}, ${theme}) — pills ${measured.pills.map((p) => `${p.w}px wide`).join(" + ")}${measured.sameLine ? ", one line" : ", STACKED"}, drawn ${measured.pills[0].drawn}px tall with a ${measured.pills[0].target}px hit area, ` +
+        `${measured.besideRing ? "beside the ring" : "under the ring"}, row centre ${delta >= 0 ? "+" : ""}${delta}px from the microphone's centre, ` +
+        `document ${measured.document[0]}×${measured.document[1]} in ${measured.viewport[0]}×${measured.viewport[1]} (horizontal overflow ${horizontal > 1 ? `YES +${horizontal}` : "none"}, vertical ${vertical > 1 ? `+${vertical} (the hero is taller than a landscape window: astra's stack, not this row)` : "none"}) — ${file}`,
+    );
+    geometry.push({ label, width, height, delta, pills: measured.pills, horizontal, vertical, besideRing: measured.besideRing });
   }
+  /*
+   * **The arrow and the centre line, measured with a name that does not fit.**
+   *
+   * The machine has a real output whose name is longer than the pill: select it
+   * (through the row, as a person would) and the two pixel facts are read off
+   * the pill itself. Both were broken before this measurement existed: the
+   * platform's arrow is laid out AFTER the selected content, so the clip that
+   * stops a long name growing the page ate the affordance (measured 0 ink in
+   * the right 16px), and the text sat 12px above the capsule's centre line.
+   */
+  const longest = await b.ev(`(() => {
+    const options = [...document.getElementById("output").options].filter((o) => o.value);
+    const longest = options.sort((a, b) => b.textContent.length - a.textContent.length)[0];
+    return longest ? { value: longest.value, text: longest.textContent } : null;
+  })()`);
+  await b.ev(`(() => { const s = document.getElementById("output"); s.value = ${JSON.stringify(longest?.value ?? "")}; s.dispatchEvent(new Event("change")); return true; })()`);
+  await sleep(300);
+  const longPill = await measurePill("output", [1440, 900]);
+  const longPillNarrow = await measurePill("output", [420, 900]);
+  const shortPill = await measurePill("device", [1440, 900]);
+  step(
+    `pills measured (light theme, ink counted from a clipped screenshot): with the longest real name ${JSON.stringify(longest?.text ?? "none")} the output pill is ${longPill.width}px wide at 1440 and ${longPillNarrow.width}px at 420, ` +
+      `and its right 16px carries ${longPill.arrowInk} ink pixels at 1440 / ${longPillNarrow.arrowInk} at 420 (the arrow that says it opens) — ` +
+      `text rows ${longPill.text[0]}–${longPill.text[1]} and ${longPillNarrow.text[0]}–${longPillNarrow.text[1]} against a centre line at ${longPill.centre}px, ` +
+      `glyph rows ${longPill.glyph[0]}–${longPill.glyph[1]} / ${longPillNarrow.glyph[0]}–${longPillNarrow.glyph[1]}; the microphone pill with a short name: ${shortPill.width}px wide, arrow ink ${shortPill.arrowInk}, text rows ${shortPill.text[0]}–${shortPill.text[1]}`,
+  );
+  await b.ev(`(() => { const s = document.getElementById("output"); s.value = ""; s.dispatchEvent(new Event("change")); return true; })()`);
+  await sleep(200);
+
   await b.send("Emulation.clearDeviceMetricsOverride");
   await b.ev(`document.getElementById("end").click()`);
   await sleep(300);
@@ -525,6 +598,19 @@ try {
     `- with no microphone permission asked: microphone rows ${JSON.stringify(states.withheld?.mic)}, output rows ${JSON.stringify(states.withheld?.output)}, note ${JSON.stringify(states.withheld?.note)}`,
     `- with AudioContext.setSinkId deleted (a browser that cannot route output): rows ${JSON.stringify(states.noApi?.output)}, control disabled ${states.noApi?.disabled}, note ${JSON.stringify(states.noApi?.note)}`,
     `- microphone frames the stub harness received from the page: ${micFrames} (${micBytes} bytes)`,
+    ``,
+    `## The pills, measured`,
+    ``,
+    `| window | pills | drawn / hit area | where | row centre vs microphone centre | horizontal overflow |`,
+    `| --- | --- | --- | --- | --- | --- |`,
+    ...geometry.map(
+      (g) =>
+        `| ${g.width}×${g.height} (${g.label}) | ${g.pills.map((p) => `${p.w}px`).join(" + ")} | ${g.pills[0].drawn}px / ${g.pills[0].target}px | ${g.besideRing ? "beside the ring" : "under the ring"} | ${g.delta >= 0 ? "+" : ""}${g.delta}px | ${g.horizontal > 1 ? `+${g.horizontal}px` : "none"} |`,
+    ),
+    ``,
+    `With a real long device name (${JSON.stringify(longest?.text ?? "none")}) selected, the output pill's right 16px carried ${longPill.arrowInk} ink pixels at 1440 and ${longPillNarrow.arrowInk} at 420 — the arrow, which the platform's own icon lost the moment the name did not fit — and its text rows sat at ${longPill.text[0]}–${longPill.text[1]} (1440) and ${longPillNarrow.text[0]}–${longPillNarrow.text[1]} (420) around a centre line at ${longPill.centre}px, with the glyph at ${longPill.glyph[0]}–${longPill.glyph[1]}.`,
+    ``,
+    `The drawn pill is the hairline capsule; the hit area is the select inside it, which is what a thumb has to reach. Both pills stay on one line at every size, and neither the row nor the list leaves the window at any of them.`,
     ``,
     `## Screenshots`,
     ...shots.map((one) => `- ${one}`),
