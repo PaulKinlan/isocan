@@ -1135,12 +1135,12 @@ describe("the projects this session can work on", () => {
 
 describe("the name the enrolment summons", () => {
   /**
-   * The roster is a machine fact: `isocan who`, the agent tray and
-   * `rc turn <name>` all read it, and it caches a name the registry owns. So a
-   * rename that leaves it alone leaves a person summoning somebody who is not
-   * there under that name.
+   * **The state both tests here start from**: the agent enrolled on prj_1, a
+   * harness standing, and a rename to Nova that the person allowed at the
+   * gate. Built once because the point is what the rename LEFT BEHIND, and two
+   * copies of fifty lines of setup would drift.
    */
-  it("moves every copy of the name: the standing, the roster row and the harness's own record", async () => {
+  async function enrolledAndRenamed() {
     await fs.writeFile(
       path.join(home, "config.json"),
       JSON.stringify({ acpAdapters: { voice: [process.execPath, cliBin, "voice", "--acp"] } }),
@@ -1165,8 +1165,6 @@ describe("the name the enrolment summons", () => {
     const beforeStanding = Object.values(beforeSnap.canvas.agents ?? {}).find((a) => a.actor.id === row.actorId)!;
     expect(beforeStanding.actor.name).toBe("Voice");
 
-    // The page already standing, found through voice/server.json — port 0, so
-    // this cannot collide with a harness somebody is actually using.
     await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
     let providerSocket!: { emit: (m: unknown) => void; sent: string[] };
     class FakeLiveSocket {
@@ -1204,11 +1202,28 @@ describe("the name the enrolment summons", () => {
     providerSocket.emit({ setupComplete: {} });
     await sleep(50);
 
+    const call = callTool(providerSocket, "enrol-rename", "actor_claim", { name: "Nova" });
+    const ask = await theQuestion(server.state.url);
+    await answering(server.state.url, ask.id, true);
+    const renamedRightNow = await call;
+
+    return {
+      server,
+      row,
+      beforeStanding,
+      renamed: renamedRightNow,
+      close: async () => {
+        clientWs.close();
+        await server.close();
+      },
+    };
+  }
+
+  it("moves every copy of the name: the standing, the roster row and the harness's own record", async () => {
+    const live = await enrolledAndRenamed();
+    const { server, row, beforeStanding } = live;
     try {
-      const call = callTool(providerSocket, "enrol-rename", "actor_claim", { name: "Nova" });
-      const ask = await theQuestion(server.state.url);
-      await answering(server.state.url, ask.id, true);
-      const renamed = await call;
+      const renamed = live.renamed;
       expect(renamed.response.ok).toBe(true);
       expect(renamed.response.answer, "the answer says what moved").toContain("enrolment");
 
@@ -1240,8 +1255,42 @@ describe("the name the enrolment summons", () => {
       expect(identity.name).toBe("Nova");
       expect(identity.sessionKey, "the key is the conversation: a rename does not move it").toBe("agent:Voice");
     } finally {
-      clientWs.close();
-      await server.close();
+      await live.close();
+    }
+  });
+
+  /**
+   * **The summons is where a stale name costs the most**: `rc turn <name>` is
+   * how anything reaches an agent, and it resolves the name against canvas
+   * state, then binds the adapter's session — which used to be the NAME, so a
+   * rename made the summon fail with "X is somebody else here".
+   */
+  it("summons by the new name, presenting the key the agent already holds", async () => {
+    const live = await enrolledAndRenamed();
+    try {
+      const summoned = await isocan([
+        "rc",
+        "turn",
+        "Nova",
+        "--canvas",
+        "prj_1",
+        "look",
+        "at",
+        "the",
+        "checkout",
+        "screen",
+      ]);
+      expect(summoned.code, summoned.stderr).toBe(0);
+      const lines = ((await (await fetch(`${live.server.state.url}state`)).json()) as { lines: string[] }).lines.join("\n");
+      expect(lines).toContain("summoned by Nova");
+
+      // The old name is a name nothing answers to any more — said plainly,
+      // rather than waking a second agent wearing it.
+      const byOldName = await isocan(["rc", "turn", "Voice", "--canvas", "prj_1", "hello"]);
+      expect(byOldName.code, "the old name must not find the renamed agent").not.toBe(0);
+      expect(byOldName.stderr).toContain("no standing agent");
+    } finally {
+      await live.close();
     }
   });
 });

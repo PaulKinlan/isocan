@@ -27,7 +27,7 @@ import {
   siteLabel,
   type InkStroke,
 } from "@isocan/core";
-import { enrolmentKey } from "./acp.ts";
+import { enrolmentKey, identityOfKey } from "./acp.ts";
 import { readRcAgents, upsertRcAgent } from "./rc.ts";
 import { voicePage } from "./voice-harness-page.ts";
 
@@ -198,15 +198,6 @@ export async function forgetVoiceIdentity(home: string): Promise<void> {
   await fs.rm(voiceIdentityFile(home), { force: true });
 }
 
-/** `agent:Voice` → the identity `connect({ identity })` takes. The key was
- * built as `<harness>:<session>` and only the first colon splits it. */
-export function identityFromKey(sessionKey: string): { harness: string; session: string } {
-  const at = sessionKey.indexOf(":");
-  return at < 0
-    ? { harness: "agent", session: sessionKey }
-    : { harness: sessionKey.slice(0, at), session: sessionKey.slice(at + 1) };
-}
-
 /**
  * **Claim who this microphone is — resuming rather than re-asserting.**
  *
@@ -258,7 +249,7 @@ export async function claimVoiceIdentity(options: {
             `and nothing was renamed. To change what it is called, say so at the microphone.`,
         );
       }
-      return { actor, ...identityFromKey(remembered.sessionKey) };
+      return { actor, ...identityOfKey(remembered.sessionKey) };
     } catch (err) {
       say(`could not resume “${remembered.name}” (${remembered.actorId}) — ${(err as Error).message}; claiming afresh`);
       await forgetVoiceIdentity(options.home).catch(() => {});
@@ -273,7 +264,7 @@ export async function claimVoiceIdentity(options: {
   });
   const actor = envelope.actor;
   await writeVoiceIdentity(options.home, { actorId: actor.id, sessionKey, name: actor.name });
-  return { actor, ...identityFromKey(sessionKey) };
+  return { actor, ...identityOfKey(sessionKey) };
 }
 
 /** Two names are the same name when they differ only in case and space — the
@@ -3846,9 +3837,19 @@ function cliEntry(): string {
  * operations the microphone sends this agent's.
  */
 export async function runVoiceAdapter(options: { home: string; name: string; canvas?: string }): Promise<void> {
+  /**
+   * **The name a summons appears under is the one the agent ANSWERS to, not
+   * the key it was injected with.** The rc injects the session id — the
+   * conversation the actor is bound under — and after a rename that is the old
+   * name by design, because the key does not move. The harness's own record
+   * knows what it is called now, so the adapter asks that first and falls back
+   * to the injected name on the first run, when they are the same thing.
+   */
+  const remembered = await readVoiceIdentity(options.home).catch(() => null);
+  const name = remembered?.name ?? options.name;
   const forward = async (summons: { name: string; prompt: string }) => {
     const standing = await standingVoiceServer(options.home);
-    const target = standing ?? (await startDetachedServer(options));
+    const target = standing ?? (await startDetachedServer({ ...options, name }));
     if (!target) return null;
     await fetch(`http://127.0.0.1:${target.port}/summons`, {
       method: "POST",
@@ -3857,7 +3858,7 @@ export async function runVoiceAdapter(options: { home: string; name: string; can
     }).catch(() => {});
     return { url: target.url };
   };
-  const agent = createAcpAgent({ forward, name: options.name });
+  const agent = createAcpAgent({ forward, name });
   let buffer = "";
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk: string) => {

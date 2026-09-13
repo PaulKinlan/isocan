@@ -139,7 +139,20 @@ function passes(name: string, extra: string[]): boolean {
 export function adapterEnv(
   canvasId: string,
   agentName: string,
-  options: { pass?: string[]; source?: NodeJS.ProcessEnv } = {},
+  options: {
+    pass?: string[];
+    source?: NodeJS.ProcessEnv;
+    /**
+     * **The session the injected environment presents** — the conversation
+     * this actor is already claimed under, when a rename has moved the name
+     * away from it. Defaults to the name, which is the same thing at
+     * enrolment and only diverges afterwards: `agent:<name>` is how an agent
+     * is FIRST claimed, and the key then lives as long as the actor does.
+     * Injecting the name of a renamed agent would present a key the badge
+     * does not hold, which the desk refuses — correctly.
+     */
+    sessionId?: string;
+  } = {},
 ): NodeJS.ProcessEnv {
   const source = options.source ?? process.env;
   const extra = options.pass ?? [];
@@ -149,7 +162,7 @@ export function adapterEnv(
   }
   for (const name of [...harnessVars, "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete env[name];
   env["ISOCAN_HARNESS"] = "agent";
-  env["ISOCAN_SESSION_ID"] = agentName;
+  env["ISOCAN_SESSION_ID"] = options.sessionId ?? agentName;
   // Which canvas this summons is FOR travels beside the identity, read by the
   // CLI inside the way `--canvas` is (standing agents, phase 1): one agent may
   // stand on several canvases from one directory, so the working directory's
@@ -171,6 +184,49 @@ export function adapterEnv(
  */
 export function enrolmentKey(agentName: string): string {
   return `agent:${agentName}`;
+}
+
+/**
+ * **The inverse — which reads an enrolment key back apart.**
+ *
+ * It sits beside `enrolmentKey` because the format is one decision: `<harness>:
+ * <session>`, first colon only (a session id may contain one). What needs the
+ * inverse is the case a rename creates: the KEY is the conversation a badge
+ * bound the actor to, and the NAME is a label the person can change, so a
+ * summon that injects the new name where the old key belongs presents a key
+ * nobody holds. Readers that have the key and need to say who it is ask here.
+ */
+export function identityOfKey(sessionKey: string): { harness: string; session: string } {
+  const at = sessionKey.indexOf(":");
+  return at < 0
+    ? { harness: "agent", session: sessionKey }
+    : { harness: sessionKey.slice(0, at), session: sessionKey.slice(at + 1) };
+}
+
+/**
+ * **The session an adapter should present for an actor — the conversation it
+ * is already in.**
+ *
+ * An agent is first claimed under `agent:<name>`, and that key then lives as
+ * long as the actor does: the daemon refuses to re-key a live actor (one actor,
+ * two faces), so the NAME moving must not move the key. A spawn that injects
+ * the new name therefore injects a key nobody holds, and the desk refuses it —
+ * correctly, because it looks exactly like a stranger claiming a name.
+ *
+ * So the key this actor is already bound under WINS, and the name's key is only
+ * the first-time case (an agent added from a browser holds no claim on this
+ * badge yet, and gets the rebinding the spike showed is needed).
+ */
+export async function enrolmentSession(
+  client: {
+    actorBindings: () => Promise<{ key: string; actor: { id: string } }[] | null>;
+  },
+  actorId: string,
+  name: string,
+): Promise<{ sessionKey: string; session: string; bound: boolean }> {
+  const bound = (await client.actorBindings().catch(() => null))?.find((row) => row.actor.id === actorId);
+  const sessionKey = bound?.key ?? enrolmentKey(name);
+  return { sessionKey, session: identityOfKey(sessionKey).session, bound: bound !== undefined };
 }
 
 interface JsonRpcMessage {

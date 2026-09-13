@@ -459,7 +459,7 @@ import { loadRuntimeModules } from "./runtime-modules.ts";
 import type { CliHost } from "./modulehost.ts";
 import { harnessSessions } from "@isocan/api";
 import { adoptRcAgent, gateTurn, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, type GuardState, type RcAgentRow } from "./rc.ts";
-import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
+import { AcpAgentProcess, adapterEnv, enrolmentKey, enrolmentSession } from "./acp.ts";
 import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
 import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
@@ -12732,14 +12732,25 @@ try a policy against one agent before starting an rc with it.`,
                 `{"acpAdapters": {"${row.harness}": ["command", "arg"]}}`,
         );
       }
-      // The binding: make the machine badge answer for the enrolled actor
-      // under the key the injected environment presents. For a CLI-added
-      // agent this is the mint claim resuming (a no-op); for a web-added
-      // one it is the one rebinding the spike showed is needed.
+      /**
+       * **The binding — about the KEY, which is the conversation, and not
+       * about the name, which is a label.**
+       *
+       * A CLI-added agent's mint claim is the binding and this is a no-op; a
+       * web-added one has none yet, and gets the one rebinding the spike
+       * showed is needed. Rebuilding the key from the name is what makes a
+       * rename break a summons: the renamed actor still holds the key it was
+       * first claimed under, so the name's key is one nobody holds — refused
+       * while the actor is live, which a running agent always is.
+       */
+      const { sessionKey, session, bound } = await enrolmentSession(ctx.client, record.actor.id, record.actor.name);
       await ctx.client.claimActor({
         type: "actor.claim",
-        sessionKey: enrolmentKey(record.actor.name),
-        as: record.actor.id,
+        sessionKey,
+        // `as` only when there is nothing to resume: it is reincarnation, and
+        // it is refused while the actor is visibly somebody — which, for an
+        // agent about to be summoned, is exactly what it is.
+        ...(bound ? {} : { as: record.actor.id }),
       });
 
       // The fence, if this machine was asked for one (`sandbox.ts`). The
@@ -12773,7 +12784,13 @@ try a policy against one agent before starting an rc with it.`,
             })
           : await AcpAgentProcess.spawn(fence.spec, {
               cwd: row.cwd,
-              env: adapterEnv(p.id, record.actor.name, { pass: await passedEnv(ctx.home) }),
+              env: adapterEnv(p.id, record.actor.name, {
+                pass: await passedEnv(ctx.home),
+                // The conversation, not the label: the key the actor is
+                // already bound under, so a renamed agent's session is the
+                // same session.
+                sessionId: session,
+              }),
             });
       try {
         const session = await agent.ensureSession(row.cwd, row.sessionId);
@@ -13730,6 +13747,9 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
       // was already refused if it could not be built here, so this cannot
       // fail for want of `bwrap` at the doorbell.
       const fence = await fenceSpec(ctx, spec, row, shared.sandbox, shared.codexSandbox);
+      // Same rule as `rc turn`: an adapter presents the session the actor is
+      // already bound under, never a key rebuilt from a name a rename moved.
+      const dispatched = await enrolmentSession(ctx.client, record.actor.id, record.actor.name);
       console.log(rcLine(tag, `${record.actor.name} · ${spec.harness}${fenceNote(fence)}`));
       const agent =
         spec.harness === SHEEP_HARNESS
@@ -13742,7 +13762,10 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
             })
           : await AcpAgentProcess.spawn(fence.spec, {
               cwd: row.cwd,
-              env: adapterEnv(p.id, record.actor.name, { pass: await passedEnv(ctx.home) }),
+              env: adapterEnv(p.id, record.actor.name, {
+                pass: await passedEnv(ctx.home),
+                sessionId: dispatched.session,
+              }),
               narrate: (line) => console.log(rcLine(tag, `${record.actor.name} · ${line}`)),
             });
       try {
