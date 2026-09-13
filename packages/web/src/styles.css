@@ -6646,18 +6646,6 @@ body:has(> .voice) { overflow: auto; }
 .voice-hero[data-activity="speaking"] .voice-state::before { background: var(--good); }
 .voice-hero[data-activity="muted"] .voice-state::before { background: var(--warn); }
 
-/* A quiet waveform, not a control panel: thin bars that grow from the middle,
-   and the scale kept because a meter without a scale is a decoration. While
-   the model speaks this reads the OUTPUT; the rest of the time it reads the
-   microphone. */
-.voice-signal-key {
-  display: flex;
-  gap: var(--s4);
-  margin: calc(var(--s2) * -1) 0 0;
-  color: var(--ink-muted);
-  font-size: var(--t-xs);
-}
-.voice-signal-key span:first-child { color: var(--accent-text); }
 .voice-caption-slot {
   width: min(100%, 520px);
   block-size: calc(var(--s6) * 5);
@@ -7023,14 +7011,13 @@ body:has(.voice-settings[open]) { overflow: hidden; }
 @media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
   .voice-hero {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 1fr auto auto auto;
-    grid-template-areas: "captions captions" "state mic" "signals mic" "session mic";
+    grid-template-rows: 1fr auto auto;
+    grid-template-areas: "captions captions" "state mic" "session mic";
     align-content: stretch;
     column-gap: var(--s5);
   }
   .voice-caption-slot { grid-area: captions; block-size: auto; min-block-size: 60px; }
   .voice-state { grid-area: state; }
-  .voice-signal-key { grid-area: signals; }
   .voice-session { grid-area: session; }
   .voice-mic { grid-area: mic; align-self: end; width: min(40svh, 200px); }
   .voice-complaint, .voice-confirm { grid-column: 1 / -1; }
