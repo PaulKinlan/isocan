@@ -459,11 +459,18 @@ import { loadRuntimeModules } from "./runtime-modules.ts";
 import type { CliHost } from "./modulehost.ts";
 import { harnessSessions } from "@isocan/api";
 import { adoptRcAgent, gateTurn, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, type GuardState, type RcAgentRow } from "./rc.ts";
-import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
+import { AcpAgentProcess, adapterEnv, enrolmentKey, enrolmentSession } from "./acp.ts";
 import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
 import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
-import { DEFAULT_VOICE_PORT, VOICE_HARNESS, isocanHome, runVoiceAdapter, startVoiceServer } from "./voice-harness.ts";
+import {
+  DEFAULT_VOICE_PORT,
+  VOICE_HARNESS,
+  claimVoiceIdentity,
+  isocanHome,
+  runVoiceAdapter,
+  startVoiceServer,
+} from "./voice-harness.ts";
 import {
   noSandboxLine,
   policyFor,
@@ -12725,14 +12732,25 @@ try a policy against one agent before starting an rc with it.`,
                 `{"acpAdapters": {"${row.harness}": ["command", "arg"]}}`,
         );
       }
-      // The binding: make the machine badge answer for the enrolled actor
-      // under the key the injected environment presents. For a CLI-added
-      // agent this is the mint claim resuming (a no-op); for a web-added
-      // one it is the one rebinding the spike showed is needed.
+      /**
+       * **The binding — about the KEY, which is the conversation, and not
+       * about the name, which is a label.**
+       *
+       * A CLI-added agent's mint claim is the binding and this is a no-op; a
+       * web-added one has none yet, and gets the one rebinding the spike
+       * showed is needed. Rebuilding the key from the name is what makes a
+       * rename break a summons: the renamed actor still holds the key it was
+       * first claimed under, so the name's key is one nobody holds — refused
+       * while the actor is live, which a running agent always is.
+       */
+      const { sessionKey, session, bound } = await enrolmentSession(ctx.client, record.actor.id, record.actor.name);
       await ctx.client.claimActor({
         type: "actor.claim",
-        sessionKey: enrolmentKey(record.actor.name),
-        as: record.actor.id,
+        sessionKey,
+        // `as` only when there is nothing to resume: it is reincarnation, and
+        // it is refused while the actor is visibly somebody — which, for an
+        // agent about to be summoned, is exactly what it is.
+        ...(bound ? {} : { as: record.actor.id }),
       });
 
       // The fence, if this machine was asked for one (`sandbox.ts`). The
@@ -12766,7 +12784,13 @@ try a policy against one agent before starting an rc with it.`,
             })
           : await AcpAgentProcess.spawn(fence.spec, {
               cwd: row.cwd,
-              env: adapterEnv(p.id, record.actor.name, { pass: await passedEnv(ctx.home) }),
+              env: adapterEnv(p.id, record.actor.name, {
+                pass: await passedEnv(ctx.home),
+                // The conversation, not the label: the key the actor is
+                // already bound under, so a renamed agent's session is the
+                // same session.
+                sessionId: session,
+              }),
             });
       try {
         const session = await agent.ensureSession(row.cwd, row.sessionId);
@@ -13723,6 +13747,9 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
       // was already refused if it could not be built here, so this cannot
       // fail for want of `bwrap` at the doorbell.
       const fence = await fenceSpec(ctx, spec, row, shared.sandbox, shared.codexSandbox);
+      // Same rule as `rc turn`: an adapter presents the session the actor is
+      // already bound under, never a key rebuilt from a name a rename moved.
+      const dispatched = await enrolmentSession(ctx.client, record.actor.id, record.actor.name);
       console.log(rcLine(tag, `${record.actor.name} · ${spec.harness}${fenceNote(fence)}`));
       const agent =
         spec.harness === SHEEP_HARNESS
@@ -13735,7 +13762,10 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
             })
           : await AcpAgentProcess.spawn(fence.spec, {
               cwd: row.cwd,
-              env: adapterEnv(p.id, record.actor.name, { pass: await passedEnv(ctx.home) }),
+              env: adapterEnv(p.id, record.actor.name, {
+                pass: await passedEnv(ctx.home),
+                sessionId: dispatched.session,
+              }),
               narrate: (line) => console.log(rcLine(tag, `${record.actor.name} · ${line}`)),
             });
       try {
@@ -15056,28 +15086,35 @@ program
       const ctx = await ctxOf(cmd);
       const { canvas: p } = await canvasAndSnapshot(ctx);
       const port = Number(opts.voicePort ?? DEFAULT_VOICE_PORT);
-      // The claim is idempotent and it is the enrolment in miniature: the desk
-      // hands back the same actor for the same session key, so a second start
-      // resumes the one voice rather than minting a stranger.
-      await ctx.client.claimActor({
-        type: "actor.claim",
-        sessionKey: enrolmentKey(name),
+      /**
+       * **Who this microphone is.** On the first run the name is the key
+       * (`agent:<name>`, the enrolment in miniature, idempotent so a second
+       * start resumes the one voice rather than minting a stranger) — and on
+       * every run after that the harness knows which actor it speaks as and
+       * under which key, so a name the person changed at the microphone is not
+       * asserted back over the top of it. `voice-harness.ts` explains why the
+       * two are not the same thing.
+       */
+      const who = await claimVoiceIdentity({
+        home,
+        client: ctx.client,
         name,
         canvasId: p.id,
+        onLine: (line) => console.log(rcLine("voice", line)),
       });
       const server = await startVoiceServer({
         home,
         port,
-        identity: { session: name, harness: "agent" },
+        identity: { session: who.session, harness: who.harness },
         canvas: p.id,
         onLine: (line) => console.log(rcLine("voice", line)),
       });
       console.log(`\n  ${server.state.name} is listening on the canvas — talk at ${server.state.url}\n`);
       const roster = await readRcAgents(ctx.home);
-      if (!roster.some((r) => r.canvasId === p.id && r.name === name)) {
+      if (!roster.some((r) => r.canvasId === p.id && r.actorId === who.actor.id)) {
         console.log(
-          `  not enrolled as a harness yet — the microphone speaks as ${name} either way, but nothing can summon it.\n` +
-            `  to invite it:  isocan rc add ${name} --harness ${VOICE_HARNESS}\n` +
+          `  not enrolled as a harness yet — the microphone speaks as ${who.actor.name} either way, but nothing can summon it.\n` +
+            `  to invite it:  isocan rc add ${who.actor.name} --harness ${VOICE_HARNESS}\n` +
             `  (which needs "acpAdapters": {"${VOICE_HARNESS}": ["node", "<this isocan.js>", "voice", "--acp"]} in ~/.isocan/config.json)\n`,
         );
       }

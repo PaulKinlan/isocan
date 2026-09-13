@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
+import { readRcAgents } from "../src/rc.ts";
 import { shelvePatch } from "@isocan/core";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 import {
@@ -270,6 +271,60 @@ async function liveServer() {
       await server.close();
     },
   };
+}
+
+/**
+ * **A fresh `isocan voice`, the way a person (or the rc) starts one** — the
+ * real verb, in a real process, on a free port. It stands until it is killed,
+ * so this waits for the line that says it is listening (or for it to exit with
+ * a refusal), reads `/state` back, and stops it.
+ *
+ * The subject is the NAME it claims, not the audio: a restart is where a
+ * rename either survives or is quietly undone.
+ */
+async function startFreshVoice(env: Record<string, string>): Promise<{
+  started: boolean;
+  state: { name: string; agent: { id: string; name: string }; canvas: { id: string; title: string } } | null;
+  said: string;
+}> {
+  const port = 9000 + Math.floor(Math.random() * 900);
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, ISOCAN_HARNESS: "agent" };
+  for (const name of harnessVars) delete childEnv[name];
+  const child = spawn(process.execPath, [cliBin, "voice", "--voice-port", String(port)], {
+    env: { ...childEnv, ISOCAN_HOME: home, ISOCAN_PORT: new URL(base).port, ...env },
+    cwd: home,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let said = "";
+  child.stdout!.setEncoding("utf8");
+  child.stdout!.on("data", (chunk) => (said += chunk));
+  child.stderr!.setEncoding("utf8");
+  child.stderr!.on("data", (chunk) => (said += chunk));
+  let url: string | null = null;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const found = said.match(/talk at (http:\/\/127\.0\.0\.1:\d+\/)/);
+    if (found) {
+      url = found[1]!;
+      break;
+    }
+    if (child.exitCode !== null) break;
+    await sleep(50);
+  }
+  let state: { name: string; agent: { id: string; name: string }; canvas: { id: string; title: string } } | null = null;
+  if (url) {
+    // The page and a check read the same three facts; this is the machine
+    // readable door.
+    for (let i = 0; i < 100 && !state; i++) {
+      state = (await fetch(`${url}state`).then((r) => r.json()).catch(() => null)) as typeof state;
+      if (!state) await sleep(50);
+    }
+  }
+  child.kill("SIGTERM");
+  await sleep(200);
+  child.kill("SIGKILL");
+  await sleep(50);
+  return { started: url !== null, state, said };
 }
 
 /**
@@ -988,6 +1043,62 @@ describe("the person's gate", () => {
     await run;
   });
 
+  it("takes a claim from the page's own drawer: POST /actor names the agent, no second question", async () => {
+    const server = await serve();
+    const before = ((await (await fetch(`${server.state.url}state`)).json()) as any).agent as {
+      id: string;
+      name: string;
+    };
+    expect(before.name).toBe("Voice");
+
+    // What the settings drawer sends when a person presses "Claim this name".
+    const claimed = await fetch(`${server.state.url}actor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Nova" }),
+    });
+    expect(claimed.status).toBe(200);
+    const body = (await claimed.json()) as { ok: boolean; actor: { id: string; name: string }; answer: string };
+    expect(body.ok).toBe(true);
+    expect(body.actor).toEqual({ id: before.id, name: "Nova" });
+    expect(body.answer).toContain("Nova");
+
+    // The person pressed a button; nothing is waiting for them to answer
+    // their own question.
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(state.confirm, "no gate for the person's own press").toBeNull();
+    expect(state.name).toBe("Nova");
+    expect(state.agent.id).toBe(before.id);
+    expect((await namesOnCanvas())[before.id]).toBe("Nova");
+
+    // And it is in the record, saying it came from the drawer rather than
+    // from the microphone.
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries as any[];
+    const row = entries.find((e) => e.name === "actor_claim" && e.result?.ok === true);
+    expect(row.args.via).toBe("settings");
+    expect(row.source, "a person's press, not the model").toBe("typed");
+    expect(row.op.type).toBe("actor.claim");
+
+    // A name somebody answers to is refused in the daemon's own words, so the
+    // page can print the sentence verbatim.
+    const taken = await fetch(`${server.state.url}actor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Seeder" }),
+    });
+    expect(taken.status).toBe(400);
+    expect(((await taken.json()) as { error: string }).error).toContain("Seeder");
+    expect(((await (await fetch(`${server.state.url}state`)).json()) as any).name).toBe("Nova");
+
+    // A blank name is refused rather than quietly doing nothing.
+    const blank = await fetch(`${server.state.url}actor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "  " }),
+    });
+    expect(blank.status).toBe(400);
+  });
+
   it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
     const server = await serve();
     const page = await (await fetch(server.state.url)).text();
@@ -1396,6 +1507,298 @@ describe("the projects this session can work on", () => {
     } finally {
       await live.close();
     }
+  });
+});
+
+describe("the name the enrolment summons", () => {
+  /**
+   * **The state both tests here start from**: the agent enrolled on prj_1, a
+   * harness standing, and a rename to Nova that the person allowed at the
+   * gate. Built once because the point is what the rename LEFT BEHIND, and two
+   * copies of fifty lines of setup would drift.
+   */
+  async function enrolledAndRenamed() {
+    await fs.writeFile(
+      path.join(home, "config.json"),
+      JSON.stringify({ acpAdapters: { voice: [process.execPath, cliBin, "voice", "--acp"] } }),
+    );
+    const named = await isocan(["identity", "--name", "Person", "--as", "usr_person", "--session"], {
+      ISOCAN_SESSION_ID: "person",
+      ISOCAN_HARNESS: "isocan",
+    });
+    expect(named.code, named.stderr).toBe(0);
+    // `--canvas prj_1`: the point-anywhere form, so the enrolment lands in the
+    // room the harness stands in rather than in the one a bare temp cwd would
+    // have made for itself.
+    const enrolled = await isocan(["rc", "add", "Voice", "--harness", "voice", "--dir", home, "--canvas", "prj_1"]);
+    expect(enrolled.code, enrolled.stderr).toBe(0);
+
+    const before = await readRcAgents(home);
+    const row = before.find((r) => r.name === "Voice")!;
+    expect(row, "the enrolment exists before the rename").toBeDefined();
+    const beforeSnap = (await (
+      await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })
+    ).json()) as { canvas: { agents?: Record<string, { actor: { id: string; name: string }; rules?: unknown }> } };
+    const beforeStanding = Object.values(beforeSnap.canvas.agents ?? {}).find((a) => a.actor.id === row.actorId)!;
+    expect(beforeStanding.actor.name).toBe("Voice");
+
+    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+    let providerSocket!: { emit: (m: unknown) => void; sent: string[] };
+    class FakeLiveSocket {
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((e: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        providerSocket = this;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      confirmTimeoutMs: 2000,
+      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+    });
+    const { WebSocket: WsClient } = await import("ws");
+    const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+    await new Promise<void>((r) => clientWs.on("open", () => r()));
+    while (!providerSocket) await sleep(10);
+    providerSocket.emit({ setupComplete: {} });
+    await sleep(50);
+
+    const call = callTool(providerSocket, "enrol-rename", "actor_claim", { name: "Nova" });
+    const ask = await theQuestion(server.state.url);
+    await answering(server.state.url, ask.id, true);
+    const renamedRightNow = await call;
+
+    return {
+      server,
+      row,
+      beforeStanding,
+      renamed: renamedRightNow,
+      close: async () => {
+        clientWs.close();
+        await server.close();
+      },
+    };
+  }
+
+  it("moves every copy of the name: the standing, the roster row and the harness's own record", async () => {
+    const live = await enrolledAndRenamed();
+    const { server, row, beforeStanding } = live;
+    try {
+      const renamed = live.renamed;
+      expect(renamed.response.ok).toBe(true);
+      expect(renamed.response.answer, "the answer says what moved").toContain("enrolment");
+
+      // The row moved its LABEL and nothing else: same actor, same harness,
+      // same working directory, same place in the file.
+      const after = await readRcAgents(home);
+      const renamedRow = after.find((r) => r.actorId === row.actorId)!;
+      expect(renamedRow.name).toBe("Nova");
+      expect(renamedRow.harness).toBe(row.harness);
+      expect(renamedRow.cwd).toBe(row.cwd);
+      expect(after.filter((r) => r.actorId === row.actorId)).toHaveLength(1);
+      expect(after.some((r) => r.name === "Voice"), "no row keeps the old name").toBe(false);
+
+      // The canvas's OWN enrolment record — the copy `rc turn <name>`, the
+      // agent tray and `isocan who` read — moved with it, with the actor and
+      // the rules untouched.
+      const snap = (await (
+        await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })
+      ).json()) as { canvas: { agents?: Record<string, { actor: { id: string; name: string }; rules?: unknown }> } };
+      const standing = Object.values(snap.canvas.agents ?? {}).find((a) => a.actor.id === row.actorId)!;
+      expect(standing.actor.name, "the standing a summons reads by name").toBe("Nova");
+      expect(standing.rules).toEqual(beforeStanding.rules);
+
+      // And this harness's own record of who it is: same id, same key, new name.
+      const identity = JSON.parse(
+        await fs.readFile(path.join(home, "voice", "identity.json"), "utf8"),
+      ) as { actorId: string; sessionKey: string; name: string };
+      expect(identity.actorId).toBe(row.actorId);
+      expect(identity.name).toBe("Nova");
+      expect(identity.sessionKey, "the key is the conversation: a rename does not move it").toBe("agent:Voice");
+    } finally {
+      await live.close();
+    }
+  });
+
+  /**
+   * **The summons is where a stale name costs the most**: `rc turn <name>` is
+   * how anything reaches an agent, and it resolves the name against canvas
+   * state, then binds the adapter's session — which used to be the NAME, so a
+   * rename made the summon fail with "X is somebody else here".
+   */
+  it("summons by the new name, presenting the key the agent already holds", async () => {
+    const live = await enrolledAndRenamed();
+    try {
+      const summoned = await isocan([
+        "rc",
+        "turn",
+        "Nova",
+        "--canvas",
+        "prj_1",
+        "look",
+        "at",
+        "the",
+        "checkout",
+        "screen",
+      ]);
+      expect(summoned.code, summoned.stderr).toBe(0);
+      const lines = ((await (await fetch(`${live.server.state.url}state`)).json()) as { lines: string[] }).lines.join("\n");
+      expect(lines).toContain("summoned by Nova");
+
+      // The old name is a name nothing answers to any more — said plainly,
+      // rather than waking a second agent wearing it.
+      const byOldName = await isocan(["rc", "turn", "Voice", "--canvas", "prj_1", "hello"]);
+      expect(byOldName.code, "the old name must not find the renamed agent").not.toBe(0);
+      expect(byOldName.stderr).toContain("no standing agent");
+    } finally {
+      await live.close();
+    }
+  });
+
+  /**
+   * **Coord's acceptance, in one sitting**: claim an actor, enrol it, rename it
+   * by voice through the gate — and then check every surface a person can hear
+   * the name from, including a harness that did not exist when the rename
+   * happened.
+   */
+  it("the acceptance walk: claim, enrol, rename by voice, and every surface agrees", async () => {
+    const live = await enrolledAndRenamed();
+    const actorId = live.row.actorId;
+    try {
+      const renamed = live.renamed;
+      expect(renamed.response.ok).toBe(true);
+
+      // 1. The canvas: the registry's name for that actor id.
+      expect((await namesOnCanvas())[actorId]).toBe("Nova");
+
+      // 2. The enrolment, both halves a summon reads.
+      const snap = (await (
+        await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })
+      ).json()) as { canvas: { agents?: Record<string, { actor: { id: string; name: string } }> } };
+      expect(snap.canvas.agents?.[actorId]?.actor.name).toBe("Nova");
+      expect((await readRcAgents(home)).find((r) => r.actorId === actorId)!.name).toBe("Nova");
+
+      // 3. The page's own account of itself.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.name).toBe("Nova");
+      expect(state.agent.id).toBe(actorId);
+      expect(state.agent.name).toBe("Nova");
+
+      // 4. A harness that did not exist when the rename happened — started by
+      // the new name, and then by the old one, which must not re-assert it.
+      const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: "Nova" });
+      expect(asNew.started, `a fresh \`isocan voice\` should start:\n${asNew.said.slice(-400)}`).toBe(true);
+      expect(asNew.state!.name).toBe("Nova");
+      expect(asNew.state!.agent.id).toBe(actorId);
+
+      const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+      expect(asOld.started, `a fresh \`isocan voice\` should start:\n${asOld.said.slice(-400)}`).toBe(true);
+      expect(asOld.state!.name, "the old name is not asserted back").toBe("Nova");
+      expect(asOld.state!.agent.id).toBe(actorId);
+
+      // 5. And one actor, one name: nothing forked and nothing kept the old
+      // name as a second face.
+      const names = Object.values(await namesOnCanvas());
+      expect(names.filter((n) => n === "Nova" || n === "Voice")).toEqual(["Nova"]);
+    } finally {
+      await live.close();
+    }
+  });
+
+  /**
+   * **The record is a convenience; the badge's row is the truth.** A machine
+   * that holds the binding but not `voice/identity.json` — a second machine
+   * enrolled in the same actor, or a home whose `voice/` directory was cleared
+   * — would rebuild the key from the name it was started with and rename the
+   * actor back. So the first-run path resumes too, whenever the key it would
+   * claim is a key this badge already holds.
+   */
+  it("resumes on a machine that holds the row but not the harness's own record", async () => {
+    const live = await enrolledAndRenamed();
+    const actorId = live.row.actorId;
+    try {
+      await live.close();
+      await fs.rm(path.join(home, "voice", "identity.json"), { force: true });
+
+      const noRecord = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+      expect(noRecord.started, `a fresh \`isocan voice\` should start:\n${noRecord.said.slice(-400)}`).toBe(true);
+      expect(noRecord.state!.name, "the binding is enough to resume: no rename back").toBe("Nova");
+      expect(noRecord.state!.agent.id).toBe(actorId);
+      expect(noRecord.said).toContain("stale");
+
+      // And the record it just wrote is the same identity it resumed.
+      const identity = JSON.parse(
+        await fs.readFile(path.join(home, "voice", "identity.json"), "utf8"),
+      ) as { actorId: string; sessionKey: string; name: string };
+      expect(identity).toEqual({ actorId, sessionKey: "agent:Voice", name: "Nova" });
+    } finally {
+      await live.close();
+    }
+  });
+});
+
+describe("the harness's name across a restart", () => {
+  const enrollVoice = async () => {
+    const enrolled = await isocan(["rc", "add", "Voice", "--harness", "voice", "--dir", home], {
+      ISOCAN_SESSION_ID: "Voice",
+      ISOCAN_HARNESS: "agent",
+    });
+    expect(enrolled.code, enrolled.stderr).toBe(0);
+  };
+
+  it("resumes the actor it renamed, rather than re-asserting the name it was started with", async () => {
+    await enrollVoice();
+    const live = await liveServer();
+    let renamedActor = "";
+    try {
+      const before = ((await (await fetch(`${live.server.state.url}state`)).json()) as any).agent as { id: string; name: string };
+      expect(before.name).toBe("Voice");
+      renamedActor = before.id;
+
+      // Rename, by voice, through the gate.
+      const call = callTool(live.providerSocket, "restart-rename", "actor_claim", { name: "Nova" });
+      const ask = await theQuestion(live.server.state.url);
+      await answering(live.server.state.url, ask.id, true);
+      expect((await call).response.ok).toBe(true);
+    } finally {
+      await live.close();
+    }
+
+    // 1. A fresh start under the NEW name — what a person types, and what a
+    // renamed enrolment injects. This was a hard refusal before: the harness
+    // rebuilt the key from the name, and `agent:Nova` is a key it never held.
+    const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: "Nova" });
+    expect(asNew.started, `a fresh \`isocan voice\` should start:\n${asNew.said.slice(-600)}`).toBe(true);
+    expect(asNew.state!.name).toBe("Nova");
+    expect(asNew.state!.agent.id, "the same actor, not a second one wearing the name").toBe(renamedActor);
+
+    // 2. A fresh start under the OLD name — a stale enrolment, or a shell with
+    // the old export. It must resume, not rename back.
+    const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+    expect(asOld.started, `a fresh \`isocan voice\` should start:\n${asOld.said.slice(-600)}`).toBe(true);
+    expect(asOld.state!.name, "the old name is not asserted back over the new one").toBe("Nova");
+    expect(asOld.state!.agent.id).toBe(renamedActor);
+    expect(asOld.said, "and it says whose name is stale, rather than obeying it").toContain("stale");
+
+    // 3. One actor, one name, on the canvas: no fork.
+    const names = Object.values(await namesOnCanvas());
+    expect(names.filter((n) => n === "Nova" || n === "Voice")).toEqual(["Nova"]);
   });
 });
 

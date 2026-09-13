@@ -1,0 +1,127 @@
+{
+  "at": "2026-09-13T21:33:13.777Z",
+  "seconds": 2.758,
+  "pageUrl": "http://127.0.0.1:5772/voice",
+  "harnessUrl": "http://127.0.0.1:7990/",
+  "steps": [
+    "enrolled for the walk: enrolled Voice — answerable on \"Voice evidence\" · listens only to you. A running `isocan rc` picks this up without a restart; nothing runs until something arrives. Nobody else's word wakes it — `isocan rc listen Voice --to <names|everyone>` widens that.",
+    "before: roster row [\"Voice\"]",
+    "harness: `isocan voice` listening at http://127.0.0.1:7990/ (daemon 39509, home isocan-voice-drawer-KvPCJ4)",
+    "before: actor “Voice” usr_00Xuy_5GJG, canvas “Voice evidence” prj_voice, enrolled true",
+    "page: http://127.0.0.1:5772/voice (Vite serving packages/web, /harness → this run's harness)",
+    "✓ the settings drawer is open",
+    "✓ the drawer offers a name field and a “Claim this name” button — the harness answered the contract",
+    "✓ nothing in the drawer says the build cannot do it: [\"Canvas: Voice evidence — this harness build cannot list or change it from here.isocan voice --canvas \\\"<name>\\\"\",\"Actor: Voice (usr_00Xuy_5GJG) — the microphone speaks as this actor.Claim this name\",\"Enrolled: this actor is invited to the canvas as a voice harness.\",\"No provider key is stored — the harness cannot open a Live session without one.Add a key\"]",
+    "drawer: actor “Voice”, 4 setup step(s), the claim control present",
+    "✓ the person pressed “Claim this name”",
+    "✓ the drawer's actor id is the harness's: usr_00Xuy_5GJG",
+    "✓ no complaint is standing on the page",
+    "✓ the page's own log says what it posted and what came back: \"22:33:13/actor: {\\\"ok\\\":true,\\\"actor\\\":{\\\"id\\\":\\\"usr_00Xuy_5GJG\\\",\\\"name\\\":\\\"Nova\\\"},\\\"canvas\\\":{\\\"id\\\":\\\"prj_voice\\\",\\\"title\\\":\\\"Voice evidence\\\"},\\\"answer\\\":\\\"this agent now answers to “Nova” (it was “Voice”) — the enrolment on “Voice evid\"",
+    "✓ and the harness answered ok",
+    "page log: 22:33:13/actor: {\"ok\":true,\"actor\":{\"id\":\"usr_00Xuy_5GJG\",\"name\":\"Nova\"},\"canvas\":{\"id\":\"prj_voice\",\"title\":\"Voice evidence\"},\"answer\":\"this agent now answers to “Nova” (it was “Voice”) — the enrolment on “Voice evid",
+    "✓ the harness's own account of itself is “Nova”",
+    "✓ the same actor id — a rename, not a second agent",
+    "✓ the canvas calls that actor “Nova”",
+    "✓ the machine's enrolment row moved with it: [\"Nova\"]",
+    "✓ the canvas's own enrolment record says “Nova”",
+    "✓ /state agrees: “Nova” usr_00Xuy_5GJG",
+    "✓ a harness started AFTER the claim (by the old env name “Voice”) resumes “Nova” usr_00Xuy_5GJG",
+    "✓ and the canvas carries one name, not two faces"
+  ],
+  "evidence": {
+    "drawerBefore": {
+      "open": true,
+      "actor": "Voice",
+      "setupHidden": false,
+      "steps": [
+        "Canvas: Voice evidence — this harness build cannot list or change it from here.isocan voice --canvas \"<name>\"",
+        "Actor: Voice (usr_00Xuy_5GJG) — the microphone speaks as this actor.Claim this name",
+        "Enrolled: this actor is invited to the canvas as a voice harness.",
+        "No provider key is stored — the harness cannot open a Live session without one.Add a key"
+      ],
+      "input": true,
+      "button": true
+    },
+    "drawerAfter": {
+      "actor": "Nova",
+      "id": "usr_00Xuy_5GJG",
+      "complaint": null,
+      "log": [
+        "22:33:13/actor: {\"ok\":true,\"actor\":{\"id\":\"usr_00Xuy_5GJG\",\"name\":\"Nova\"},\"canvas\":{\"id\":\"prj_voice\",\"title\":\"Voice evidence\"},\"answer\":\"this agent now answers to “Nova” (it was “Voice”) — the enrolment on “Voice evid",
+        "2026-09-13T21:33:12.159Zharness restarted"
+      ]
+    },
+    "facts": {
+      "name": "Nova",
+      "port": 7990,
+      "version": "0.1.0",
+      "updated": "2026-09-13 21:30Z",
+      "canvas": {
+        "title": "Voice evidence",
+        "id": "prj_voice"
+      },
+      "daemon": "http://127.0.0.1:39509",
+      "home": "no home configured — the daemon's default",
+      "agent": {
+        "name": "Nova",
+        "id": "usr_00Xuy_5GJG",
+        "enrolled": true
+      },
+      "provider": {
+        "name": null,
+        "model": "models/gemini-3.1-flash-live-preview",
+        "key": false
+      },
+      "session": {
+        "state": "idle"
+      },
+      "confirm": null
+    },
+    "canvasNames": {
+      "usr_seeder": "Seeder",
+      "usr_person": "Person",
+      "usr_00Xuy_5GJG": "Nova"
+    },
+    "roster": [
+      {
+        "canvasId": "prj_voice",
+        "actorId": "usr_00Xuy_5GJG",
+        "name": "Nova",
+        "harness": "voice",
+        "cwd": "/home/paulkinlan/worktrees/isocan-deepseek-actors",
+        "sessionId": null
+      }
+    ],
+    "standing": {
+      "actor": {
+        "id": "usr_00Xuy_5GJG",
+        "name": "Nova"
+      },
+      "writtenBy": {
+        "id": "usr_00Xuy_5GJG",
+        "name": "Voice"
+      }
+    },
+    "state": {
+      "name": "Nova",
+      "agent": {
+        "name": "Nova",
+        "id": "usr_00Xuy_5GJG",
+        "enrolled": true
+      },
+      "canvas": {
+        "title": "Voice evidence",
+        "id": "prj_voice"
+      }
+    },
+    "freshStart": {
+      "name": "Nova",
+      "agent": {
+        "name": "Nova",
+        "id": "usr_00Xuy_5GJG",
+        "enrolled": false
+      },
+      "said": "nothing can summon it.\n  to invite it:  isocan rc add Nova --harness voice\n  (which needs \"acpAdapters\": {\"voice\": [\"node\", \"<this isocan.js>\", \"voice\", \"--acp\"]} in ~/.isocan/config.json)\n\n[2026-09-13T21:33:13.705Z] [presence] status updated: \"enrolled — nobody is listening right now\"\n22:33:13  voice [2026-09-13T21:33:13.705Z] [presence] status updated: \"enrolled — nobody is listening right now\"\n"
+    }
+  }
+}
