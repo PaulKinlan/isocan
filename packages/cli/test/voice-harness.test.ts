@@ -1129,6 +1129,166 @@ describe("what an agent is called", () => {
     return raw.names ?? {};
   }
 
+  /**
+   * **The door the page was missing, driven from the outside.**
+   *
+   * The settings drawer posts here — `POST /actor` — where before only the
+   * model's tool and the CLI could name the agent, which put the capability on
+   * the wrong side of the glass. This asserts what Paul would check: the name
+   * lands, the actor keeps its id, and the canvas, the ledger, `/state` AND a
+   * freshly started harness all say the same name afterwards.
+   */
+  it("claims a name over POST /actor, and every place that names it agrees", async () => {
+    const first = await liveServer();
+    let second: Awaited<ReturnType<typeof liveServer>> | null = null;
+    try {
+      const before = ((await (await fetch(`${first.server.state.url}state`)).json()) as { agent: { id: string; name: string } })
+        .agent;
+      expect(before.name).toBe("Voice");
+
+      const claimed = (await (
+        await fetch(`${first.server.state.url}actor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Vox" }),
+        })
+      ).json()) as { ok: boolean; actor: { id: string; name: string }; resumed: boolean; answer: string };
+      expect(claimed).toMatchObject({ ok: true, resumed: false });
+      expect(claimed.actor.name).toBe("Vox");
+      expect(claimed.actor.id, "a rename keeps the actor's id").toBe(before.id);
+      expect(claimed.answer).toContain("Vox");
+
+      // 1. /state, the surface the page reads.
+      const after = ((await (await fetch(`${first.server.state.url}state`)).json()) as { agent: { id: string; name: string } })
+        .agent;
+      expect(after).toMatchObject({ id: before.id, name: "Vox" });
+
+      // 2. The canvas's own record — what `rc turn <name>`, the agent tray and
+      //    `isocan who` read.
+      expect((await canvasNames())[before.id]).toBe("Vox");
+
+      // 3. The identity ledger on disk, the home's record of who a name belongs to.
+      expect((await nameRows())[before.id]!.name).toBe("Vox");
+
+      // 4. A harness started fresh, on the same home, agrees. That is the claim
+      //    that matters after a restart.
+      await first.close();
+      second = await liveServer();
+      const restarted = ((await (await fetch(`${second.server.state.url}state`)).json()) as {
+        agent: { id: string; name: string };
+      }).agent;
+      expect(restarted).toMatchObject({ id: before.id, name: "Vox" });
+
+      // A second press of the same button is not an error and moves nothing.
+      const again = (await (
+        await fetch(`${second.server.state.url}actor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Vox" }),
+        })
+      ).json()) as { ok: boolean; resumed: boolean; actor: { id: string; name: string } };
+      expect(again).toMatchObject({ ok: true, resumed: true });
+      expect(again.actor.id).toBe(before.id);
+    } finally {
+      await first.close().catch(() => undefined);
+      await second?.close().catch(() => undefined);
+    }
+  });
+
+  it("lists the projects and the daemon for the drawer, and moves the session to one it is told", async () => {
+    // A second canvas, so a switch has somewhere to go.
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Winter work" },
+    });
+    const live = await liveServer();
+    try {
+      const list = (await (await fetch(`${live.server.state.url}canvases`)).json()) as {
+        current: string;
+        canvases: { id: string; title: string }[];
+      };
+      expect(list.current).toBe("prj_1");
+      // The daemon may hold more than this test made; what matters is that
+      // both are offered and the current one is marked.
+      expect(list.canvases.map((one) => one.id)).toEqual(expect.arrayContaining(["prj_1", "prj_2"]));
+
+      const daemons = (await (await fetch(`${live.server.state.url}daemons`)).json()) as {
+        current: string;
+        found: { url: string; reachable: boolean; canvases?: number }[];
+      };
+      expect(daemons.current).toBe(base);
+      expect(daemons.found[0]).toMatchObject({ url: base, reachable: true });
+      expect(daemons.found[0]!.canvases).toBeGreaterThanOrEqual(2);
+
+      // Choosing the project: the session moves, /state says so, and choosing
+      // the one it is already on is not an error.
+      const moved = (await (
+        await fetch(`${live.server.state.url}canvas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: "prj_2" }),
+        })
+      ).json()) as { ok: boolean; canvas: { id: string; title: string }; previous: { id: string } };
+      expect(moved).toMatchObject({ ok: true, canvas: { id: "prj_2", title: "Winter work" }, previous: { id: "prj_1" } });
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as {
+        canvas: { id: string; title: string };
+      };
+      expect(state.canvas).toMatchObject({ id: "prj_2", title: "Winter work" });
+
+      const again = (await (
+        await fetch(`${live.server.state.url}canvas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: "prj_2" }),
+        })
+      ).json()) as { ok: boolean; unchanged?: boolean };
+      expect(again).toMatchObject({ ok: true, unchanged: true });
+
+      // A canvas nobody has is a 404 in the daemon's own words, and an empty
+      // body is a 400 — neither silently does nothing.
+      const missing = await fetch(`${live.server.state.url}canvas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "prj_nope" }),
+      });
+      expect(missing.status).toBe(404);
+      const empty = await fetch(`${live.server.state.url}canvas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(empty.status).toBe(400);
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("refuses what cannot be a name, and says who owns one already taken", async () => {
+    const live = await liveServer();
+    try {
+      const post = async (name: unknown) => {
+        const res = await fetch(`${live.server.state.url}actor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        return { status: res.status, body: (await res.json()) as { ok: boolean; error: string } };
+      };
+
+      expect((await post("")).status).toBe(400);
+      expect((await post("x".repeat(80))).status).toBe(400);
+      // Somebody on this canvas already answers to "Seeder": the daemon's own
+      // refusal is the answer, and nothing moved.
+      const clash = await post("Seeder");
+      expect(clash.status).toBe(409);
+      expect(clash.body.error).toContain("Seeder");
+      expect((await nameRows())[((await (await fetch(`${live.server.state.url}state`)).json()) as { agent: { id: string } }).agent.id]!.name).toBe("Voice");
+    } finally {
+      await live.close();
+    }
+  });
+
   it("renames in place when the person names it, and the canvas, the ledger and the face follow", async () => {
     const live = await liveServer();
     try {
