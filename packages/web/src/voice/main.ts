@@ -210,6 +210,10 @@ export function wireVoice(doc: Document = document): VoicePage {
   const motion = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
   const stateLine = required<HTMLElement>("state", doc);
   const buildTag = required<HTMLElement>("build-tag", doc);
+  const memorySummary = required<HTMLElement>("memory-summary", doc);
+  const memoryNote = required<HTMLElement>("memory-note", doc);
+  const memoryList = required<HTMLElement>("memory-list", doc);
+  const memoryForgetAll = required<HTMLButtonElement>("memory-forget-all", doc);
   const folderName = required<HTMLElement>("folder-name", doc);
   const folderNote = required<HTMLElement>("folder-note", doc);
   const folderPick = required<HTMLButtonElement>("folder-pick", doc);
@@ -815,6 +819,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
     if (event.open_url && typeof event.open_url === "object") {
       void handleOpenUrl(event.open_url as Record<string, unknown>);
+      return;
+    }
+    if (event.memory && typeof event.memory === "object") {
+      // The agent's own state, asked of the store that holds it (OPFS here).
+      void answerMemoryRequest(event.memory as Record<string, unknown>);
       return;
     }
     if (event.fs && typeof event.fs === "object") {
@@ -1495,6 +1504,288 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   /* ------------------------------------------------------------------ *
+   * Memory: the agent's own state, in this browser's OPFS
+   * ------------------------------------------------------------------ */
+
+  /**
+   * **The agent's state belongs to the page, in OPFS.**
+   *
+   * Paul's ruling: OPFS — `navigator.storage.getDirectory()` — is the store for
+   * the agent's own state (memory, and whatever else the page produces), while
+   * a DirectoryHandle is for reading the person's files. OPFS is per-origin,
+   * persistent, and needs no permission prompt, which is the whole reason it
+   * exists; the harness is the model-facing side and asks for what it needs
+   * rather than keeping a copy.
+   *
+   * Two things make this honest rather than merely convenient:
+   *
+   *  - **`navigator.storage.persist()` is requested**, and the answer is shown.
+   *    Under storage pressure an unpersisted origin can be evicted, and memory
+   *    a housekeeping pass can delete is not memory.
+   *  - **The store is visible and deletable in the UI**, because it is
+   *    per-origin and per-browser: the terminal cannot read it, and a different
+   *    profile sees a different store. That is inherent — so the person gets the
+   *    list and the delete, here, rather than a store they cannot inspect.
+   *
+   * A browser without OPFS (or a private window) still gets a working session:
+   * the store falls back to this tab's memory, and the note says so instead of
+   * pretending the entries will be here tomorrow.
+   */
+  interface Memory {
+    id: string;
+    text: string;
+    tags: string[];
+    at: string;
+    session: string;
+    presenceId?: string;
+  }
+
+  const MEMORY_FILE = "memories.json";
+  const MEMORY_DIR = "voice";
+
+  /** The File System Access API surface OPFS needs, as much as is used here. */
+  interface OpfsFileHandle {
+    createWritable(options?: { keepExistingData?: boolean }): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
+    getFile(): Promise<File>;
+  }
+  interface OpfsDirHandle {
+    getFileHandle(name: string, options?: { create?: boolean }): Promise<OpfsFileHandle>;
+    getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<OpfsDirHandle>;
+    removeEntry?(name: string): Promise<void>;
+  }
+
+  let memoryStore: Memory[] | null = null; // the in-tab fallback, when OPFS is absent
+  let memoryPersisted: boolean | null = null;
+
+  function opfsRoot(): Promise<OpfsDirHandle | null> {
+    return new Promise((resolve) => {
+      const storage = (navigator as unknown as { storage?: { getDirectory?: () => Promise<OpfsDirHandle> } }).storage;
+      if (!storage?.getDirectory) {
+        resolve(null);
+        return;
+      }
+      storage.getDirectory().then(resolve).catch(() => resolve(null));
+    });
+  }
+
+  async function memoryFile(create: boolean): Promise<OpfsFileHandle | null> {
+    const root = await opfsRoot();
+    if (!root) return null;
+    try {
+      const dir = await root.getDirectoryHandle(MEMORY_DIR, { create });
+      return await dir.getFileHandle(MEMORY_FILE, { create });
+    } catch {
+      return null;
+    }
+  }
+
+  async function readStoredMemories(): Promise<Memory[]> {
+    const handle = await memoryFile(false);
+    if (!handle) return memoryStore ?? [];
+    try {
+      const file = await handle.getFile();
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const list = Array.isArray(parsed) ? parsed : ((parsed as { memories?: unknown })?.memories ?? []);
+      if (!Array.isArray(list)) return [];
+      return list.filter((one): one is Memory => {
+        const m = one as Partial<Memory>;
+        return typeof m?.id === "string" && typeof m?.text === "string";
+      });
+    } catch {
+      return []; // a missing or corrupt file is an empty store, never fatal
+    }
+  }
+
+  async function writeStoredMemories(list: Memory[]): Promise<boolean> {
+    const handle = await memoryFile(true);
+    if (!handle) {
+      memoryStore = list; // session-only, and the note says so
+      return false;
+    }
+    try {
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(list, null, 2) + "\n");
+      await writable.close();
+      return true;
+    } catch {
+      memoryStore = list;
+      return false;
+    }
+  }
+
+  /** Ask the browser to keep this origin's storage, and say what it answered. */
+  async function askToPersist(): Promise<boolean | null> {
+    if (memoryPersisted !== null) return memoryPersisted;
+    const storage = (navigator as unknown as {
+      storage?: { persist?: () => Promise<boolean>; persisted?: () => Promise<boolean> };
+    }).storage;
+    if (!storage?.persist) {
+      memoryPersisted = false;
+      return false;
+    }
+    try {
+      memoryPersisted = (await storage.persist()) || Boolean(await storage.persisted?.());
+    } catch {
+      memoryPersisted = false;
+    }
+    renderMemory();
+    return memoryPersisted;
+  }
+
+  function memoryWords(one: Memory): string {
+    return `${one.text}${one.tags.length ? ` [${one.tags.join(", ")}]` : ""}`;
+  }
+
+  function renderMemory(): void {
+    void (async () => {
+      const list = await readStoredMemories();
+      memorySummary.textContent = list.length === 0 ? "nothing stored" : `${list.length} ${list.length === 1 ? "memory" : "memories"}`;
+      memoryForgetAll.hidden = list.length === 0;
+      memoryNote.textContent = list.length === 0
+        ? "Nothing stored yet. The agent keeps what it is told to remember in this browser's own storage — no server, no key."
+        : memoryPersisted === false
+          ? "Stored in this browser for this session only — this browser would not grant persistent storage, so it may be cleared."
+          : "Stored in this browser (this origin only), persistent where the browser granted it. The terminal cannot read these.";
+      memoryList.replaceChildren();
+      for (const one of list) {
+        const row = doc.createElement("li");
+        chunk(row, "voice-at", one.at ? one.at.slice(0, 19).replace("T", " ") : "");
+        const text = doc.createElement("span");
+        text.textContent = memoryWords(one);
+        row.appendChild(text);
+        chunk(row, "voice-id", one.session);
+        const forget = doc.createElement("button");
+        forget.type = "button";
+        forget.textContent = "Forget";
+        forget.addEventListener("click", () => void forgetMemoryEntry(one.id));
+        row.appendChild(forget);
+        memoryList.appendChild(row);
+      }
+    })();
+  }
+
+  async function forgetMemoryEntry(id: string): Promise<void> {
+    const list = await readStoredMemories();
+    const next = list.filter((one) => one.id !== id);
+    await writeStoredMemories(next);
+    put({ at: new Date().toLocaleTimeString(), event: `forgot memory ${id}` });
+    renderMemory();
+  }
+
+  async function forgetAllMemories(): Promise<void> {
+    await writeStoredMemories([]);
+    put({ at: new Date().toLocaleTimeString(), event: "forgot every memory in this browser" });
+    renderMemory();
+  }
+
+  function newMemoryId(): string {
+    return `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  /**
+   * **The one-time move off the harness's file.**
+   *
+   * Memory used to be the harness's (`~/.isocan/voice/memories.json`). It now
+   * lives here, so on load the page offers to take whatever is still on disk,
+   * merges by id (never overwriting something already in OPFS), and tells the
+   * harness it is done — which retires the file. Nobody loses a memory because
+   * the shelf moved.
+   */
+  async function migrateLegacyMemories(): Promise<void> {
+    const answer = await callSetup("/memory/legacy").catch(() => null);
+    if (!answer?.ok || !Array.isArray(answer.body?.entries)) return;
+    const legacy = (answer.body.entries as Memory[]).filter((one) => one && typeof one.id === "string");
+    if (legacy.length === 0) return;
+    const existing = await readStoredMemories();
+    const known = new Set(existing.map((one) => one.id));
+    const incoming = legacy.filter((one) => !known.has(one.id));
+    const merged = [...existing, ...incoming];
+    const stored = await writeStoredMemories(merged);
+    put({
+      at: new Date().toLocaleTimeString(),
+      event: `migrated ${incoming.length} ${incoming.length === 1 ? "memory" : "memories"} from the harness's file into this browser`,
+    });
+    if (incoming.length > 0 || !stored) await callSetup("/memory/migrated", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ count: incoming.length }),
+    }).catch(() => undefined);
+    renderMemory();
+  }
+
+  /**
+   * **The page's answer to `{ memory: … }`** — the same round trip as files, for
+   * the agent's own state. Search is a case-insensitive substring over text and
+   * tags, and the answer says so: the model must not be told it has semantic
+   * recall it does not have. The model cannot delete or enumerate here either —
+   * there is no branch for it.
+   */
+  async function answerMemoryRequest(request: Record<string, unknown>): Promise<void> {
+    const callId = String(request.callId ?? "");
+    const op = String(request.op ?? "");
+    const at = new Date().toLocaleTimeString();
+    const reply = (body: Record<string, unknown>) =>
+      callSetup("/memory/result", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ callId, ...body }),
+      }).catch(() => undefined);
+
+    try {
+      const stored = await readStoredMemories();
+      if (op === "remember") {
+        const text = String(request.text ?? "").trim();
+        if (!text) {
+          await reply({ ok: false, error: "a memory needs text" });
+          return;
+        }
+        await askToPersist();
+        const one: Memory = {
+          id: newMemoryId(),
+          text,
+          tags: Array.isArray(request.tags) ? (request.tags as string[]).filter((t) => typeof t === "string") : [],
+          at: new Date().toISOString(),
+          session: String(request.session ?? "unknown"),
+          ...(typeof request.presenceId === "string" ? { presenceId: request.presenceId } : {}),
+        };
+        await writeStoredMemories([...stored, one]);
+        await reply({ ok: true, id: one.id, at: one.at, tags: one.tags });
+        put({ at, event: `remembered in this browser (${one.id}): ${one.text.slice(0, 120)}` });
+        renderMemory();
+        return;
+      }
+      if (op === "read") {
+        const id = String(request.id ?? "");
+        const found = stored.find((one) => one.id === id) ?? null;
+        await reply(
+          found
+            ? { ok: true, memory: found }
+            : { ok: false, error: `no memory with id "${id}"`, recentIds: stored.slice(-5).map((one) => one.id) },
+        );
+        return;
+      }
+      if (op === "search") {
+        const query = String(request.query ?? "").trim().toLowerCase();
+        const found = query
+          ? stored.filter(
+              (one) =>
+                one.text.toLowerCase().includes(query) ||
+                one.tags.some((tag) => tag.toLowerCase().includes(query)),
+            )
+          : stored;
+        await reply({ ok: true, count: found.length, memories: found.slice(0, 50) });
+        put({ at, event: `searched this browser's memory: ${found.length} match${found.length === 1 ? "" : "es"}` });
+        return;
+      }
+      await reply({ ok: false, error: `unknown memory operation: ${op || "(none)"}` });
+    } catch (err) {
+      const why = String((err as Error).message ?? err);
+      await reply({ ok: false, error: why });
+      put({ at, event: `memory ${op} failed: ${why}`, error: why });
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
    * Local files: the one capability only this page can ask for
    * ------------------------------------------------------------------ */
 
@@ -1919,6 +2210,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   testKeyButton.addEventListener("click", () => void test());
   forgetKeyButton.addEventListener("click", () => void forget());
   copyLogButton.addEventListener("click", () => void copyLog());
+  memoryForgetAll.addEventListener("click", () => void forgetAllMemories());
   folderPick.addEventListener("click", () => void pickFolder());
   folderReconnect.addEventListener("click", () => void reconnectFolder());
   folderForget.addEventListener("click", () => void forgetFolder());
@@ -1944,6 +2236,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   // a returning page whose permission lapsed says so instead of reading nothing.
   renderFolder();
   void restoreFolder();
+  // Memory: the page's own store. Show what is kept, ask the browser to keep it
+  // for real, and take anything the harness's old file still holds.
+  renderMemory();
+  void askToPersist();
+  void migrateLegacyMemories();
   renderHero();
   renderSave();
   buildTag.textContent = buildWords();
