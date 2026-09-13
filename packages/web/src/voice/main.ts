@@ -202,6 +202,9 @@ export function wireVoice(doc: Document = document): VoicePage {
   const settings = required<HTMLDialogElement>("settings", doc);
   const settingsOpen = required<HTMLButtonElement>("settings-open", doc);
   const settingsClose = required<HTMLButtonElement>("settings-close", doc);
+  const logs = required<HTMLDialogElement>("logs", doc);
+  const logsOpen = required<HTMLButtonElement>("logs-open", doc);
+  const logsClose = required<HTMLButtonElement>("logs-close", doc);
   const setupOpen = required<HTMLButtonElement>("setup-open", doc);
   const setupCallout = required<HTMLElement>("setup-callout", doc);
   const setupStatus = required<HTMLElement>("setup-status", doc);
@@ -1391,11 +1394,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     const what = typeof ask.what === "string" ? ask.what : String(ask.name ?? "an operation");
     confirmWhat.textContent = `The agent wants to ${what}. Nothing happens until you answer.`;
     confirmBox.hidden = false;
-    if (settings.open) {
-      settings.close();
-      // Surface the question, never focus Allow or treat the model as consent.
-      confirmWhat.focus();
-    }
+    // A question behind a modal is a question nobody sees: close whichever
+    // surface is up, then hand focus to the question itself, never to Allow.
+    const surfacing = [settings, logs].filter((dialog) => dialog.open);
+    for (const dialog of surfacing) dialog.close();
+    if (surfacing.length > 0) confirmWhat.focus();
     put({ at: new Date().toLocaleTimeString(), event: `confirmation asked: ${what}` });
   }
 
@@ -1509,13 +1512,21 @@ export function wireVoice(doc: Document = document): VoicePage {
     settingsOpen.setAttribute("aria-expanded", "true");
   }
 
+  function openLogs(): void {
+    if (disposed || logs.open) return;
+    logs.showModal();
+    logsOpen.setAttribute("aria-expanded", "true");
+  }
+
   settingsOpen.addEventListener("click", openSettings);
   setupOpen.addEventListener("click", openSettings);
   settingsClose.addEventListener("click", () => settings.close());
+  logsOpen.addEventListener("click", openLogs);
+  logsClose.addEventListener("click", () => logs.close());
   /**
    * **Click-outside, where the platform does not do it for us.**
    *
-   * `closedby="any"` on the dialog in voice.html is the whole feature in
+   * `closedby="any"` on both dialogs in voice.html is the whole feature in
    * Chrome 134+ and Firefox 141+. Safari has no `closedBy` (it is still only
    * in preview, so this path runs for real), and it has three traps worth
    * naming, because the obvious implementation fails all three:
@@ -1527,8 +1538,8 @@ export function wireVoice(doc: Document = document): VoicePage {
    *    target (measured in Chrome), so a listener bound to the dialog would
    *    miss the very click this exists for.
    * 3. The click that OPENS the dialog is itself a click outside it (the cog
-   *    is outside the box), so dismissing on `click` closes the dialog in the
-   *    same dispatch that opened it.
+   *    and the logs button are outside the box), so dismissing on `click`
+   *    closes the dialog in the same dispatch that opened it.
    *
    * The coordinates answer (1) and (2) — they are the test the HTML spec names
    * for the nearest clicked dialog, 4.11.5 — and the pointerdown answers (3):
@@ -1539,8 +1550,12 @@ export function wireVoice(doc: Document = document): VoicePage {
    */
   if (!("closedBy" in HTMLDialogElement.prototype)) {
     doc.addEventListener("pointerdown", (event) => {
-      if (!settings.open) return;
-      const box = settings.getBoundingClientRect();
+      // Both are modal, so the other one's opener is behind a backdrop and
+      // cannot be pressed: at most one of them is up, and it is the one the
+      // press has to be measured against.
+      const dialog = settings.open ? settings : logs;
+      if (!dialog.open) return;
+      const box = dialog.getBoundingClientRect();
       const onTheDialog =
         event.clientX >= box.left && event.clientX <= box.right &&
         event.clientY >= box.top && event.clientY <= box.bottom;
@@ -1551,15 +1566,20 @@ export function wireVoice(doc: Document = document): VoicePage {
       // popup reports the coordinates where the popup is painted, and the
       // dialog itself is excluded here so that a backdrop press reporting the
       // dialog as its target still gets decided by the coordinates above.
-      if (event.target !== settings && settings.contains(event.target as Node)) return;
-      settings.close();
+      if (event.target !== dialog && dialog.contains(event.target as Node)) return;
+      dialog.close();
+    });
+  }
+  for (const [dialog, opener] of [[settings, settingsOpen], [logs, logsOpen]] as const) {
+    dialog.addEventListener("close", () => {
+      opener.setAttribute("aria-expanded", "false");
+      // Native restoration handles the opener; settings may have hidden it
+      // since, and a dialog dismissed from the backdrop has no opener at all.
+      if (!disposed && doc.activeElement === doc.body) opener.focus();
     });
   }
   settings.addEventListener("close", () => {
     hero.insertBefore(complaintLine, confirmBox);
-    settingsOpen.setAttribute("aria-expanded", "false");
-    // Native restoration handles the opener; setup may have hidden it since.
-    if (!disposed && doc.activeElement === doc.body) settingsOpen.focus();
   });
 
   listenButton.addEventListener("click", () => {
@@ -1578,13 +1598,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   saveKeyButton.addEventListener("click", () => void save());
   testKeyButton.addEventListener("click", () => void test());
   forgetKeyButton.addEventListener("click", () => void forget());
-  copyLogButton.addEventListener("click", (event) => {
-    // Copying is not opening: the button lives inside the summary, and without
-    // this the drawer toggles under the press.
-    event.preventDefault();
-    event.stopPropagation();
-    void copyLog();
-  });
+  copyLogButton.addEventListener("click", () => void copyLog());
   daemonUse.addEventListener("click", () => void chooseDaemon(daemonField.value));
   daemonReset.addEventListener("click", () => void resetDaemon());
   confirmAllow.addEventListener("click", () => void answerConfirm(true));
@@ -1611,6 +1625,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     stop(): void {
       disposed = true;
       if (settings.open) settings.close();
+      if (logs.open) logs.close();
       generation++;
       captureEpoch++;
       clearCaptionTimer();
