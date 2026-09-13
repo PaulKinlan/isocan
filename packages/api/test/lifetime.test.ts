@@ -37,6 +37,6 @@ it.each(["health", "door"] as const)("cancels held %s setup HTTP without startin
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await fs.rm(home, { recursive: true, force: true });
+    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

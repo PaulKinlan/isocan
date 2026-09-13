@@ -37,6 +37,7 @@ export const {
   readContextSummary,
   linkedCanvasesOf,
   waitForFeedback,
+  waitForResolvedFeedback,
   // canvas-groups.ts — explicit membership and resolved dry-run reports
   CanvasGroups,
   resolveCanvasGroupRef,
