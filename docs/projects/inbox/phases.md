@@ -3,17 +3,17 @@
 **Where we are:** steps 1 and 2 are built. Steps 3 and 4 share the
 [authoritative assembly](design.md) specified 13 September 2026 and are next.
 
-## Step 1 — The CLI inbox
+## Phase 1 — The CLI inbox
 
 **Status: CLOSED.** 29 August 2026 — the CLI reads core's shared addressing
 rule; its original evidence is in the research design.
 
-## Step 2 — Private seen-marks
+## Phase 2 — Private seen-marks
 
 **Status: CLOSED.** 12 September 2026 — desk marks and shared recency were
 proved in the seen-marks record. They are visit state, never operations.
 
-## Step 3 — The home panel
+## Phase 3 — The home panel
 
 **Status: NOT STARTED.**
 
@@ -21,7 +21,7 @@ proved in the seen-marks record. They are visit state, never operations.
 withdrawal, a refused actor and an unavailable home. Click the actual inbox
 row and prove its home and selected thread. Run full tests and typecheck.
 
-## Step 4 — Notification on another canvas
+## Phase 4 — Notification on another canvas
 
 **Status: NOT STARTED.**
 

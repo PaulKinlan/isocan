@@ -11,7 +11,7 @@ incorporated before implementation: stage 1 uses the existing directional
 walk, then the prior-visit digest and request-linked Chat cards. Emulated
 proofs run here; physical-phone acceptance is a named remaining hand.
 
-## Stage 0 — Finish touch controls
+## Phase 0 — Finish touch controls
 
 **Status: PART-DONE.** 13 September 2026 — pan, pinch and minimap folding
 already exist; long press, target sizing and rail folding remain.
@@ -21,7 +21,7 @@ already exist; long press, target sizing and rail folding remain.
 transforms, cancelled long presses and no preference changes on resize. Run
 the full suite and typecheck. Judge gesture feel on an actual phone.
 
-## Stage 1 — Chat first, with the work one tab away
+## Phase 1 — Chat first, with the work one tab away
 
 **Status: NOT STARTED.**
 
@@ -33,7 +33,7 @@ against real request/output relationships. Repeat with a read admission.
 Resize both ways without losing desktop preferences or a Chat draft. Run
 the full suite and typecheck; check the composer with a real phone keyboard.
 
-## Stage 2 — Present by touch
+## Phase 2 — Present by touch
 
 **Status: NOT STARTED.**
 
