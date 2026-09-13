@@ -80,6 +80,134 @@ export function voiceServerFile(home: string): string {
 export function voiceLogFile(home: string): string {
   return path.join(voiceDir(home), "log.json");
 }
+export function voicePromptFile(home: string): string {
+  return path.join(voiceDir(home), "prompt.txt");
+}
+
+/**
+ * **The rules, in one place, because they are now editable.**
+ *
+ * They used to be a string literal inside `liveSetup`, which was fine while
+ * nobody could see them and wrong the moment somebody could change them: an
+ * inspector showing a copy of the rules is an inspector showing something the
+ * model may not have been told. One constant, read by the setup builder and
+ * written by the page through `/prompt`, is the only way the text on screen
+ * and the text in the session can be the same text.
+ */
+export const VOICE_RULES =
+  "You are Voice, an enrolled agent on an isocan canvas, talking out loud with the collaborator who owns it. " +
+  "Keep replies concise (1-2 sentences): you are a real-time voice in the room, not a report. " +
+  "MANDATORY: When the collaborator asks to create, modify, rename, delete, move, comment on, or react to anything on the canvas, " +
+  "YOU MUST IMMEDIATELY CALL THE CORRESPONDING TOOL. NEVER reply in speech that you will do it, or that you did it, without calling the tool first.\n" +
+  "Tool mapping rules:\n" +
+  "- 'delete <item>' or 'remove <item>' -> call delete_item\n" +
+  "- 'comment on <item> ...' or 'add comment ...' -> call comment_on_item\n" +
+  "- 'react to <item> ...' or 'add reaction ...' or 'thumbs up on <item>' -> call item_react\n" +
+  "- 'move <item> ...' -> call move_item\n" +
+  "- 'rename <item> to <title>' or 'update <item> description to <desc>' -> update_item\n" +
+  "- 'draw ...' or 'sketch ...' -> call drawing_add\n" +
+  "The tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
+  "You have full read access to canvas items, versions, presence, and threads to understand project state. " +
+  "If a request needs heavy asynchronous work (generating large codebases, design critiques), say you are " +
+  "putting it in the Chat and use `say`. " +
+  "If you cannot tell which item they mean, use `read_canvas` first or ask.";
+
+/** How much of an edited prompt is kept: long enough for a real instruction,
+ *  short enough that a paste cannot become the session's whole context. */
+export const PROMPT_MAX = 8000;
+
+/** The person's edited rules, or null when they have not written any. */
+export async function readVoicePrompt(home: string): Promise<string | null> {
+  const raw = await fs.readFile(voicePromptFile(home), "utf8").catch((err) => {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  });
+  const text = raw?.trim();
+  return text ? text : null;
+}
+
+/** Write the edited rules, or forget them with `null` (the reset). */
+export async function writeVoicePrompt(home: string, text: string | null): Promise<void> {
+  const file = voicePromptFile(home);
+  if (text === null) {
+    await fs.rm(file, { force: true });
+    return;
+  }
+  await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
+  await fs.writeFile(file, text.endsWith("\n") ? text : `${text}\n`, { mode: 0o600 });
+  await fs.chmod(file, 0o600);
+}
+
+/**
+ * **The text a live session is actually given, built in one place.**
+ *
+ * Two things call this: the session start, and the inspector. The inspector
+ * exists to show what the model is told, so it cannot be allowed a second
+ * opinion about what that is — if these ever disagree, the panel is lying.
+ */
+export function voiceInstruction(
+  rules: string,
+  instructions?: { source: string; text: string } | null,
+): string {
+  const block = instructions
+    ? `\n\n=== PROJECT INSTRUCTIONS (${instructions.source}) ===\n${instructions.text}\n=== END PROJECT INSTRUCTIONS ===\n`
+    : "";
+  return rules + block;
+}
+
+/** What a canvas has to answer for the snapshot: two reads, nothing else. */
+export interface SnapshotCanvas {
+  canvasId: string;
+  canvas: {
+    items(): Promise<{ id: string; title?: string }[]>;
+    threads(): Promise<{ id: string; comments: unknown[] }[]>;
+  };
+}
+
+/**
+ * **Everything a live session is handed, in one place.**
+ *
+ * This exists because the inspector must not have a second opinion. The rules
+ * are the person's (or the default's); the project instructions come from the
+ * project directory bound to this canvas; the canvas snapshot is rebuilt now,
+ * because ids are what a tool call echoes and yesterday's ids are wrong. The
+ * same function is called by the session start and by `GET /prompt`, so the
+ * text on screen and the text in the session cannot drift apart.
+ *
+ * The tools are in the same setup message and are NOT part of this text — the
+ * inspector says so rather than implying the rules are the whole instruction.
+ */
+export async function liveInstructionParts(
+  home: string,
+  target: SnapshotCanvas,
+): Promise<{
+  rules: { default: string; edited: string | null; effective: string };
+  project: { source: string; text: string; capped: boolean } | null;
+  snapshot: { items: number; threads: number; text: string };
+  instructions: { source: string; text: string };
+  sent: string;
+}> {
+  const edited = await readVoicePrompt(home).catch(() => null);
+  const effective = edited ?? VOICE_RULES;
+  const contextItems = await target.canvas.items().catch(() => []);
+  const contextThreads = await target.canvas.threads().catch(() => []);
+  const snapshotText =
+    "Current canvas state (ids are authoritative — echo them in tool calls):\n" +
+    `- items: ${contextItems.map((i) => `${i.title ?? "untitled"} [${i.id}]`).join("; ") || "none"}\n` +
+    `- threads: ${contextThreads.map((t) => `${t.id} (${t.comments.length} comments)`).join("; ") || "none"}`;
+  const project = await resolveProjectInstructions(home, target.canvasId).catch(() => null);
+  const instructions = {
+    source: project?.source ?? "canvas",
+    text: [project?.text, snapshotText].filter(Boolean).join("\n\n"),
+  };
+  return {
+    rules: { default: VOICE_RULES, edited, effective },
+    project: project ? { source: project.source, text: project.text, capped: project.capped } : null,
+    snapshot: { items: contextItems.length, threads: contextThreads.length, text: snapshotText },
+    instructions,
+    sent: voiceInstruction(effective, instructions),
+  };
+}
 
 export async function readVoiceLog(home: string): Promise<ToolLogEntry[]> {
   try {
@@ -1959,11 +2087,8 @@ export async function resolveProjectInstructions(
 export function liveSetup(
   model: string = LIVE_MODEL,
   instructions?: { source: string; text: string } | null,
+  rules: string = VOICE_RULES,
 ): object {
-  const instructionBlock = instructions
-    ? `\n\n=== PROJECT INSTRUCTIONS (${instructions.source}) ===\n${instructions.text}\n=== END PROJECT INSTRUCTIONS ===\n`
-    : "";
-
   return {
     setup: {
       model,
@@ -1971,28 +2096,7 @@ export function liveSetup(
         responseModalities: ["AUDIO"],
       },
       systemInstruction: {
-        parts: [
-          {
-            text:
-              "You are Voice, an enrolled agent on an isocan canvas, talking out loud with the collaborator who owns it. " +
-              "Keep replies concise (1-2 sentences): you are a real-time voice in the room, not a report. " +
-              "MANDATORY: When the collaborator asks to create, modify, rename, delete, move, comment on, or react to anything on the canvas, " +
-              "YOU MUST IMMEDIATELY CALL THE CORRESPONDING TOOL. NEVER reply in speech that you will do it, or that you did it, without calling the tool first.\n" +
-              "Tool mapping rules:\n" +
-              "- 'delete <item>' or 'remove <item>' -> call delete_item\n" +
-              "- 'comment on <item> ...' or 'add comment ...' -> call comment_on_item\n" +
-              "- 'react to <item> ...' or 'add reaction ...' or 'thumbs up on <item>' -> call item_react\n" +
-              "- 'move <item> ...' -> call move_item\n" +
-              "- 'rename <item> to <title>' or 'update <item> description to <desc>' -> call update_item\n" +
-              "- 'draw ...' or 'sketch ...' -> call drawing_add\n" +
-              "The tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
-              "You have full read access to canvas items, versions, presence, and threads to understand project state. " +
-              "If a request needs heavy asynchronous work (generating large codebases, design critiques), say you are " +
-              "putting it in the Chat and use `say`. " +
-              "If you cannot tell which item they mean, use `read_canvas` first or ask." +
-              instructionBlock,
-          },
-        ],
+        parts: [{ text: voiceInstruction(rules, instructions) }],
       },
       tools: [{ functionDeclarations: LIVE_TOOLS }],
     },
@@ -2483,6 +2587,8 @@ export function startLiveSession(options: {
   key: VoiceKey;
   model?: string;
   instructions?: { source: string; text: string } | null;
+  /** The rules the person has edited, if any — the inspector shows the same text. */
+  rules?: string;
   callbacks?: LiveCallbacks;
   urlFor?: (key: string) => string;
   WebSocketImpl?: typeof WebSocket;
@@ -2511,7 +2617,7 @@ export function startLiveSession(options: {
     };
     socket.onopen = () => {
       callbacks.onEvent?.("socket_open", { model: options.model ?? LIVE_MODEL });
-      socket.send(JSON.stringify(liveSetup(options.model ?? LIVE_MODEL, options.instructions)));
+      socket.send(JSON.stringify(liveSetup(options.model ?? LIVE_MODEL, options.instructions, options.rules ?? VOICE_RULES)));
     };
     socket.onerror = () => {
       callbacks.onState?.("the live socket refused", true);
@@ -3778,6 +3884,75 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           return;
         }
       }
+      if (url.pathname === "/prompt") {
+        /**
+         * **What the model is told, and the one place the rules are written.**
+         *
+         * `sent` is built by the same function the session start calls, so the
+         * panel cannot show a rule the session does not use. Two facts ride
+         * along because leaving them out would make the panel a comfortable
+         * lie: the tool declarations travel in the same setup message (outside
+         * this text), and the model-test control opens a socket with the rules
+         * alone. The generated blocks say what they are and why they are not
+         * editable here.
+         */
+        const asPayload = async () => {
+          const parts = await liveInstructionParts(home, target);
+          return {
+            rules: parts.rules,
+            generated: [
+              {
+                what: "Project instructions",
+                source: parts.project?.source ?? "none found",
+                text: parts.project?.text ?? "",
+                truncated: parts.project?.capped ?? false,
+                why: "read from the project directory bound to this canvas — the project owns this file, not this page",
+              },
+              {
+                what: "Canvas snapshot",
+                source: `${parts.snapshot.items} items, ${parts.snapshot.threads} threads`,
+                text: parts.snapshot.text,
+                truncated: false,
+                why: "rebuilt at every session start, because the ids in it are what a tool call has to echo",
+              },
+            ],
+            tools: LIVE_TOOLS.map((one) => one.name),
+            sent: parts.sent,
+            cap: PROMPT_MAX,
+            note:
+              "The rules are yours to edit; everything below them is generated for each session and is shown rather than hidden. " +
+              "The tool list is sent in the same setup message, outside this text, and the Test-model control sends the rules alone.",
+          };
+        };
+        if (req.method === "GET") {
+          respond(200, await asPayload());
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readBody();
+          const object = typeof body === "string" ? {} : body;
+          if (object.reset === true) {
+            await writeVoicePrompt(home, null);
+            recordToolLog({ type: "session_event", source: "system", event: "system prompt: back to the default rules" });
+          } else {
+            const text = String(object.text ?? "").trim();
+            if (text === "") {
+              respond(400, { error: "empty rules are not rules — reset to the default instead" });
+              return;
+            }
+            if (text.length > PROMPT_MAX) {
+              respond(400, { error: `that is ${text.length} characters; the cap is ${PROMPT_MAX}` });
+              return;
+            }
+            await writeVoicePrompt(home, text);
+            recordToolLog({ type: "session_event", source: "system", event: `system prompt: edited (${text.length} characters)` });
+          }
+          respond(200, await asPayload());
+          return;
+        }
+        respond(405, { error: "GET or POST" });
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/memory/legacy") {
         // The one-time migration source: what the harness used to own, offered
         // to the page so nobody loses a memory because the shelf moved. Empty
@@ -4336,20 +4511,13 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       const current = await resolveModel();
       liveModelInUse = current.model;
       narrate(`opening a live session on ${current.model} (${current.source})`);
-      const contextItems = await target.canvas.items().catch(() => []);
-      const contextThreads = await target.canvas.threads().catch(() => []);
-      const contextBlock =
-        "Current canvas state (ids are authoritative — echo them in tool calls):\n" +
-        `- items: ${contextItems.map((i) => `${i.title ?? "untitled"} [${i.id}]`).join("; ") || "none"}\n` +
-        `- threads: ${contextThreads.map((t) => `${t.id} (${t.comments.length} comments)`).join("; ") || "none"}`;
-      const projectInstructions = await resolveProjectInstructions(home, target.canvasId);
-      const instructions = {
-        source: projectInstructions?.source ?? "canvas",
-        text: [projectInstructions?.text, contextBlock].filter(Boolean).join("\n\n"),
-      };
+      // The same builder the inspector reads, so what the panel shows and what
+      // the session is told are one text, not two copies of one.
+      const parts = await liveInstructionParts(home, target);
       const session = startLiveSession({
         key: stored,
-        instructions,
+        instructions: parts.instructions,
+        rules: parts.rules.effective,
         model: current.model,
         ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
         ...(options.WebSocketImpl ? { WebSocketImpl: options.WebSocketImpl } : {}),

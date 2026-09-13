@@ -272,6 +272,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   const memoryNote = required<HTMLElement>("memory-note", doc);
   const memoryList = required<HTMLElement>("memory-list", doc);
   const memoryForgetAll = required<HTMLButtonElement>("memory-forget-all", doc);
+  const promptSummary = required<HTMLElement>("prompt-summary", doc);
+  const promptNote = required<HTMLElement>("prompt-note", doc);
+  const promptRules = required<HTMLTextAreaElement>("prompt-rules", doc);
+  const promptSave = required<HTMLButtonElement>("prompt-save", doc);
+  const promptReset = required<HTMLButtonElement>("prompt-reset", doc);
+  const promptGenerated = required<HTMLElement>("prompt-generated", doc);
   const folderName = required<HTMLElement>("folder-name", doc);
   const folderNote = required<HTMLElement>("folder-note", doc);
   const folderPick = required<HTMLButtonElement>("folder-pick", doc);
@@ -2214,21 +2220,60 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
-  async function readStoredMemories(): Promise<Memory[]> {
+  async function readMemoryStore(): Promise<{ entries: Memory[]; unreadable: number; failed: string | null }> {
     const handle = await memoryFile(false);
-    if (!handle) return memoryStore ?? [];
+    if (!handle) {
+      // No file — and possibly no OPFS at all. That is what the in-tab
+      // fallback is for, and calling it a failure would be its own lie.
+      return { entries: memoryStore ?? [], unreadable: 0, failed: null };
+    }
     try {
       const file = await handle.getFile();
-      const parsed = JSON.parse(await file.text()) as unknown;
+      const raw = await file.text();
+      // OPFS creates a zero-byte file the moment the store is asked for, so a
+      // blank file is an empty shelf rather than a broken one. Anything else
+      // that fails to parse is the failure this panel has to be able to name.
+      if (raw.trim() === "") return { entries: [], unreadable: 0, failed: null };
+      const parsed = JSON.parse(raw) as unknown;
       const list = Array.isArray(parsed) ? parsed : ((parsed as { memories?: unknown })?.memories ?? []);
-      if (!Array.isArray(list)) return [];
-      return list.filter((one): one is Memory => {
-        const m = one as Partial<Memory>;
-        return typeof m?.id === "string" && typeof m?.text === "string";
-      });
-    } catch {
-      return []; // a missing or corrupt file is an empty store, never fatal
+      if (!Array.isArray(list)) {
+        return { entries: [], unreadable: 0, failed: "the file is not a list of memories" };
+      }
+      const entries = list.map(asMemory).filter((one): one is Memory => one !== null);
+      return { entries, unreadable: list.length - entries.length, failed: null };
+    } catch (err) {
+      /**
+       * **A store that cannot be read is not an empty store.**
+       *
+       * This used to `return []`, so a corrupt file or a refused read rendered
+       * as "Nothing stored yet" — the exact confusion that made the memory bug
+       * of 13 Sep look like a model that had forgotten instead of a store that
+       * could not be seen. The reason travels up with the failure now, and the
+       * panel says it in those words.
+       */
+      return { entries: [], unreadable: 0, failed: String((err as Error).message ?? err) };
     }
+  }
+
+  /** The shape a row needs — `tags` included, which used to be trusted and
+   *  crashed the list when a store was written without it. Missing tags are
+   *  empty, and an entry that is not an entry is counted rather than dropped
+   *  in silence. */
+  function asMemory(one: unknown): Memory | null {
+    const m = one as Partial<Memory>;
+    if (typeof m?.id !== "string" || typeof m?.text !== "string") return null;
+    return {
+      id: m.id,
+      text: m.text,
+      tags: Array.isArray(m.tags) ? m.tags.filter((t): t is string => typeof t === "string") : [],
+      at: typeof m.at === "string" ? m.at : "",
+      session: typeof m.session === "string" ? m.session : "",
+      ...(typeof m.presenceId === "string" ? { presenceId: m.presenceId } : {}),
+    };
+  }
+
+  async function readStoredMemories(): Promise<Memory[]> {
+    return (await readMemoryStore()).entries;
   }
 
   async function writeStoredMemories(list: Memory[]): Promise<boolean> {
@@ -2273,14 +2318,26 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   function renderMemory(): void {
     void (async () => {
-      const list = await readStoredMemories();
+      const { entries: list, unreadable, failed } = await readMemoryStore();
+      if (failed) {
+        // "Nothing stored" and "I cannot see the store" are different facts,
+        // and the panel has to be able to say the second one.
+        memorySummary.textContent = "could not be read";
+        memoryForgetAll.hidden = true;
+        memoryNote.textContent = `This browser's memory store could not be read — that is not the same as nothing stored. ${failed}`;
+        memoryList.replaceChildren();
+        return;
+      }
       memorySummary.textContent = list.length === 0 ? "nothing stored" : `${list.length} ${list.length === 1 ? "memory" : "memories"}`;
       memoryForgetAll.hidden = list.length === 0;
+      const persistence = memoryPersisted === false
+        ? "Stored in this browser for this session only — this browser would not grant persistent storage, so it may be cleared."
+        : "Stored in this browser (this origin only), persistent where the browser granted it. The terminal cannot read these.";
       memoryNote.textContent = list.length === 0
         ? "Nothing stored yet. The agent keeps what it is told to remember in this browser's own storage — no server, no key."
-        : memoryPersisted === false
-          ? "Stored in this browser for this session only — this browser would not grant persistent storage, so it may be cleared."
-          : "Stored in this browser (this origin only), persistent where the browser granted it. The terminal cannot read these.";
+        : unreadable > 0
+          ? `${persistence} ${unreadable} ${unreadable === 1 ? "entry" : "entries"} in the file could not be read and ${unreadable === 1 ? "is" : "are"} not listed.`
+          : persistence;
       memoryList.replaceChildren();
       for (const one of list) {
         const row = doc.createElement("li");
@@ -2367,7 +2424,15 @@ export function wireVoice(doc: Document = document): VoicePage {
       }).catch(() => undefined);
 
     try {
-      const stored = await readStoredMemories();
+      const stored = await readMemoryStore();
+      if (stored.failed) {
+        // The agent must not be told "I do not remember that" when the truth
+        // is "I cannot read the store": one is a forget, the other is a
+        // broken shelf, and they are the same sentence from a model.
+        await reply({ ok: false, error: `this browser's memory store could not be read: ${stored.failed}` });
+        return;
+      }
+      const list = stored.entries;
       if (op === "remember") {
         const text = String(request.text ?? "").trim();
         if (!text) {
@@ -2383,7 +2448,7 @@ export function wireVoice(doc: Document = document): VoicePage {
           session: String(request.session ?? "unknown"),
           ...(typeof request.presenceId === "string" ? { presenceId: request.presenceId } : {}),
         };
-        await writeStoredMemories([...stored, one]);
+        await writeStoredMemories([...list, one]);
         await reply({ ok: true, id: one.id, at: one.at, tags: one.tags });
         put({ at, event: `remembered in this browser (${one.id}): ${one.text.slice(0, 120)}` });
         renderMemory();
@@ -2391,23 +2456,23 @@ export function wireVoice(doc: Document = document): VoicePage {
       }
       if (op === "read") {
         const id = String(request.id ?? "");
-        const found = stored.find((one) => one.id === id) ?? null;
+        const found = list.find((one) => one.id === id) ?? null;
         await reply(
           found
             ? { ok: true, memory: found }
-            : { ok: false, error: `no memory with id "${id}"`, recentIds: stored.slice(-5).map((one) => one.id) },
+            : { ok: false, error: `no memory with id "${id}"`, recentIds: list.slice(-5).map((one) => one.id) },
         );
         return;
       }
       if (op === "search") {
         const query = String(request.query ?? "").trim().toLowerCase();
         const found = query
-          ? stored.filter(
+          ? list.filter(
               (one) =>
                 one.text.toLowerCase().includes(query) ||
                 one.tags.some((tag) => tag.toLowerCase().includes(query)),
             )
-          : stored;
+          : list;
         await reply({ ok: true, count: found.length, memories: found.slice(0, 50) });
         put({ at, event: `searched this browser's memory: ${found.length} match${found.length === 1 ? "" : "es"}` });
         return;
@@ -2418,6 +2483,104 @@ export function wireVoice(doc: Document = document): VoicePage {
       await reply({ ok: false, error: why });
       put({ at, event: `memory ${op} failed: ${why}`, error: why });
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * The system prompt: what the model is told, and the part a person owns
+   * ------------------------------------------------------------------ */
+
+  /**
+   * **The rules are editable; the rest of the instruction is shown, not hidden.**
+   *
+   * A live session is given three things: these rules, the project's own
+   * instructions (AGENTS.md/CLAUDE.md from the directory bound to this canvas)
+   * and a canvas snapshot rebuilt at every start — and the tool declarations
+   * ride in the same setup message, outside the text. The harness builds all
+   * of it in one function and `/prompt` publishes that same function's output,
+   * so this panel cannot show a rule the session does not use. Where a build
+   * has no such route, it says so rather than showing a copy.
+   */
+  let promptEffective = "";
+
+  function renderPromptSave(): void {
+    promptSave.disabled = promptRules.disabled || promptRules.value.trim() === "" || promptRules.value === promptEffective;
+  }
+
+  function renderPromptFrom(body: Record<string, unknown>): void {
+    const rules = (body.rules ?? {}) as { edited?: string | null; effective?: string };
+    const generated = Array.isArray(body.generated) ? (body.generated as Record<string, unknown>[]) : [];
+    const tools = Array.isArray(body.tools) ? (body.tools as unknown[]).filter((one): one is string => typeof one === "string") : [];
+    promptEffective = typeof rules.effective === "string" ? rules.effective : "";
+    promptRules.value = promptEffective;
+    promptRules.disabled = false;
+    promptSummary.textContent = typeof rules.edited === "string" && rules.edited.trim() !== "" ? "edited by you" : "the default";
+    promptNote.textContent = typeof body.note === "string" ? body.note : "";
+    promptGenerated.replaceChildren();
+    for (const part of generated) {
+      const row = doc.createElement("div");
+      const dt = doc.createElement("dt");
+      dt.textContent = String(part.what ?? "generated");
+      const source = doc.createElement("span");
+      source.className = "voice-id";
+      source.textContent = `${String(part.source ?? "")}${part.truncated === true ? " · truncated" : ""}`;
+      dt.appendChild(source);
+      const dd = doc.createElement("dd");
+      const text = doc.createElement("textarea");
+      text.className = "voice-prompt-text";
+      text.readOnly = true;
+      text.rows = 4;
+      text.setAttribute("aria-label", String(part.what ?? "generated block"));
+      text.value = String(part.text ?? "");
+      const why = doc.createElement("p");
+      why.className = "voice-hint";
+      why.textContent = String(part.why ?? "");
+      dd.append(text, why);
+      row.append(dt, dd);
+      promptGenerated.appendChild(row);
+    }
+    if (tools.length > 0) {
+      const row = doc.createElement("div");
+      const dt = doc.createElement("dt");
+      dt.textContent = "Tools sent with it";
+      const dd = doc.createElement("dd");
+      dd.textContent = `${tools.length} declarations: ${tools.join(", ")}`;
+      row.append(dt, dd);
+      promptGenerated.appendChild(row);
+    }
+    renderPromptSave();
+  }
+
+  function renderPrompt(): void {
+    void (async () => {
+      const answer = await callSetup("/prompt");
+      if (!answer.ok || !answer.body) {
+        promptSummary.textContent = "not available";
+        promptNote.textContent = `This harness build has no /prompt route (${answer.status}${answer.error ? ` — ${answer.error}` : ""}), so nothing is shown rather than a copy of the rules that may not be what a session is told.`;
+        promptRules.value = "";
+        promptRules.disabled = true;
+        promptSave.disabled = true;
+        promptReset.disabled = true;
+        promptGenerated.replaceChildren();
+        return;
+      }
+      promptReset.disabled = false;
+      renderPromptFrom(answer.body);
+    })();
+  }
+
+  async function postPrompt(body: Record<string, unknown>): Promise<void> {
+    promptSave.disabled = true;
+    const answer = await callSetup("/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!answer.ok || !answer.body) {
+      promptNote.textContent = `The harness refused that: ${answer.error ?? answer.status}`;
+      renderPromptSave();
+      return;
+    }
+    renderPromptFrom(answer.body);
   }
 
   /* ------------------------------------------------------------------ *
@@ -2763,6 +2926,10 @@ export function wireVoice(doc: Document = document): VoicePage {
     // One alert node, moved into the active surface rather than duplicated
     // into an inert background. Closing restores its conversation location.
     settings.insertBefore(complaintLine, connectionPanel);
+    // The prompt is read from the harness when the panel opens: it is the
+    // session's own instruction, and a stale copy is the one thing an
+    // inspector must not show.
+    renderPrompt();
     settings.showModal();
     settingsOpen.setAttribute("aria-expanded", "true");
   }
@@ -2949,6 +3116,9 @@ export function wireVoice(doc: Document = document): VoicePage {
   testKeyButton.addEventListener("click", () => void test());
   forgetKeyButton.addEventListener("click", () => void forget());
   copyLogButton.addEventListener("click", () => void copyLog());
+  promptRules.addEventListener("input", renderPromptSave);
+  promptSave.addEventListener("click", () => void postPrompt({ text: promptRules.value }));
+  promptReset.addEventListener("click", () => void postPrompt({ reset: true }));
   memoryForgetAll.addEventListener("click", () => void forgetAllMemories());
   folderPick.addEventListener("click", () => void pickFolder());
   folderReconnect.addEventListener("click", () => void reconnectFolder());

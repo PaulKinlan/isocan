@@ -39,6 +39,8 @@ import {
   runMemoryTool,
   voiceDir,
   voiceMemoryFile,
+  voicePromptFile,
+  PROMPT_MAX,
   runFileTool,
   MAX_FILE_CHARS,
   type FsAnswer,
@@ -951,6 +953,106 @@ describe("the page", () => {
     ).json()) as { ok: boolean; error: string };
     expect(stray.ok).toBe(false);
     expect(stray.error).toMatch(/nothing is waiting/);
+  });
+
+  it("reads back the instruction a session would be given, with its parts named", async () => {
+    const server = await serve();
+    const body = (await (await fetch(`${server.state.url}prompt`)).json()) as {
+      rules: { default: string; edited: string | null; effective: string };
+      generated: { what: string; source: string; text: string; why: string }[];
+      tools: string[];
+      sent: string;
+      cap: number;
+      note: string;
+    };
+
+    // Nothing has been edited: the default IS the effective text, and the
+    // panel can say so without inventing anything.
+    expect(body.rules.default).toContain("You are Voice");
+    expect(body.rules.edited).toBeNull();
+    expect(body.rules.effective).toBe(body.rules.default);
+
+    // The two generated blocks are named, with where each came from and why
+    // it is not editable here.
+    const names = body.generated.map((one) => one.what);
+    expect(names).toEqual(["Project instructions", "Canvas snapshot"]);
+    expect(body.generated[1]!.text).toContain("Current canvas state");
+    expect(body.generated[1]!.why).toContain("rebuilt at every session start");
+
+    // `sent` is the whole system instruction, in the order the session gets it:
+    // the rules first, then the generated appendix.
+    expect(body.sent.startsWith(body.rules.effective)).toBe(true);
+    expect(body.sent).toContain(body.generated[1]!.text);
+
+    // The honesty the panel needs: the tools are outside this text, and the
+    // model-test control is a different assembly of the same rules.
+    expect(body.tools).toContain("rename_item");
+    expect(body.note).toContain("outside this text");
+    expect(body.cap).toBeGreaterThan(1000);
+  });
+
+  it("writes the edited rules, hands them to the next session, and resets to the default", async () => {
+    const server = await serve();
+    const edited = "You are Voice, and you speak like a ship's captain. Call the tool first, always.";
+    const res = await fetch(`${server.state.url}prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: edited }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rules: { default: string; edited: string | null; effective: string }; sent: string };
+    expect(body.rules.edited).toBe(edited);
+    expect(body.rules.effective).toBe(edited);
+    expect(body.sent.startsWith(edited)).toBe(true);
+
+    // It is a file the person owns, 0600 like the key, and the SESSION uses it:
+    // the setup message built for a live session carries the edited rules.
+    expect((await fs.stat(voicePromptFile(home))).mode & 0o777).toBe(0o600);
+    const setup = liveSetup("models/x", null, body.rules.effective) as {
+      setup: { systemInstruction: { parts: { text: string }[] } };
+    };
+    expect(setup.setup.systemInstruction.parts[0]!.text.startsWith(edited)).toBe(true);
+
+    const reset = (await (
+      await fetch(`${server.state.url}prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      })
+    ).json()) as { rules: { edited: string | null; effective: string; default: string } };
+    expect(reset.rules.edited).toBeNull();
+    expect(reset.rules.effective).toBe(reset.rules.default);
+    await expect(fs.stat(voicePromptFile(home))).rejects.toThrow();
+  });
+
+  it("refuses empty rules and a paste past the cap, and keeps what was already stored", async () => {
+    const server = await serve();
+    const first = await fetch(`${server.state.url}prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Keep replies short." }),
+    });
+    expect(first.status).toBe(200);
+
+    const empty = await fetch(`${server.state.url}prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "   " }),
+    });
+    expect(empty.status).toBe(400);
+    expect(((await empty.json()) as { error: string }).error).toContain("reset to the default");
+
+    const huge = await fetch(`${server.state.url}prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "x".repeat(PROMPT_MAX + 1) }),
+    });
+    expect(huge.status).toBe(400);
+    expect(((await huge.json()) as { error: string }).error).toContain(String(PROMPT_MAX));
+
+    // A refused write changes nothing: the good edit is still in force.
+    const after = (await (await fetch(`${server.state.url}prompt`)).json()) as { rules: { edited: string | null } };
+    expect(after.rules.edited).toBe("Keep replies short.");
   });
 });
 
