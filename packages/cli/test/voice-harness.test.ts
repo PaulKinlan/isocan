@@ -27,6 +27,17 @@ import {
   voiceKeyFile,
   writeVoiceKey,
   writeVoiceLog,
+  // Memory: the harness's own file, beside the key.
+  forgetMemory,
+  normalizeTags,
+  readMemories,
+  readMemory,
+  rememberMemory,
+  runMemoryTool,
+  searchMemories,
+  voiceDir,
+  voiceMemoryFile,
+  type Memory,
 } from "../src/voice-harness.ts";
 import type { ListedItem } from "@isocan/api";
 
@@ -329,6 +340,96 @@ describe("the key belongs to the harness", () => {
 
 });
 
+/**
+ * **Memory: the agent's own file, beside the key, durable across restarts.**
+ *
+ * There is no permission prompt here and no page round-trip, deliberately —
+ * the harness writes its own file at `~/.isocan/voice/memories.json`. What is
+ * pinned below is that it is a FILE (not a process cache), that the person can
+ * see and delete it, and that the model's tools are narrow: it may write, read
+ * one, and search. It may not enumerate or forget, because a memory the model
+ * can quietly erase is one the person cannot trust.
+ */
+describe("memory lives in the harness's own file", () => {
+  it("stores a memory 0600 beside the key, dated and attributed", async () => {
+    const stored = await rememberMemory(home, {
+      text: "The daemon port is 4441",
+      tags: ["daemon", "port"],
+      session: "Voice",
+    });
+    expect(stored.id).toMatch(/^mem_/);
+    expect(stored.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(stored.session).toBe("Voice");
+
+    const file = voiceMemoryFile(home);
+    expect(path.dirname(file)).toBe(voiceDir(home)); // next to key.json
+    expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
+    expect(await readMemory(home, stored.id)).toEqual(stored);
+  });
+
+  it("searches substrings over text and tags — and says that is what it is", async () => {
+    await rememberMemory(home, { text: "The daemon port is 4441", tags: ["daemon"], session: "Voice" });
+    await rememberMemory(home, { text: "Paul prefers short answers", tags: ["style"], session: "Voice" });
+
+    expect((await searchMemories(home, "DAEMON")).map((m) => m.text)).toEqual(["The daemon port is 4441"]);
+    expect((await searchMemories(home, "short")).map((m) => m.text)).toEqual(["Paul prefers short answers"]);
+    expect((await searchMemories(home, "style")).map((m) => m.text)).toEqual(["Paul prefers short answers"]);
+    // The honest limit: a synonym nobody wrote is not found, and no tool
+    // description may imply otherwise.
+    expect(await searchMemories(home, "database")).toEqual([]);
+    // An empty query is "what do you remember", not an error.
+    expect(await searchMemories(home, "   ")).toHaveLength(2);
+    const asked = await runMemoryTool(home, "search_memory", { query: "daemon" }, { session: "Voice" });
+    expect(asked.answer.match).toMatch(/substring/i);
+    expect(asked.answer.match).toMatch(/not semantic/i);
+  });
+
+  it("normalises tags a model might send: a string works, blanks and duplicates go, eight at most", () => {
+    expect(normalizeTags("solo")).toEqual(["solo"]);
+    expect(normalizeTags([" a ", "a", "", "b"])).toEqual(["a", "b"]);
+    expect(normalizeTags(undefined)).toEqual([]);
+    expect(normalizeTags([1, "x", null])).toEqual(["x"]);
+    expect(normalizeTags(Array.from({ length: 12 }, (_, i) => `t${i}`))).toHaveLength(8);
+  });
+
+  it("refuses empty text, and repairs a corrupt file instead of dying on it", async () => {
+    await expect(rememberMemory(home, { text: "   ", session: "Voice" })).rejects.toThrow(/needs text/);
+
+    await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
+    await fs.writeFile(voiceMemoryFile(home), "{ this is not json", { mode: 0o600 });
+    expect(await readMemories(home)).toEqual([]); // unreadable is empty, never fatal
+    const repaired = await rememberMemory(home, { text: "still working", session: "Voice" });
+    expect(await readMemories(home)).toEqual([repaired]);
+  });
+
+  it("gives the model three narrow tools — and no way to forget or enumerate", async () => {
+    const written = await runMemoryTool(
+      home,
+      "remember",
+      { text: "remember the milk", tags: ["errand"] },
+      { session: "Voice" },
+    );
+    expect(written.ok).toBe(true);
+    const id = String(written.answer.id);
+
+    const read = await runMemoryTool(home, "read_memory", { id }, { session: "Voice" });
+    expect(read.ok).toBe(true);
+    expect((read.answer.memory as Memory).text).toBe("remember the milk");
+
+    const found = await runMemoryTool(home, "search_memory", { query: "milk" }, { session: "Voice" });
+    expect(found.answer.count).toBe(1);
+
+    const missing = await runMemoryTool(home, "read_memory", { id: "mem_nope" }, { session: "Voice" });
+    expect(missing.ok).toBe(false);
+
+    // Forgetting is the person's: the exported helper and the HTTP route, not
+    // a tool. `runMemoryTool` has no name for it at all.
+    expect(await forgetMemory(home, id)).toBe(true);
+    expect(await readMemory(home, id)).toBeNull();
+    expect(await forgetMemory(home, id)).toBe(false);
+  });
+});
+
 describe("the page", () => {
   let close: (() => Promise<void>) | null = null;
 
@@ -453,6 +554,56 @@ describe("the page", () => {
     expect(out.sent).toEqual([]);
     expect(out.reply).toContain("I know:");
     expect((await log()).length).toBe(before);
+  });
+
+  /**
+   * **The acceptance test for memory, and the whole point of it: a restart.**
+   *
+   * A tool that is merely registered is worth nothing. So: store a memory
+   * through the model's own write path, take the harness away entirely, stand
+   * a NEW harness up on the same home, and read the memory back over its HTTP
+   * surface. The only thing the two servers share is the filesystem — which is
+   * exactly the claim ("it survives a restart") being made.
+   */
+  describe("memory outlives the harness", () => {
+    it("stores a memory, restarts the harness, and reads it back", async () => {
+      const first = await serve();
+      const written = await rememberMemory(home, {
+        text: "the harness restarts, the memory stays",
+        tags: ["acceptance"],
+        session: "Voice",
+      });
+      const listed = (await (await fetch(`${first.state.url}memory`)).json()) as { memories: Memory[]; count: number };
+      expect(listed.count).toBe(1);
+      expect(listed.memories[0]?.id).toBe(written.id);
+
+      // The harness goes away.
+      await first.close();
+      close = null;
+
+      // A fresh harness on the same home: the restart.
+      const second = await serve();
+      const after = (await (await fetch(`${second.state.url}memory`)).json()) as { memories: Memory[]; count: number };
+      const found = after.memories.find((one) => one.id === written.id);
+      expect(found, "the memory did not survive the restart").toBeTruthy();
+      expect(found?.text).toBe("the harness restarts, the memory stays");
+      expect(found?.at).toBe(written.at); // the date survived, not just the text
+      expect(found?.session).toBe("Voice"); // and the attribution
+      expect(found?.tags).toEqual(["acceptance"]);
+
+      // /state carries the count, so the surface does not hide what is kept.
+      const facts = (await (await fetch(`${second.state.url}state`)).json()) as { memory: { count: number; file: string } };
+      expect(facts.memory.count).toBe(1);
+      expect(facts.memory.file).toBe(voiceMemoryFile(home));
+
+      // The person's delete, over HTTP, and a fresh read agrees.
+      const deleted = await fetch(`${second.state.url}memory/${encodeURIComponent(written.id)}`, { method: "DELETE" });
+      expect(deleted.status).toBe(200);
+      const third = (await (await fetch(`${second.state.url}memory`)).json()) as { count: number };
+      expect(third.count).toBe(0);
+      const again = await fetch(`${second.state.url}memory/${encodeURIComponent(written.id)}`, { method: "DELETE" });
+      expect(again.status).toBe(404); // and forgetting twice is a 404, not a lie
+    });
   });
 });
 

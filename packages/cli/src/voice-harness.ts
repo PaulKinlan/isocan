@@ -146,6 +146,231 @@ export async function forgetVoiceKey(home: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ *
+ * Memory: what the agent keeps between sessions
+ * ------------------------------------------------------------------ */
+
+/**
+ * **A memory is a sentence, when it was stored, and which session said it.**
+ *
+ * There is no permission prompt and no page round-trip here, on purpose.
+ * Memory is the harness's own file, written beside the key it already holds —
+ * `~/.isocan/voice/memories.json`, mode 0600. It survives a restart because it
+ * is a file; it needs no grant because it is not the person's folder; it needs
+ * no daemon because it is not canvas state. (The browser does have a private
+ * persistent filesystem of its own — OPFS, `navigator.storage.getDirectory()`
+ * — with no prompt at all, and that is the right home for anything PAGE-side.
+ * The harness's memory belongs to the harness, so that it outlives the page.)
+ *
+ * `session` is the enrolled actor the microphone speaks as, and `presenceId`
+ * the daemon presence session that was live when it was written, when there
+ * was one. Together they are what makes a memory attributable — the person can
+ * see who stored what, and when, in the log and in the memory list.
+ */
+export interface Memory {
+  id: string;
+  text: string;
+  tags: string[];
+  /** When it was stored, ISO. */
+  at: string;
+  /** The enrolled actor this is attributed to. */
+  session: string;
+  /** The daemon presence session live at the time, when there was one. */
+  presenceId?: string;
+}
+
+/** A spoken sentence, not a document: caps keep the file readable by a person. */
+export const MAX_MEMORY_TEXT = 4000;
+export const MAX_MEMORY_TAGS = 8;
+export const MAX_MEMORY_TAG_LEN = 64;
+
+export function voiceMemoryFile(home: string): string {
+  return path.join(voiceDir(home), "memories.json");
+}
+
+/**
+ * Every memory, oldest first. A missing, unreadable or malformed file is an
+ * empty list rather than a thrown error: a corrupt memory must never be the
+ * reason the harness cannot start, and the next write repairs the file.
+ */
+export async function readMemories(home: string): Promise<Memory[]> {
+  try {
+    const raw = await fs.readFile(voiceMemoryFile(home), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    const list = Array.isArray(parsed) ? parsed : ((parsed as { memories?: unknown })?.memories ?? []);
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((one): one is Memory => {
+        const m = one as Partial<Memory>;
+        return typeof m?.id === "string" && typeof m?.text === "string";
+      })
+      .map((one) => ({
+        id: one.id,
+        text: one.text,
+        tags: Array.isArray(one.tags) ? one.tags.filter((t) => typeof t === "string") : [],
+        at: typeof one.at === "string" ? one.at : "",
+        session: typeof one.session === "string" ? one.session : "unknown",
+        ...(typeof one.presenceId === "string" ? { presenceId: one.presenceId } : {}),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** Write the whole list atomically (temp + rename), 0600, in the key's dir. */
+export async function writeMemories(home: string, memories: Memory[]): Promise<string> {
+  const dir = voiceDir(home);
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = voiceMemoryFile(home);
+  const tmp = `${file}.tmp.${process.pid}`;
+  await fs.writeFile(tmp, `${JSON.stringify(memories, null, 2)}\n`, { mode: 0o600 });
+  await fs.chmod(tmp, 0o600);
+  await fs.rename(tmp, file);
+  return file;
+}
+
+/** Ids are readable (a timestamp) and unique within a session (a suffix). */
+export function memoryId(at: Date = new Date()): string {
+  return `mem_${at.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Tags arrive from a model: a string, an array, or nothing. Normalise, cap. */
+export function normalizeTags(tags: unknown): string[] {
+  const list = Array.isArray(tags) ? tags : typeof tags === "string" ? [tags] : [];
+  const out: string[] = [];
+  for (const one of list) {
+    if (typeof one !== "string") continue;
+    const tag = one.trim().slice(0, MAX_MEMORY_TAG_LEN);
+    if (tag && !out.includes(tag)) out.push(tag);
+    if (out.length >= MAX_MEMORY_TAGS) break;
+  }
+  return out;
+}
+
+export interface RememberInput {
+  text: string;
+  tags?: unknown;
+  /** The enrolled actor storing it. */
+  session: string;
+  /** The presence session at the time, when there is one. */
+  presenceId?: string | null;
+}
+
+/** Store one memory. Answers the record, so the caller can log exactly it. */
+export async function rememberMemory(home: string, input: RememberInput): Promise<Memory> {
+  const text = String(input.text ?? "").trim().slice(0, MAX_MEMORY_TEXT);
+  if (!text) throw new Error("a memory needs text");
+  const memory: Memory = {
+    id: memoryId(),
+    text,
+    tags: normalizeTags(input.tags),
+    at: new Date().toISOString(),
+    session: input.session,
+    ...(input.presenceId ? { presenceId: input.presenceId } : {}),
+  };
+  const memories = await readMemories(home);
+  memories.push(memory);
+  await writeMemories(home, memories);
+  return memory;
+}
+
+export async function readMemory(home: string, id: string): Promise<Memory | null> {
+  return (await readMemories(home)).find((one) => one.id === id) ?? null;
+}
+
+/**
+ * **Substring search, and the tool description says so.**
+ *
+ * There is no embedding model here and no index: this is a case-insensitive
+ * `includes` over the text and the tags. That is honest for a local harness
+ * with tens or hundreds of memories, and it is deliberately NOT advertised as
+ * semantic recall — a model that believes "find where we discussed the port"
+ * will also match "port" would be lied to, and would stop writing the words it
+ * will later need to search for. An empty query lists everything, so "what do
+ * you remember" is the same call.
+ */
+export async function searchMemories(home: string, query: string): Promise<Memory[]> {
+  const memories = await readMemories(home);
+  const needle = query.trim().toLowerCase();
+  if (!needle) return memories;
+  return memories.filter(
+    (one) =>
+      one.text.toLowerCase().includes(needle) || one.tags.some((tag) => tag.toLowerCase().includes(needle)),
+  );
+}
+
+/** The person's delete: forget one memory, answering whether it existed. */
+export async function forgetMemory(home: string, id: string): Promise<boolean> {
+  const memories = await readMemories(home);
+  const kept = memories.filter((one) => one.id !== id);
+  if (kept.length === memories.length) return false;
+  await writeMemories(home, kept);
+  return true;
+}
+
+/**
+ * **The model's three memory tools, and nothing else's.**
+ *
+ * Deliberately narrow: the model can write, read one, and search — it cannot
+ * delete, and it cannot list everything in one call. A memory the model can
+ * erase or quietly enumerate is a memory the person cannot trust; forgetting
+ * is theirs (the `DELETE /memory/<id>` route, and the inspector UI on top of
+ * it). Every write here is logged by the caller with its text, so nothing is
+ * stored "about" the person without appearing in the record.
+ */
+export async function runMemoryTool(
+  home: string,
+  name: "remember" | "read_memory" | "search_memory",
+  args: Record<string, unknown>,
+  who: { session: string; presenceId?: string | null },
+): Promise<{ ok: boolean; said: string; answer: { ok: boolean; [k: string]: unknown } }> {
+  if (name === "remember") {
+    const memory = await rememberMemory(home, {
+      text: String(args.text ?? ""),
+      tags: args.tags,
+      session: who.session,
+      presenceId: who.presenceId ?? null,
+    });
+    return {
+      ok: true,
+      said: `remembered (${memory.id}): ${memory.text.slice(0, 120)}${memory.tags.length ? ` [${memory.tags.join(", ")}]` : ""}`,
+      answer: { ok: true, id: memory.id, at: memory.at, tags: memory.tags },
+    };
+  }
+  if (name === "read_memory") {
+    const id = String(args.id ?? "").trim();
+    const memory = id ? await readMemory(home, id) : null;
+    if (!memory) {
+      const ids = (await readMemories(home)).slice(-5).map((one) => one.id);
+      return {
+        ok: false,
+        said: `no memory with id "${id}"`,
+        answer: {
+          ok: false,
+          error: "no memory with that id — ids come from remember or search_memory",
+          recentIds: ids,
+        },
+      };
+    }
+    return { ok: true, said: `memory ${memory.id}: ${memory.text.slice(0, 160)}`, answer: { ok: true, memory } };
+  }
+  const query = String(args.query ?? "");
+  const found = await searchMemories(home, query);
+  return {
+    ok: true,
+    said: query.trim()
+      ? `${found.length} ${found.length === 1 ? "memory" : "memories"} matching "${query}"`
+      : `${found.length} memories`,
+    answer: {
+      ok: true,
+      query,
+      match: "case-insensitive substring over text and tags — not semantic search",
+      count: found.length,
+      memories: found.slice(-50),
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * What a sentence means
  * ------------------------------------------------------------------ */
 
@@ -909,6 +1134,46 @@ export const LIVE_TOOLS = [
     name: "read_presence",
     description: "Check who is currently live on this canvas and which agents are enrolled.",
     parameters: { type: "OBJECT", properties: {} },
+  },
+  {
+    name: "remember",
+    description:
+      "Store a durable note for future sessions — a fact the person asked you to remember, a decision, " +
+      "a preference. It is written to the harness's own file beside its key and survives restarts. " +
+      "Retrieval is case-insensitive SUBSTRING search over the text and tags (see search_memory), so " +
+      "write the words you would later search for. Every memory is visible to, and deletable by, the person.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        text: { type: "STRING", description: "The memory itself, as a sentence." },
+        tags: {
+          type: "ARRAY",
+          items: { type: "STRING" },
+          description: "Optional tags to search by later (up to 8).",
+        },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "read_memory",
+    description: "Read one stored memory in full by its id (ids come from remember and search_memory).",
+    parameters: {
+      type: "OBJECT",
+      properties: { id: { type: "STRING", description: "The memory id, e.g. mem_…" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "search_memory",
+    description:
+      "Find stored memories by case-insensitive SUBSTRING match over their text and tags — NOT semantic " +
+      "recall: a synonym you did not write will not be found. An empty query lists everything stored, " +
+      "newest last.",
+    parameters: {
+      type: "OBJECT",
+      properties: { query: { type: "STRING", description: "Words to match; empty for everything." } },
+    },
   },
 ];
 
@@ -2183,6 +2448,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       agent: { name: target.name, id: target.actorId, enrolled },
       provider: { name: stored?.provider ?? null, model: options.model ?? LIVE_MODEL, key: stored !== null },
       session: { state: sessionState },
+      // What the agent keeps for the next session: a count and where it lives,
+      // never the contents — the page that wants them asks GET /memory.
+      memory: { count: (await readMemories(home).catch(() => [])).length, file: voiceMemoryFile(home) },
       // A page that is not on the socket still sees the question: the state
       // poll is how the typed path's confirmation reaches it at all.
       confirm: pendingQuestion(),
@@ -2264,6 +2532,30 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           return;
         }
       }
+      if (req.method === "GET" && url.pathname === "/memory") {
+        // The person's list, and the inspector's data source. Read from disk on
+        // every request: what is written is what is shown, with no cache in
+        // between that could disagree with the file after a restart.
+        const memories = await readMemories(home);
+        respond(200, { memories, count: memories.length, file: voiceMemoryFile(home), match: "substring" });
+        return;
+      }
+      if (req.method === "DELETE" && url.pathname.startsWith("/memory/")) {
+        const id = decodeURIComponent(url.pathname.slice("/memory/".length));
+        const forgotten = await forgetMemory(home, id);
+        if (!forgotten) {
+          respond(404, { ok: false, error: `no memory with id "${id}"` });
+          return;
+        }
+        const written = await readMemories(home);
+        recordToolLog({
+          type: "session_event",
+          event: `person forgot memory ${id}`,
+          details: { kind: "memory_forgotten", id, remaining: written.length },
+        });
+        respond(200, { ok: true, forgotten: id, remaining: written.length });
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/log") {
         // The persisted file is the record; the in-memory copy covers entries
         // not yet flushed. Merged by id, so a restart or a raced write cannot
@@ -2337,7 +2629,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log and POST /key, /audio, /utterance, /summons, /session/*" });
+        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log, /memory and POST /key, /audio, /utterance, /summons, /session/*, /confirm; DELETE /memory/<id>" });
         return;
       }
       const body = await readBody();
@@ -2614,6 +2906,39 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             const { canvas: snapCanvas } = await target.canvas.ctx.client.snapshot(target.canvas.id);
             const items = Object.values(snapCanvas.items).map((item) => ({ ...item, kind: itemKind(item) }));
             const trashItems = Object.values(snapCanvas.trash ?? {}).map((t) => ({ ...t.item, kind: itemKind(t.item) }));
+
+            // 0. Memory: the harness's own file, not canvas state. It needs no
+            //    snapshot and no daemon, so it is answered first.
+            if (name === "remember" || name === "read_memory" || name === "search_memory") {
+              try {
+                const outcome = await runMemoryTool(home, name, args as Record<string, unknown>, {
+                  session: target.name,
+                  presenceId: presenceSessionId,
+                });
+                narrate(outcome.said);
+                // The write is recorded with its text: a memory about the person
+                // is attributable and visible, never a private note.
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: outcome.answer,
+                });
+                return outcome.answer;
+              } catch (err) {
+                const message = String((err as Error).message ?? err);
+                narrate(`${name} failed: ${message}`);
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+            }
 
             // 1. Read & Inspection tools:
             if (name === "read_canvas") {
