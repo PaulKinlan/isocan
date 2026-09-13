@@ -48,6 +48,30 @@ disclosure as the logs.
   - **It never adds canvas items for `open_url`.** A tab is a surface
     capability and is gated on a real press; the canvas path is the harness's.
 
+## The help dialog, and why it is generated
+
+Three dialogs now wear one shell (`.voice-dialog`): the cog, the logs, and the
+help. The help is the one a person reads before granting a microphone, a
+folder, a key and a persistent store, so it states four things flat — what the
+agent can do, what it can reach locally, what it reaches remotely, and what it
+refuses — and its refusals are the most useful section, not the appendix.
+
+Its capability section is **generated, not written**: `HELP_GROUPS`,
+`HELP_COUNTS` and `HELP_REFUSED` in `packages/web/src/voice/capabilities.generated.ts`
+come out of `scripts/voice-capability-sweep.mjs`, the same rows that write
+`docs/projects/voice-harness/capability-sweep.md` — including the harness's own
+`LIVE_TOOLS`, read out of the source. `node scripts/voice-capability-sweep.mjs`
+regenerates both; `--check` fails when either is stale, and
+`packages/web/test/voicehelp.test.ts` fails when the rendered dialog and the
+generated data disagree. A hand-written help page starts promising things the
+harness cannot do within a week; this one cannot drift without a red test.
+
+The access claims cannot be generated that way, so each names the mechanism it
+describes — the OPFS call, the DirectoryHandle, `POST /fs/grant`, the provider's
+host, `INTERNAL_OP_TYPES` — and the same test asserts every named mechanism is
+still in the source it belongs to. A claim whose mechanism moved fails the test
+so somebody rewrites the sentence instead of leaving a comfortable lie.
+
 ## Reading the page when something is wrong
 
 The tool log is the diagnosable record, and three lines in it exist because

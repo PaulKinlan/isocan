@@ -69,6 +69,18 @@
               <circle cx="12" cy="12" r="3" />
             </svg>
           </button>
+          <!-- The third dialog, and the only one that is read rather than
+               operated: what the agent can do, what it can reach, and what it
+               will not do. Its capability section is generated from the
+               sweep (see capabilities.generated.ts); the rest is claims, each
+               naming its own mechanism so a reader can check it. -->
+          <button class="voice-head-button" id="help-open" type="button" aria-label="What this agent can do" aria-haspopup="dialog" aria-controls="help" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M9.4 9.1a2.6 2.6 0 1 1 3.7 2.3c-.9.5-1.1 1-1.1 1.8v.2" />
+              <path d="M12 16.6h.01" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -262,6 +274,170 @@
           <div class="voice-keyrow">
             <button id="memory-forget-all" type="button" hidden>Forget everything</button>
           </div>
+        </section>
+      </dialog>
+
+      <!-- The shell is the same one the cog and the logs wear: native dialog,
+           closedby="any" with the light-dismiss fallback in main.ts, sticky
+           head, flat sections, one scroll container, focus restored to the
+           button that opened it. Only the content differs. -->
+      <dialog class="voice-dialog" id="help" closedby="any" aria-labelledby="help-title">
+        <header class="voice-dialog-head">
+          <h2 id="help-title" tabindex="-1" autofocus>What this agent can do</h2>
+          <button id="help-close" type="button">Close help</button>
+        </header>
+
+        <!-- Generated. `HELP_GROUPS` comes from the same rows as
+             docs/projects/voice-harness/capability-sweep.md, so this section
+             cannot promise something the harness has no tool for, and
+             voicehelp.test.ts fails when the two disagree. -->
+        <section class="voice-dialog-part" aria-labelledby="help-can-title">
+          <h3 class="voice-dialog-part-title" id="help-can-title">What it can do</h3>
+          <p class="voice-hint" id="help-can-count"></p>
+          <div id="help-capabilities"></div>
+          <p class="voice-hint" id="help-can-missing"></p>
+        </section>
+
+        <section class="voice-dialog-part" aria-labelledby="help-local-title">
+          <h3 class="voice-dialog-part-title" id="help-local-title">What it can reach locally</h3>
+          <dl class="voice-facts" id="help-local">
+            <div>
+              <dt>Its memory</dt>
+              <dd>
+                Facts it was asked to remember live in this browser's own store —
+                <code>navigator.storage.getDirectory()</code>, the OPFS file <code>voice/memories.json</code> — this
+                origin only, not the terminal and not another browser or profile. It asks the browser to keep the
+                store (<code>navigator.storage.persist()</code>); when that is refused the entries last only for the
+                tab, and Memory in the cog says so. Every entry is listed there and yours to delete.
+              </dd>
+            </div>
+            <div>
+              <dt>One folder you chose</dt>
+              <dd>
+                Files are reachable only through the folder you pick with
+                <code>showDirectoryPicker({ mode: "read" })</code>, remembered as a DirectoryHandle. The harness is told
+                the folder's NAME over <code>POST /fs/grant</code> and never gets the handle.
+                <code>list_dir</code> and <code>read_file</code> walk inside that folder and nothing else, read-only;
+                <code>..</code> and absolute paths are refused. No folder granted, no file read.
+              </dd>
+            </div>
+            <div>
+              <dt>The provider key</dt>
+              <dd>
+                Presence, never the value. The page posts it once over loopback and keeps no copy; the harness holds it
+                at <code>~/.isocan/voice/key.json</code> with mode <code>0600</code>. Settings says whether one is
+                stored; no surface shows the key itself.
+              </dd>
+            </div>
+            <div>
+              <dt>The project's own instructions</dt>
+              <dd>
+                If the directory bound to this canvas holds an <code>AGENTS.md</code> (or <code>CLAUDE.md</code>), its
+                first 12,000 characters are read at session start and given to the model. Nothing else in that
+                directory is read, and a directory whose <code>.isocan/project.json</code> is not this canvas is not
+                touched.
+              </dd>
+            </div>
+            <div>
+              <dt>Your microphone</dt>
+              <dd>
+                <code>getUserMedia({ audio: true, video: false })</code> while the session is live, and the device list
+                from <code>enumerateDevices()</code>. Capture stops when you press End. The camera is never asked for.
+              </dd>
+            </div>
+            <div>
+              <dt>The harness's own record</dt>
+              <dd>
+                Its tool calls and events are written beside its key — <code>~/.isocan/voice/log.json</code> and
+                <code>harness.log</code>, mode <code>0600</code> — and are what Logs shows.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="voice-dialog-part" aria-labelledby="help-remote-title">
+          <h3 class="voice-dialog-part-title" id="help-remote-title">What it can reach remotely</h3>
+          <dl class="voice-facts" id="help-remote">
+            <div>
+              <dt>The model provider</dt>
+              <dd>
+                Everything the model hears, and everything it is told, goes to Google's Gemini Live API:
+                <code>wss://generativelanguage.googleapis.com</code> …<code>BidiGenerateContent</code>, the model named
+                in Settings — including what it reads back from the canvas, from the folder you granted and from its
+                memories. Your audio only ever leaves through the harness.
+              </dd>
+            </div>
+            <div>
+              <dt>The daemon</dt>
+              <dd>
+                Operations are sent to the daemon: <code>http://127.0.0.1:4441</code> by default, or whatever
+                <code>ISOCAN_HOME</code>, <code>ISOCAN_PORT</code> or this canvas's <code>.isocan/project.json</code>
+                names — a hosted home such as <code>dev.isocan.io</code> is one of the possibilities. Settings names the
+                daemon in play; the page cannot choose one, only ask the harness to switch.
+              </dd>
+            </div>
+            <div>
+              <dt>Other people</dt>
+              <dd>
+                A canvas may be shared, and one replicated to another daemon is served there by that daemon
+                (<code>isocan who</code> shows the replicas relaying). Everything the agent does lands on the canvas as
+                the enrolled actor's work, and the log behind Logs keeps the record.
+              </dd>
+            </div>
+            <div>
+              <dt>The tab it opens</dt>
+              <dd>
+                Open the project asks the harness for a one-use pass (<code>GET /open</code>) and opens the canvas on
+                the daemon's own host, with the pass in the URL fragment (<code>#pss_…</code>).
+              </dd>
+            </div>
+            <div>
+              <dt>What the page itself talks to</dt>
+              <dd>
+                Nothing but the harness, over the same-origin <code>/harness</code> path — the page holds no key and has
+                no socket to the daemon.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <!-- The section most likely to be dropped in a hurry, so it is the one
+             with the most mechanism names in it. The list under "refused by
+             design" is generated from the sweep's excluded rows. -->
+        <section class="voice-dialog-part" aria-labelledby="help-cannot-title">
+          <h3 class="voice-dialog-part-title" id="help-cannot-title">What it cannot do, and why</h3>
+          <ul class="voice-help-list" id="help-limits">
+            <li>
+              <b>Delete a canvas, or empty the trash</b> — confirmation-gated. The harness asks you in the page
+              (<code>POST /confirm</code>) and waits for your press; a <code>force: true</code> the model adds to its own
+              call is not consulted, so it cannot sign its own permission slip.
+            </li>
+            <li>
+              <b>Remove a version, remove a comment, or restore a deleted thread</b> — refused by the engine:
+              <code>INTERNAL_OP_TYPES</code> in <code>packages/core/src/ops.ts</code> is the set clients may not send,
+              because each of those is an undo inverse rather than an act a person performs.
+            </li>
+            <li>
+              <b>Rename itself, or choose its own identity</b> — no tool sets the actor's name. It is claimed once, when
+              the harness starts (<code>isocan voice --as &lt;name&gt;</code>); colour and mark are the model's to change.
+            </li>
+            <li>
+              <b>Delete a memory</b> — the memory tools are <code>remember</code>, <code>read_memory</code> and
+              <code>search_memory</code>; nothing removes one. It can read everything stored — a search with no words lists
+              them, 50 in one answer — and forgetting is the button in the cog, which is yours.
+            </li>
+            <li>
+              <b>Read anything outside the folder you granted</b> — the file tools take a path relative to the grant and
+              walk it through the handle. There is no absolute path, no home directory and no shell.
+            </li>
+            <li>
+              <b>Reach beyond its declared tools</b> — the model has <code>LIVE_TOOLS</code> and nothing more: no
+              terminal, no arbitrary fetch, no second vocabulary that could disagree with the CLI.
+            </li>
+          </ul>
+          <h4 class="voice-help-sub" id="help-refused-title">Refused by design, surface by surface</h4>
+          <p class="voice-hint">The sweep's own rows, each with the reason it carries.</p>
+          <ul class="voice-log" id="help-refused" aria-labelledby="help-refused-title"></ul>
         </section>
       </dialog>
     </div>

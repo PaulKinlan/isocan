@@ -6944,6 +6944,18 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
 .voice-setup-callout p { margin: 0; color: var(--ink-muted); }
 .voice-dialog .voice-complaint { margin-bottom: var(--s4); }
 
+/* The help dialog is read, not operated: sentences rather than controls, so it
+   borrows the settings facts' shape (a label and its value) and the log's rows
+   for what is refused. A tool name is monospace and muted: worth having, not
+   worth reading first. */
+.voice-help-sub { margin: var(--s4) 0 var(--s2); font-size: var(--t-sm); font-weight: 600; }
+.voice-help-acts { display: grid; gap: var(--s2); margin: 0; padding: 0; list-style: none; font-size: var(--t-sm); }
+.voice-help-acts li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s1) var(--s3); }
+.voice-help-acts code { color: var(--ink-muted); font-family: ui-monospace, monospace; font-size: var(--t-xs); }
+.voice-help-list { display: grid; gap: var(--s3); margin: 0; padding-inline-start: var(--s4); font-size: var(--t-sm); }
+.voice-help-list code { font-family: ui-monospace, monospace; font-size: var(--t-xs); }
+.voice-help-why { display: block; color: var(--ink-muted); font-size: var(--t-xs); }
+
 @media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   .voice {
     --voice-safe-top: max(var(--s3), env(safe-area-inset-top));
