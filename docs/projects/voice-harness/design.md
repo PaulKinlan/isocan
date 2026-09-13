@@ -88,6 +88,23 @@ that asked. A rename is claimed **in place**, under the session key the harness
 already holds: the actor keeps its id, so its comments, its ops and its undo
 history stay its own.
 
+**A rename moves a label, never an identity** (13 Sep). The actor is renamed in
+place, under the session key it already holds, so its id, its comments and its
+undo history stay its own — and the name is written down in four places, every
+one of which a person can hear: the registry, canvas state's enrolment record
+(what `rc turn <name>`, the agent tray and `isocan who` match on), this
+machine's rc roster rows, and the harness's own `voice/identity.json`.
+
+**The key never moves.** `agent:<name at enrolment>` is the conversation a badge
+bound the actor to, and the daemon refuses to re-key a live actor — correctly,
+since that refusal is what stops a second session unseating a working agent. So
+every later start RESUMES (a claim with no name, which is the op's own rule for a
+key already worn) and says that the name it was launched with is stale instead of
+obeying it; a summons injects the conversation rather than the label. Two callers,
+one function: the model's `actor_claim` tool, after the person's gate, and the
+settings drawer's `POST /actor`, which is the person's own press — the authority
+the gate exists to protect.
+
 **Projects are the session's, not the flag's** (13 Sep). `--canvas` used to fix
 a session's canvas for its whole life; `project_list`, `project_create`,
 `project_update` and `project_switch` make the canvas something a person can
@@ -98,6 +115,17 @@ standing in and not a stale copy in a header. The Live session's system
 instruction is written once at start and the API has no mid-session system
 channel; the switch's answer carries the new canvas's items, ids included, and
 that tool result is the honest correction.
+
+**The settings drawer's contract, served** (13 Sep). The page's half was written
+against `isocan-xsh.8` and degrades honestly when the harness does not answer —
+"this harness build does not offer /actor yet — the command above does it by
+hand" — which is how a person came to be told to claim his own name in a
+terminal. `POST /actor`, `POST /enrol`, `GET /canvases` and `POST /canvas` are
+served now, each routing through the same function its tool counterpart uses, so
+a rename, an enrolment or a switch behaves the same whichever surface asked.
+`GET /daemons` + `POST /daemon` are deliberately a different question: the daemon
+is what the harness attaches to at START, and the page's picker is where a person
+changes it.
 
 ## What is not built yet
 
