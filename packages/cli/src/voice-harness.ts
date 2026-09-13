@@ -3083,6 +3083,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       const actor = claimed.envelope.actor;
       const was = target.name;
       target.name = actor.name;
+      target.canvas.ctx.actor.name = actor.name;
       /* The face follows the name. A presence session is created with a label,
          so the old one keeps wearing the old name until it ends — and a face
          with the wrong name on it is the exact confusion the registry exists to
