@@ -6941,7 +6941,9 @@ body:has(> .voice) { overflow: auto; }
   max-block-size: calc(100dvh - 2 * var(--s4));
   overflow: auto;
   overscroll-behavior: contain;
-  padding: var(--s5);
+  /* The block-end padding only: the head below carries its own, which is what
+     lets a long list scroll under a Close that never leaves the screen. */
+  padding: 0 var(--s5) var(--s5);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--card);
@@ -6949,7 +6951,22 @@ body:has(> .voice) { overflow: auto; }
 }
 .voice-settings::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
 body:has(.voice-settings[open]) { overflow: hidden; }
-.voice-settings-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
+/* Pinned to the top of the dialog's own scrollport, because the dialog is the
+   only scroll container on this surface and Close is the way out of it — it
+   was measured 70px above the viewport at the end of a short landscape
+   scroll, which is a control that has left rather than one that is reached. */
+.voice-settings-head {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+  padding-block: var(--s5);
+  background: var(--card);
+}
 .voice-settings-head h2 { margin: 0; font-size: var(--t-lg); }
 .voice-settings :is(button, select, input, summary), .voice-setup-callout button { min-block-size: 44px; }
 .voice-settings :is(input, select) { font-size: 16px; }
