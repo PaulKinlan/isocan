@@ -125,6 +125,22 @@
               <div><dt>Audio</dt><dd id="audio">no provider · no model · no key stored</dd></div>
               <div><dt>Version</dt><dd><span id="version">unknown</span> <span class="voice-id" id="updated">updated unknown</span></dd></div>
               <div>
+                <dt>Local files</dt>
+                <dd>
+                  <span id="folder-name">no folder granted</span>
+                  <span class="voice-id" id="folder-note"></span>
+                  <!-- The capability the page alone can ask for: a folder the
+                       person picks with a click. The handle never leaves this
+                       tab; the harness is told the folder's NAME and nothing
+                       that could read it. -->
+                  <div class="voice-keyrow">
+                    <button id="folder-pick" type="button">Choose a folder…</button>
+                    <button id="folder-reconnect" type="button" hidden>Reconnect</button>
+                    <button id="folder-forget" type="button" hidden>Forget</button>
+                  </div>
+                </dd>
+              </div>
+              <div>
                 <dt>Microphone</dt>
                 <dd>
                   <label class="voice-pick">

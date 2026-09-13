@@ -198,6 +198,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   const peakMark = required<HTMLElement>("peak", doc);
   const stateLine = required<HTMLElement>("state", doc);
   const buildTag = required<HTMLElement>("build-tag", doc);
+  const folderName = required<HTMLElement>("folder-name", doc);
+  const folderNote = required<HTMLElement>("folder-note", doc);
+  const folderPick = required<HTMLButtonElement>("folder-pick", doc);
+  const folderReconnect = required<HTMLButtonElement>("folder-reconnect", doc);
+  const folderForget = required<HTMLButtonElement>("folder-forget", doc);
   const transcript = required<HTMLElement>("transcript", doc);
   const canvasTitle = required<HTMLElement>("canvas-title", doc);
   const canvasId = required<HTMLElement>("canvas-id", doc);
@@ -682,6 +687,12 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
     if (event.open_url && typeof event.open_url === "object") {
       void handleOpenUrl(event.open_url as Record<string, unknown>);
+      return;
+    }
+    if (event.fs && typeof event.fs === "object") {
+      // A file question from the harness: answered from the granted handle, or
+      // refused in words. Never silence.
+      void answerFsRequest(event.fs as Record<string, unknown>);
       return;
     }
     const tagged = event.type === "tool_log" ? (event.entry as Record<string, unknown> | undefined) : undefined;
@@ -1272,6 +1283,295 @@ export function wireVoice(doc: Document = document): VoicePage {
     await answer(false, "blocked", why);
   }
 
+  /* ------------------------------------------------------------------ *
+   * Local files: the one capability only this page can ask for
+   * ------------------------------------------------------------------ */
+
+  /**
+   * **A folder the person picked, kept where a handle can be kept.**
+   *
+   * The File System Access API is the only way to reach a person's own files,
+   * and it is deliberately awkward: the picker needs a real click, the handle
+   * is a browser object (it cannot be sent anywhere — the harness is told the
+   * folder's NAME), and permission is granted per session, so a returning page
+   * must ask again. That last part is the one this page must not paper over:
+   * when the browser has not re-granted, the page says "Reconnect" and the
+   * harness refuses the read in words, rather than reading nothing quietly.
+   *
+   * Nothing here reads data the page was not handed. There is no filesystem
+   * access beyond the one directory handle, and no path can leave it.
+   */
+  interface FsHandle {
+    kind: "file" | "directory";
+    name: string;
+    entries?(): AsyncIterableIterator<[string, FsHandle]>;
+    getFileHandle?(name: string, options?: { create?: boolean }): Promise<FsHandle>;
+    getDirectoryHandle?(name: string, options?: { create?: boolean }): Promise<FsHandle>;
+    getFile?(): Promise<File>;
+    queryPermission?(options: { mode: "read" }): Promise<PermissionState>;
+    requestPermission?(options: { mode: "read" }): Promise<PermissionState>;
+  }
+
+  /** What the page will read for a model, matched to the harness's caps. */
+  const FS_MAX_BYTES = 256 * 1024;
+  const FS_MAX_ENTRIES = 500;
+  const FS_DB = "isocan.voice.fs";
+  const FS_STORE = "handles";
+  const FS_KEY = "folder";
+
+  /**
+   * **The handle is remembered in IndexedDB, and the page says when it cannot
+   * be.** A directory handle is structured-cloneable, so it can be stored and
+   * reused across reloads — but IndexedDB is not always there (a private
+   * window), and then the grant lasts the session and the page says exactly
+   * that rather than implying it will still be here tomorrow.
+   */
+  function handleDb(): Promise<IDBDatabase | null> {
+    return new Promise((resolve) => {
+      if (typeof indexedDB === "undefined") {
+        resolve(null);
+        return;
+      }
+      let request: IDBOpenDBRequest;
+      try {
+        request = indexedDB.open(FS_DB, 1);
+      } catch {
+        resolve(null);
+        return;
+      }
+      request.onupgradeneeded = () => request.result.createObjectStore(FS_STORE);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    });
+  }
+
+  /** Remember the handle (or forget it). Answers whether it persisted. */
+  async function saveFolderHandle(handle: FsHandle | null): Promise<boolean> {
+    const db = await handleDb();
+    if (!db) return false;
+    return await new Promise<boolean>((resolve) => {
+      try {
+        const tx = db.transaction(FS_STORE, "readwrite");
+        const store = tx.objectStore(FS_STORE);
+        if (handle) store.put(handle, FS_KEY);
+        else store.delete(FS_KEY);
+        tx.oncomplete = () => resolve(handle !== null);
+        tx.onerror = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
+  async function loadFolderHandle(): Promise<FsHandle | null> {
+    const db = await handleDb();
+    if (!db) return null;
+    return await new Promise<FsHandle | null>((resolve) => {
+      try {
+        const request = db.transaction(FS_STORE, "readonly").objectStore(FS_STORE).get(FS_KEY);
+        request.onsuccess = () => resolve((request.result as FsHandle | undefined) ?? null);
+        request.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  let folder: { handle: FsHandle | null; name: string | null; permission: "none" | "granted" | "needs-permission" | "unsupported"; persisted: boolean } = {
+    handle: null,
+    name: null,
+    permission: "none",
+    persisted: false,
+  };
+
+  function renderFolder(): void {
+    const named = Boolean(folder.name);
+    folderName.textContent = named
+      ? folder.name!
+      : folder.permission === "unsupported"
+        ? "this browser cannot grant a folder"
+        : "no folder granted";
+    folderNote.textContent = !named
+      ? ""
+      : folder.permission === "granted"
+        ? folder.persisted
+          ? ""
+          : " — kept for this session only"
+        : " — the browser wants permission again";
+    folderPick.hidden = named && folder.permission === "granted";
+    folderReconnect.hidden = !(named && folder.permission === "needs-permission");
+    folderForget.hidden = !named;
+  }
+
+  /** Tell the harness what it may read — a name, never a handle. */
+  async function reportGrant(): Promise<void> {
+    const granted = folder.permission === "granted" && Boolean(folder.name);
+    await callSetup("/fs/grant", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ folder: granted ? folder.name : null, granted }),
+    }).catch(() => undefined);
+  }
+
+  async function pickFolder(): Promise<void> {
+    const picker = (window as unknown as { showDirectoryPicker?: (options: { mode: "read" }) => Promise<FsHandle> })
+      .showDirectoryPicker;
+    if (!picker) {
+      folder.permission = "unsupported";
+      renderFolder();
+      return;
+    }
+    try {
+      const handle = await picker.call(window, { mode: "read" });
+      const allowed = handle.queryPermission ? await handle.queryPermission({ mode: "read" }) : "granted";
+      folder = {
+        handle,
+        name: handle.name,
+        permission: allowed === "granted" ? "granted" : "needs-permission",
+        persisted: await saveFolderHandle(handle),
+      };
+      renderFolder();
+      put({ at: new Date().toLocaleTimeString(), event: `folder granted: ${handle.name}` });
+      await reportGrant();
+    } catch (err) {
+      // Closing the picker is a decision, not a failure worth a red line.
+      if ((err as Error)?.name !== "AbortError") {
+        complaint = `could not open that folder: ${String((err as Error).message ?? err)}`;
+        renderComplaint();
+      }
+    }
+  }
+
+  /** Permission is per session: this is the button the browser's rule needs. */
+  async function reconnectFolder(): Promise<void> {
+    const handle = folder.handle;
+    if (!handle?.requestPermission) return;
+    try {
+      const allowed = await handle.requestPermission({ mode: "read" });
+      folder.permission = allowed === "granted" ? "granted" : "needs-permission";
+      renderFolder();
+      put({
+        at: new Date().toLocaleTimeString(),
+        event: allowed === "granted" ? `folder reconnected: ${folder.name}` : `folder not re-granted: ${folder.name}`,
+      });
+      await reportGrant();
+    } catch (err) {
+      complaint = `the browser refused that folder: ${String((err as Error).message ?? err)}`;
+      renderComplaint();
+    }
+  }
+
+  async function forgetFolder(): Promise<void> {
+    const was = folder.name;
+    await saveFolderHandle(null);
+    folder = { handle: null, name: null, permission: "none", persisted: false };
+    renderFolder();
+    put({ at: new Date().toLocaleTimeString(), event: `folder access dropped: ${was ?? "none"}` });
+    await reportGrant();
+  }
+
+  /** A path inside the granted folder, or null. `..` and absolutes never fit. */
+  async function resolveInFolder(root: FsHandle, path: string, want: "file" | "directory"): Promise<FsHandle | null> {
+    const parts = path.split("/").filter((one) => one && one !== ".");
+    let dir: FsHandle = root;
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]!;
+      const last = index === parts.length - 1;
+      if (last && want === "file") {
+        try {
+          return (await dir.getFileHandle?.(part, { create: false })) ?? null;
+        } catch {
+          return null;
+        }
+      }
+      const next = await dir.getDirectoryHandle?.(part, { create: false }).catch(() => null);
+      if (!next) return null;
+      dir = next;
+    }
+    return want === "directory" ? dir : null;
+  }
+
+  /**
+   * **The page's answer to `{ fs: … }`, which is the whole point of the
+   * round trip.** Every branch answers: content, or a sentence saying why not.
+   * The harness turns the sentence into the tool's refusal, so the model hears
+   * the reason and the person can see it in the log.
+   */
+  async function answerFsRequest(request: Record<string, unknown>): Promise<void> {
+    const callId = String(request.callId ?? "");
+    const op: "list_dir" | "read_file" = request.op === "list_dir" ? "list_dir" : "read_file";
+    const path = String(request.path ?? "");
+    const at = new Date().toLocaleTimeString();
+    const reply = (body: Record<string, unknown>) =>
+      callSetup("/fs/result", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ callId, ...body }),
+      }).catch(() => undefined);
+
+    if (!folder.handle || folder.permission !== "granted") {
+      const why = folder.name
+        ? "the folder needs permission again — press Reconnect in the page"
+        : "no folder is granted in the page";
+      await reply({ ok: false, error: why });
+      put({ at, event: `${op} refused (${path || "/"}): ${why}` });
+      return;
+    }
+    try {
+      if (op === "list_dir") {
+        const dir = await resolveInFolder(folder.handle, path, "directory");
+        if (!dir?.entries) {
+          await reply({ ok: false, error: `no such folder: ${path || "/"}` });
+          return;
+        }
+        const entries: { name: string; kind: "file" | "directory" }[] = [];
+        let truncated = false;
+        for await (const [name, node] of dir.entries()) {
+          if (entries.length >= FS_MAX_ENTRIES) {
+            truncated = true;
+            break;
+          }
+          entries.push({ name, kind: node.kind === "directory" ? "directory" : "file" });
+        }
+        await reply({ ok: true, entries, truncated });
+        put({ at, event: `listed ${entries.length} entries in ${folder.name}/${path}`.replace(/\/$/, "") });
+        return;
+      }
+      const file = await (await resolveInFolder(folder.handle, path, "file"))?.getFile?.();
+      if (!file) {
+        await reply({ ok: false, error: `no such file: ${path}` });
+        put({ at, event: `read refused: no such file: ${path}` });
+        return;
+      }
+      const truncated = file.size > FS_MAX_BYTES;
+      const content = await (truncated ? file.slice(0, FS_MAX_BYTES) : file).text();
+      await reply({ ok: true, content, bytes: file.size, truncated });
+      put({ at, event: `read ${folder.name}/${path} (${content.length} chars${truncated ? ", truncated" : ""})` });
+    } catch (err) {
+      const why = String((err as Error).message ?? err);
+      await reply({ ok: false, error: why });
+      put({ at, event: `read failed (${path}): ${why}`, error: why });
+    }
+  }
+
+  /** On load: the handle comes back, and the browser decides if it still works. */
+  async function restoreFolder(): Promise<void> {
+    const handle = await loadFolderHandle();
+    if (!handle) {
+      renderFolder();
+      return;
+    }
+    const allowed = handle.queryPermission ? await handle.queryPermission({ mode: "read" }) : "denied";
+    folder = {
+      handle,
+      name: handle.name,
+      permission: allowed === "granted" ? "granted" : "needs-permission",
+      persisted: true,
+    };
+    renderFolder();
+    await reportGrant();
+  }
+
   async function openProject(): Promise<void> {
     const tab = window.open("about:blank", "_blank");
     const go = (url: string) => {
@@ -1317,6 +1617,9 @@ export function wireVoice(doc: Document = document): VoicePage {
     event.stopPropagation();
     void copyLog();
   });
+  folderPick.addEventListener("click", () => void pickFolder());
+  folderReconnect.addEventListener("click", () => void reconnectFolder());
+  folderForget.addEventListener("click", () => void forgetFolder());
   daemonUse.addEventListener("click", () => void chooseDaemon(daemonField.value));
   daemonReset.addEventListener("click", () => void resetDaemon());
   confirmAllow.addEventListener("click", () => void answerConfirm(true));
@@ -1334,6 +1637,10 @@ export function wireVoice(doc: Document = document): VoicePage {
   // What the harness can do is asked once, so the setup panel can choose
   // between a working control and the command that does the same thing.
   void probeSetup();
+  // The folder grant: restored from IndexedDB, reported honestly either way —
+  // a returning page whose permission lapsed says so instead of reading nothing.
+  renderFolder();
+  void restoreFolder();
   renderHero();
   renderSave();
   buildTag.textContent = buildWords();
