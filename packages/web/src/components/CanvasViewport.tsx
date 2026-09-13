@@ -19,6 +19,7 @@ import { placeSketch } from "../lib/sketch.ts";
 import { placeableArea, revealIfOffscreen } from "../lib/spot.ts";
 import { glideToBox } from "../lib/zoomactions.ts";
 import { settleDelay, wasHeld } from "../lib/pensession.ts";
+import { longPress } from "../lib/longpress.ts";
 import { isTyping } from "../lib/keys.ts";
 import { TextComposer } from "./TextComposer.tsx";
 import { canEditNow, useCanEdit } from "../lib/capability.ts";
@@ -496,14 +497,19 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
    * means the five you had.
    */
   function onContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    // Native touch menus bypass the motion/second-finger cancellation below.
+    if ((e.nativeEvent as PointerEvent).pointerType === "touch") return;
+    showContextMenu(e.target, e.clientX, e.clientY);
+  }
+
+  function showContextMenu(origin: EventTarget | null, x: number, y: number, current = () => true) {
     const ui = useUiStore.getState();
     const canvas = useCanvasStore.getState().canvas;
     if (!canvas) return;
-    const target = (e.target as HTMLElement).closest?.("[data-item-id]");
+    const target = (origin as HTMLElement)?.closest?.("[data-item-id]");
     const rawItemId = target?.getAttribute("data-item-id") ?? null;
     const itemId = rawItemId ? scopedHit(rawItemId) : null;
-    e.preventDefault();
-
     if (itemId) {
       const within = ui.selectedItemIds.includes(itemId);
       const ids = within && ui.selectedItemIds.length > 1 ? ui.selectedItemIds : [itemId];
@@ -512,17 +518,17 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
         .map((id) => canvas.items[id])
         .filter((item): item is NonNullable<typeof item> => Boolean(item));
       if (items.length === 0) return;
-      const at = { x: e.clientX, y: e.clientY };
-      const world = screenToWorld(ui.viewport, e.clientX, e.clientY);
+      const at = { x: x, y: y };
+      const world = screenToWorld(ui.viewport, x, y);
       void menus().then(({ itemMenu }) =>
-        openContextMenu(at, itemMenu(items, { canvasId, actor, world, navigate })),
+        current() && openContextMenu(at, itemMenu(items, { canvasId, actor, world, navigate })),
       );
       return;
     }
-    const at = { x: e.clientX, y: e.clientY };
-    const world = screenToWorld(ui.viewport, e.clientX, e.clientY);
+    const at = { x: x, y: y };
+    const world = screenToWorld(ui.viewport, x, y);
     void menus().then(({ canvasMenu }) =>
-      openContextMenu(at, canvasMenu({ canvasId, actor, world, navigate })),
+      current() && openContextMenu(at, canvasMenu({ canvasId, actor, world, navigate })),
     );
   }
 
@@ -546,6 +552,15 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
    * pointer is treated as an addition.
    */
   const abandonGesture = useRef<(() => void) | null>(null);
+  const menuAction = useRef(showContextMenu);
+  menuAction.current = showContextMenu;
+  const hold = useRef<ReturnType<typeof longPress> | null>(null);
+  if (!hold.current) hold.current = longPress((point, current) => {
+    abandonGesture.current?.();
+    menuAction.current(point.target, point.x, point.y, current);
+  });
+  useEffect(() => () => hold.current?.dispose(), []);
+
 
   /** The two fingers a pinch is about, oldest first so the pair is stable
    *  across a move — a third finger is ignored rather than joining. */
@@ -1104,6 +1119,14 @@ export function CanvasViewport({ canvasId, actor }: { canvasId: string; actor: A
         backgroundSize: `${22 * viewport.scale}px ${22 * viewport.scale}px`,
         backgroundPosition: `${viewport.tx}px ${viewport.ty}px`,
       }}
+      onPointerDownCapture={(e) => {
+        hold.current?.down(e);
+        if ((e.target as HTMLElement).closest("a, button, input, textarea, select, [contenteditable=true]")) hold.current?.cancel();
+      }}
+      onPointerMoveCapture={(e) => hold.current?.move(e)}
+      onPointerUpCapture={(e) => hold.current?.up(e.pointerId)}
+      onPointerCancelCapture={(e) => hold.current?.up(e.pointerId)}
+      onClickCapture={(e) => { if (hold.current?.consumeClick()) { e.preventDefault(); e.stopPropagation(); } }}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
       onPointerMove={(e) => {

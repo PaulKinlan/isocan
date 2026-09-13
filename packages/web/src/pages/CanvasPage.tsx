@@ -63,7 +63,7 @@ import { modules } from "../modules.ts";
 const ModuleDialogs = lazy(() => import("../components/ModuleDialogs.tsx").then((m) => ({ default: m.ModuleDialogs })));
 import { useChromeHidden } from "../lib/hideable.ts";
 import { Viewer } from "../components/Viewer.tsx";
-import { CanvasTools } from "../components/CanvasTools.tsx";
+const CanvasTools = lazy(() => import("../components/CanvasTools.tsx").then((m) => ({ default: m.CanvasTools })));
 /** Asked for by a keystroke and unmounted when closed, so it need not be in
  *  the bytes a first visit downloads. */
 const Scrubber = lazy(() => import("../components/Scrubber.tsx").then((m) => ({ default: m.Scrubber })));
@@ -1108,7 +1108,7 @@ function CanvasSurface({
           Watching {followedLabel} — Esc to stop
         </button>
       )}
-      {canEdit && <CanvasTools canvasId={canvasId} actor={actor} />}
+      <Suspense>{canEdit && <CanvasTools canvasId={canvasId} actor={actor} />}</Suspense>
       <ZoomControls canvasId={canvasId} actor={actor} />
       <Minimap />
       {canEdit && <TrashPanel key={canvasId} canvasId={canvasId} actor={actor} />}
