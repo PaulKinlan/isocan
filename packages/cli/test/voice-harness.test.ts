@@ -1293,6 +1293,56 @@ describe("the name the enrolment summons", () => {
       await live.close();
     }
   });
+
+  /**
+   * **Coord's acceptance, in one sitting**: claim an actor, enrol it, rename it
+   * by voice through the gate — and then check every surface a person can hear
+   * the name from, including a harness that did not exist when the rename
+   * happened.
+   */
+  it("the acceptance walk: claim, enrol, rename by voice, and every surface agrees", async () => {
+    const live = await enrolledAndRenamed();
+    const actorId = live.row.actorId;
+    try {
+      const renamed = live.renamed;
+      expect(renamed.response.ok).toBe(true);
+
+      // 1. The canvas: the registry's name for that actor id.
+      expect((await namesOnCanvas())[actorId]).toBe("Nova");
+
+      // 2. The enrolment, both halves a summon reads.
+      const snap = (await (
+        await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })
+      ).json()) as { canvas: { agents?: Record<string, { actor: { id: string; name: string } }> } };
+      expect(snap.canvas.agents?.[actorId]?.actor.name).toBe("Nova");
+      expect((await readRcAgents(home)).find((r) => r.actorId === actorId)!.name).toBe("Nova");
+
+      // 3. The page's own account of itself.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.name).toBe("Nova");
+      expect(state.agent.id).toBe(actorId);
+      expect(state.agent.name).toBe("Nova");
+
+      // 4. A harness that did not exist when the rename happened — started by
+      // the new name, and then by the old one, which must not re-assert it.
+      const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: "Nova" });
+      expect(asNew.started, `a fresh \`isocan voice\` should start:\n${asNew.said.slice(-400)}`).toBe(true);
+      expect(asNew.state!.name).toBe("Nova");
+      expect(asNew.state!.agent.id).toBe(actorId);
+
+      const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+      expect(asOld.started, `a fresh \`isocan voice\` should start:\n${asOld.said.slice(-400)}`).toBe(true);
+      expect(asOld.state!.name, "the old name is not asserted back").toBe("Nova");
+      expect(asOld.state!.agent.id).toBe(actorId);
+
+      // 5. And one actor, one name: nothing forked and nothing kept the old
+      // name as a second face.
+      const names = Object.values(await namesOnCanvas());
+      expect(names.filter((n) => n === "Nova" || n === "Voice")).toEqual(["Nova"]);
+    } finally {
+      await live.close();
+    }
+  });
 });
 
 describe("the harness's name across a restart", () => {
