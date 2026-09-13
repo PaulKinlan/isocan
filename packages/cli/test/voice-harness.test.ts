@@ -1099,6 +1099,157 @@ describe("the person's gate", () => {
     expect(blank.status).toBe(400);
   });
 
+  it("answers the daemon picker honestly: the one it is on, and a refusal that names the remedy", async () => {
+    const server = await serve();
+
+    // What the drawer's probe reads.
+    const listed = await fetch(`${server.state.url}daemons`);
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as {
+      found: { url: string; current: boolean; reason: string }[];
+      current: string;
+    };
+    expect(body.found).toHaveLength(1);
+    expect(body.found[0]!.url).toBe(base);
+    expect(body.found[0]!.current).toBe(true);
+    expect(body.found[0]!.reason, "one item is not a fact anybody can act on").toContain("attached");
+
+    // What "Use this daemon" posts — a refusal, not a 405 and not a lie, and
+    // the refusal says what to do instead.
+    const refused = await fetch(`${server.state.url}daemon`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "http://127.0.0.1:9999" }),
+    });
+    expect(refused.status).toBe(400);
+    const refusal = (await refused.json()) as { error: string; remedy: string; current: string };
+    expect(refusal.error).toContain("cannot change daemon while it runs");
+    expect(refusal.error).toContain("isocan voice --port");
+    expect(refusal.error, "the value asked for is named back").toContain("http://127.0.0.1:9999");
+    expect(refusal.remedy).toBe("isocan voice --port <port>");
+    expect(refusal.current).toBe(base);
+
+    // And it was not applied: the harness is still attached where it was.
+    const after = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(after.daemon).toBe(base);
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries as any[];
+    const row = entries.find((e) => e.name === "daemon_change");
+    expect(row.result.ok).toBe(false);
+    expect(row.args.via).toBe("settings");
+  });
+
+  it("takes an enrolment from the page: POST /enrol stands the agent up, once, and says what is missing", async () => {
+    const server = await serve();
+    const before = ((await (await fetch(`${server.state.url}state`)).json()) as any).agent as { id: string; enrolled: boolean };
+    expect(before.enrolled, "nothing has enrolled it yet").toBe(false);
+
+    // What the drawer's "Enrol from here" posts.
+    const enrolled = await fetch(`${server.state.url}enrol`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Voice" }),
+    });
+    expect(enrolled.status).toBe(200);
+    const body = (await enrolled.json()) as { enrolled: boolean; adapter: { declared: boolean }; answer: string };
+    expect(body.enrolled).toBe(true);
+    // Nothing has declared the voice adapter in this home, and the answer says
+    // so rather than implying the agent can be summoned.
+    expect(body.adapter.declared).toBe(false);
+    expect(body.answer).toContain("acpAdapters");
+
+    // The canvas now carries the standing — an op everybody can read.
+    const snap = (await (
+      await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })
+    ).json()) as { canvas: { agents?: Record<string, { actor: { id: string; name: string } }> } };
+    expect(snap.canvas.agents?.[before.id]?.actor.name).toBe("Voice");
+    expect((await log())[0]!.type).toBe("project.create");
+    expect((await log()).at(-1)!.type).toBe("agent.enroll");
+
+    // And the machine's half, at the harness's own working directory.
+    const rows = await readRcAgents(home);
+    const row = rows.find((r) => r.actorId === before.id)!;
+    expect(row.name).toBe("Voice");
+    expect(row.harness).toBe("voice");
+    expect(rows.filter((r) => r.actorId === before.id), "one row, not two").toHaveLength(1);
+
+    // The page's own facts follow, which is what removes the step.
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(state.agent.enrolled, "the drawer's step disappears because the fact changed").toBe(true);
+
+    // Enrolling twice is the same enrolment, not a second one.
+    const again = await fetch(`${server.state.url}enrol`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Voice" }),
+    });
+    expect(again.status).toBe(200);
+    expect((await readRcAgents(home)).filter((r) => r.actorId === before.id)).toHaveLength(1);
+  });
+
+  it("takes a canvas choice from the page: GET /canvases offers them, POST /canvas moves the session", async () => {
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_old", title: "Put away" },
+    });
+    await post("/api/ops", {
+      canvasId: "prj_old",
+      actor: seeder,
+      op: { type: "project.update", patch: shelvePatch(new Date().toISOString()) },
+    });
+    const server = await serve();
+
+    // What the drawer's picker reads.
+    const listed = await fetch(`${server.state.url}canvases`);
+    expect(listed.status).toBe(200);
+    const offered = (await listed.json()) as { canvases: { id: string; title: string; current: boolean }[]; current: string };
+    expect(offered.current).toBe("prj_1");
+    // The two this test made, newest first, and NOT the one put away — other
+    // canvases in the home (the fixture's own directory canvas) are beside the
+    // point.
+    const mine = offered.canvases
+      .filter((c) => ["Launch plan", "Voice test", "Put away"].includes(c.title))
+      .map((c) => c.title);
+    expect(mine).toEqual(["Launch plan", "Voice test"]);
+    expect(offered.canvases.filter((c) => c.current).map((c) => c.id)).toEqual(["prj_1"]);
+
+    // And what pressing "Use this canvas" posts.
+    const moved = await fetch(`${server.state.url}canvas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "prj_2" }),
+    });
+    expect(moved.status).toBe(200);
+    const body = (await moved.json()) as { canvas: { id: string; title: string }; previous: { id: string } };
+    expect(body.canvas).toEqual({ id: "prj_2", title: "Launch plan" });
+    expect(body.previous.id).toBe("prj_1");
+
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(state.canvas.id, "the session moved, and the page that asked is told").toBe("prj_2");
+    const after = (await (await fetch(`${server.state.url}canvases`)).json()) as { current: string };
+    expect(after.current).toBe("prj_2");
+
+    // The picker's own list can still see where it came from.
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries as any[];
+    const row = entries.find((e) => e.name === "project_switch" && e.result?.ok === true);
+    expect(row.args.via).toBe("settings");
+    expect(row.result.from).toBe("prj_1");
+
+    // A reference nobody matches is refused with the words every surface uses.
+    const missing = await fetch(`${server.state.url}canvas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "nothing like this" }),
+    });
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { error: string }).error).toContain("no canvas matches");
+  });
+
   it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
     const server = await serve();
     const page = await (await fetch(server.state.url)).text();
