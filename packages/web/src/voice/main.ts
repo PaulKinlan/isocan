@@ -30,11 +30,26 @@ import {
   type SessionState,
   type State,
 } from "../lib/voice.ts";
-import { Playback, capture, fromBytes, inputs, rmsOf, toBytes, type Capture, type Input, type ScheduleInfo } from "../lib/voiceAudio.ts";
+import {
+  Playback,
+  canRouteOutput,
+  capture,
+  fromBytes,
+  listDevices,
+  rmsOf,
+  toBytes,
+  type Capture,
+  type Input,
+  type Output,
+  type ScheduleInfo,
+} from "../lib/voiceAudio.ts";
 
 /** The input waveform's recent energy samples; not a calibrated dB scale. */
 export const BARS = 28;
 const DEVICE_KEY = "isocan.voice.deviceId";
+const DEVICE_NAME_KEY = "isocan.voice.deviceName";
+const OUTPUT_KEY = "isocan.voice.outputId";
+const OUTPUT_NAME_KEY = "isocan.voice.outputName";
 /**
  * **The daemon the person asked for, remembered in this browser.**
  *
@@ -168,13 +183,33 @@ export function buildWords(): string {
   return commit ? `${branch} @ ${commit}` : branch;
 }
 
-/** A device id is a preference, not a secret, and not worth failing a render for. */
-function storedDevice(): string {
+/**
+ * **A device choice is an id AND the name it had when it was made.**
+ *
+ * The id is what `getUserMedia` and `setSinkId` take; the name is what the
+ * page can still say about it afterwards. Headphones that leave take their id
+ * out of `enumerateDevices()` with them, and "«name» is not connected" is only
+ * sayable if the name was kept — which is the whole difference between a
+ * visible state and a silent revert to the system default.
+ *
+ * Neither is a secret, and neither is worth failing a render for.
+ */
+function stored(key: string): string {
   if (typeof localStorage === "undefined") return "";
   try {
-    return localStorage.getItem(DEVICE_KEY) ?? "";
+    return localStorage.getItem(key) ?? "";
   } catch {
     return "";
+  }
+}
+
+function store(key: string, value: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // A preference that cannot be stored is not worth failing a switch for.
   }
 }
 
@@ -194,6 +229,9 @@ export function wireVoice(doc: Document = document): VoicePage {
   const muteButton = required<HTMLButtonElement>("mute", doc);
   const endButton = required<HTMLButtonElement>("end", doc);
   const deviceSelect = required<HTMLSelectElement>("device", doc);
+  const outputSelect = required<HTMLSelectElement>("output", doc);
+  const deviceNoteLine = required<HTMLElement>("device-note", doc);
+  const micFact = required<HTMLElement>("mic-fact", doc);
   const inputWave = required<SVGPathElement>("input-wave", doc);
   const outputWave = required<SVGPathElement>("output-wave", doc);
   const captions = required<HTMLElement>("captions", doc);
@@ -250,7 +288,15 @@ export function wireVoice(doc: Document = document): VoicePage {
   let muting = false;
   let entries: LogEntry[] = [];
   let mics: Input[] = [];
-  let chosenId = storedDevice();
+  let speakers: Output[] = [];
+  /** True once the browser has shown a device name; false = ids are hidden too. */
+  let devicesNamed = false;
+  /** The last rows drawn, so a poll that changes nothing touches no DOM. */
+  let devicesSignature = "";
+  let chosenId = stored(DEVICE_KEY);
+  let chosenOutputId = stored(OUTPUT_KEY);
+  /** A route the browser refused, said out loud rather than swallowed. */
+  let outputProblem = "";
   /** The current harness stores Gemini keys; the field also supports older builds. */
   const provider = "gemini";
   /** Read once, before any request goes out: the stored value wins. */
@@ -325,11 +371,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     muteButton.disabled = opening || muting || (session !== "live" && session !== "muted");
     endButton.disabled = !opening && (session === "idle" || session === "ended");
     muteButton.textContent = muted ? "Unmute" : "Mute";
-    stateLine.textContent = stateWords(
-      activity,
-      muted,
-      mics.find((one) => one.id === chosenId)?.label ?? "the default microphone",
-    );
+    stateLine.textContent = stateWords(activity, muted, micWords());
   }
 
   /** The activity changed for a reason; say it once, in one place. */
@@ -657,6 +699,9 @@ export function wireVoice(doc: Document = document): VoicePage {
         complaint = "";
         renderComplaint();
       }
+      // The same tick re-reads the devices, because a removed one is not
+      // guaranteed to announce itself: see `lookForDevices`.
+      await lookForDevices();
     } catch (err) {
       if (disposed || epoch !== generation) return;
       stateComplaint = true;
@@ -683,30 +728,280 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   };
 
-  /** Labels arrive only after permission, so this runs on load and after capture. */
-  async function lookForMics(): Promise<void> {
+  /**
+   * **What to call the microphone this page is listening through.**
+   *
+   * The id is the choice; the name can come from the browser's list, from the
+   * choice as it was stored, or from nowhere — and the last one is said as
+   * such rather than filled in. A device that is no longer in the list is
+   * named with the fact attached, because "listening" beside a device that is
+   * gone is a claim this page cannot make.
+   */
+  function micWords(): string {
+    if (!chosenId) return "the system default microphone";
+    const name =
+      mics.find((one) => one.id === chosenId)?.label ||
+      stored(DEVICE_NAME_KEY) ||
+      "the microphone this browser remembered";
+    return missingMicId() ? `${name} (not connected)` : name;
+  }
+
+  /** A device's name, from the list in hand, the stored choice, or neither. */
+  function nameOf(id: string, found: { id: string; label: string }[], key: string): string {
+    return found.find((one) => one.id === id)?.label || stored(key) || "the chosen device";
+  }
+
+  /**
+   * **The chosen device, when the browser's own list says it is gone.**
+   *
+   * Empty covers two different things on purpose: nothing was chosen, and
+   * nothing can be known — before the browser has shown a single name, its
+   * ids are hidden too, so a stored id that is not in the list proves nothing.
+   * Claiming a device is gone on that evidence would be the page inventing a
+   * fact, which is the one thing this control must not do.
+   */
+  function missing(output: boolean): string {
+    const chosen = output ? chosenOutputId : chosenId;
+    if (!devicesNamed || !chosen) return "";
+    const found = output ? speakers : mics;
+    return found.some((one) => one.id === chosen) ? "" : chosen;
+  }
+  const missingMicId = (): string => missing(false);
+  const missingOutputId = (): string => missing(true);
+
+  /** What the next session routes to: the choice, unless it is known to be gone. */
+  function wantedOutput(): string {
+    return missingOutputId() ? "" : chosenOutputId;
+  }
+
+  interface DeviceRow {
+    value: string;
+    text: string;
+    /** A device that is not there: named, so the state is visible, not choosable. */
+    gone: boolean;
+  }
+
+  /**
+   * **The rows of one picker, and the two reasons a device is missing from it.**
+   *
+   * An unnamed device is not drawn at all: a blank row cannot be told from
+   * another blank row, and numbering them claims a position that means
+   * nothing. The chosen device is drawn even when it is absent — a gone
+   * speaker that vanished from the picker would be a silent revert to the
+   * default; a gone speaker named in it is a state a person can see.
+   */
+  function deviceRows(kind: "input" | "output"): DeviceRow[] {
+    const found: { id: string; label: string }[] = kind === "input" ? mics : speakers;
+    const chosen = kind === "input" ? chosenId : chosenOutputId;
+    const nameKey = kind === "input" ? DEVICE_NAME_KEY : OUTPUT_NAME_KEY;
+    const rows: DeviceRow[] = [
+      { value: "", text: kind === "input" ? "System default microphone" : "System default", gone: false },
+    ];
+    for (const one of found) rows.push({ value: one.id, text: one.label, gone: false });
+    if (chosen && !found.some((one) => one.id === chosen)) {
+      rows.push({
+        value: chosen,
+        text: devicesNamed
+          ? `${nameOf(chosen, found, nameKey)} — not connected`
+          : nameOf(chosen, found, nameKey),
+        gone: devicesNamed,
+      });
+    }
+    return rows;
+  }
+
+  function fillSelect(select: HTMLSelectElement, rows: DeviceRow[]): void {
+    select.replaceChildren();
+    for (const row of rows) {
+      const option = doc.createElement("option");
+      option.value = row.value;
+      option.textContent = row.text;
+      option.disabled = row.gone;
+      select.appendChild(option);
+    }
+  }
+
+  /**
+   * **Every state this row has to confess, one sentence per fact.**
+   *
+   * Nothing here is inferred: each sentence is a thing the page checked — the
+   * browser withheld the names, it has no output routing, the chosen device is
+   * no longer in the list, a route was refused. Empty is the good state.
+   */
+  function deviceNote(): string {
+    const said: string[] = [];
+    if (!devicesNamed) {
+      said.push("Your device names are hidden until this page is allowed to use the microphone.");
+    }
+    if (!canRouteOutput()) {
+      said.push("This browser cannot choose an output device, so the reply plays on the system default.");
+    }
+    if (missingOutputId()) {
+      said.push(
+        `${nameOf(chosenOutputId, speakers, OUTPUT_NAME_KEY)} is not connected. The reply is playing on the system default until it comes back.`,
+      );
+    }
+    if (outputProblem) said.push(outputProblem);
+    if (missingMicId()) {
+      // Said, and not acted on: moving a microphone without being asked is a
+      // worse answer than a microphone that stopped working out loud.
+      said.push(
+        `${nameOf(chosenId, mics, DEVICE_NAME_KEY)} is not connected, so nothing is being heard until another microphone is chosen.`,
+      );
+    }
+    return said.join(" ");
+  }
+
+  /** The picker, the note and the Settings fact, rendered from one place. */
+  function renderDevices(): void {
+    const micRows = deviceRows("input");
+    const outputRows = deviceRows("output");
+    const said = deviceNote();
+    const fact = micWords();
+    /*
+     * **A poll that found nothing new must not touch the DOM.**
+     *
+     * The devices are re-read on the state poll (see `refresh`), and that
+     * lands every two seconds for the life of the page. Rebuilding the rows
+     * each time would close a picker somebody had just opened — so the render
+     * is skipped when every fact it would draw is the one already there.
+     */
+    const signature = JSON.stringify([micRows, outputRows, said, fact, chosenId, chosenOutputId, canRouteOutput()]);
+    if (signature === devicesSignature) return;
+    devicesSignature = signature;
+
+    fillSelect(deviceSelect, micRows);
+    deviceSelect.value = chosenId;
+    fillSelect(outputSelect, outputRows);
+    outputSelect.value = chosenOutputId;
+    // A browser without the API keeps the row and loses only the choice: it
+    // says where the reply goes, which is more than a hole would.
+    outputSelect.disabled = !canRouteOutput();
+    deviceNoteLine.hidden = said === "";
+    deviceNoteLine.textContent = said;
+    micFact.textContent = fact;
+  }
+
+  /**
+   * **The device lists, and the one place they are re-read.**
+   *
+   * On load, on `devicechange`, after the first successful capture (the other
+   * moment names appear) — and on the state poll, which is not belt and
+   * braces. Measured in Chrome 152 on Linux: unloading an output device fires
+   * NO `devicechange` at all, while a fresh `enumerateDevices()` does drop it,
+   * so a page that waited for the event would keep saying "headphones" over
+   * sound that had already moved to the speakers. The poll costs one local
+   * call every two seconds and the render below is skipped unless something
+   * actually changed.
+   *
+   * An enumeration failure is not worth a complaint: the page still works on
+   * the default device, which is what a browser without any of this does.
+   */
+  async function lookForDevices(): Promise<void> {
     try {
-      const found = await inputs();
-      mics = found;
-      deviceSelect.replaceChildren();
-      if (found.length === 0) {
-        const option = doc.createElement("option");
-        option.value = "";
-        option.textContent = "microphone 1";
-        deviceSelect.appendChild(option);
-      }
-      for (const one of found) {
-        const option = doc.createElement("option");
-        option.value = one.id;
-        option.textContent = one.label;
-        deviceSelect.appendChild(option);
-      }
-      if (!chosenId && found[0]) chosenId = found[0].id;
-      deviceSelect.value = chosenId;
-      renderHero();
+      const found = await listDevices();
+      mics = found.inputs;
+      speakers = found.outputs;
+      devicesNamed = found.named;
     } catch {
-      // An enumeration failure is not worth a message: the page still works
-      // on the default device, which is what a browser without this does.
+      // Keep the list in hand rather than emptying the picker over it.
+    }
+    renderDevices();
+    renderHero();
+    await settleOutput();
+  }
+
+  /**
+   * **A chosen speaker that went away moves the reply, out loud.**
+   *
+   * Chrome falls back to the system default by itself when a sink disappears —
+   * the exact silent revert this control exists to prevent. The same fallback
+   * happens here, deliberately and by name: the picker keeps showing what was
+   * chosen, the note says it is not connected, and the route is moved to the
+   * default the moment the context would otherwise be pointing at nothing.
+   *
+   * Coming back is the same rule read backwards: the choice was never thrown
+   * away, so the reply returns to the device as soon as it is enumerated
+   * again.
+   */
+  async function settleOutput(): Promise<void> {
+    const player = playback;
+    if (!player) return;
+    const want = wantedOutput();
+    const wentAway = missingOutputId();
+    if (want === player.sinkId) return;
+    try {
+      await player.setSink(want);
+      put({
+        at: new Date().toLocaleTimeString(),
+        event: wentAway
+          ? `${nameOf(wentAway, speakers, OUTPUT_NAME_KEY)} is not connected — the reply moves to the system default`
+          : `output is back on ${nameOf(want, speakers, OUTPUT_NAME_KEY)}`,
+      });
+    } catch (err) {
+      outputProblem = routeFailed(want, err, player.sinkId);
+      renderDevices();
+      put({ at: new Date().toLocaleTimeString(), event: outputProblem, error: outputProblem });
+    }
+  }
+
+  /** Where a device id actually points, in words a person can read. */
+  function speakerWords(id: string): string {
+    return id ? nameOf(id, speakers, OUTPUT_NAME_KEY) : "the system default";
+  }
+
+  /**
+   * **A route that did not happen, said with where the sound IS.**
+   *
+   * Three sentences need this and they must not disagree. A route that fails
+   * leaves the context on the device it was already on, so a sentence that
+   * repeated the person's wish would claim a device their reply never
+   * reached — which is exactly the lie this row exists to prevent.
+   */
+  function routeFailed(deviceId: string, err: unknown, actual: string): string {
+    return `${speakerWords(deviceId)} could not be used (${whyWords(err)}). The reply is playing on ${speakerWords(actual)}.`;
+  }
+
+  /** One error's own words; a thrown string is not a sentence until it is one. */
+  function whyWords(err: unknown): string {
+    return String((err as Error)?.message ?? err);
+  }
+
+  /**
+   * **The reply's device, changed without touching the conversation.**
+   *
+   * Playback is Web Audio, so this is the CONTEXT's `setSinkId` and the audio
+   * continues on the new device. A refusal is reported as where the reply is
+   * ACTUALLY going — the context keeps the device it was on — because a
+   * sentence that repeated the person's wish would be the lie this page is
+   * built not to tell.
+   */
+  async function chooseSpeaker(deviceId: string): Promise<void> {
+    chosenOutputId = deviceId;
+    store(OUTPUT_KEY, deviceId);
+    store(OUTPUT_NAME_KEY, deviceId ? nameOf(deviceId, speakers, OUTPUT_NAME_KEY) : "");
+    outputProblem = "";
+    renderDevices();
+    const player = playback;
+    if (!player) {
+      // Nothing is playing yet: the next session builds its playback with this
+      // choice, and the picker already shows it.
+      put({
+        at: new Date().toLocaleTimeString(),
+        event: deviceId ? `output set to ${speakerWords(deviceId)}` : "output set to the system default",
+      });
+      return;
+    }
+    try {
+      await player.setSink(deviceId);
+      put({
+        at: new Date().toLocaleTimeString(),
+        event: deviceId ? `output changed to ${speakerWords(deviceId)}` : "output back on the system default",
+      });
+    } catch (err) {
+      outputProblem = routeFailed(deviceId, err, player.sinkId);
+      renderDevices();
+      put({ at: new Date().toLocaleTimeString(), event: outputProblem, error: outputProblem });
     }
   }
 
@@ -890,7 +1185,15 @@ export function wireVoice(doc: Document = document): VoicePage {
       return;
     }
 
-    const player = new Playback();
+    const player = new Playback(wantedOutput());
+    // A route the browser refuses when the context appears must not end the
+    // session: the reply plays where the context already points, and the row
+    // says both the device that failed and the one it is playing on.
+    player.onSinkError = (err) => {
+      outputProblem = routeFailed(wantedOutput(), err, player.sinkId);
+      renderDevices();
+      put({ at: new Date().toLocaleTimeString(), event: outputProblem, error: outputProblem });
+    };
     let audioWork = Promise.resolve();
     let pendingPCM: Int16Array | null = null;
     playback = player;
@@ -914,7 +1217,7 @@ export function wireVoice(doc: Document = document): VoicePage {
         if (held === captured) held = null;
         return;
       }
-      void lookForMics();
+      void lookForDevices();
       // Retain the actual context rate for diagnosis. A keyless capture
       // exposed 44.1 kHz corruption; the historical silent session's rate
       // and PCM were not retained, so its cause remains unknown.
@@ -992,13 +1295,10 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   async function chooseMic(deviceId: string): Promise<void> {
     chosenId = deviceId;
-    try {
-      localStorage.setItem(DEVICE_KEY, deviceId);
-    } catch {
-      // A preference that cannot be stored is not worth failing the switch for.
-    }
+    store(DEVICE_KEY, deviceId);
+    store(DEVICE_NAME_KEY, deviceId ? nameOf(deviceId, mics, DEVICE_NAME_KEY) : "");
     if (session !== "live" && session !== "muted") {
-      await lookForMics();
+      await lookForDevices();
       return;
     }
     try {
@@ -1006,10 +1306,12 @@ export function wireVoice(doc: Document = document): VoicePage {
       const captured = await startCapture(deviceId);
       if (!captured) return;
       put({ at: new Date().toLocaleTimeString(), event: `microphone changed to ${captured.label}` });
-      await lookForMics();
+      await lookForDevices();
     } catch (err) {
-      // Fall back to the default rather than leaving the session silent.
-      const why = String((err as Error).message ?? err);
+      // Fall back to the default rather than leaving the session silent, and
+      // say so: the choice that failed is still the picker's selection, so the
+      // log line is the only place the truth would otherwise be lost.
+      const why = whyWords(err);
       put({ at: new Date().toLocaleTimeString(), event: `could not use that microphone: ${why}`, error: why });
       try {
         const captured = await startCapture();
@@ -1533,6 +1835,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   muteButton.addEventListener("click", () => void toggleMute());
   endButton.addEventListener("click", () => void end());
   deviceSelect.addEventListener("change", () => void chooseMic(deviceSelect.value));
+  outputSelect.addEventListener("change", () => void chooseSpeaker(outputSelect.value));
   keyInput.addEventListener("input", renderSave);
   saveKeyButton.addEventListener("click", () => void save());
   testKeyButton.addEventListener("click", () => void test());
@@ -1550,14 +1853,14 @@ export function wireVoice(doc: Document = document): VoicePage {
   confirmDeny.addEventListener("click", () => void answerConfirm(false));
   openButton.addEventListener("click", () => void openProject());
 
-  const onDeviceChange = () => void lookForMics();
+  const onDeviceChange = () => void lookForDevices();
   navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
 
   const stateTimer = setInterval(() => void refresh(), 2000);
   const logTimer = setInterval(() => void pollLog(), 2000);
   void refresh();
   void pollLog();
-  void lookForMics();
+  void lookForDevices();
   // What the harness can do is asked once, so the setup panel can choose
   // between a working control and the command that does the same thing.
   void probeSetup();

@@ -6656,6 +6656,124 @@ body:has(> .voice) { overflow: auto; }
   font-size: var(--t-xs);
 }
 .voice-signal-key span:first-child { color: var(--accent-text); }
+
+/* THE TWO ENDS OF THE SOUND, beside the microphone rather than in Settings:
+   choosing a device is part of using voice, not configuring it. Quiet on
+   purpose — a hairline pill, a glyph and the browser's own control — because
+   the ring above them is the page's one loud thing and this must not compete
+   with it. */
+.voice-devices {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s2);
+  min-width: 0;
+  max-width: min(100%, 560px);
+}
+.voice-device {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  /* Tall enough to be a target, short enough not to be a button: the ring
+     above is the page's one loud thing. */
+  min-block-size: 34px;
+  padding: 0 var(--s3) 0 var(--s2);
+  /* A hairline of `--line` is the app's edge everywhere else, but every other
+     control sits on a card: over the hero's open ground it measured almost
+     invisible, and a pill whose only edge you cannot see reads as a label.
+     Mixed toward the muted ink it stays quiet and keeps its shape in both
+     themes. */
+  border: 1px solid color-mix(in srgb, var(--card) 72%, var(--ink-muted));
+  border-radius: 999px;
+  background: var(--card);
+  /* One pixel of lift is the rest of what makes it read as something a person
+     can open. */
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 7%, transparent);
+  transition: border-color 160ms ease-out;
+}
+/* The focus lands on the pill, not on a box inside it: the whole control is
+   one thing to look at, and the browser's own outline would draw a rectangle
+   around the select alone. */
+.voice-device:focus-within { border-color: var(--accent); }
+.voice-device:focus-within select { outline: none; }
+.voice-device-glyph {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.voice-device select {
+  font: inherit;
+  font-size: var(--t-xs);
+  min-width: 0;
+  max-width: 30ch;
+  padding: var(--s1) 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  /* One line, however long the name: a pill that wraps mid-phrase grows a
+     second line and stops matching the pill beside it. A long name is
+     truncated — but NOT by `overflow: hidden` here, which also clipped the
+     picker's own arrow off the one pill that was hiding text. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.voice-device select:disabled { color: var(--ink-muted); cursor: default; }
+/* The device that is named but not there: still the selection, still readable,
+   and not something a person can pick again while it is absent. */
+.voice-device option:disabled { color: var(--ink-muted); }
+/* What the row cannot do or has lost, in one place: never a silent default. */
+.voice-device-note {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--t-xs);
+  text-wrap: pretty;
+}
+
+/* The customizable select (Chrome 135+): the picker is drawn to match the card
+   instead of borrowing the platform's, and the arrow stops carrying the OS's
+   own weight. Everywhere else a person gets the native control they already
+   know — the markup, the options and the behaviour are the same either way. */
+@supports (appearance: base-select) {
+  .voice-device select,
+  .voice-device select::picker(select) { appearance: base-select; }
+  .voice-device select::picker(select) {
+    margin-top: var(--s2);
+    padding: var(--s1);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 13%, transparent);
+  }
+  .voice-device select::picker-icon { color: var(--ink-muted); }
+  /* Open, said on the pill itself: the arrow darkens and the edge takes the
+     accent, so a person can see which of the two pickers is down. */
+  .voice-device select:open::picker-icon { color: var(--ink); }
+  .voice-device:has(select:open) { border-color: var(--accent); }
+  .voice-device option { padding: var(--s2); border-radius: var(--radius); }
+  .voice-device option:checked { color: var(--accent-text); }
+}
+
+/* Visually hidden, present for assistive tech: a glyph is a picture, and a
+   picture is not a name for a form control. */
+.voice-only:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
 .voice-caption-slot {
   width: min(100%, 520px);
   block-size: calc(var(--s6) * 5);
@@ -6826,22 +6944,9 @@ body:has(> .voice) { overflow: auto; }
 }
 .voice-open:hover { border-color: var(--accent); }
 .voice-id { font-family: ui-monospace, monospace; color: var(--ink-muted); font-size: var(--t-xs); }
-.voice-ok { color: var(--good); }
 .voice-bad { color: var(--danger); }
 .voice-hint { color: var(--ink-muted); font-size: var(--t-sm); margin: 0; overflow-wrap: anywhere; }
-.voice-pick { display: grid; gap: var(--s1); min-width: 0; }
-.voice-pick-label { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
-.voice-pick select {
-  font: inherit;
-  font-size: var(--t-sm);
-  width: 100%;
-  min-width: 0;
-  padding: var(--s1) var(--s2);
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--ink-muted);
-}
+.voice-ok { color: var(--good); }
 
 /* The setup half: what is missing, what the harness cannot do yet, and the
    command that does it by hand. Visible, never a silent absence. */
@@ -6968,6 +7073,12 @@ body:has(.voice-settings[open]) { overflow: hidden; }
   .voice-drawers { padding-bottom: var(--s4); }
   .voice-hero { padding: var(--s4) 0; gap: var(--s3); }
   .voice-glyph { width: 38px; height: 38px; }
+  /* One pill per line, the width of the row: a phone has no room for two
+     half-width pills and a device name at the same time, and the name is what
+     the row is for. Both stay a thumb's worth tall. */
+  .voice-devices { width: 100%; }
+  .voice-device { width: 100%; min-height: 44px; }
+  .voice-device select { flex: 1 1 auto; max-width: none; }
   .voice-facts { grid-template-columns: minmax(0, 1fr); }
   .voice-caption-slot { block-size: calc(var(--s6) * 5); }
 }

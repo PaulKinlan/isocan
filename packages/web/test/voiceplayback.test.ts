@@ -22,8 +22,20 @@ class FakeContext {
   currentTime = 0;
   state = "running";
   destination = {};
+  /** What `AudioContext.setSinkId` leaves behind, and the page reads back. */
+  sinkId = "";
   readonly started: number[] = [];
   readonly stopped: unknown[] = [];
+
+  constructor(routable = true) {
+    // A browser without the API: the method is simply not there, which is
+    // what the page feature-detects rather than a flag it has to agree on.
+    if (!routable) (this as { setSinkId?: unknown }).setSinkId = undefined;
+  }
+
+  async setSinkId(id: string): Promise<void> {
+    this.sinkId = id;
+  }
 
   createBuffer(_channels: number, length: number, rate: number) {
     return { duration: length / rate, getChannelData: () => new Float32Array(length) };
@@ -48,8 +60,8 @@ class FakeContext {
 /** 0.1 s of 24 kHz PCM, the granularity the Live API sends. */
 const chunk = (): Int16Array => new Int16Array(2400).fill(1000);
 
-function fake(): FakeContext {
-  const context = new FakeContext();
+function fake(options: { routable?: boolean } = {}): FakeContext {
+  const context = new FakeContext(options.routable ?? true);
   vi.stubGlobal("AudioContext", function AudioContext() {
     return context;
   } as unknown as typeof AudioContext);
@@ -127,5 +139,62 @@ describe("playback schedules each chunk after the last", () => {
     context.currentTime = 1;
     await playback.push(chunk());
     expect(seen[2]!.start).toBeCloseTo(1 + START_CUSHION, 9);
+  });
+});
+
+/**
+ * **Where the reply comes out.**
+ *
+ * Playback is Web Audio, so this is the CONTEXT's `setSinkId` — never an
+ * `<audio>` element's — and a context is not built until the first chunk of a
+ * reply arrives, which is long after the picker beside the microphone was
+ * used. These are the three moments that has to work at.
+ */
+describe("the reply goes to the device that was chosen", () => {
+  it("applies a stored choice when the context appears", async () => {
+    const context = fake();
+    const playback = new Playback("spk-a");
+    // Nothing is playing yet, so there is no sink to report — `sinkId` answers
+    // about the context, not about the wish, which is why the page asks it
+    // before it tells anyone where their reply is going.
+    expect(playback.sinkId).toBe("");
+
+    await playback.push(chunk());
+    expect(context.sinkId).toBe("spk-a");
+    expect(playback.sinkId).toBe("spk-a");
+  });
+
+  it("moves a reply that is already playing, and can move it back", async () => {
+    const context = fake();
+    const playback = new Playback();
+    await playback.push(chunk());
+    expect(context.sinkId).toBe("");
+
+    await playback.setSink("spk-b");
+    expect(context.sinkId).toBe("spk-b");
+
+    // "" is a choice too, and it is the one that has to move the context
+    // BACK: leaving it is how a page ends up playing on a speaker the person
+    // just turned off.
+    await playback.setSink("");
+    expect(context.sinkId).toBe("");
+  });
+
+  it("plays on the default and says so when the browser has no routing", async () => {
+    const context = fake({ routable: false });
+    const playback = new Playback("spk-a");
+    const refused: string[] = [];
+    playback.onSinkError = (err) => refused.push(String((err as Error).message));
+
+    // The chunk still plays: a route the browser will not take must not be
+    // able to end a conversation.
+    await playback.push(chunk());
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toContain("cannot send audio to a chosen speaker");
+    expect(context.started).toHaveLength(1);
+
+    // A press in the picker DOES reject: that is the moment there is somebody
+    // to tell, and the page turns it into a sentence.
+    await expect(playback.setSink("spk-b")).rejects.toThrow(/cannot send audio to a chosen speaker/);
   });
 });

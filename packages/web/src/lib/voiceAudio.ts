@@ -14,24 +14,81 @@ export interface Input {
   label: string;
 }
 
+/** A speaker, as the browser is willing to describe one. */
+export interface Output {
+  id: string;
+  label: string;
+}
+
 /**
- * **The microphones, and the trap that makes them look nameless.**
+ * **What `enumerateDevices()` is willing to say, and whether it said it.**
  *
- * Device labels are empty until the browser has been given microphone
- * permission once — so this is called on load AND again after the first
- * successful capture, which is the moment the names appear. Before that a
- * person still has to be able to choose, so unnamed inputs are numbered
- * rather than rendered as blanks.
+ * `named` is the whole point of this shape. Until the page has been allowed a
+ * microphone (or camera) the browser answers with entries whose `deviceId`
+ * AND `label` are both empty — measured in Chrome 152 on Linux, which returns
+ * exactly one nameless entry per kind. A page that rendered those would offer
+ * a list of identical blank rows, and numbering them ("microphone 1") invents
+ * a position that nothing can be told apart by. So when nothing is named the
+ * lists come back EMPTY and the page says why instead of guessing.
+ *
+ * `default` and `communications` are dropped from both lists: they are the
+ * system default wearing another name, and the page draws its own row for
+ * that with words a person can read.
  */
-export async function inputs(): Promise<Input[]> {
-  if (!navigator.mediaDevices?.enumerateDevices) return [];
+interface DeviceList {
+  inputs: Input[];
+  outputs: Output[];
+  named: boolean;
+}
+
+const DEFAULT_ALIASES = new Set(["default", "communications"]);
+
+/** A device without a name is not given one; it says the browser withheld it. */
+const UNNAMED_MIC = "unnamed microphone";
+const UNNAMED_SPEAKER = "unnamed speaker";
+
+/**
+ * **The one place devices are enumerated**, with the rule above applied and
+ * the system-default aliases dropped.
+ */
+export async function listDevices(): Promise<DeviceList> {
+  if (!navigator.mediaDevices?.enumerateDevices) return { inputs: [], outputs: [], named: false };
   const found = await navigator.mediaDevices.enumerateDevices();
-  return found
-    .filter((device) => device.kind === "audioinput")
-    .map((device, index) => ({
-      id: device.deviceId,
-      label: device.label || `microphone ${index + 1}`,
-    }));
+  const named = found.some((device) => device.label.trim() !== "");
+  if (!named) return { inputs: [], outputs: [], named: false };
+  return {
+    named: true,
+    inputs: found
+      .filter((device) => device.kind === "audioinput" && !DEFAULT_ALIASES.has(device.deviceId))
+      .map((device) => ({ id: device.deviceId, label: device.label || UNNAMED_MIC })),
+    outputs: found
+      .filter((device) => device.kind === "audiooutput" && !DEFAULT_ALIASES.has(device.deviceId))
+      .map((device) => ({ id: device.deviceId, label: device.label || UNNAMED_SPEAKER })),
+  };
+}
+
+/** The DOM lib in this TypeScript has `setSinkId` on elements only. */
+interface SinkableContext extends AudioContext {
+  readonly sinkId?: string;
+  setSinkId?: (sinkId: string) => Promise<void>;
+}
+
+/**
+ * **Whether this browser can send Web Audio to a chosen speaker at all.**
+ *
+ * Playback in this page is `AudioBufferSourceNode`, and a Web Audio graph is
+ * routed by the CONTEXT's `setSinkId` — never an `<audio>` element's.
+ * Chrome 110+ has it; the page was measured on Chrome 152, where the earlier
+ * `selectAudioOutput()` door does not exist (the Speaker Selection API behind
+ * it is not enabled), so a hand-built picker over `enumerateDevices()` is the
+ * only way to offer a choice. Firefox and Safari do not have the API yet,
+ * which is what the page says out loud rather than hiding.
+ */
+export function canRouteOutput(): boolean {
+  return (
+    typeof AudioContext !== "undefined" &&
+    typeof (AudioContext.prototype as SinkableContext).setSinkId === "function"
+  );
 }
 
 /**
@@ -311,6 +368,12 @@ export interface ScheduleInfo {
 export class Playback {
   private context: AudioContext | null = null;
   private playing: AudioBufferSourceNode[] = [];
+  /** Where the reply comes out; `""` is the system default. */
+  private sink: string;
+  /** What the live context is actually routed to, so nothing is re-applied. */
+  private routed: string | null = null;
+  /** A stored route the browser would not take, told to the page rather than thrown. */
+  onSinkError?: (error: unknown) => void;
   /**
    * **Where the next chunk starts: the end of the last one.**
    *
@@ -330,14 +393,79 @@ export class Playback {
   /** Every chunk's schedule: sequence, bytes, when it was asked to start. */
   onSchedule?: (info: ScheduleInfo) => void;
 
+  constructor(sink = "") {
+    this.sink = sink;
+  }
+
   /** The actual playback clock; unlike wall time it pauses with the context. */
   get currentTime(): number {
     return this.context?.currentTime ?? 0;
   }
 
+  /**
+   * **The device the live context is playing out of — the truth, not the wish.**
+   *
+   * A refused route leaves the context where it was, and a page that reported
+   * the requested id would then tell a person their reply is on headphones
+   * that never received it. The context's own `sinkId` answers first; `routed`
+   * is only the fallback for a browser that can set a sink but not read one.
+   */
+  get sinkId(): string {
+    const context = this.context as SinkableContext | null;
+    if (context && typeof context.sinkId === "string") return context.sinkId;
+    return this.routed ?? "";
+  }
+
+  /**
+   * **Choosing where the reply goes does not restart it.**
+   *
+   * `""` is the system default, which is the honest way to stop choosing.
+   * Before the first chunk the context does not exist yet, so the id is kept
+   * and applied by `ready()`; after it, the running context is re-routed and
+   * the audio continues on the new device.
+   */
+  async setSink(deviceId: string): Promise<void> {
+    this.sink = deviceId;
+    this.routed = null;
+    if (this.context) await this.apply();
+  }
+
+  /**
+   * The one place `setSinkId` is called.
+   *
+   * `""` is passed through like any other id, because that is what moves a
+   * running context BACK to the system default; the only case that needs no
+   * call is a browser without the API, where the default is already where the
+   * context is — and where a request for a specific device has to be refused.
+   */
+  private async apply(): Promise<void> {
+    const context = this.context as SinkableContext | null;
+    if (!context || this.routed === this.sink) return;
+    if (typeof context.setSinkId === "function") {
+      await context.setSinkId(this.sink);
+    } else if (this.sink) {
+      throw new Error("this browser cannot send audio to a chosen speaker");
+    }
+    this.routed = this.sink;
+  }
+
   private async ready(): Promise<AudioContext> {
-    if (!this.context) this.context = new AudioContext({ sampleRate: 24000 });
+    if (!this.context) {
+      this.context = new AudioContext({ sampleRate: 24000 });
+      this.routed = null;
+    }
     if (this.context.state === "suspended") await this.context.resume();
+    // A stored choice is applied when the context appears — which is the first
+    // chunk of the reply, long after the picker was used. A browser that
+    // refuses must not take the session down with it: the reply plays on the
+    // default and the page is told, so it can say so.
+    if (this.sink && this.routed !== this.sink) {
+      try {
+        await this.apply();
+      } catch (err) {
+        this.onSinkError?.(err);
+      }
+    }
     return this.context;
   }
 
