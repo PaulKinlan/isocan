@@ -1,15 +1,16 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
-const gitBranch = () => {
-  try { return execSync("git branch --show-current").toString().trim() || "feat/voice-agent"; }
-  catch { return "feat/voice-agent"; }
+// The config's checkout, even when Vite was launched from another directory.
+const checkout = new URL("../../", import.meta.url);
+const git = (args: string[]): string | null => {
+  try { return execFileSync("git", args, { cwd: checkout, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+  catch { return null; }
 };
-
-const gitCommit = () => {
-  try { return execSync("git rev-parse --short HEAD").toString().trim() || "unknown"; }
-  catch { return "unknown"; }
+const gitBranch = () => {
+  const branch = git(["branch", "--show-current"]);
+  return branch === null ? "unknown branch" : branch || "(detached)";
 };
 
 /**
@@ -44,11 +45,13 @@ function voiceEntry(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   define: {
     __VOICE_BUILD_INFO__: JSON.stringify({
       branch: gitBranch(),
-      commit: gitCommit(),
+      commit: git(["rev-parse", "--short", "HEAD"]) || "unknown",
+      command,
+      startedAt: new Date().toISOString(),
     }),
   },
   plugins: [react(), voiceEntry()],
@@ -69,4 +72,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

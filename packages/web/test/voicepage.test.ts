@@ -1024,11 +1024,26 @@ describe("the build tag tells the truth about what is being tested", () => {
       commit: "57dd1b50c0ffee",
     };
     try {
-      expect(buildWords()).toBe("feat/voice-ui-vite @ 57dd1b50");
+      expect(buildWords()).toBe("feat/voice-ui-vite @ 57dd1b50\nBuild time not injected");
       expect(element("build-tag")).toBeTruthy();
     } finally {
       delete (globalThis as Record<string, unknown>).__VOICE_BUILD_INFO__;
     }
+  });
+});
+
+describe("the build timestamp is not the browser clock", () => {
+  it.each([["serve", "Dev started"], ["build", "Built"]])("labels %s using its fixed UTC invocation time", (command, label) => {
+    vi.stubGlobal("__VOICE_BUILD_INFO__", { branch: "review", commit: "abcdef012345", command, startedAt: "2026-09-13T19:00:00.000Z" });
+    const expected = `review @ abcdef01\n${label} 2026-09-13 19:00:00 UTC`;
+    expect(buildWords()).toBe(expected);
+    vi.setSystemTime(new Date("2035-01-01T00:00:00Z"));
+    expect(buildWords()).toBe(expected);
+  });
+
+  it("does not invent a timestamp when the injected date is invalid", () => {
+    vi.stubGlobal("__VOICE_BUILD_INFO__", { branch: "review", commit: "abcdef01", command: "build", startedAt: "not-a-date" });
+    expect(buildWords()).toBe("review @ abcdef01\nBuild time not injected");
   });
 });
 
