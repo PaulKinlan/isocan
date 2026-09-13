@@ -6949,20 +6949,53 @@ body:has(> .voice) { overflow: auto; }
   text-align: left;
 }
 .voice-transcript:empty { display: none; }
+/*
+ * **The gate, above the microphone and never off the page.**
+ *
+ * A confirmation nobody can see is worse than no confirmation, because the
+ * person believes there is a gate. Measured before this: in the hero's flow the
+ * prompt sat BELOW the ring at y=650, and at 844×390 the window is 390 tall —
+ * offscreen — while appearing grew the document by 28px (1440) to 133px (390
+ * portrait), so it displaced the very controls it is about.
+ *
+ * So it is a FIXED tray pinned above the microphone's band: it occupies space
+ * that already exists, displaces nothing, and cannot be scrolled away from. One
+ * ROW, because at 390 wide a two-row tray is ~123px tall and the ring starts at
+ * 89 — the compact shape is what keeps the microphone visible underneath it.
+ */
 .voice-confirm {
+  position: fixed;
+  inset-block-start: max(var(--s2), env(safe-area-inset-top, 0px));
+  inset-inline: 0;
+  /* Above the hero's chrome, under the settings dialog. */
+  z-index: var(--z-toast);
+  margin-inline: auto;
+  width: min(calc(100% - var(--s3) * 2), 560px);
   display: grid;
-  gap: var(--s2);
-  width: min(100%, 520px);
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--s2) var(--s3);
   border: 1px solid var(--warn);
   border-radius: var(--radius);
-  padding: var(--s3);
+  padding: var(--s2) var(--s3);
   background: color-mix(in srgb, var(--warn) 8%, var(--card));
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent);
 }
-.voice-confirm-what { margin: 0; font-size: var(--t-md); color: var(--ink); }
-.voice-confirm-acts { display: flex; gap: var(--s2); justify-content: center; }
+/* A question whose session has gone: still readable, and not a thing to press. */
+.voice-confirm[data-stale="true"] { border-color: var(--line); background: var(--card); }
+.voice-confirm[data-stale="true"] .voice-confirm-what { color: var(--ink-muted); }
+/* The words live in ONE cell beside the buttons: a note that took its own grid
+   row made the tray 140px tall when the session ended, which brought it down
+   onto the ring (measured: tray bottom 146, circle top 148). */
+.voice-confirm-say { display: grid; gap: var(--s1); min-width: 0; }
+.voice-confirm-what { margin: 0; font-size: var(--t-sm); color: var(--ink); text-wrap: pretty; }
+.voice-confirm .voice-hint { font-size: var(--t-xs); }
+.voice-confirm-acts { display: flex; gap: var(--s2); justify-content: flex-end; }
 .voice-confirm-acts button {
   font: inherit;
   font-size: var(--t-sm);
+  /* A decision is a touch target at every size, not only under a thumb. */
+  min-block-size: 44px;
   padding: var(--s2) var(--s4);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -6970,6 +7003,9 @@ body:has(> .voice) { overflow: auto; }
   color: var(--ink);
   cursor: pointer;
 }
+/* Readable while clearly unpressable: 0.45 measured at ~1.5:1, which is a
+   label nobody can read rather than a button nobody can press. */
+.voice-confirm-acts button:disabled { opacity: 0.6; cursor: default; }
 #confirm-allow { border-color: var(--warn); color: var(--warn); }
 .voice-turn { margin: 0; font-size: var(--t-sm); line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
 .voice-turn b {
@@ -7206,7 +7242,6 @@ body:has(.voice-settings[open]) { overflow: hidden; }
      alternative was a lone "+" below two lines of truncated text. */
   .voice-summary { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
   .voice-session button { min-height: 44px; padding: var(--s2) var(--s5); }
-  .voice-confirm-acts button { min-height: 44px; }
   .voice-drawers { padding-bottom: var(--s4); }
   .voice-hero { padding: var(--s4) 0; gap: var(--s3); }
   .voice-glyph { width: 38px; height: 38px; }

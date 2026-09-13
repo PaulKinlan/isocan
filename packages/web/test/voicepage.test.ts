@@ -760,6 +760,74 @@ describe("the permission gate and open_url, as the page renders them", () => {
     expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ id: "cfm_1", allow: true });
   });
 
+  it("moves focus to the question, and Escape refuses", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    // Focus was somewhere a person put it.
+    element<HTMLButtonElement>("mute").focus();
+    socket.event({ confirm: { id: "cfm_esc", what: "empty the trash (3 items)" } });
+    await flush();
+    // The QUESTION takes focus, never Allow: a focused button plus a pressed
+    // Enter is consent nobody gave.
+    expect(document.activeElement).toBe(element("confirm-what"));
+    expect(element<HTMLButtonElement>("confirm-allow").disabled).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush();
+    expect(element<HTMLElement>("confirm").hidden).toBe(true);
+    const call = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/confirm"));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ id: "cfm_esc", allow: false });
+    // And the keyboard is handed back to where it was.
+    expect(document.activeElement).toBe(element("mute"));
+  });
+
+  it("keeps a question whose session has ended on screen, and stops it pretending", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    socket.event({ confirm: { id: "cfm_late", what: "empty the trash (3 items)" } });
+    await flush();
+    element<HTMLButtonElement>("end").click();
+    await flush();
+    // The harness holds the pending confirmation on the session's socket, so
+    // once that session is over there is nothing waiting: the prompt stays (it
+    // says what was asked) and cannot be answered into a socket that is gone.
+    expect(element<HTMLElement>("confirm").hidden).toBe(false);
+    expect(element<HTMLElement>("confirm").dataset.stale).toBe("true");
+    expect(element<HTMLButtonElement>("confirm-allow").disabled).toBe(true);
+    expect(element("confirm-note").textContent).toContain("nothing is waiting for this answer");
+    // …and the keyboard is not stranded on a prompt that cannot be answered.
+    expect(document.activeElement).not.toBe(element("confirm-what"));
+    element<HTMLButtonElement>("confirm-allow").click();
+    await flush();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/confirm"))).toBe(false);
+  });
+
+  it("drops a question left over from the last session when a new one starts", async () => {
+    const mic = fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    socket.event({ confirm: { id: "cfm_old", what: "empty the trash (3 items)" } });
+    await flush();
+    element<HTMLButtonElement>("end").click();
+    await flush();
+    expect(element<HTMLElement>("confirm").dataset.stale).toBe("true");
+    // A fresh session: the old question is the old harness's, so it goes — and
+    // the log says so rather than the prompt vanishing unexplained.
+    await element<HTMLButtonElement>("listen").click();
+    await flush();
+    await flush();
+    void mic;
+    expect(element<HTMLElement>("confirm").hidden).toBe(true);
+    expect([...document.querySelectorAll("#log li")].map((li) => li.textContent).join(" ")).toContain(
+      "a confirmation from the previous session was dropped",
+    );
+  });
+
   it("refuses a scheme the page will not open, and logs that it blocked it", async () => {
     fakeCapture();
     stateReply = { session: "idle" }; // a page with no session yet: Listen is pressable

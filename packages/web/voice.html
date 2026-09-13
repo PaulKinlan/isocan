@@ -140,10 +140,16 @@
         <p class="voice-bad voice-complaint" id="complaint" role="alert" hidden></p>
 
         <!-- The permission gate, when the harness asks. It is not a dialog on
-             purpose: it sits where the microphone is, it says what the agent
-             wants to do, and it waits. -->
-        <section class="voice-confirm" id="confirm" hidden aria-live="assertive">
-          <p class="voice-confirm-what" id="confirm-what" tabindex="-1"></p>
+             purpose — and it is a FIXED tray above the microphone rather than a
+             block in this stack: measured, in the flow it sat below the ring and
+             at 844×390 landed at y=650 in a 390px window, offscreen, which is a
+             gate nobody can answer. Fixed, it occupies space that already
+             exists and displaces nothing. -->
+        <section class="voice-confirm" id="confirm" hidden aria-live="assertive" aria-labelledby="confirm-what">
+          <div class="voice-confirm-say">
+            <p class="voice-confirm-what" id="confirm-what" tabindex="-1"></p>
+            <p class="voice-hint" id="confirm-note" role="status" hidden></p>
+          </div>
           <div class="voice-confirm-acts">
             <button id="confirm-allow" type="button">Allow</button>
             <button id="confirm-deny" type="button">Deny</button>
