@@ -335,10 +335,8 @@ import {
   describeLosses,
   contextMark,
   markPatch,
-  contextLayers,
   layersReport,
   governingDesign,
-  memoryLinks,
   memoryOf,
   memoryPatch,
   contextSheet,
@@ -346,7 +344,6 @@ import {
   CONTEXT_SHEET_SIZE,
   CONTEXT_SHEET_TITLE,
   MEMORY_PROP,
-  type LinkedCanvas,
   type CanvasContents,
   type MetaPatch,
   canvasIdOf,
@@ -464,6 +461,7 @@ import {
   adoptIdentity,
   readIdentity,
   claimSessionIdentity,
+  linkedCanvasesOf,
   HOME_CLAIM_KEY,
   noIdentityHere,
   reclaimIdentity,
@@ -1307,7 +1305,7 @@ program
 program
   .command("mcp")
   .description(
-    "Speak MCP on stdio, so an agent in another tool can read this canvas (spawned by an agent manager, not typed)",
+    "Speak MCP on stdio, so an agent in another tool can collaborate on this canvas (spawned by an agent manager, not typed)",
   )
   .action(
     run(async () => {
@@ -9282,34 +9280,6 @@ program
     }),
   );
 
-/**
- * **The canvases this one inherits from, as this machine can read them**
- * (memory phases 0–1). One snapshot per `memory=inherit` card, in reading
- * order; a card whose address names another home is not asked for — the
- * homes walk is a different verb — and a door that refuses is reported as
- * it said. Read here rather than in core because reading is a wire fact.
- */
-async function linkedCanvasesOf(ctx: Ctx, canvasId: string, snapshot: { canvas: CanvasContents }): Promise<LinkedCanvas[]> {
-  const home = (await ctx.homeOf(canvasId).catch(() => null)) ?? ctx.client.base;
-  const rows: LinkedCanvas[] = [];
-  for (const item of memoryLinks(snapshot.canvas)) {
-    const id = canvasIdOf(item)!;
-    const address = sourceOf(item);
-    const elsewhere = address ? parseCanvasAddress(address)?.origin : null;
-    if (elsewhere && elsewhere !== home) {
-      rows.push({ item, canvasId: id, title: item.title, canvas: null, refused: `lives at ${elsewhere} — not read from here` });
-      continue;
-    }
-    try {
-      const theirs = await ctx.client.snapshot(id);
-      rows.push({ item, canvasId: id, title: theirs.project.title, canvas: theirs.canvas });
-    } catch (err) {
-      rows.push({ item, canvasId: id, title: item.title, canvas: null, refused: (err as Error).message });
-    }
-  }
-  return rows;
-}
-
 const context = program
   .command("context")
   .description("Read ambient memory or a complete group context manifest")
@@ -9409,43 +9379,7 @@ context
       const options = cmd.optsWithGlobals() as { in?: string; includeExcluded?: boolean };
       if (options.in !== undefined) return reportContext(ctx, await new CanvasHandle(ctx, p).context(options));
       if (options.includeExcluded) throw new Error("--include-excluded requires --in <group>");
-      const snapshot = await ctx.client.snapshot(p.id);
-
-      /**
-       * **The design system's findings, read rather than assumed.**
-       *
-       * "Is there one" is a different question from "is it any good", and the
-       * view is worth much less if it answers only the first. This costs one
-       * blob fetch and turns "Design system v3" into "Design system v3, two
-       * findings" — which is the difference between a list and a report.
-       *
-       * A system that cannot be read is not a failure of this command: it is
-       * reported as present with no findings, because saying "0 problems"
-       * about something unparseable would be a false clean bill.
-       */
-      let designProblems: number | undefined;
-      const design = designSystem(snapshot.canvas);
-      if (design) {
-        try {
-          const current =
-            design.versions.find((v) => v.id === design.currentVersionId) ?? design.versions[0];
-          if (current) {
-            const blob = await ctx.client.downloadBlob(p.id, current.blobHash);
-            designProblems = checkDesign(parseDesign(blob.toString("utf8"))).length;
-          }
-        } catch {
-          // Unreadable: say nothing rather than something wrong.
-        }
-      }
-
-      // In layers: this canvas, then each canvas it inherits from, with a
-      // heading each — the seam memory phases 2–4 land in.
-      const layers = contextLayers(snapshot.canvas, await linkedCanvasesOf(ctx, p.id, snapshot), {
-        // The guide this BUILD ships, which is the one an agent here has read
-        // — not "the latest", which is a different machine's business.
-        guideVersion: describeBuild(buildStamp()),
-        ...(designProblems === undefined ? {} : { designProblems }),
-      });
+      const layers = await new CanvasHandle(ctx, p).contextSummary({ guideVersion: describeBuild(buildStamp()) });
       if (ctx.json) return printJson(layers);
       console.log(layersReport(layers, (pieces) => contextReport(pieces)));
     }),

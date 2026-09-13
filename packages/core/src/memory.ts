@@ -92,7 +92,9 @@ export function inheritedPieces(
   localHasDesign: boolean,
 ): ContextPiece[] {
   const pieces: ContextPiece[] = [];
+  const ownPieces = contextPieces(linked);
   const design = designSystem(linked);
+  const designPiece = ownPieces.find((piece) => piece.name === "Design system");
   if (design) {
     pieces.push({
       name: "Design system",
@@ -101,6 +103,7 @@ export function inheritedPieces(
       size: `v${design.versions.length}`,
       updatedAt: design.updatedAt,
       from,
+      ...(designPiece?.stale ? { stale: designPiece.stale, ...(designPiece.fix ? { fix: designPiece.fix } : {}) } : {}),
       ...(localHasDesign ? { overridden: "this canvas's wins" } : {}),
     });
   }
@@ -115,6 +118,8 @@ export function inheritedPieces(
     });
   }
   const items = Object.values(linked.items);
+  const excluded = ownPieces.find((piece) => piece.name === "Excluded items");
+  if (excluded) pieces.push({ ...excluded, from });
   pieces.push({
     name: "The canvas",
     source: "canvas",

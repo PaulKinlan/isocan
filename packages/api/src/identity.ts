@@ -130,6 +130,8 @@ export async function findSessionIdentity(
 }
 
 export interface ClaimOptions {
+  /** Explicit caller session; never changes or consults ambient harness variables. */
+  identity?: ExplicitIdentity;
   /** Omitted: the daemon hands out the next free isocan name. */
   name?: string;
   /** Become a NEW actor even if the name is worn — a second Kenny on purpose. */
@@ -159,7 +161,9 @@ export async function claimSessionIdentity(
   home: string,
   options: ClaimOptions = {},
 ): Promise<{ actor: Actor; harness: string }> {
-  const present = await harnessSessions(home);
+  const present = options.identity
+    ? [{ key: `${options.identity.harness ?? "isocan"}:${options.identity.session}`, harness: options.identity.harness ?? "isocan", deliberate: true }]
+    : await harnessSessions(home);
   if (present.length === 0) {
     const looked = await harnessVarsFor(home);
     throw new Error(

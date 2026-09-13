@@ -382,8 +382,31 @@ itemId, { face: "source", offset: 0, limit: 16384 })` reads saved byte pages.
 `canvas.contextPage(...)` pages reference metadata, with a required
 `expectedRevision` for live paging. `canvas.copy([groupId], { to: canvasId,
 in: destinationId, dryRun: true })` uses the same graph planner as the CLI.
-Read-only MCP provides `read_context` and `read_context_content` with the same
-frozen-version contract; it adds no message or mutation tools.
+MCP keeps `read_context` and `read_context_content` for that same manifest and
+frozen-version contract. `read_context_summary` separately reads the live
+layered Context view: local and inherited sources, exclusions, overrides,
+staleness and reasons a source could not be read. JSON resources at
+`isocan://canvas/{id}` and `isocan://canvas/{id}/context` expose the current
+canvas and summary; resource listing includes only discoverable canvases,
+and every read uses ordinary admission.
+
+For collaboration over `isocan mcp`, call `claim_agent` with a name and a
+stable conversation `session` key, then supply that key on **each tool call**.
+The durable claim survives restarting MCP. Two conversations sharing one
+server keep separate identities; an unclaimed explicit key is an error.
+Omitting `session` uses the CLI/API ambient identity, and **resources always
+use ambient identity**; they do not inherit the previous tool's session.
+`clientInfo` identifies the manager application, not a conversation.
+
+`create_item` and `edit_item` write attributed versions. `post_comment` posts
+on an item or in Chat; `reply_comment` replies to a thread. These use the
+same mention resolution and saved-context rules as API comments. After doing
+work, call `wait_for_feedback` with the session, canvas, and your last returned
+`cursor`. It waits at most 60 seconds for addressed feedback. Omit the cursor
+to start from now. A timeout returns an empty result and the cursor through
+all inspected traffic, including irrelevant operations; resume from that
+cursor. MCP cancellation ends the watch. Polling marks nothing seen and
+advertises no presence; claiming a name is not announcing a live session.
 
 The reference is the types themselves: the package is TypeScript source, so
 your editor answers what `connect()` returns straight from the install, and

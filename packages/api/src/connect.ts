@@ -42,7 +42,10 @@ import {
   type ActivityEntry,
 } from "@isocan/core";
 import { matchRef, resolveCanvas, resolveCtx, type Ctx } from "./ctx.ts";
-import { noIdentityHere, type ExplicitIdentity } from "./identity.ts";
+import { claimSessionIdentity, noIdentityHere, type ExplicitIdentity } from "./identity.ts";
+import { readContextSummary } from "./context-summary.ts";
+import { waitForFeedback, type FeedbackOptions, type FeedbackResult } from "./feedback.ts";
+import type { ContextExtras, ContextLayer } from "@isocan/core";
 import { ApiError, type DaemonRoutes } from "./routes.ts";
 import { CanvasGroups, resolveCanvasGroupRef, type CanvasGroupCopyOptions, type CanvasGroupResult } from "./canvas-groups.ts";
 import { readContextItem, type CommentContextOptions, type ContextReadOptions, type ContextPageOptions, type ContextBytesOptions, type ContextItemContent } from "./canvas-context.ts";
@@ -134,6 +137,14 @@ export async function connect(options: ConnectOptions = {}): Promise<Home> {
     throw new Error(await noIdentityHere(ctx.client, ctx.home));
   }
   return new Home(ctx);
+}
+
+/** Deliberately claim a stable caller session without changing process-wide identity. */
+export async function claimSession(options: ConnectOptions & { identity: ExplicitIdentity; name: string }): Promise<Actor> {
+  if (!options.identity.session.trim() || !options.name.trim()) throw new Error("a session key and agent name are required");
+  const ctx = await resolveCtx({ interactive: false, ...(options.port === undefined ? {} : { port: options.port }), identity: options.identity });
+  const result = await claimSessionIdentity(ctx.client, ctx.home, { identity: options.identity, name: options.name, ...(ctx.binding ? { canvasId: ctx.binding.canvasId } : {}) });
+  return result.actor;
 }
 
 /**
@@ -366,6 +377,16 @@ export class CanvasHandle {
 
   contextOfComment(threadId: string, commentId: string): Promise<ContextManifest> {
     return this.reach(() => this.ctx.client.commentContext(this.id, threadId, commentId));
+  }
+
+  /** Live ambient layers, distinct from a current item manifest or saved request. */
+  contextSummary(extras: ContextExtras = {}): Promise<ContextLayer[]> {
+    return this.reach(() => readContextSummary(this.ctx, this.id, extras));
+  }
+
+  /** Bounded addressed feedback with a caller-owned cursor; never marks work seen. */
+  waitForFeedback(options: FeedbackOptions = {}): Promise<FeedbackResult> {
+    return this.reach(() => waitForFeedback(this.ctx.client, this.id, this.ctx.actor, options));
   }
 
   contextPage(options: ContextPageOptions): Promise<ContextContentPage> {

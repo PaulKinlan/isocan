@@ -890,8 +890,8 @@ export class DaemonRoutes {
     return this.request("GET", `${route}/content${query.size ? `?${query}` : ""}`);
   }
 
-  async snapshot(canvasId: string): Promise<CanvasSnapshotResponse> {
-    const snapshot = await this.request<CanvasSnapshotResponse>("GET", `/api/projects/${canvasId}/canvas`);
+  async snapshot(canvasId: string, signal?: AbortSignal): Promise<CanvasSnapshotResponse> {
+    const snapshot = await this.request<CanvasSnapshotResponse>("GET", `/api/projects/${canvasId}/canvas`, undefined, signal);
     this.observedGroupModes.set(canvasId, snapshot.project.groupMode ?? "legacy");
     return snapshot;
   }

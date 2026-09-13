@@ -4842,7 +4842,7 @@ export function registerRoutes(
    * and may therefore use their link grants. Neither read writes admissions.
    * A canvas shared by name while the watcher waits is heard from its birth.
    */
-  app.post("/api/oplog/watch", async (req) => {
+  app.post("/api/oplog/watch", async (req, reply) => {
     const body = (req.body ?? {}) as import("@isocan/core").WatchLogRequest;
     const { cursors } = body;
     const only = body.only ? new Set(body.only) : null;
@@ -4991,17 +4991,19 @@ export function registerRoutes(
     try {
       let result = await collect();
       const holdMs = Math.min(Number(body.waitMs) || 0, 55_000);
-      if (result.entries.length === 0 && !landed && holdMs > 0) {
+      if (result.entries.length === 0 && !landed && holdMs > 0 && !reply.raw.destroyed) {
         await new Promise<void>((resolve) => {
           const done = () => {
             clearTimeout(timer);
             wake = null;
-            req.raw.off("close", done);
+            reply.raw.off("close", done);
             resolve();
           };
           const timer = setTimeout(done, holdMs);
           wake = done;
-          req.raw.on("close", done);
+          // IncomingMessage may already have closed when its body was read.
+          // The response closes when a caller cancels a held watch.
+          reply.raw.on("close", done);
         });
         result = await collect();
       }
