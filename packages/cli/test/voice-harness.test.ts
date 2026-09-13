@@ -1161,7 +1161,7 @@ describe("the Live API path", () => {
     expect(setup.setup.systemInstruction.parts[0].text).toContain("=== PROJECT INSTRUCTIONS (AGENTS.md) ===");
     expect(setup.setup.systemInstruction.parts[0].text).toContain("Always be honest.");
 
-    await fs.rm(testDir, { recursive: true, force: true });
+    await fs.rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("verifies native writeMarker round-trip, rejects mismatched markers, and prefers valid over stale rows", async () => {
@@ -1199,8 +1199,8 @@ describe("the Live API path", () => {
     const refused = await resolveProjectInstructions(home, "prj_1");
     expect(refused).toBeNull();
 
-    await fs.rm(validDir, { recursive: true, force: true });
-    await fs.rm(staleDir, { recursive: true, force: true });
+    await fs.rm(validDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await fs.rm(staleDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("surfaces the provider's own words when the session fails", async () => {
@@ -2004,13 +2004,23 @@ describe("responsive layout and bounding-box isolation", () => {
         });
         await new Promise((r) => setTimeout(r, 300));
 
+        /* The question bar is hidden until something asks, and it is the one
+           element on the page whose whole job is to be seen while somebody is
+           mid-decision — so it is measured with a question standing, not in
+           the state a quiet canvas leaves it in. Unhidden by hand: what is
+           being measured is the layout, and the gate's own behaviour is
+           driven for real in `the person's gate` above. */
+        await b.ev(
+          `(() => { document.getElementById("confirm-what").textContent = "delete “Checkout screen”"; document.getElementById("confirm").hidden = false; })()`,
+        );
+
         // 1. Document width <= viewport width + 1
         const docWidth = Number(await b.ev(`document.documentElement.scrollWidth`));
         expect(docWidth).toBeLessThanOrEqual(width + 1);
 
         // 2. Zero pairwise bounding-box intersection between panels
         const overlaps = ((await b.ev(`(() => {
-          const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock")]
+          const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock, main > #confirm")]
             .map((el) => ({ el, r: el.getBoundingClientRect() }));
           const hits = [];
           for (let i = 0; i < boxes.length; i++) {
