@@ -888,7 +888,7 @@ describe("configuration behind the settings cog", () => {
     pressAt(element("settings-title"), 10, 10);
     expect(dialog.open).toBe(true);
     // A native popup paints outside the dialog's box while belonging to it.
-    pressAt(element("device"), 900, 900);
+    pressAt(element("key"), 900, 900);
     expect(dialog.open).toBe(true);
 
     // The mirror case: a backdrop press that reports the DIALOG as its target
