@@ -263,6 +263,9 @@ export function wireVoice(doc: Document = document): VoicePage {
   const transcript = required<HTMLElement>("transcript", doc);
   const canvasTitle = required<HTMLElement>("canvas-title", doc);
   const canvasId = required<HTMLElement>("canvas-id", doc);
+  const canvasRow = required<HTMLElement>("canvas-row", doc);
+  const canvasSelect = required<HTMLSelectElement>("canvas-select", doc);
+  const canvasUse = required<HTMLButtonElement>("canvas-use", doc);
   const daemonLine = required<HTMLElement>("daemon", doc);
   const daemonNoteLine = required<HTMLElement>("daemon-note", doc);
   const daemonField = required<HTMLInputElement>("daemon-field", doc);
@@ -272,6 +275,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   const actorName = required<HTMLElement>("actor-name", doc);
   const actorId = required<HTMLElement>("actor-id", doc);
   const actorStanding = required<HTMLElement>("actor-standing", doc);
+  const actorNameField = required<HTMLInputElement>("actor-name-field", doc);
+  const actorClaimBtn = required<HTMLButtonElement>("actor-claim-btn", doc);
   const audioLine = required<HTMLElement>("audio", doc);
   const versionLine = required<HTMLElement>("version", doc);
   const updatedLine = required<HTMLElement>("updated", doc);
@@ -558,6 +563,24 @@ export function wireVoice(doc: Document = document): VoicePage {
       ? "enrolled"
       : "not enrolled — nothing can summon it";
     actorStanding.className = facts?.agent?.enrolled ? "voice-ok" : "voice-bad";
+    if (doc.activeElement !== actorNameField && facts?.agent?.name && !actorNameField.value) {
+      actorNameField.placeholder = facts.agent.name;
+    }
+    if (offered.canvases && Array.isArray(offered.canvases) && offered.canvases.length > 0) {
+      canvasRow.hidden = false;
+      const canvases = offered.canvases as { id?: string; title?: string }[];
+      const html = canvases
+        .map((c) => `<option value="${c.id ?? ""}">${c.title ?? c.id ?? ""}</option>`)
+        .join("");
+      if (canvasSelect.innerHTML !== html) {
+        canvasSelect.innerHTML = html;
+      }
+      if (doc.activeElement !== canvasSelect && facts?.canvas?.id) {
+        canvasSelect.value = facts.canvas.id;
+      }
+    } else {
+      canvasRow.hidden = true;
+    }
     const audio = audioFacts(facts);
     audioLine.textContent = `${audio.provider} · ${audio.model} · ${audio.key ? "key stored" : "no key stored"}`;
     versionLine.textContent = facts?.version ?? "unknown";
@@ -1569,6 +1592,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     const [daemons, canvases] = await Promise.all([callSetup("/daemons"), callSetup("/canvases")]);
     if (daemons.ok && Array.isArray(daemons.body?.found)) offered.daemons = daemons.body.found as unknown[];
     if (canvases.ok && Array.isArray(canvases.body?.canvases)) offered.canvases = canvases.body.canvases as unknown[];
+    renderFacts();
     renderSetup();
   }
 
@@ -2477,6 +2501,7 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   function openSettings(): void {
     if (disposed || settings.open) return;
+    void probeSetup();
     // One alert node, moved into the active surface rather than duplicated
     // into an inert background. Closing restores its conversation location.
     settings.insertBefore(complaintLine, connectionPanel);
@@ -2495,6 +2520,14 @@ export function wireVoice(doc: Document = document): VoicePage {
   settingsClose.addEventListener("click", () => settings.close());
   logsOpen.addEventListener("click", openLogs);
   logsClose.addEventListener("click", () => logs.close());
+  canvasUse.addEventListener("click", () => {
+    const id = canvasSelect.value;
+    if (id) void setupPost("/canvas", { id });
+  });
+  actorClaimBtn.addEventListener("click", () => {
+    const name = actorNameField.value.trim();
+    if (name) void setupPost("/actor", { name });
+  });
   // The "?" beside each setting: hover, click, Escape and one card at a time.
   wireSettingsHelp(doc);
   // Light, dark, or whatever the device says — the page's own applier does the

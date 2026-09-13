@@ -215,6 +215,10 @@
                 <dd>
                   <span id="canvas-title">unknown</span> <span class="voice-id" id="canvas-id">no id</span>
                   <button id="open-project" class="voice-open" type="button" aria-describedby="help-canvas">Open the project ↗</button>
+                  <div class="voice-keyrow" id="canvas-row" hidden>
+                    <select id="canvas-select" aria-label="Canvas"></select>
+                    <button id="canvas-use" type="button">Use this canvas</button>
+                  </div>
                   <div class="voice-help-card" popover="hint" id="help-canvas">
                     <p>The canvas every command in this conversation lands on. The agent switches it when you ask it to, so if work appears somewhere you were not looking, this is the line that says where it went.</p>
                   </div>
@@ -252,6 +256,10 @@
                 <dd>
                   <span id="actor-name">unknown</span> <span class="voice-id" id="actor-id">no id</span>
                   <span id="actor-standing" class="voice-bad">not enrolled — nothing can summon it</span>
+                  <div class="voice-keyrow" id="actor-row">
+                    <input id="actor-name-field" type="text" placeholder="a name, e.g. Voice" aria-label="actor name" autocomplete="off" />
+                    <button id="actor-claim-btn" type="button">Claim this name</button>
+                  </div>
                   <div class="voice-help-card" popover="hint" id="help-actor">
                     <p>The name your edits are attributed to, and whether anything can summon it. Enrolled means the daemon accepts work under that name; not enrolled still speaks from the microphone, but no other harness can hand it a job.</p>
                   </div>
