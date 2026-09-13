@@ -818,6 +818,75 @@ describe("what an agent is called", () => {
     }
   });
 
+  it("lists the projects and the daemon for the drawer, and moves the session to one it is told", async () => {
+    // A second canvas, so a switch has somewhere to go.
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Winter work" },
+    });
+    const live = await liveServer();
+    try {
+      const list = (await (await fetch(`${live.server.state.url}canvases`)).json()) as {
+        current: string;
+        canvases: { id: string; title: string }[];
+      };
+      expect(list.current).toBe("prj_1");
+      // The daemon may hold more than this test made; what matters is that
+      // both are offered and the current one is marked.
+      expect(list.canvases.map((one) => one.id)).toEqual(expect.arrayContaining(["prj_1", "prj_2"]));
+
+      const daemons = (await (await fetch(`${live.server.state.url}daemons`)).json()) as {
+        current: string;
+        found: { url: string; reachable: boolean; canvases?: number }[];
+      };
+      expect(daemons.current).toBe(base);
+      expect(daemons.found[0]).toMatchObject({ url: base, reachable: true });
+      expect(daemons.found[0]!.canvases).toBeGreaterThanOrEqual(2);
+
+      // Choosing the project: the session moves, /state says so, and choosing
+      // the one it is already on is not an error.
+      const moved = (await (
+        await fetch(`${live.server.state.url}canvas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: "prj_2" }),
+        })
+      ).json()) as { ok: boolean; canvas: { id: string; title: string }; previous: { id: string } };
+      expect(moved).toMatchObject({ ok: true, canvas: { id: "prj_2", title: "Winter work" }, previous: { id: "prj_1" } });
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as {
+        canvas: { id: string; title: string };
+      };
+      expect(state.canvas).toMatchObject({ id: "prj_2", title: "Winter work" });
+
+      const again = (await (
+        await fetch(`${live.server.state.url}canvas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: "prj_2" }),
+        })
+      ).json()) as { ok: boolean; unchanged?: boolean };
+      expect(again).toMatchObject({ ok: true, unchanged: true });
+
+      // A canvas nobody has is a 404 in the daemon's own words, and an empty
+      // body is a 400 — neither silently does nothing.
+      const missing = await fetch(`${live.server.state.url}canvas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "prj_nope" }),
+      });
+      expect(missing.status).toBe(404);
+      const empty = await fetch(`${live.server.state.url}canvas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(empty.status).toBe(400);
+    } finally {
+      await live.close();
+    }
+  });
+
   it("refuses what cannot be a name, and says who owns one already taken", async () => {
     const live = await liveServer();
     try {

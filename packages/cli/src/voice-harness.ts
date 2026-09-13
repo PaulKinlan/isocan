@@ -2689,6 +2689,44 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           return;
         }
       }
+      if (req.method === "GET" && url.pathname === "/canvases") {
+        // The drawer's project list. The current one is marked, because the
+        // person is choosing where the session IS, not browsing a library.
+        try {
+          const canvases = await target.canvas.ctx.client.listCanvases();
+          respond(200, { current: target.canvasId, canvases });
+        } catch (err) {
+          respond(502, {
+            ok: false,
+            error: `the daemon at ${target.daemon} did not answer: ${(err as Error).message}`,
+          });
+        }
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/daemons") {
+        /**
+         * **One daemon, honestly.** This harness is attached to one daemon for
+         * its whole life — the environment it was started in chose it — so
+         * `found` reports that one, probed live, rather than inventing a list
+         * of others this process could not use. Whether another address WOULD
+         * work is a question only a restart can answer, and the page says so.
+         */
+        let reachable = false;
+        let canvases = 0;
+        let why: string | null = null;
+        try {
+          canvases = (await target.canvas.ctx.client.listCanvases()).length;
+          reachable = true;
+        } catch (err) {
+          why = (err as Error).message;
+        }
+        respond(200, {
+          current: target.daemon,
+          found: [{ url: target.daemon, reachable, ...(reachable ? { canvases } : {}) }],
+          ...(why ? { note: why } : {}),
+        });
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/log") {
         // The persisted file is the record; the in-memory copy covers entries
         // not yet flushed. Merged by id, so a restart or a raced write cannot
@@ -2762,7 +2800,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log and POST /actor, /key, /audio, /utterance, /summons, /session/*, /confirm" });
+        respond(405, {
+          error:
+            "the voice harness answers GET /, /state, /connection, /log, /canvases, /daemons and POST /actor, /canvas, /key, /audio, /utterance, /summons, /session/*, /confirm",
+        });
         return;
       }
       const body = await readBody();
@@ -2804,6 +2845,63 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           details: { kind: "actor_claimed_from_page", actorId: outcome.actorId, moved: outcome.moved ?? 0 },
         });
         respond(200, answer);
+        return;
+      }
+      if (url.pathname === "/canvas") {
+        /**
+         * **Choosing the project, from the drawer.** Same move the model's
+         * `project_switch` makes, and the same reasons: the presence session on
+         * the old canvas is ended rather than left standing in a room the agent
+         * has left, the model's short-list of recent referents is emptied
+         * because an id from the other canvas does not resolve here, and the
+         * page is told the new room so a listening tab stops naming the old one.
+         */
+        const posted = typeof body === "string" ? {} : body;
+        const wanted = String(posted.id ?? posted.title ?? "").trim();
+        if (!wanted) {
+          respond(400, { ok: false, error: "a canvas id or title is required" });
+          return;
+        }
+        let next: { id: string; title: string };
+        try {
+          next = matchRef(await target.canvas.ctx.client.listCanvases(), wanted);
+        } catch (err) {
+          respond(404, { ok: false, error: (err as Error).message });
+          return;
+        }
+        if (next.id === target.canvasId) {
+          respond(200, {
+            ok: true,
+            canvas: { id: target.canvasId, title: target.canvasLabel },
+            unchanged: true,
+          });
+          return;
+        }
+        const was = { id: target.canvasId, title: target.canvasLabel };
+        try {
+          if (presenceSessionId) {
+            await target.canvas.ctx.client.endSession(was.id, presenceSessionId).catch(() => {});
+            presenceSessionId = null;
+          }
+          target = await handleFor({ ...options, canvas: next.id });
+          recentActions.splice(0, recentActions.length);
+          await announcePresence(sessionState === "live" ? "listening" : "enrolled — nobody is listening right now");
+          await rememberWhatIAm();
+          announce?.({ canvas: { title: target.canvasLabel, id: target.canvasId } });
+          narrate(`switched canvas from the page: “${was.title}” → “${target.canvasLabel}”`);
+          recordToolLog({
+            type: "session_event",
+            event: `the person moved the session to “${target.canvasLabel}”`,
+            details: { kind: "canvas_switched_from_page", from: was.id, to: target.canvasId },
+          });
+          respond(200, {
+            ok: true,
+            canvas: { id: target.canvasId, title: target.canvasLabel },
+            previous: was,
+          });
+        } catch (err) {
+          respond(502, { ok: false, error: `the daemon refused: ${(err as Error).message}` });
+        }
         return;
       }
       if (url.pathname === "/key") {
