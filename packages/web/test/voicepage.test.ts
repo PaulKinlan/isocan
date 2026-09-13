@@ -888,3 +888,163 @@ describe("the daemon is a stored preference, like the microphone", () => {
     expect(element<HTMLInputElement>("daemon-field").value).toBe("http://127.0.0.1:4441");
   });
 });
+
+/**
+ * **The page half of the file tools: the folder only this page can ask for.**
+ *
+ * jsdom has no `showDirectoryPicker` and no IndexedDB, which is the point:
+ * a fake handle proves the page reads only through the handle it was handed,
+ * and the absent IndexedDB exercises the honest fallback ("kept for this
+ * session only") rather than a lie about persistence.
+ */
+describe("the page asks for a folder, and answers file questions from it", () => {
+  interface FakeNode {
+    kind: "file" | "directory";
+    name: string;
+    text?: string;
+    children?: FakeNode[];
+  }
+
+  function fakeHandle(node: FakeNode): Record<string, unknown> {
+    const handle: Record<string, unknown> = { kind: node.kind, name: node.name };
+    if (node.kind === "file") {
+      handle.getFile = async () => ({
+        size: node.text?.length ?? 0,
+        text: async () => node.text ?? "",
+        slice: (start: number, end: number) => ({
+          text: async () => (node.text ?? "").slice(start, end),
+        }),
+      });
+    } else {
+      handle.getDirectoryHandle = async (name: string) => {
+        const found = (node.children ?? []).find((one) => one.name === name && one.kind === "directory");
+        if (!found) throw new Error(`no such directory: ${name}`);
+        return fakeHandle(found);
+      };
+      handle.getFileHandle = async (name: string) => {
+        const found = (node.children ?? []).find((one) => one.name === name && one.kind === "file");
+        if (!found) throw new Error(`no such file: ${name}`);
+        return fakeHandle(found);
+      };
+      handle.entries = () => {
+        const list = node.children ?? [];
+        let index = 0;
+        return {
+          async next() {
+            return index < list.length
+              ? { value: [list[index]!.name, fakeHandle(list[index++]!)], done: false as const }
+              : { value: undefined, done: true as const };
+          },
+          [Symbol.asyncIterator]() {
+            return this;
+          },
+        };
+      };
+    }
+    handle.queryPermission = async () => "granted";
+    handle.requestPermission = async () => "granted";
+    return handle;
+  }
+
+  const NOTES: FakeNode = {
+    kind: "directory",
+    name: "Notes",
+    children: [
+      { kind: "file", name: "todo.md", text: "buy milk" },
+      { kind: "directory", name: "deep", children: [{ kind: "file", name: "buried.txt", text: "found it" }] },
+    ],
+  };
+
+  const pickerOf = (node: FakeNode) => vi.fn(async () => fakeHandle(node) as never);
+
+  it("picks a folder, shows it, and tells the harness the folder's name", async () => {
+    const picker = pickerOf(NOTES);
+    (window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = picker;
+    await wire();
+    expect(element("folder-name").textContent).toBe("no folder granted");
+
+    element<HTMLButtonElement>("folder-pick").click();
+    await flush();
+    expect(picker).toHaveBeenCalledTimes(1);
+    expect(element("folder-name").textContent).toBe("Notes");
+    // No IndexedDB in jsdom: the page says the grant is session-only.
+    expect(element("folder-note").textContent).toContain("this session only");
+    expect(element<HTMLButtonElement>("folder-forget").hidden).toBe(false);
+    const grant = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/fs/grant"));
+    expect(JSON.parse(String((grant?.[1] as RequestInit).body))).toEqual({ folder: "Notes", granted: true });
+  });
+
+  it("reads a file through the handle and answers with the content", async () => {
+    fakeCapture();
+    (window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = pickerOf(NOTES);
+    await wire();
+    element<HTMLButtonElement>("folder-pick").click();
+    await flush();
+
+    const socket = await goLive();
+    socket.event({ fs: { callId: "fs_1", op: "read_file", path: "deep/buried.txt" } });
+    await flush();
+    const result = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/fs/result"));
+    expect(JSON.parse(String((result?.[1] as RequestInit).body))).toMatchObject({
+      callId: "fs_1",
+      ok: true,
+      content: "found it",
+      truncated: false,
+    });
+  });
+
+  it("lists a folder through the handle, and refuses a path that leaves it", async () => {
+    fakeCapture();
+    (window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = pickerOf(NOTES);
+    await wire();
+    element<HTMLButtonElement>("folder-pick").click();
+    await flush();
+    const socket = await goLive();
+
+    socket.event({ fs: { callId: "fs_2", op: "list_dir", path: "" } });
+    await flush();
+    const listed = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/fs/result")).at(-1);
+    expect(JSON.parse(String((listed?.[1] as RequestInit).body))).toMatchObject({
+      ok: true,
+      truncated: false,
+    });
+    expect(JSON.parse(String((listed?.[1] as RequestInit).body)).entries.map((one: { name: string }) => one.name)).toEqual([
+      "todo.md",
+      "deep",
+    ]);
+
+    // `..` cannot resolve inside the handle, so it is a refusal with words.
+    socket.event({ fs: { callId: "fs_3", op: "read_file", path: "../secrets.txt" } });
+    await flush();
+    const refused = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/fs/result")).at(-1);
+    expect(JSON.parse(String((refused?.[1] as RequestInit).body))).toMatchObject({ callId: "fs_3", ok: false });
+    expect(JSON.parse(String((refused?.[1] as RequestInit).body)).error).toMatch(/no such file/);
+  });
+
+  it("refuses a read when no folder is granted — never a silent empty answer", async () => {
+    fakeCapture();
+    await wire();
+    const socket = await goLive();
+    socket.event({ fs: { callId: "fs_4", op: "read_file", path: "todo.md" } });
+    await flush();
+    const result = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/fs/result"));
+    expect(JSON.parse(String((result?.[1] as RequestInit).body))).toMatchObject({
+      callId: "fs_4",
+      ok: false,
+      error: "no folder is granted in the page",
+    });
+  });
+
+  it("forgets the folder, and says so to the harness", async () => {
+    (window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = pickerOf(NOTES);
+    await wire();
+    element<HTMLButtonElement>("folder-pick").click();
+    await flush();
+    element<HTMLButtonElement>("folder-forget").click();
+    await flush();
+    expect(element("folder-name").textContent).toBe("no folder granted");
+    expect(element<HTMLButtonElement>("folder-forget").hidden).toBe(true);
+    const grant = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/fs/grant")).at(-1);
+    expect(JSON.parse(String((grant?.[1] as RequestInit).body))).toEqual({ folder: null, granted: false });
+  });
+});
