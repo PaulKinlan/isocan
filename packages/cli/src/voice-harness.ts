@@ -2117,6 +2117,20 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   let pending: { id: string; what: string; resolve: (allow: boolean) => void } | null = null;
   let announce: ((message: unknown) => void) | null = null;
 
+  /**
+   * The question waiting for an answer, in the shape the page reads.
+   *
+   * A function rather than an inline `pending ? … : null` because of a real
+   * narrowing trap: `pending` is only ever assigned inside `askThePerson`, so
+   * at the points in the outer flow that build `/state`, TypeScript narrows it
+   * to `null` and the true branch becomes `never` — which does not typecheck.
+   * A function body gets fresh narrowing, so this reads the live value and the
+   * types stay honest. (The dead lane's rescued WIP left this failing.)
+   */
+  function pendingQuestion(): { id: string; what: string } | null {
+    return pending ? { id: pending.id, what: pending.what } : null;
+  }
+
   function askThePerson(what: string): Promise<boolean> {
     const timeout = options.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS;
     pending?.resolve(false);
@@ -2171,7 +2185,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       session: { state: sessionState },
       // A page that is not on the socket still sees the question: the state
       // poll is how the typed path's confirmation reaches it at all.
-      confirm: pending ? { id: pending.id, what: pending.what } : null,
+      confirm: pendingQuestion(),
     };
   };
 
@@ -2982,7 +2996,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     lines,
     session: { state: sessionState },
     toolLog,
-    confirm: pending ? { id: pending.id, what: pending.what } : null,
+    confirm: pendingQuestion(),
   };
   await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
   await fs.writeFile(
