@@ -29,12 +29,12 @@ import { fetchSeen, putSeen } from "./api.ts";
 const cached = new Map<string, SeenMarks>();
 interface SeenRead {
   controller: AbortController;
-  promise: Promise<boolean>;
+  promise: Promise<SeenMarks | null>;
   users: number;
   settled: boolean;
 }
 const asking = new Map<string, SeenRead>();
-const loaded = new Set<string>();
+const loaded = new Map<string, SeenMarks>();
 /** Preparation is a nicety, so a stalled home cannot hold navigation forever. */
 const SEEN_READ_TIMEOUT_MS = 8000;
 const visits = new Set<(actorId: string, canvasId: string, mark: SeenMark) => void>();
@@ -65,23 +65,31 @@ export function loadSeen(
   actorId: string,
   options: { signal?: AbortSignal; refresh?: boolean; canvasId?: string } = {},
 ): Promise<boolean> {
+  return readSeenResponse(actorId, options).then((marks) => marks !== null);
+}
+
+/** Keep each read's exact answer separate from the merged recents ledger. */
+function readSeenResponse(
+  actorId: string,
+  options: { signal?: AbortSignal; refresh?: boolean; canvasId?: string },
+): Promise<SeenMarks | null> {
   options.signal?.throwIfAborted();
   const key = JSON.stringify([actorId, options.canvasId ?? null]);
-  if (!options.refresh && loaded.has(key)) return Promise.resolve(true);
+  if (!options.refresh && loaded.has(key)) return Promise.resolve(loaded.get(key)!);
   let pending = asking.get(key);
   if (!pending || pending.controller.signal.aborted) {
     const controller = new AbortController();
-    const read: SeenRead = { controller, users: 0, settled: false, promise: Promise.resolve(false) };
+    const read: SeenRead = { controller, users: 0, settled: false, promise: Promise.resolve(null) };
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(SEEN_READ_TIMEOUT_MS)]);
     read.promise = untilAborted(fetchSeen(actorId, signal, options.canvasId), signal)
       .then(({ marks }) => {
         controller.signal.throwIfAborted();
         rememberSeen(actorId, marks);
-        loaded.add(key);
-        return true;
+        loaded.set(key, marks);
+        return marks;
       }, () => {
         controller.signal.throwIfAborted();
-        return false;
+        return null;
       })
       .finally(() => {
         read.settled = true;
@@ -101,14 +109,22 @@ export function loadSeen(
     };
     const cancel = () => { if (!done) { leave(); reject(options.signal!.reason); } };
     options.signal?.addEventListener("abort", cancel, { once: true });
-    read.promise.then((available) => {
+    read.promise.then((marks) => {
       if (done) return;
-      leave(); resolve(available);
+      leave(); resolve(marks);
     }, (error) => {
       if (done) return;
       leave(); reject(error);
     });
   });
+}
+
+/** Capture one canvas's prior mark from a fresh read, with unavailable kept
+ * distinct from an authoritative first visit. */
+export async function readSeenMark(actorId: string, canvasId: string, signal?: AbortSignal): Promise<{ available: boolean; mark: SeenMark | null }> {
+  const marks = await readSeenResponse(actorId, { refresh: true, canvasId, ...(signal ? { signal } : {}) });
+  const mark = marks?.[canvasId];
+  return { available: marks !== null, mark: mark ? { ...mark } : null };
 }
 
 /**

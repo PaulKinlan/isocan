@@ -15,8 +15,7 @@ describe("accepted visits update the local inbox", () => {
     await loadSeen("usr_ada");
     expect(received).not.toHaveBeenCalled();
     noteVisit("prj_acme", 10, "usr_ada");
-    await Promise.resolve();
-    expect(api.putSeen).toHaveBeenCalledWith("prj_acme", 10, "usr_ada");
+    await vi.waitFor(() => expect(api.putSeen).toHaveBeenCalledWith("prj_acme", 10, "usr_ada"));
     expect(received).not.toHaveBeenCalled();
     const mark = { seq: 12, at: "2026-09-13T12:00:00.000Z" };
     accept({ mark });
@@ -90,4 +89,30 @@ it("does not satisfy a targeted read from an unscoped read's result or pending r
   api.fetchSeen.mockResolvedValueOnce({ marks: {} });
   expect(await loadSeen("usr_scope", { canvasId: "prj_other" })).toBe(true);
   expect(api.fetchSeen).toHaveBeenLastCalledWith("usr_scope", expect.any(AbortSignal), "prj_other");
+});
+
+
+describe("authoritative prior marks stay separate from merged recents", () => {
+  it.each([null, { seq: 5, at: "2026-09-13T01:00:00Z" }])("returns the home's exact %j despite an older wrong-home mark99", async (authoritative) => {
+    const { readSeenMark, rememberSeen, seenMarks } = await import("../src/lib/seen.ts");
+    const actorId = authoritative ? "usr_prior_lower" : "usr_prior_empty";
+    const stale = { seq: 99, at: "2026-09-13T09:00:00Z" };
+    rememberSeen(actorId, { prj_target: stale });
+    api.fetchSeen.mockResolvedValueOnce({ marks: authoritative ? { prj_target: authoritative } : {} });
+    expect(await readSeenMark(actorId, "prj_target")).toEqual({ available: true, mark: authoritative });
+    expect(api.fetchSeen).toHaveBeenLastCalledWith(actorId, expect.any(AbortSignal), "prj_target");
+    // Recents and accepted-visit notifications retain their monotonic merge.
+    expect(seenMarks(actorId).prj_target).toEqual(stale);
+  });
+
+  it("does not fall back to a prior success or the merged ledger after a failed fresh read", async () => {
+    const { readSeenMark, rememberSeen } = await import("../src/lib/seen.ts");
+    rememberSeen("usr_prior_failure", { prj_target: { seq: 99, at: "2026-09-13T09:00:00Z" } });
+    api.fetchSeen.mockResolvedValueOnce({ marks: { prj_target: { seq: 5, at: "2026-09-13T01:00:00Z" } } });
+    await readSeenMark("usr_prior_failure", "prj_target");
+    api.fetchSeen.mockRejectedValueOnce(new Error("home unavailable"));
+    expect(await readSeenMark("usr_prior_failure", "prj_target")).toEqual({ available: false, mark: null });
+    api.fetchSeen.mockResolvedValueOnce({ marks: {} });
+    expect(await readSeenMark("usr_prior_failure", "prj_target")).toEqual({ available: true, mark: null });
+  });
 });
