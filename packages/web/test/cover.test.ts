@@ -102,6 +102,6 @@ describe("the handler is wired through the rule", () => {
     // dependency array, the listener registered on the canvas route keeps a
     // stale undefined forever — and the gate never turns on.
     // onWorkbench rides the same array for the same reason itemId does.
-    expect(effect).toMatch(/\}, \[canvasId, actor, itemId, onWorkbench\]\);$/);
+    expect(effect).toMatch(/\}, \[canvasId, actor, itemId, phone, onWorkbench\]\);$/);
   });
 });
