@@ -698,6 +698,37 @@ describe("the page", () => {
    * surface. The only thing the two servers share is the filesystem — which is
    * exactly the claim ("it survives a restart") being made.
    */
+  it("serves the legacy memory file once, then retires it when the page says it imported", async () => {
+    const legacy = [
+      { id: "mem_old", text: "stored before the move", tags: ["legacy"], at: "2026-09-12T00:00:00.000Z", session: "Voice" },
+    ];
+    await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
+    await fs.writeFile(voiceMemoryFile(home), JSON.stringify(legacy, null, 2), { mode: 0o600 });
+    const server = await serve();
+
+    const offered = (await (await fetch(`${server.state.url}memory/legacy`)).json()) as {
+      entries: { id: string; text: string }[];
+      count: number;
+    };
+    expect(offered.count).toBe(1);
+    expect(offered.entries[0]).toMatchObject({ id: "mem_old", text: "stored before the move" });
+
+    const retired = (await (
+      await fetch(`${server.state.url}memory/migrated`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: 1 }),
+      })
+    ).json()) as { ok: boolean; migrated: number; kept: string | null };
+    expect(retired).toMatchObject({ ok: true, migrated: 1, kept: "memories.json.migrated" });
+
+    // Once retired, the route offers nothing: no second import, and the bytes
+    // are kept beside the original rather than deleted.
+    const after = (await (await fetch(`${server.state.url}memory/legacy`)).json()) as { count: number };
+    expect(after.count).toBe(0);
+    expect(JSON.parse(await fs.readFile(`${voiceMemoryFile(home)}.migrated`, "utf8"))).toEqual(legacy);
+  });
+
   it("reports the folder grant over HTTP, and shows it in /state", async () => {
     const server = await serve();
     const before = (await (await fetch(`${server.state.url}fs`)).json()) as { granted: boolean; folder: string | null };
