@@ -778,6 +778,70 @@ describe("the person's gate", () => {
     expect(blank.status).toBe(400);
   });
 
+  it("takes a canvas choice from the page: GET /canvases offers them, POST /canvas moves the session", async () => {
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_old", title: "Put away" },
+    });
+    await post("/api/ops", {
+      canvasId: "prj_old",
+      actor: seeder,
+      op: { type: "project.update", patch: shelvePatch(new Date().toISOString()) },
+    });
+    const server = await serve();
+
+    // What the drawer's picker reads.
+    const listed = await fetch(`${server.state.url}canvases`);
+    expect(listed.status).toBe(200);
+    const offered = (await listed.json()) as { canvases: { id: string; title: string; current: boolean }[]; current: string };
+    expect(offered.current).toBe("prj_1");
+    // The two this test made, newest first, and NOT the one put away — other
+    // canvases in the home (the fixture's own directory canvas) are beside the
+    // point.
+    const mine = offered.canvases
+      .filter((c) => ["Launch plan", "Voice test", "Put away"].includes(c.title))
+      .map((c) => c.title);
+    expect(mine).toEqual(["Launch plan", "Voice test"]);
+    expect(offered.canvases.filter((c) => c.current).map((c) => c.id)).toEqual(["prj_1"]);
+
+    // And what pressing "Use this canvas" posts.
+    const moved = await fetch(`${server.state.url}canvas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "prj_2" }),
+    });
+    expect(moved.status).toBe(200);
+    const body = (await moved.json()) as { canvas: { id: string; title: string }; previous: { id: string } };
+    expect(body.canvas).toEqual({ id: "prj_2", title: "Launch plan" });
+    expect(body.previous.id).toBe("prj_1");
+
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(state.canvas.id, "the session moved, and the page that asked is told").toBe("prj_2");
+    const after = (await (await fetch(`${server.state.url}canvases`)).json()) as { current: string };
+    expect(after.current).toBe("prj_2");
+
+    // The picker's own list can still see where it came from.
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as any).entries as any[];
+    const row = entries.find((e) => e.name === "project_switch" && e.result?.ok === true);
+    expect(row.args.via).toBe("settings");
+    expect(row.result.from).toBe("prj_1");
+
+    // A reference nobody matches is refused with the words every surface uses.
+    const missing = await fetch(`${server.state.url}canvas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "nothing like this" }),
+    });
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { error: string }).error).toContain("no canvas matches");
+  });
+
   it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
     const server = await serve();
     const page = await (await fetch(server.state.url)).text();

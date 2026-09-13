@@ -78,6 +78,7 @@ const op = async (canvasId, body) =>
   })).json();
 
 await op(null, { type: "project.create", canvasId: "prj_voice", title: "Voice evidence" });
+await op(null, { type: "project.create", canvasId: "prj_launch", title: "Launch plan" });
 const canvasNames = async () => {
   const r = await fetch(`${base}/api/projects/prj_voice/canvas`, { headers: badge.headers });
   return (await r.json()).names ?? {};
@@ -277,6 +278,35 @@ try {
   const standing = Object.values(snap.canvas.agents ?? {}).find((a) => a.actor.id === facts.agent.id);
   evidence.standing = standing;
   expect(standing?.actor?.name === "Nova", `the canvas's own enrolment record says “${standing?.actor?.name}”`);
+
+  /* ---- the project picker, in the same drawer ---- */
+  const picker = await b.ev(`(() => {
+    const select = [...document.querySelectorAll("#setup-steps select")].find((s) => s.getAttribute("aria-label") === "Canvas");
+    if (!select) return null;
+    return { options: [...select.options].map((o) => ({ value: o.value, text: o.textContent })), chosen: select.value };
+  })()`);
+  evidence.canvasPicker = picker;
+  expect(picker !== null, `the drawer offers a canvas picker: ${JSON.stringify(picker?.options)}`);
+  expect(
+    picker.options.some((o) => o.text === "Launch plan"),
+    "the picker lists the canvases the harness knows (GET /canvases)",
+  );
+  await b.ev(`(() => {
+    const select = [...document.querySelectorAll("#setup-steps select")].find((s) => s.getAttribute("aria-label") === "Canvas");
+    select.value = ${JSON.stringify("prj_launch")};
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  })()`);
+  await b.ev(`(() => { const b = [...document.querySelectorAll("#setup-steps button")].find((x) => x.textContent.trim() === "Use this canvas"); b.click(); return true; })()`);
+  await until(
+    b,
+    `document.getElementById("canvas-title").textContent.trim() === "Launch plan"`,
+    "the drawer's canvas line to follow the move",
+  );
+  const moved = await (await fetch(`${harnessUrl}state`)).json();
+  evidence.canvasAfterSwitch = { state: moved.canvas, names: await canvasNames() };
+  expect(moved.canvas.id === "prj_launch", `the session moved to “${moved.canvas.title}” (${moved.canvas.id})`);
+  await shot("04-canvas-chosen");
+  step(`picker: chose “Launch plan” and the session is on ${moved.canvas.id}`);
 } catch (err) {
   console.error(`\n  FAILED: ${err.message}\n`);
   for (const line of b.takeErrors()) console.error(`  page error: ${line}`);
@@ -339,11 +369,11 @@ writeFileSync(
     `Page: ${pageUrl} (Vite, this repo's own config, /harness → ${harnessUrl}).\n` +
     `Harness: the shipped \`isocan voice\` verb on a free port, over a throwaway home and daemon.\n\n` +
     `${steps.map((s) => `- ${s}`).join("\n")}\n\n` +
-    `Screenshots: 01-drawer-open.png, 02-name-typed.png, 03-claimed.png.\n` +
+    `Screenshots: 01-drawer-open.png, 02-name-typed.png, 03-claimed.png,\n` +
+    `04-canvas-chosen.png.\n` +
     `Raw: evidence.json.\n\n` +
-    `What is not covered here: the daemon and canvas pickers (\`GET /daemons\`,\n` +
-    `\`GET /canvases\`, \`POST /canvas\`) and \`POST /enrol\` — this run is the claim,\n` +
-    `which is the one that was blocking.\n`,
+    `What is not covered here: \`GET /daemons\` + \`POST /daemon\` and \`POST /enrol\` —\n` +
+    `the claim and the project picker are.\n`,
 );
 console.log(`\n  ${steps.length} steps, ${((Date.now() - begun) / 1000).toFixed(1)}s — evidence in ${path.relative(repo, outDir)}`);
 

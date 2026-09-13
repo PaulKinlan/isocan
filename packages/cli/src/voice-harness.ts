@@ -2568,6 +2568,72 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     }
   }
 
+  /**
+   * **One switch, two callers** — the model's tool call and the settings
+   * drawer's canvas picker. The work is the same and must not drift: resolve
+   * the reference the way every other surface does (`matchRef`: id exact, then
+   * a unique title prefix), end this agent's presence in the room it is
+   * leaving, re-resolve the session's handle so every later operation lands on
+   * the new canvas, drop the model's referents (an id from the old canvas does
+   * not resolve here), tell the page, and write down where it is.
+   *
+   * Nothing is minted: switching is not an edit to either canvas.
+   */
+  async function switchThisSession(ref: string): Promise<
+    | { ok: true; canvas: { id: string; title: string }; previous: { id: string; title: string }; items: { id: string; title?: string }[]; answer: string }
+    | { ok: false; error: string }
+  > {
+    const wanted = ref.trim();
+    if (!wanted) return { ok: false, error: "a switch needs the canvas to move to" };
+    let next: { id: string; title: string };
+    try {
+      next = matchRef(await target.canvas.ctx.client.listCanvases(), wanted);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+    if (next.id === target.canvasId) {
+      return {
+        ok: true,
+        canvas: { id: target.canvasId, title: target.canvasLabel },
+        previous: { id: target.canvasId, title: target.canvasLabel },
+        items: [],
+        answer: `this session is already on “${target.canvasLabel}” — nothing to move`,
+      };
+    }
+    const was = { id: target.canvasId, title: target.canvasLabel };
+    try {
+      /* The room changes with the work: the presence session on the old canvas
+         is ended, not left to look like somebody still standing in a room this
+         agent has left. */
+      if (presenceSessionId) {
+        await target.canvas.ctx.client.endSession(was.id, presenceSessionId).catch(() => {});
+        presenceSessionId = null;
+      }
+      target = await handleFor({ ...options, canvas: next.id });
+      recentActions.splice(0, recentActions.length);
+      const here = await target.canvas.items().catch(() => []);
+      const answer =
+        `moved to the canvas “${target.canvasLabel}” [${target.canvasId}] — ` +
+        `${here.length} item${here.length === 1 ? "" : "s"}: ${here.map((i) => `${i.title} [${i.id}]`).join("; ") || "none"}. ` +
+        `Every operation from here lands on it.`;
+      await announcePresence(sessionState === "live" ? "listening" : "enrolled — nobody is listening right now");
+      await rememberWhatIAm();
+      // The page's header and facts panel name the canvas: told, so a tab that
+      // is listening does not sit there naming the room the session just left.
+      announce?.({ canvas: { title: target.canvasLabel, id: target.canvasId } });
+      narrate(`switched canvas: “${was.title}” → “${target.canvasLabel}”`);
+      return {
+        ok: true,
+        canvas: { id: target.canvasId, title: target.canvasLabel },
+        previous: was,
+        items: here.map((i) => ({ id: i.id, title: i.title })),
+        answer,
+      };
+    } catch (err) {
+      return { ok: false, error: `could not move to “${next.title}” — ${(err as Error).message}` };
+    }
+  }
+
   /** Everything the page — and a check — needs to say what this harness is
    * connected to: the canvas by title AND id, the daemon, the home it answers
    * to, the actor and whether it is enrolled, and the provider and model the
@@ -2686,6 +2752,58 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const merged = Array.from(map.values());
         merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
         respond(200, { entries: merged, count: merged.length });
+        return;
+      }
+      /**
+       * **`GET /canvases` and `POST /canvas` — the project picker.**
+       *
+       * The contract's shape, from the page's side (`isocan-xsh.8`): a list
+       * with `{ id, title }` and a POST naming the one to move to. The rules are
+       * the same two the list and the switch already follow everywhere else —
+       * `inScope` for the shelf (a canvas put away is not somebody's next
+       * project) and `matchRef` for the reference — so the picker cannot offer
+       * a canvas the CLI would refuse or move to a different one than the id
+       * says.
+       *
+       * The switch itself is `switchThisSession`: the same function the model's
+       * tool call runs, so the presence room, the page, the state file and the
+       * model's referents move together whichever surface asked.
+       */
+      if (req.method === "GET" && url.pathname === "/canvases") {
+        const canvases = await target.canvas.ctx.client.listCanvases();
+        const shown = sortCanvases(canvases.filter((c) => inScope(c, "live") || c.id === target.canvasId), "recent");
+        respond(200, {
+          canvases: shown.map((c) => ({ id: c.id, title: c.title, current: c.id === target.canvasId })),
+          current: target.canvasId,
+        });
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/canvas") {
+        const body = await readBody();
+        const asked = typeof body === "string" ? {} : body;
+        // A reference, not an id: the page sends what the picker holds, and a
+        // person may type a title into the same field.
+        const wanted = String(asked.id ?? asked.canvas ?? asked.ref ?? "");
+        const moved = await switchThisSession(wanted);
+        if (!moved.ok) {
+          recordToolLog({
+            type: "tool_call",
+            source: "typed",
+            name: "project_switch",
+            args: { canvas_ref: wanted, via: "settings" },
+            result: { ok: false, error: moved.error },
+          });
+          respond(400, { error: moved.error });
+          return;
+        }
+        recordToolLog({
+          type: "tool_call",
+          source: "typed",
+          name: "project_switch",
+          args: { canvas_ref: wanted, via: "settings" },
+          result: { ok: true, answer: moved.answer, canvasId: moved.canvas.id, from: moved.previous.id },
+        });
+        respond(200, { ok: true, canvas: moved.canvas, previous: moved.previous, answer: moved.answer });
         return;
       }
       /**
@@ -3153,7 +3271,6 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
 
             // 1. Read & Inspection tools:
             if (name === "project_switch") {
-              const ref = String(args.canvas_ref ?? "").trim();
               const refuseSwitch = (message: string) => {
                 say({ text: message, bad: true });
                 recordToolLog({
@@ -3165,76 +3282,29 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                 });
                 return { ok: false, error: message };
               };
-              if (!ref) return refuseSwitch("a switch needs the canvas to move to — ask the person which one");
-              let next: { id: string; title: string };
-              try {
-                next = matchRef(await target.canvas.ctx.client.listCanvases(), ref);
-              } catch (err) {
-                return refuseSwitch((err as Error).message);
-              }
-              if (next.id === target.canvasId) {
-                const here = `this session is already on “${target.canvasLabel}” — nothing to move`;
-                say({ text: here });
+              const moved = await switchThisSession(String(args.canvas_ref ?? ""));
+              if (!moved.ok) return refuseSwitch(moved.error);
+              // A move that moved nothing says so without pretending.
+              if (moved.previous.id === moved.canvas.id) {
+                say({ text: moved.answer });
                 recordToolLog({
                   type: "tool_call",
                   source: "live",
                   name,
                   args: args as Record<string, unknown>,
-                  result: { ok: true, answer: here },
+                  result: { ok: true, answer: moved.answer },
                 });
-                return { ok: true, canvas: { id: target.canvasId, title: target.canvasLabel }, answer: here };
+                return { ok: true, canvas: moved.canvas, answer: moved.answer };
               }
-
-              const was = { id: target.canvasId, title: target.canvasLabel };
-              try {
-                /* The room changes with the work: the presence session on the
-                   old canvas is ended, not left to look like somebody still
-                   standing in a room this agent has left. */
-                if (presenceSessionId) {
-                  await target.canvas.ctx.client.endSession(was.id, presenceSessionId).catch(() => {});
-                  presenceSessionId = null;
-                }
-                target = await handleFor({ ...options, canvas: next.id });
-                /* The model's referents move too. "that one" pointed at an
-                   item on the canvas it just left, and an id from the other
-                   canvas does not resolve here — so the short-list of recent
-                   actions is emptied rather than left to be a trap. */
-                recentActions.splice(0, recentActions.length);
-                const here = await target.canvas.items().catch(() => []);
-                const answer =
-                  `moved to the canvas “${target.canvasLabel}” [${target.canvasId}] — ` +
-                  `${here.length} item${here.length === 1 ? "" : "s"}: ${here.map((i) => `${i.title} [${i.id}]`).join("; ") || "none"}. ` +
-                  `Every operation from here lands on it.`;
-                await announcePresence(sessionState === "live" ? "listening" : "enrolled — nobody is listening right now");
-                await rememberWhatIAm();
-                // The page's header and facts panel name the canvas: told, so
-                // a tab that is listening does not sit there naming the room
-                // the session just left.
-                announce?.({ canvas: { title: target.canvasLabel, id: target.canvasId } });
-                narrate(`switched canvas: “${was.title}” → “${target.canvasLabel}”`);
-                say({ text: answer });
-                recordToolLog({
-                  type: "tool_call",
-                  source: "live",
-                  name,
-                  args: args as Record<string, unknown>,
-                  result: {
-                    ok: true,
-                    answer,
-                    canvasId: target.canvasId,
-                    from: was.id,
-                  },
-                });
-                return {
-                  ok: true,
-                  canvas: { id: target.canvasId, title: target.canvasLabel },
-                  previous: was,
-                  items: here.map((i) => ({ id: i.id, title: i.title })),
-                  answer,
-                };
-              } catch (err) {
-                return refuseSwitch(`could not move to “${next.title}” — ${(err as Error).message}`);
-              }
+              say({ text: moved.answer });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, answer: moved.answer, canvasId: moved.canvas.id, from: moved.previous.id },
+              });
+              return { ok: true, canvas: moved.canvas, previous: moved.previous, items: moved.items, answer: moved.answer };
             }
             if (name === "project_update") {
               const hasTitle = typeof args.title === "string" && args.title.trim() !== "";
