@@ -94,25 +94,27 @@ it("does not satisfy a targeted read from an unscoped read's result or pending r
 
 describe("authoritative prior marks stay separate from merged recents", () => {
   it.each([null, { seq: 5, at: "2026-09-13T01:00:00Z" }])("returns the home's exact %j despite an older wrong-home mark99", async (authoritative) => {
-    const { readSeenMark, rememberSeen, seenMarks } = await import("../src/lib/seen.ts");
+    const { noteVisit, rememberSeen, seenMarks } = await import("../src/lib/seen.ts");
     const actorId = authoritative ? "usr_prior_lower" : "usr_prior_empty";
     const stale = { seq: 99, at: "2026-09-13T09:00:00Z" };
     rememberSeen(actorId, { prj_target: stale });
     api.fetchSeen.mockResolvedValueOnce({ marks: authoritative ? { prj_target: authoritative } : {} });
-    expect(await readSeenMark(actorId, "prj_target")).toEqual({ available: true, mark: authoritative });
+    // Hold the new visit apart from the prior read being asserted.
+    api.putSeen.mockReturnValueOnce(new Promise(() => {}));
+    expect(await noteVisit("prj_target", 9, actorId)).toMatchObject({ available: true, mark: authoritative });
     expect(api.fetchSeen).toHaveBeenLastCalledWith(actorId, expect.any(AbortSignal), "prj_target");
     // Recents and accepted-visit notifications retain their monotonic merge.
     expect(seenMarks(actorId).prj_target).toEqual(stale);
   });
 
   it("does not fall back to a prior success or the merged ledger after a failed fresh read", async () => {
-    const { readSeenMark, rememberSeen } = await import("../src/lib/seen.ts");
+    const { noteVisit, rememberSeen } = await import("../src/lib/seen.ts");
     rememberSeen("usr_prior_failure", { prj_target: { seq: 99, at: "2026-09-13T09:00:00Z" } });
     api.fetchSeen.mockResolvedValueOnce({ marks: { prj_target: { seq: 5, at: "2026-09-13T01:00:00Z" } } });
-    await readSeenMark("usr_prior_failure", "prj_target");
+    await noteVisit("prj_target", 9, "usr_prior_failure");
     api.fetchSeen.mockRejectedValueOnce(new Error("home unavailable"));
-    expect(await readSeenMark("usr_prior_failure", "prj_target")).toEqual({ available: false, mark: null });
+    expect(await noteVisit("prj_target", 9, "usr_prior_failure")).toMatchObject({ available: false, mark: null });
     api.fetchSeen.mockResolvedValueOnce({ marks: {} });
-    expect(await readSeenMark("usr_prior_failure", "prj_target")).toEqual({ available: true, mark: null });
+    expect(await noteVisit("prj_target", 9, "usr_prior_failure")).toMatchObject({ available: true, mark: null });
   });
 });

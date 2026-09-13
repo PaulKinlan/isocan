@@ -8,10 +8,11 @@ it("captures the fresh prior mark before a visit write and preserves accepted no
   api.fetchSeen.mockImplementationOnce(() => new Promise((resolve) => { read = resolve; }));
   api.putSeen.mockImplementationOnce(() => new Promise((resolve) => { accept = resolve; }));
   const seen = await import("../src/lib/seen.ts");
-  seen.rememberSeen("usr_prior", { prj_acme: { seq: 2, at: "2026-09-01T00:00:00Z" } });
+  seen.rememberSeen("usr_prior", { prj_acme: { seq: 99, at: "2026-09-01T00:00:00Z" } });
   const notify = vi.fn(), unwatch = seen.onSeenVisit(notify);
   const pending = seen.noteVisit("prj_acme", 9, "usr_prior");
   expect(api.putSeen).not.toHaveBeenCalled();
+  expect(api.fetchSeen).toHaveBeenCalledWith("usr_prior", expect.any(AbortSignal), "prj_acme");
   read({ marks: { prj_acme: { seq: 5, at: "2026-09-12T00:00:00Z" } } });
   const prior = await pending;
   expect(prior).toMatchObject({ available: true, head: 9, mark: { seq: 5 } });
@@ -19,8 +20,16 @@ it("captures the fresh prior mark before a visit write and preserves accepted no
   expect(notify).not.toHaveBeenCalled();
   accept({ mark: { seq: 11, at: "2026-09-13T00:00:00Z" } });
   await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
-  expect(seen.seenMarks("usr_prior").prj_acme?.seq).toBe(11);
+  expect(seen.seenMarks("usr_prior").prj_acme?.seq).toBe(99);
+  expect(notify).toHaveBeenLastCalledWith("usr_prior", "prj_acme", { seq: 11, at: "2026-09-13T00:00:00Z" });
   expect(prior.mark?.seq).toBe(5); unwatch();
+});
+it("treats an authoritative empty scoped response as first visit despite an older local ledger", async () => {
+  api.fetchSeen.mockResolvedValueOnce({ marks: {} });
+  api.putSeen.mockResolvedValueOnce({ mark: { seq: 9, at: "2026-09-13T00:00:00Z" } });
+  const seen = await import("../src/lib/seen.ts");
+  seen.rememberSeen("usr_remote_first", { prj_acme: { seq: 99, at: "2026-09-01T00:00:00Z" } });
+  expect(await seen.noteVisit("prj_acme", 9, "usr_remote_first")).toMatchObject({ available: true, mark: null });
 });
 it("distinguishes an unreadable ledger from a first recorded visit", async () => {
   api.fetchSeen.mockRejectedValueOnce(new Error("offline")); api.putSeen.mockRejectedValueOnce(new Error("offline"));

@@ -121,7 +121,7 @@ function readSeenResponse(
 
 /** Capture one canvas's prior mark from a fresh read, with unavailable kept
  * distinct from an authoritative first visit. */
-export async function readSeenMark(actorId: string, canvasId: string, signal?: AbortSignal): Promise<{ available: boolean; mark: SeenMark | null }> {
+async function readSeenMark(actorId: string, canvasId: string, signal?: AbortSignal): Promise<{ available: boolean; mark: SeenMark | null }> {
   const marks = await readSeenResponse(actorId, { refresh: true, canvasId, ...(signal ? { signal } : {}) });
   const mark = marks?.[canvasId];
   return { available: marks !== null, mark: mark ? { ...mark } : null };
@@ -142,8 +142,9 @@ export async function noteVisit(canvasId: string, seq: number, actorId: string):
   // A fresh read captures what the home knew BEFORE this arrival. A cached
   // optimistic timestamp would describe the visit we are about to record.
   // Read before write also preserves the badge's one-at-a-time claim healing.
-  const available = await loadSeen(actorId, { refresh: true });
-  const mark = seenMarks(actorId)[canvasId];
+  // Use the scoped response itself: recents merge monotonically, and an old
+  // local mark must not overrule this canvas home’s lower or absent mark.
+  const { available, mark } = await readSeenMark(actorId, canvasId);
   const prior: PriorVisit = { canvasId, actorId, head: seq, available, mark: available && mark ? { ...mark } : null };
   void putSeen(canvasId, seq, actorId).then(({ mark: accepted }) => {
     rememberSeen(actorId, { [canvasId]: accepted });
