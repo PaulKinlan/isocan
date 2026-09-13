@@ -558,9 +558,37 @@ describe("mic-centred conversation feedback", () => {
     await vi.advanceTimersByTimeAsync(5500);
     expect(element("captions").classList.contains("faded")).toBe(true);
     expect(element("transcript").textContent).toContain("The canvas is ready.");
-    element<HTMLInputElement>("keep-captions").click();
-    await vi.advanceTimersByTimeAsync(10000);
+    page!.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps a caption readable for a sentence, and then lets it go", async () => {
+    fakeCapture();
+    stateReply = { session: "idle" };
+    await wire();
+    const socket = await goLive();
+    stateReply = { session: "live" };
+    const reply = (text: string) => socket.event({ type: "tool_log", entry: { details: { kind: "reply", text } } });
+    // There is no "keep captions" control any more: the caption is transient
+    // by design, and the transcript in Logs is where persistence lives.
+    expect(document.getElementById("keep-captions")).toBeNull();
+
+    reply("The canvas ");
+    const first = element("captions").firstChild;
+    reply("is ready.");
+    // Words stream into the node that is already there, not a rebuilt one.
+    expect(element("captions").firstChild).toBe(first);
+    expect(element("captions").textContent).toBe("The canvas is ready.");
+
+    // Readable while a person is reading it. The reading time is at least
+    // 4.5s and starts when the speaking tail ends (TEXT_TAIL_MS), so 4s in it
+    // is still on screen and it has gone a couple of seconds later.
+    await vi.advanceTimersByTimeAsync(4000);
     expect(element("captions").classList.contains("faded")).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(element("captions").classList.contains("faded")).toBe(true);
+    // The record is untouched by any of it.
+    expect(element("transcript").textContent).toContain("The canvas is ready.");
     page!.stop();
     expect(vi.getTimerCount()).toBe(0);
   });
