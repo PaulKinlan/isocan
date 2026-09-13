@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import type { Actor, ActorBindingRecord, ActorClaimOp } from "@isocan/core";
 import { elapsedLabel, newActorId } from "@isocan/core";
-import { paths } from "@isocan/server";
+import { adoptIdentity as adoptStoredIdentity, paths } from "@isocan/server";
 import { ApiError } from "./routes.ts";
 import type { DaemonClient } from "./client.ts";
 import { harnessSessions, harnessVarsFor } from "./harness.ts";
@@ -456,15 +456,7 @@ export async function adoptIdentity(
   home: string,
   actor: Actor,
 ): Promise<{ actor: Actor; adopted: boolean }> {
-  const file = paths.identityFile(home);
-  const existing = await readFrom(file);
-  if (existing && existing.id !== actor.id) return { actor: existing, adopted: false };
-  // A nameless actor is not something this file can hold — `readFrom` needs
-  // both halves, so writing one would produce a file that resolves to nobody
-  // and looks like corruption later. It means the home's registry has no name
-  // for the endowed actor, which is a hole the next roster to arrive fills.
-  if (!actor.name) return { actor, adopted: false };
-  return { actor: await write(file, actor), adopted: true };
+  return adoptStoredIdentity(home, actor);
 }
 
 /** Rename in place — the actor id is the stable key, so your history stays

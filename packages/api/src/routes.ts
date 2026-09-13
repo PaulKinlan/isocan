@@ -810,10 +810,11 @@ export class DaemonRoutes {
    * row carries no session key by design, and `GET /api/actors` is keyed by
    * session key — so a caller that throws this response away cannot ask for
    * it again, and the identity the pass endowed becomes unreachable from this
-   * machine even though the badge still holds it. `isocan setup` writes it
-   * into `identity.json` for exactly that reason.
+   * machine even though the badge still holds it. Replica setup opts into
+   * local adoption so the daemon saves it alongside its badge writes. Direct
+   * setup leaves the remote machine alone and saves it in the CLI process.
    */
-  redeemPass(token: string, home?: string): Promise<RedeemPassResponse> {
+  redeemPass(token: string, home?: string, adoptIdentity = false): Promise<RedeemPassResponse> {
     /**
      * `home` is the address the pass was pasted with, and it is sent only when
      * it is not this daemon's own base — a daemon told to redeem a pass minted
@@ -826,6 +827,7 @@ export class DaemonRoutes {
       home !== undefined && normalizeHomeUrl(home) !== normalizeHomeUrl(this.base);
     return this.request("POST", PASS_REDEEM_ROUTE, {
       token,
+      ...(adoptIdentity ? { adoptIdentity: true } : {}),
       ...(elsewhere ? { home: normalizeHomeUrl(home!) } : {}),
     });
   }

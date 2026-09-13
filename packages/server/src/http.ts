@@ -489,6 +489,9 @@ function isOpen(method: string, pathname: string): boolean {
 }
 
 interface RouteOptions {
+  /** Local setup persists its pass-returned person in the same process as
+   * home badge writes. The route guards local custody before spending a pass. */
+  adoptIdentity?: (actor: Actor) => Promise<{ actor: Actor; adopted: boolean }>;
   /**
    * Where a sweep's per-badge outcomes go (roles design, "Reaching an open
    * socket"): the daemon hands the same hub to `ws.ts`, which tells the
@@ -4707,6 +4710,23 @@ export function registerRoutes(
    */
   app.post(PASS_REDEEM_ROUTE, async (req, reply) => {
     const body = (req.body ?? {}) as Partial<RedeemPassRequest>;
+    if (body.adoptIdentity !== undefined && typeof body.adoptIdentity !== "boolean") {
+      return reply.status(400).send({ error: "adoptIdentity must be a boolean", code: "bad-request" });
+    }
+    const local = req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1";
+    if (
+      body.adoptIdentity &&
+      (options.servesWorld === true || !loopbackBound(app) || !local || !options.adoptIdentity)
+    ) {
+      return reply.status(403).send({
+        error: "saving a machine's person is available only through its local daemon",
+        code: "not-local-setup",
+      });
+    }
+    const finish = async (answer: RedeemPassResponse): Promise<RedeemPassResponse> => {
+      if (!body.adoptIdentity || !answer.actor) return answer;
+      return { ...answer, identity: await options.adoptIdentity!(answer.actor) };
+    };
     // No special case for a missing token: `redeemPass` parses it, and an
     // empty string is not a pass in exactly the way a mangled one is not.
     const token = typeof body.token === "string" ? body.token : "";
@@ -4746,7 +4766,7 @@ export function registerRoutes(
     if (home) {
       const answer = await home.redeemPass(token);
       if (answer.actor) await engine.endowClaim(badge.badgeId, answer.actor, answer.canvasId);
-      return answer;
+      return finish(answer);
     }
     const pass = await redeemPass(desk, token, badge);
     if (pass.actorId === undefined) {
@@ -4758,7 +4778,7 @@ export function registerRoutes(
     const names = await engine.actorNames();
     const actor: Actor = { id: pass.actorId, name: names[pass.actorId] ?? "" };
     await engine.endowClaim(badge.badgeId, actor, pass.canvasId);
-    return { canvasId: pass.canvasId, actor } satisfies RedeemPassResponse;
+    return finish({ canvasId: pass.canvasId, actor });
   });
 
   /**

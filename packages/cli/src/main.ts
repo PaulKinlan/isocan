@@ -5325,7 +5325,9 @@ program
          * `identity.json`, this machine's person, which is the slot a human at
          * a fresh terminal resolves from before any daemon exists.
          *
-         * `adoptIdentity` refuses to overwrite a DIFFERENT person already on
+         * The local daemon persists the answer in its badge-write queue; direct
+         * setup uses the same helper in this process. `adoptIdentity` refuses
+         * to overwrite a DIFFERENT person already on
          * this machine, and setup says so rather than papering over it: a
          * command pasted out of a chat window is not the gesture that renames
          * the human who owns a laptop. The badge still holds the handed claim
@@ -5355,11 +5357,15 @@ program
             "machine is not admitted. Run `isocan setup` again with the same address.";
         }
         if (arrival?.pass && daemonUp) {
-          const answer = await client.redeemPass(arrival.pass, arrival.origin);
+          const answer = await client.redeemPass(arrival.pass, arrival.origin, !direct);
           if (!answer.actor) {
             report.identity = "admitted — this pass carried no identity, so name yourself here";
           } else {
-            const { actor, adopted } = await adoptIdentity(home, answer.actor);
+            // The daemon owns replica setup's identity write alongside its
+            // home badges. Direct setup's badge writer is this process.
+            const saved = direct ? await adoptIdentity(home, answer.actor) : answer.identity;
+            if (!saved) throw new Error("the daemon did not confirm saving the pass identity — restart it with this version of isocan");
+            const { actor, adopted } = saved;
             report.identity = adopted
               ? `${actor.name} (${actor.id}) — handed over by the pass, saved to ${paths.identityFile(home)}`
               : `this machine already answers to ${actor.name} (${actor.id}); the pass's ` +
