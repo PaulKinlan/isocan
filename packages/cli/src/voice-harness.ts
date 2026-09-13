@@ -146,6 +146,243 @@ export async function forgetVoiceKey(home: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ *
+ * The model: a preference, and the provider's own list
+ * ------------------------------------------------------------------ */
+
+/**
+ * **The model, as a preference rather than a constant.**
+ *
+ * Paul: “we should be able to select (and type our own) gemini model,
+ * sometimes we have access to beta models not in the public list.” A beta name
+ * cannot live in a source file, so the choice is stored the way the key is —
+ * one small file, nothing inferred — and the provider is the judge of whether
+ * it works.
+ */
+export function voiceModelFile(home: string): string {
+  return path.join(voiceDir(home), "model.json");
+}
+
+/** The stored preference: the name the Live API takes, and when it was chosen. */
+export interface VoiceModel {
+  /** Always `models/<id>`, the form the Live API takes. */
+  model: string;
+  /** When it was chosen — a person reading the file later wants to know. */
+  at: string;
+}
+
+/** The stored choice, or null — a preference, not a config to validate. */
+export async function readVoiceModel(home: string): Promise<VoiceModel | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(voiceModelFile(home), "utf8")) as VoiceModel;
+    return parsed?.model ? parsed : null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
+}
+
+/** Stored 0600 like the key: a name somebody typed is not a secret, and not a file to leave readable either. */
+export async function writeVoiceModel(home: string, model: string): Promise<string> {
+  const dir = voiceDir(home);
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = voiceModelFile(home);
+  await fs.writeFile(file, `${JSON.stringify({ model, at: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 });
+  await fs.chmod(file, 0o600);
+  return file;
+}
+
+/** Forget it: the shipped default is what a new session uses next. */
+export async function forgetVoiceModel(home: string): Promise<void> {
+  await fs.rm(voiceModelFile(home), { force: true });
+}
+
+/**
+ * **A model name is a SHAPE, and this is the only local rule about it.**
+ *
+ * It cannot be a list: the whole reason the field exists is names the public
+ * list does not carry. So this checks the shape and says that it is a shape
+ * check, and everything else is the provider's answer. Measured: a malformed
+ * name reaches the provider and comes back with the SAME message a real-but-
+ * text-only model gets (“not found for API version v1beta, or is not supported
+ * for bidiGenerateContent”), so the shape is the one thing worth telling apart
+ * on this side.
+ */
+export function modelNameShape(asked: string): { ok: true; name: string } | { ok: false; why: string } {
+  const trimmed = asked.trim();
+  if (!trimmed) return { ok: false, why: "no model name was given" };
+  const name = trimmed.startsWith("models/") ? trimmed : `models/${trimmed}`;
+  if (!/^models\/[A-Za-z0-9._-]+$/.test(name)) {
+    return {
+      ok: false,
+      why:
+        `“${asked}” is not shaped like a Gemini model name — a name is letters, digits, dots, dashes and ` +
+        `underscores, optionally after “models/”. (Checked here, not at the provider: nothing was sent.)`,
+    };
+  }
+  return { ok: true, name };
+}
+
+export interface ProviderModel {
+  /** `models/<id>`, the provider's own name for it. */
+  name: string;
+  displayName: string;
+  /** The provider's description, first line, bounded. */
+  description: string;
+  methods: string[];
+  /** The provider's OWN signal that this model holds a Live session. */
+  live: boolean;
+}
+
+/**
+ * **The provider's list, in the provider's words.**
+ *
+ * Measured against the live API on 13 Sep 2026: 55 models, each carrying
+ * `name`, `displayName`, `description` and `supportedGenerationMethods` — and
+ * exactly SEVEN with `bidiGenerateContent`, which is the Live API's own method
+ * name. That field is the honest “can this hold a voice session” signal, and
+ * it is read from the provider rather than hardcoded here.
+ */
+export async function listModels(
+  key: VoiceKey,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; models: ProviderModel[]; answer: string }> {
+  try {
+    const r = await fetchImpl("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {
+      headers: { "x-goog-api-key": key.key },
+    });
+    const body = await r.text();
+    if (!r.ok) return { ok: false, models: [], answer: `${r.status} ${body.slice(0, 300)}` };
+    const parsed = JSON.parse(body) as {
+      models?: { name?: string; displayName?: string; description?: string; supportedGenerationMethods?: string[] }[];
+    };
+    const models = (parsed.models ?? []).map((one) => ({
+      name: one.name ?? "",
+      displayName: one.displayName ?? one.name ?? "",
+      description: (one.description ?? "").split("\n")[0]!.slice(0, 240),
+      methods: one.supportedGenerationMethods ?? [],
+      live: (one.supportedGenerationMethods ?? []).includes("bidiGenerateContent"),
+    }));
+    const live = models.filter((one) => one.live).length;
+    return { ok: true, models, answer: `the provider lists ${models.length} models, ${live} of them Live` };
+  } catch (err) {
+    return { ok: false, models: [], answer: `could not reach the provider: ${String((err as Error).message ?? err)}` };
+  }
+}
+
+/**
+ * **Is this model one the provider will talk through?**
+ *
+ * Asked, not looked up: the list is a hint and the handshake is the answer. A
+ * name that is not in the list — a beta model an operator has — is tried
+ * anyway, because that is the case this control exists for.
+ *
+ * The two failures are told apart on this side because the provider does NOT
+ * tell them apart. Measured, 13 Sep 2026: a text-only model and a name that
+ * does not exist both close the Live socket with code 1008 and the identical
+ * sentence “is not found for API version v1beta, or is not supported for
+ * bidiGenerateContent”. The list says which of the two it is; the provider's
+ * sentence is handed over verbatim either way.
+ */
+export async function testModel(options: {
+  asked: string;
+  key: VoiceKey;
+  known?: ProviderModel[];
+  WebSocketImpl?: typeof WebSocket;
+  urlFor?: (key: string) => string;
+  timeoutMs?: number;
+}): Promise<{ ok: boolean; model?: string; answer: string; why: string }> {
+  const shape = modelNameShape(options.asked);
+  if (!shape.ok) return { ok: false, answer: shape.why, why: "not a model name" };
+  const model = shape.name;
+  const known = options.known?.find((one) => one.name === model);
+
+  // What the list knows, said before anything is opened: which is the whole
+  // difference between “that model does not exist” and “that model is not one
+  // you can talk through”.
+  const fromTheList = known
+    ? known.live
+      ? `the provider lists ${model} as Live (${known.displayName})`
+      : `the provider lists ${model} (${known.displayName}), but WITHOUT bidiGenerateContent — it is not a model you can hold a voice session with`
+    : `the provider's list does not carry ${model} — a beta model you have access to may still work, so this was tried anyway`;
+
+  const url = options.urlFor ? options.urlFor(options.key.key) : liveUrl(options.key.key);
+  const Socket = options.WebSocketImpl ?? WebSocket;
+  const outcome = await new Promise<{ ok: boolean; answer: string; code?: number }>((resolve) => {
+    let settled = false;
+    const finish = (value: { ok: boolean; answer: string; code?: number }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch {}
+      resolve(value);
+    };
+    const timer = setTimeout(
+      () => finish({ ok: false, answer: `the provider did not answer within ${(options.timeoutMs ?? 12_000) / 1000}s` }),
+      options.timeoutMs ?? 12_000,
+    );
+    const socket = new Socket(url);
+    socket.onopen = () => socket.send(JSON.stringify(liveSetup(model)));
+    socket.onmessage = async (event: { data: unknown }) => {
+      const raw = event?.data;
+      const text =
+        typeof raw === "string"
+          ? raw
+          : raw instanceof Uint8Array || raw instanceof ArrayBuffer
+            ? new TextDecoder().decode(raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw)
+            : raw && typeof (raw as { text?: () => Promise<string> }).text === "function"
+              ? await (raw as { text: () => Promise<string> }).text()
+              : "";
+      let message: Record<string, unknown> = {};
+      try {
+        message = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (message.setupComplete) finish({ ok: true, answer: "accepted: the provider completed the setup" });
+      else if (message.error) finish({ ok: false, answer: JSON.stringify(message.error).slice(0, 400) });
+    };
+    socket.onerror = () => finish({ ok: false, answer: "the live socket refused the connection" });
+    socket.onclose = (event: { code?: number; reason?: string }) => {
+      const code = event?.code ?? 0;
+      // The provider's sentence is handed over in full where it fits: cutting
+      // it mid-word ("… Call Mod") reads as corruption rather than as a limit.
+      const reason = event?.reason ? String(event.reason).slice(0, 900) : "";
+      finish({ ok: false, answer: `${code}${reason ? ` — ${reason}` : " (no reason given)"}`, code });
+    };
+  });
+
+  if (outcome.ok) return { ok: true, model, answer: outcome.answer, why: fromTheList };
+
+  /**
+   * **Three failures, three different sentences — because they need different
+   * fixes.** Measured on 13 Sep 2026:
+   *
+   *   1007  a model that IS Live but does not send audio out: the transcribe
+   *         and translate models answer the setup and then refuse the response
+   *         modality. “Live” in the list is not “a voice you can talk with”.
+   *   1008  the provider's one sentence for BOTH “no such model” and “a real
+   *         model that cannot hold a Live session”, which is why the list is
+   *         consulted before saying which this is.
+   *   other the provider's words are the whole answer, and are handed over.
+   */
+  const why =
+    outcome.code === 1007
+      ? `${model} is a Live model, but not a conversational one: the provider accepted the setup and then refused the ` +
+        `response modality — this one does not send AUDIO back. Transcription and translation models are Live and are ` +
+        `not a voice to talk with; the conversation needs a model that takes audio in AND answers in audio.`
+      : known
+        ? known.live
+          ? `the provider lists ${model} as Live, so this refusal is about something else — its own words are above`
+          : `${model} is a real model, but not a Live one: Live needs a model that takes audio in and sends audio back ` +
+            `(bidiGenerateContent), and this one offers ${known.methods.join(", ") || "no methods"}. A text-only model name is the ` +
+            `easiest mistake to make in that field.`
+        : `no model by this name is in the provider's list, so this was tried anyway and the provider refused it — a beta model you have access to would be here too, which is why the field exists. Its exact name is what matters.`;
+  return { ok: false, model, answer: outcome.answer, why };
+}
+
+/* ------------------------------------------------------------------ *
  * What a sentence means
  * ------------------------------------------------------------------ */
 
@@ -1987,6 +2224,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;
+  /** The model the running session was opened with, or null when idle. */
+  let liveModelInUse: string | null = null;
   const initialLog = await readVoiceLog(home).catch(() => []);
   /**
    * **The file is the record; `toolLog` is the window.**
@@ -2083,6 +2322,22 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     options.onLine?.(line);
   };
 
+  /**
+   * **What a session started right now would use, and where that came from.**
+   *
+   * `--model` wins for the run it was typed in; otherwise the choice the page
+   * stored; otherwise the shipped default. The SOURCE is reported with the
+   * name because a picker that shows one model while the session uses another
+   * is the failure this control exists to end — and a silent override is how
+   * that happens.
+   */
+  const resolveModel = async (): Promise<{ model: string; source: "flag" | "stored" | "default" }> => {
+    if (options.model) return { model: options.model, source: "flag" };
+    const stored = await readVoiceModel(home).catch(() => null);
+    if (stored?.model) return { model: stored.model, source: "stored" };
+    return { model: LIVE_MODEL, source: "default" };
+  };
+
   /** Everything the page — and a check — needs to say what this harness is
    * connected to: the canvas by title AND id, the daemon, the home it answers
    * to, the actor and whether it is enrolled, and the provider and model the
@@ -2090,6 +2345,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
    * the isocan voice agent is connected to." */
   const factsFor = async () => {
     const stored = await readVoiceKey(home).catch(() => null);
+    const chosen = await resolveModel();
     const config = await readConfigFile<{ home?: string }>(home).catch(() => ({}) as { home?: string });
     const enrolled = (await readRcAgents(home).catch(() => [])).some(
       (row) => row.canvasId === target.canvasId && row.name === target.name && row.harness === VOICE_HARNESS,
@@ -2103,7 +2359,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       daemon: target.daemon,
       home: config.home ?? "no home configured — the daemon's default",
       agent: { name: target.name, id: target.actorId, enrolled },
-      provider: { name: stored?.provider ?? null, model: options.model ?? LIVE_MODEL, key: stored !== null },
+      provider: {
+        name: stored?.provider ?? null,
+        model: chosen.model,
+        // Where that name came from, so a person is never left guessing why
+        // the page's choice is not the one in use.
+        modelSource: chosen.source,
+        // The model the RUNNING session was opened with; null when idle. The
+        // facts can then say “in use: X” without either side inferring it.
+        modelLive: liveModelInUse,
+        key: stored !== null,
+      },
       session: { state: sessionState },
     };
   };
@@ -2183,6 +2449,17 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           return;
         }
       }
+      if (req.method === "GET" && url.pathname === "/models") {
+        const stored = await readVoiceKey(home).catch(() => null);
+        if (!stored) {
+          respond(200, { ok: false, models: [], answer: "no key stored, so there is no list to fetch" });
+          return;
+        }
+        const list = await listModels(stored, options.fetchImpl);
+        narrate(`model list: ${list.answer}`);
+        respond(200, list);
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/log") {
         // The persisted file is the record; the in-memory copy covers entries
         // not yet flushed. Merged by id, so a restart or a raced write cannot
@@ -2228,15 +2505,60 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         if (activeLiveSession) {
           try { activeLiveSession.close(); } catch {}
           activeLiveSession = null;
+          liveModelInUse = null;
         }
         respond(200, { ok: true, state: sessionState });
         return;
       }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log and POST /key, /audio, /utterance, /summons, /session/*" });
+        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log, /models and POST /key, /model, /model/test, /audio, /utterance, /summons, /session/*" });
         return;
       }
       const body = await readBody();
+      if (url.pathname === "/model") {
+        const posted: Record<string, unknown> = typeof body === "string" ? { model: body } : body;
+        const asked = String(posted.model ?? "").trim();
+        const applying = sessionState === "live" || sessionState === "muted";
+        const appliesTo = applying ? "the next session" : "now";
+        if (!asked) {
+          await forgetVoiceModel(home);
+          narrate("model choice forgotten — back to the shipped default");
+          respond(200, { ok: true, model: LIVE_MODEL, source: "default", appliesTo });
+          return;
+        }
+        const shape = modelNameShape(asked);
+        if (!shape.ok) {
+          respond(400, { error: shape.why });
+          return;
+        }
+        await writeVoiceModel(home, shape.name);
+        narrate(applying ? `model: ${shape.name} — stored, the next session uses it` : `model: ${shape.name}`);
+        respond(200, { ok: true, model: shape.name, source: "stored", appliesTo });
+        return;
+      }
+      if (url.pathname === "/model/test") {
+        const posted: Record<string, unknown> = typeof body === "string" ? { model: body } : body;
+        const asked = String(posted.model ?? "").trim();
+        const stored = await readVoiceKey(home).catch(() => null);
+        if (!stored) {
+          respond(200, { ok: false, answer: "no key stored, so there is nothing to ask the provider", why: "" });
+          return;
+        }
+        // The list is asked for FIRST so a refusal can say which of the two
+        // identical provider messages this is: “no such model” or “a real
+        // model that cannot hold a Live session”.
+        const list = await listModels(stored, options.fetchImpl);
+        const result = await testModel({
+          asked,
+          key: stored,
+          known: list.models,
+          ...(options.WebSocketImpl ? { WebSocketImpl: options.WebSocketImpl } : {}),
+          ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
+        });
+        narrate(`model check ${result.model ?? asked}: ${result.ok ? "accepted" : result.answer}`);
+        respond(200, result);
+        return;
+      }
       if (url.pathname === "/key") {
         if (typeof body === "object" && body.forget === true) {
           await forgetVoiceKey(home);
@@ -2413,6 +2735,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       let liveFailure = "";
+      const current = await resolveModel();
+      liveModelInUse = current.model;
+      narrate(`opening a live session on ${current.model} (${current.source})`);
       const contextItems = await target.canvas.items().catch(() => []);
       const contextThreads = await target.canvas.threads().catch(() => []);
       const contextBlock =
@@ -2427,7 +2752,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       const session = startLiveSession({
         key: stored,
         instructions,
-        ...(options.model ? { model: options.model } : {}),
+        model: current.model,
         ...(options.liveUrl ? { urlFor: options.liveUrl } : {}),
         ...(options.WebSocketImpl ? { WebSocketImpl: options.WebSocketImpl } : {}),
         callbacks: {
@@ -2808,6 +3133,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         void announcePresence("enrolled — nobody is listening right now");
         recordToolLog({ type: "session_event", event: "closed", reason: liveFailure || "closed" });
         session.close();
+        liveModelInUse = null;
       });
       const ok = await session.ready;
       if (!ok && page.readyState === page.OPEN) {

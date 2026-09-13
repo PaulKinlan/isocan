@@ -25,6 +25,28 @@ const voiceBody = /<body[^>]*>([\s\S]*)<\/body>/i.exec(voiceHtml)?.[1] ?? "";
 let stateReply: unknown = {};
 let logReply: unknown = { entries: [] };
 let openReply: unknown = { url: "https://isocan.io/p/prj_cr7#pss_fresh" };
+let modelsReply: unknown = {
+  ok: true,
+  answer: "the provider lists 2 models, 1 of them Live",
+  models: [
+    {
+      name: "models/gemini-3.1-flash-live-preview",
+      displayName: "Gemini 3.1 Flash Live Preview",
+      description: "Live, audio in and out.",
+      methods: ["bidiGenerateContent"],
+      live: true,
+    },
+    {
+      name: "models/gemini-2.5-flash",
+      displayName: "Gemini 2.5 Flash",
+      description: "Fast text.",
+      methods: ["generateContent"],
+      live: false,
+    },
+  ],
+};
+let useModelReply: unknown = { ok: true, model: "models/gemini-9-beta", source: "stored", appliesTo: "now" };
+let checkModelReply: unknown = { ok: true, model: "models/gemini-9-beta", answer: "accepted: the provider completed the setup", why: "the provider lists it as Live" };
 let openThrows = false;
 let fakeTab: { location: { replace: ReturnType<typeof vi.fn> } };
 let page: VoicePage | null = null;
@@ -64,6 +86,9 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/state")) return answer(stateReply);
+      if (url.endsWith("/models")) return answer(modelsReply);
+      if (url.endsWith("/model/test")) return answer(checkModelReply);
+      if (url.endsWith("/model")) return answer(useModelReply);
       if (url.endsWith("/log")) return answer(logReply);
       if (url.endsWith("/open")) {
         if (openThrows) throw new TypeError("Failed to fetch");
@@ -807,6 +832,10 @@ describe("configuration behind the settings cog", () => {
       "daemon-field",
       "mic-fact",
       "output-fact",
+      "model-fact",
+      "model-panel",
+      "model-field",
+      "model-list",
       "save-key",
       "test-key",
       "forget-key",
@@ -1149,6 +1178,170 @@ describe("the two ends of the sound, in the facts panel", () => {
     localStorage.setItem("isocan.voice.outputName", "Desk speakers");
     await wire();
     expect(element("output-fact").textContent).toBe("System default (this browser cannot choose another)");
+  });
+});
+
+/**
+ * **Choosing the model** (Paul, 13 Sep 2026).
+ *
+ * The reason the free-text field exists is that the list cannot be the
+ * validation: a beta model an operator has access to is exactly the name the
+ * public list does not carry. So these hold the page to
+ *
+ *   - showing the ACTIVE model as a fact, and saying when a running session is
+ *     on a different one;
+ *   - filling the list from the provider, Live models first, and saying whose
+ *     list it is and what it cannot carry;
+ *   - showing the provider's refusal verbatim, WITH the part the provider
+ *     cannot say — which kind of refusal it was.
+ */
+describe("choosing the model", () => {
+  const LIVE_FACTS = {
+    ...LIVE,
+    provider: { name: "gemini", model: "models/gemini-9-beta", modelSource: "stored", modelLive: null, key: true },
+  };
+
+  it("shows the active model, and where that choice came from", async () => {
+    stateReply = LIVE_FACTS;
+    await wire();
+    expect(element("model-fact").textContent).toBe("gemini-9-beta");
+    expect(element("model-summary").textContent).toBe("gemini-9-beta");
+    expect(element<HTMLButtonElement>("model-reset").hidden).toBe(false);
+
+    stateReply = { ...LIVE_FACTS, provider: { ...LIVE_FACTS.provider, modelSource: "flag", model: "models/gemini-from-the-flag" } };
+    await vi.advanceTimersByTimeAsync(2100);
+    await flush();
+    expect(element("model-fact").textContent).toBe("gemini-from-the-flag (from --model)");
+    // A flag choice is not the page's to reset.
+    expect(element<HTMLButtonElement>("model-reset").hidden).toBe(true);
+  });
+
+  it("says which model a running session is actually using", async () => {
+    stateReply = {
+      ...LIVE_FACTS,
+      provider: { ...LIVE_FACTS.provider, model: "models/gemini-new", modelLive: "models/gemini-old" },
+    };
+    await wire();
+    // The page must not claim the model it is not talking through.
+    expect(element("model-fact").textContent).toBe("gemini-new — in use: gemini-old");
+  });
+
+  it("fills the list from the provider, Live models apart from the rest", async () => {
+    stateReply = LIVE_FACTS;
+    await wire();
+    const panel = element<HTMLDetailsElement>("model-panel");
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+    await flush();
+    const groups = [...element<HTMLSelectElement>("model-list").querySelectorAll("optgroup")].map((group) => ({
+      label: group.getAttribute("label"),
+      options: [...group.querySelectorAll("option")].map((one) => one.value),
+    }));
+    // The provider's own method (`bidiGenerateContent`) decides which group a
+    // model lands in — not a list the page keeps.
+    expect(groups).toEqual([
+      { label: "Live — audio in and out", options: ["models/gemini-3.1-flash-live-preview"] },
+      { label: "Listed, but not a Live model", options: ["models/gemini-2.5-flash"] },
+    ]);
+    expect(element("model-note").textContent).toContain("the provider lists 2 models, 1 of them Live");
+    expect(element("model-note").textContent).toContain("a beta name may not be in it");
+  });
+
+  it("does not let a slow list talk over a choice made while it loads", async () => {
+    stateReply = LIVE_FACTS;
+    // The list answers late — while the person is already choosing.
+    let releaseList: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const realFetch = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/models")) {
+        await slow;
+      }
+      return realFetch!(input, init);
+    });
+    await wire();
+    const panel = element<HTMLDetailsElement>("model-panel");
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+    await flush();
+    // The choice happens first, the list finishes afterwards.
+    element<HTMLInputElement>("model-field").value = "gemini-9.9-beta";
+    element<HTMLButtonElement>("model-use").click();
+    await flush();
+    releaseList();
+    await flush();
+    expect(element("model-note").textContent).toBe("gemini-9.9-beta stored — the next session uses it");
+    // …and the list is filled once, by the newest load: two loads in flight
+    // filled it twice (measured: 110 options from a 55-model list).
+    expect(element<HTMLSelectElement>("model-list").querySelectorAll("option")).toHaveLength(2);
+  });
+
+  it("says so, in the provider's words, when the list cannot be fetched", async () => {
+    stateReply = LIVE_FACTS;
+    modelsReply = { ok: false, models: [], answer: "400 API key not valid" };
+    await wire();
+    const panel = element<HTMLDetailsElement>("model-panel");
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+    await flush();
+    expect(element("model-note").textContent).toContain("could not list the models — 400 API key not valid");
+  });
+
+  it("stores a typed name and says when it takes effect", async () => {
+    stateReply = LIVE_FACTS;
+    useModelReply = { ok: true, model: "models/gemini-9.9-beta", source: "stored", appliesTo: "the next session" };
+    await wire();
+    const field = element<HTMLInputElement>("model-field");
+    field.value = "gemini-9.9-beta";
+    element<HTMLButtonElement>("model-use").click();
+    await flush();
+    expect(element("model-note").textContent).toBe(
+      "gemini-9.9-beta stored — a session is running, so it takes effect at the next one",
+    );
+    const posted = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/model"));
+    expect(posted, "the choice must be posted").toBeTruthy();
+    expect(JSON.parse(String((posted?.[1] as RequestInit).body))).toEqual({ model: "gemini-9.9-beta" });
+  });
+
+  it("shows the harness's refusal of a malformed name, verbatim", async () => {
+    stateReply = LIVE_FACTS;
+    useModelReply = { error: "“gemini 2.5 flash!” is not shaped like a Gemini model name — … (Checked here, not at the provider: nothing was sent.)" };
+    await wire();
+    const field = element<HTMLInputElement>("model-field");
+    field.value = "gemini 2.5 flash!";
+    element<HTMLButtonElement>("model-use").click();
+    await flush();
+    expect(element("model-note").textContent).toContain("not shaped like a Gemini model name");
+    expect(element("model-note").textContent).toContain("nothing was sent");
+  });
+
+  it("shows the provider's refusal AND the reason it cannot give itself", async () => {
+    stateReply = LIVE_FACTS;
+    checkModelReply = {
+      ok: false,
+      model: "models/gemini-2.5-flash",
+      answer: "1008 — models/gemini-2.5-flash is not found for API version v1beta, or is not supported for bidiGenerateContent.",
+      why: "gemini-2.5-flash is a real model, but not a Live one: Live needs a model that takes audio in and sends audio back.",
+    };
+    await wire();
+    element<HTMLInputElement>("model-field").value = "gemini-2.5-flash";
+    element<HTMLButtonElement>("model-check").click();
+    await flush();
+    const said = element("model-note").textContent ?? "";
+    expect(said).toContain("1008 — models/gemini-2.5-flash is not found for API version v1beta");
+    expect(said).toContain("not a Live one");
+    expect(said).toContain("sends audio back");
+  });
+
+  it("resets to the shipped default when asked", async () => {
+    stateReply = LIVE_FACTS;
+    useModelReply = { ok: true, model: "models/gemini-3.1-flash-live-preview", source: "default", appliesTo: "now" };
+    await wire();
+    element<HTMLButtonElement>("model-reset").click();
+    await flush();
+    expect(element("model-note").textContent).toBe("back to the shipped default");
   });
 });
 

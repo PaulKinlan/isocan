@@ -19,14 +19,18 @@ import {
   endSession,
   entriesFrom,
   log as fetchLog,
+  models as fetchModels,
   muteSession,
   saveKey,
   sessionFrom,
   state as fetchState,
   startSession,
   testKey,
+  testModel as checkModel,
   unmuteSession,
+  useModel as chooseModel,
   type LogEntry,
+  type ProviderModel,
   type SessionState,
   type State,
 } from "../lib/voice.ts";
@@ -279,6 +283,16 @@ export function wireVoice(doc: Document = document): VoicePage {
   const testKeyButton = required<HTMLButtonElement>("test-key", doc);
   const forgetKeyButton = required<HTMLButtonElement>("forget-key", doc);
   const keyNote = required<HTMLElement>("key-note", doc);
+  const modelPanel = required<HTMLDetailsElement>("model-panel", doc);
+  const modelList = required<HTMLSelectElement>("model-list", doc);
+  const modelRefresh = required<HTMLButtonElement>("model-refresh", doc);
+  const modelField = required<HTMLInputElement>("model-field", doc);
+  const modelUseButton = required<HTMLButtonElement>("model-use", doc);
+  const modelCheckButton = required<HTMLButtonElement>("model-check", doc);
+  const modelResetButton = required<HTMLButtonElement>("model-reset", doc);
+  const modelNote = required<HTMLElement>("model-note", doc);
+  const modelFact = required<HTMLElement>("model-fact", doc);
+  const modelSummary = required<HTMLElement>("model-summary", doc);
   const logList = required<HTMLElement>("log", doc);
   const copyLogButton = required<HTMLButtonElement>("copy-log", doc);
 
@@ -308,6 +322,20 @@ export function wireVoice(doc: Document = document): VoicePage {
   let daemonTried = "";
   let complaint = "";
   let note = "";
+  /** The model panel's own sentence: the provider's words, or what was stored. */
+  let modelSaid = "";
+  /** The provider's list, once it has been asked for. */
+  let modelChoices: ProviderModel[] = [];
+  /**
+   * Whose sentence the note is. The list is an authenticated call that takes a
+   * moment, and a person who chooses while it is in flight must not have their
+   * confirmation overwritten by it — found by driving the real page: the choice
+   * said "stored", the list finished a beat later and said "the provider lists
+   * 55 models", and the choice looked like it had not happened.
+   */
+  let modelEpoch = 0;
+  /** Which list load is the current one: the newest fills, the rest stand down. */
+  let modelLoad = 0;
   /** True only while the state poll is the thing that failed. */
   let stateComplaint = false;
   let held: Capture | null = null;
@@ -536,6 +564,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     actorStanding.className = facts?.agent?.enrolled ? "voice-ok" : "voice-bad";
     const audio = audioFacts(facts);
     audioLine.textContent = `${audio.provider} · ${audio.model} · ${audio.key ? "key stored" : "no key stored"}`;
+    renderModelFacts();
     versionLine.textContent = facts?.version ?? "unknown";
     updatedLine.textContent = `updated ${facts?.updated ?? "unknown"}`;
 
@@ -561,6 +590,143 @@ export function wireVoice(doc: Document = document): VoicePage {
   function renderComplaint(): void {
     complaintLine.hidden = !complaint;
     complaintLine.textContent = complaint;
+  }
+
+  /** `models/gemini-3.1-flash-live-preview` → `gemini-3.1-flash-live-preview`. */
+  function shortModel(name: string): string {
+    return name.replace(/^models\//, "");
+  }
+
+  /**
+   * **What the model fact says, and the two things it must never confuse.**
+   *
+   * `provider.model` is what a session started NOW would use; `modelLive` is
+   * what the RUNNING session was opened with. A person who changes the model
+   * mid-conversation has to be able to see both, or the page is claiming a
+   * model it is not talking through — which is the whole reason the choice is
+   * shown here rather than left to the picker.
+   */
+  function renderModelFacts(): void {
+    const provider = facts?.provider as
+      | { model?: string; modelSource?: string; modelLive?: string | null }
+      | undefined;
+    const wanted = provider?.model ?? "";
+    const running = provider?.modelLive ?? null;
+    const source = provider?.modelSource ?? "";
+    modelFact.textContent = wanted
+      ? `${shortModel(wanted)}${source === "flag" ? " (from --model)" : source === "default" ? " (the shipped default)" : ""}${
+          running && running !== wanted ? ` — in use: ${shortModel(running)}` : ""
+        }`
+      : "unknown";
+    modelSummary.textContent = wanted ? shortModel(wanted) : "unknown";
+    if (doc.activeElement !== modelField && wanted) modelField.value = wanted;
+    modelResetButton.hidden = source !== "stored";
+  }
+
+  function renderModelNote(): void {
+    modelNote.hidden = modelSaid === "";
+    modelNote.textContent = modelSaid;
+  }
+
+  /**
+   * **The provider's own list, fetched when the panel is opened.**
+   *
+   * Not on load: it is an authenticated call the page does not need until
+   * somebody is choosing. The list is a HINT — the field takes anything, and
+   * the provider is the judge — so a failure here says so and takes nothing
+   * away.
+   */
+  async function loadModels(): Promise<void> {
+    const mine = modelEpoch;
+    const load = ++modelLoad;
+    modelChoices = [];
+    modelList.replaceChildren();
+    try {
+      const answer = await fetchModels();
+      // Two loads in flight (a panel opening twice, a refresh while opening)
+      // filled the list twice — measured: 110 options from a 55-model list.
+      if (load !== modelLoad) return;
+      if (!answer.ok) {
+        modelSaid = `could not list the models — ${answer.answer}`;
+        renderModelNote();
+        return;
+      }
+      modelChoices = answer.models;
+      const live = modelChoices.filter((one) => one.live);
+      const others = modelChoices.filter((one) => !one.live);
+      const groups: [string, ProviderModel[]][] = [
+        ["Live — audio in and out", live],
+        ["Listed, but not a Live model", others],
+      ];
+      for (const [label, group] of groups) {
+        if (group.length === 0) continue;
+        const optgroup = doc.createElement("optgroup");
+        optgroup.label = label;
+        for (const one of group) {
+          const option = doc.createElement("option");
+          option.value = one.name;
+          option.textContent = `${shortModel(one.name)} — ${one.displayName}`;
+          option.title = one.description;
+          optgroup.appendChild(option);
+        }
+        modelList.appendChild(optgroup);
+      }
+      const chosen = (facts?.provider as { model?: string } | undefined)?.model ?? "";
+      if (chosen && modelChoices.some((one) => one.name === chosen)) modelList.value = chosen;
+      if (mine === modelEpoch) {
+        modelSaid = `${answer.answer}; the list is the provider's, and a beta name may not be in it.`;
+        renderModelNote();
+      }
+    } catch (err) {
+      if (mine === modelEpoch) {
+        modelSaid = `could not list the models — ${whyWords(err)}`;
+        renderModelNote();
+      }
+    }
+  }
+
+  /**
+   * **Choosing a model is a preference, and the provider decides if it works.**
+   *
+   * Stored here, used by the next session, and said out loud when that is not
+   * the same as now — a session that keeps talking through the old model while
+   * the panel shows a new one is the failure this whole control exists to end.
+   */
+  async function useChosenModel(model: string): Promise<void> {
+    modelEpoch++;
+    const asked = model.trim();
+    try {
+      const answer = await chooseModel(asked);
+      if (answer.error) {
+        modelSaid = answer.error;
+      } else {
+        modelSaid = asked
+          ? `${asked} stored — ${answer.appliesTo === "now" ? "the next session uses it" : "a session is running, so it takes effect at the next one"}`
+          : "back to the shipped default";
+      }
+      await refresh();
+    } catch (err) {
+      modelSaid = whyWords(err);
+    }
+    renderModelNote();
+  }
+
+  async function checkChosenModel(): Promise<void> {
+    modelEpoch++;
+    const asked = modelField.value.trim();
+    modelSaid = "asking the provider…";
+    renderModelNote();
+    try {
+      const answer = await checkModel(asked);
+      // The provider's words first, then the one thing it cannot say: which
+      // KIND of refusal this was.
+      modelSaid = [answer.ok ? `accepted — ${answer.model}` : `refused — ${answer.answer}`, answer.why]
+        .filter(Boolean)
+        .join(" · ");
+    } catch (err) {
+      modelSaid = whyWords(err);
+    }
+    renderModelNote();
   }
 
   function renderNote(): void {
@@ -1889,6 +2055,25 @@ export function wireVoice(doc: Document = document): VoicePage {
   deviceSelect.addEventListener("change", () => void chooseMic(deviceSelect.value));
   outputSelect.addEventListener("change", () => void chooseSpeaker(outputSelect.value));
   keyInput.addEventListener("input", renderSave);
+  modelList.addEventListener("change", () => {
+    modelField.value = modelList.value;
+    void useChosenModel(modelList.value);
+  });
+  modelField.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") void useChosenModel(modelField.value);
+  });
+  modelUseButton.addEventListener("click", () => void useChosenModel(modelField.value));
+  modelCheckButton.addEventListener("click", () => void checkChosenModel());
+  modelResetButton.addEventListener("click", () => void useChosenModel(""));
+  modelRefresh.addEventListener("click", () => void loadModels());
+  // The list is an authenticated call, so it is asked for when somebody is
+  // choosing rather than on every load.
+  modelPanel.addEventListener("toggle", () => {
+    if (modelPanel.open && modelChoices.length === 0) void loadModels();
+  });
+  connectionPanel.addEventListener("toggle", () => {
+    if (connectionPanel.open) renderModelFacts();
+  });
   saveKeyButton.addEventListener("click", () => void save());
   testKeyButton.addEventListener("click", () => void test());
   forgetKeyButton.addEventListener("click", () => void forget());
@@ -1919,6 +2104,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   drawWaves(performance.now());
   renderHero();
   renderSave();
+  renderModelFacts();
+  renderModelNote();
   buildTag.textContent = buildWords();
 
   return {

@@ -463,7 +463,7 @@ import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
 import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
 import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
-import { DEFAULT_VOICE_PORT, VOICE_HARNESS, isocanHome, runVoiceAdapter, startVoiceServer } from "./voice-harness.ts";
+import { DEFAULT_VOICE_PORT, LIVE_MODEL, VOICE_HARNESS, isocanHome, runVoiceAdapter, startVoiceServer } from "./voice-harness.ts";
 import {
   noSandboxLine,
   policyFor,
@@ -15042,8 +15042,12 @@ program
   .option("--acp", "speak ACP on stdio — the adapter `isocan rc add <name> --harness voice` spawns")
   .option("--as <name>", "the agent the microphone speaks as (default: the injected session, else Voice)")
   .option("--voice-port <port>", `the loopback port the page is served on (default ${DEFAULT_VOICE_PORT})`)
+  .option(
+    "--model <name>",
+    `the Gemini Live model the voice talks through (default: the choice stored by the page, else ${LIVE_MODEL}); wins for this run`,
+  )
   .action(
-    run(async (opts: { acp?: boolean; as?: string; voicePort?: string }, cmd: Command) => {
+    run(async (opts: { acp?: boolean; as?: string; voicePort?: string; model?: string }, cmd: Command) => {
       const name = opts.as ?? process.env.ISOCAN_SESSION_ID ?? "Voice";
       const home = isocanHome();
       const canvasId = process.env.ISOCAN_CANVAS ?? undefined;
@@ -15070,6 +15074,7 @@ program
         port,
         identity: { session: name, harness: "agent" },
         canvas: p.id,
+        ...(opts.model ? { model: opts.model } : {}),
         onLine: (line) => console.log(rcLine("voice", line)),
       });
       console.log(`\n  ${server.state.name} is listening on the canvas — talk at ${server.state.url}\n`);
