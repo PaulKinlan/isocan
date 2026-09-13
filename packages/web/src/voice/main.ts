@@ -50,6 +50,7 @@ const DEVICE_KEY = "isocan.voice.deviceId";
  * to switch, and say so honestly when that build cannot.
  */
 const DAEMON_KEY = "isocan.voice.daemon";
+const MODE_KEY = "isocan.voice.inputMode";
 
 /**
  * The daemon's own answer is the only validation worth having: a URL that
@@ -143,7 +144,7 @@ function stateWords(activity: Activity, muted: boolean, microphone: string): str
   if (activity === "speaking") {
     return muted ? "speaking — you are muted" : "speaking";
   }
-  if (activity === "muted") return `muted — ${microphone} is still open`;
+  if (activity === "muted") return "muted — microphone stopped; session still open";
   if (activity === "listening") return `listening — ${microphone}`;
   if (activity === "ended") return "ended";
   return "idle — press Listen to start";
@@ -205,6 +206,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   const setupOpen = required<HTMLButtonElement>("setup-open", doc);
   const setupCallout = required<HTMLElement>("setup-callout", doc);
   const setupStatus = required<HTMLElement>("setup-status", doc);
+  const modeSelect = required<HTMLSelectElement>("input-mode", doc);
+  const modeNote = required<HTMLElement>("mode-note", doc);
+  const shortcut = required<HTMLElement>("shortcut", doc);
+  let mode: "toggle" | "push-to-talk" = "toggle";
+  try { if (localStorage.getItem(MODE_KEY) === "push-to-talk") mode = "push-to-talk"; } catch { /* optional preference */ }
+  modeSelect.value = mode;
   const motion = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
   keepCaptions.checked = motion?.matches ?? false;
   const stateLine = required<HTMLElement>("state", doc);
@@ -246,8 +253,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   let facts: State | null = null;
   let setupSignature = "";
   let session: SessionState = "idle";
-  let muted = false;
+  let wantMuted = mode === "push-to-talk";
+  let muted = wantMuted;
   let muting = false;
+  let acquiring = false;
+  let heldControl: string | number | null = null;
+  let muteWork: Promise<void> = Promise.resolve();
   let entries: LogEntry[] = [];
   let mics: Input[] = [];
   let chosenId = storedDevice();
@@ -271,6 +282,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   let disposed = false;
   let generation = 0;
   let captureEpoch = 0;
+  let captureAbort: AbortController | null = null;
   let outputEpoch = 0;
   const inputHistory: number[] = Array(BARS).fill(0);
   const displayInput: number[] = Array(BARS).fill(0);
@@ -309,6 +321,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   function renderHero(): void {
     hero.dataset.state = session;
     hero.dataset.muted = String(muted);
+    hero.dataset.mode = mode;
+    shortcut.textContent = mode === "push-to-talk" ? "Hold the mic or Space; release to mute" : "Space toggles the microphone";
     if (opening) activity = "connecting";
     else if (session === "idle" || session === "ended") activity = session;
     else if (muted && activity !== "speaking") activity = "muted";
@@ -317,15 +331,20 @@ export function wireVoice(doc: Document = document): VoicePage {
     hero.dataset.activity = activity;
     // Keep keyboard focus through an async start; guards refuse repeat presses.
     listenButton.disabled = false;
-    listenButton.setAttribute("aria-disabled", String(opening || muting));
-    listenButton.setAttribute("aria-busy", String(opening || muting));
+    listenButton.setAttribute("aria-disabled", String(mode === "toggle" && (opening || muting || acquiring)));
+    listenButton.setAttribute("aria-busy", String(opening || muting || acquiring));
     const running = session === "live" || session === "muted";
     listenButton.setAttribute("aria-label", running ? (muted ? "Unmute microphone" : "Mute microphone") : "Listen");
     listenButton.title = running ? (muted ? "Unmute microphone" : "Mute microphone") : "Start listening";
-    muteButton.disabled = opening || muting || (session !== "live" && session !== "muted");
+    if (mode === "push-to-talk") {
+      listenButton.setAttribute("aria-label", heldControl === null ? "Hold to talk" : "Release to stop microphone");
+      listenButton.title = "Hold the mic or Space; release stops the microphone";
+    }
+    muteButton.disabled = mode === "push-to-talk" ? heldControl === null
+      : opening || muting || acquiring || (session !== "live" && session !== "muted");
     endButton.disabled = !opening && (session === "idle" || session === "ended");
-    muteButton.textContent = muted ? "Unmute" : "Mute";
-    stateLine.textContent = stateWords(
+    muteButton.textContent = mode === "push-to-talk" ? "Mute" : muted ? "Unmute" : "Mute";
+    stateLine.textContent = activity === "idle" && mode === "push-to-talk" ? "idle — hold to talk" : stateWords(
       activity,
       muted,
       mics.find((one) => one.id === chosenId)?.label ?? "the default microphone",
@@ -628,7 +647,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   const refresh = async (): Promise<void> => {
-    if (muting) return;
+    if (opening || muting || acquiring) return;
     const epoch = generation;
     try {
       const next = await fetchState();
@@ -645,8 +664,13 @@ export function wireVoice(doc: Document = document): VoicePage {
       const running = sessionFrom(next);
       if (running) {
         session = running;
-        // A refused harness update must not undo a local microphone mute.
-        muted = Boolean(held?.muted) || running === "muted";
+        // A refused update must not undo local mute; an externally muted
+        // session also stops this page's tracks rather than merely its PCM.
+        if (running === "muted" && !wantMuted && !acquiring) {
+          wantMuted = true;
+          stopInput();
+        }
+        muted = wantMuted || acquiring || running === "muted";
         renderHero();
       }
       // Only the poll's own complaint is the poll's to clear. An action that
@@ -713,16 +737,19 @@ export function wireVoice(doc: Document = document): VoicePage {
   /** Changing microphone does not disturb the session: only the track changes. */
   async function startCapture(deviceId?: string): Promise<Capture | null> {
     const epoch = ++captureEpoch;
+    captureAbort?.abort();
+    const abort = new AbortController();
+    captureAbort = abort;
     let captured: Capture;
     try {
       captured = await capture((pcm) => {
-        if (epoch !== captureEpoch || disposed || muted) return;
+        if (epoch !== captureEpoch || disposed || muted || wantMuted) return;
         const live = socket;
         if (live?.readyState === WebSocket.OPEN) live.send(toBytes(pcm));
         inputHistory.push(energy(pcm));
         inputHistory.shift();
         lastInputAt = performance.now();
-      }, deviceId);
+      }, deviceId, undefined, abort.signal);
     } catch (err) {
       if (epoch !== captureEpoch || disposed) return null;
       throw err;
@@ -747,14 +774,16 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   async function finish(): Promise<void> {
     generation++;
-    captureEpoch++;
+    stopInput();
     opening = false;
     muting = false;
-    muted = false;
+    acquiring = false;
+    heldControl = null;
+    wantMuted = mode === "push-to-talk";
+    muted = wantMuted;
+    muteWork = Promise.resolve();
     socket?.close();
     socket = null;
-    held?.stop();
-    held = null;
     playback?.close();
     playback = null;
     stopTicker();
@@ -871,6 +900,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (opening || disposed) return;
     const epoch = ++generation;
     opening = true;
+    wantMuted = mode === "push-to-talk" && heldControl === null;
+    muted = wantMuted;
     renderHero();
     put({ at: new Date().toLocaleTimeString(), event: `opening the session through ${HARNESS}` });
     try {
@@ -907,10 +938,9 @@ export function wireVoice(doc: Document = document): VoicePage {
     turns = [];
     renderTranscript();
     try {
-      const captured = await startCapture(chosenId || undefined);
-      if (!captured) return;
-      if (epoch !== generation) {
-        captured.stop();
+      const captured = wantMuted ? null : await startCapture(chosenId || undefined);
+      if (epoch !== generation || disposed) {
+        captured?.stop();
         if (held === captured) held = null;
         return;
       }
@@ -918,7 +948,7 @@ export function wireVoice(doc: Document = document): VoicePage {
       // Retain the actual context rate for diagnosis. A keyless capture
       // exposed 44.1 kHz corruption; the historical silent session's rate
       // and PCM were not retained, so its cause remains unknown.
-      put({
+      if (captured) put({
         at: new Date().toLocaleTimeString(),
         event: `microphone: ${captured.label} (${captured.path}) @ ${captured.context.sampleRate} Hz`,
       });
@@ -935,7 +965,10 @@ export function wireVoice(doc: Document = document): VoicePage {
     const live = audioSocket();
     live.binaryType = "arraybuffer";
     socket = live;
-    live.onopen = () => put({ at: new Date().toLocaleTimeString(), event: "audio socket open" });
+    live.onopen = () => {
+      put({ at: new Date().toLocaleTimeString(), event: "audio socket open" });
+      if (mode === "push-to-talk" || wantMuted) void syncMute(wantMuted);
+    };
     live.onmessage = (message) => {
       if (socket !== live) return;
       if (typeof message.data === "string") {
@@ -982,9 +1015,12 @@ export function wireVoice(doc: Document = document): VoicePage {
     };
 
     session = "live";
-    muted = false;
-    activity = "listening";
+    muted = wantMuted || !held;
+    if (held) held.muted = muted;
+    activity = muted ? "muted" : "listening";
     opening = false;
+    // A new hold can follow a release while the first grant is still pending.
+    if (!wantMuted && !held) void changeMute(false);
     renderHero();
     stopTicker();
     ticker = requestAnimationFrame(animate);
@@ -997,7 +1033,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     } catch {
       // A preference that cannot be stored is not worth failing the switch for.
     }
-    if (session !== "live" && session !== "muted") {
+    if (wantMuted || (session !== "live" && session !== "muted")) {
       await lookForMics();
       return;
     }
@@ -1022,34 +1058,77 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
-  async function toggleMute(): Promise<void> {
-    if (opening || muting || disposed) return;
+  function stopInput(): void {
+    captureEpoch++; // A permission grant arriving later must stop, not attach.
+    captureAbort?.abort();
+    captureAbort = null;
+    acquiring = false;
+    held?.stop();
+    held = null;
+  }
+
+  function syncMute(next: boolean): Promise<void> {
+    const live = socket;
+    if (opening || disposed || (!live && session !== "live" && session !== "muted")) return Promise.resolve();
     const epoch = ++generation;
     muting = true;
-    const next = !muted;
-    muted = next;
-    if (held) held.muted = next;
-    session = next ? "muted" : "live";
-    // The mute gate lives in the state model, not only on the track: a muted
-    // session never renders as listening, and unmuting after a barge-in goes
-    // back to waiting for a sentence rather than to a stale "speaking".
-    if (next && activity !== "speaking") activity = "muted";
-    if (!next && activity === "muted") activity = "listening";
     renderHero();
-    put({ at: new Date().toLocaleTimeString(), event: next ? "muted (session still open)" : "unmuted" });
-    try {
-      await (next ? muteSession() : unmuteSession());
-    } catch (err) {
-      if (epoch !== generation) return;
-      complaint = String((err as Error).message ?? err);
-      renderComplaint();
-    } finally {
-      if (epoch === generation) {
-        muting = false;
-        generation++;
+    // Keep HTTP state changes ordered, but never make local release wait for
+    // an unmute acknowledgement. Superseded queued requests can be skipped.
+    muteWork = muteWork.then(async () => {
+      if (disposed || epoch !== generation || socket !== live) return;
+      try { await (next ? muteSession() : unmuteSession()); }
+      catch (err) {
+        if (epoch !== generation) return;
+        complaint = String((err as Error).message ?? err);
+        renderComplaint();
+      } finally {
+        if (epoch === generation) { muting = false; generation++; renderHero(); }
+      }
+    });
+    return muteWork;
+  }
+
+  async function changeMute(next: boolean): Promise<void> {
+    if (disposed) return;
+    wantMuted = next;
+    if (next) {
+      muted = true;
+      stopInput(); // Stop real tracks, not merely PCM or track.enabled.
+    } else if (socket && !held && !opening) {
+      const epoch = captureEpoch + 1;
+      acquiring = true;
+      renderHero();
+      try {
+        const captured = await startCapture(chosenId || undefined);
+        if (!captured || wantMuted || disposed) return;
+        muted = false;
+        captured.muted = false;
+      } catch (err) {
+        wantMuted = muted = true;
+        complaint = `No microphone: ${String(err)}`;
+        renderComplaint();
+        void syncMute(true);
+      } finally {
+        if (captureEpoch === epoch) acquiring = false;
         renderHero();
       }
+    } else {
+      muted = next;
+      if (held) held.muted = next;
     }
+    if (wantMuted !== next || disposed) return;
+    if (!opening && (session === "live" || session === "muted")) session = muted ? "muted" : "live";
+    if (muted && activity !== "speaking") activity = "muted";
+    if (!muted && activity === "muted") activity = "listening";
+    renderHero();
+    put({ at: new Date().toLocaleTimeString(), event: muted ? "microphone stopped (session still open)" : "unmuted" });
+    await syncMute(next);
+  }
+
+  async function toggleMute(): Promise<void> {
+    if (opening || muting || acquiring || disposed) return;
+    await changeMute(!muted);
   }
 
   async function end(): Promise<void> {
@@ -1393,6 +1472,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     const what = typeof ask.what === "string" ? ask.what : String(ask.name ?? "an operation");
     confirmWhat.textContent = `The agent wants to ${what}. Nothing happens until you answer.`;
     confirmBox.hidden = false;
+    releaseHold();
     if (settings.open) {
       settings.close();
       // Surface the question, never focus Allow or treat the model as consent.
@@ -1519,6 +1599,7 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   function openSettings(): void {
     if (disposed || settings.open) return;
+    releaseHold();
     // One alert node, moved into the active surface rather than duplicated
     // into an inert background. Closing restores its conversation location.
     settings.insertBefore(complaintLine, connectionPanel);
@@ -1536,7 +1617,71 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (!disposed && doc.activeElement === doc.body) settingsOpen.focus();
   });
 
+  function beginHold(control: string | number): void {
+    if (disposed || heldControl !== null || settings.open || !confirmBox.hidden) return;
+    heldControl = control;
+    if (!socket) {
+      wantMuted = muted = false;
+      if (!opening) void listen();
+    } else void changeMute(false);
+    renderHero();
+  }
+  function releaseHold(control?: string | number): void {
+    if (heldControl === null || (control !== undefined && heldControl !== control)) return;
+    heldControl = null;
+    void changeMute(true);
+  }
+  function pointerEnd(event: PointerEvent): void { releaseHold(event.pointerId); }
+  function loseFocus(): void { releaseHold(); }
+  function hide(): void { if (doc.hidden) releaseHold(); }
+  function focusMoved(): void {
+    if (doc.activeElement !== listenButton && doc.activeElement !== doc.body) releaseHold();
+  }
+  function shortcutDown(event: KeyboardEvent): void {
+    const micKey = doc.activeElement === listenButton && mode === "push-to-talk";
+    if (event.code !== "Space" && !(micKey && event.code === "Enter")) return;
+    if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || settings.open || !confirmBox.hidden) return;
+    const controls = "input, textarea, select, button, a[href], summary, audio[controls], video[controls], microphone, [contenteditable]:not([contenteditable=false]), [role], [tabindex]";
+    const editing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || target.closest(controls));
+    if (!micKey && (editing(doc.activeElement) || event.composedPath().some(editing))) return;
+    event.preventDefault();
+    if (event.repeat) return;
+    if (mode === "push-to-talk") beginHold(event.code);
+    else if (session === "live" || session === "muted") void toggleMute();
+    else void listen();
+  }
+  function shortcutUp(event: KeyboardEvent): void {
+    if (heldControl === event.code) { event.preventDefault(); releaseHold(event.code); }
+  }
+  modeSelect.addEventListener("change", () => {
+    if (disposed) return;
+    const next = modeSelect.value === "push-to-talk" ? "push-to-talk" : "toggle";
+    if (next !== mode) {
+      heldControl = null;
+      mode = next;
+      void changeMute(true); // Switching mode never silently opens a mic.
+    }
+    try { localStorage.setItem(MODE_KEY, mode); }
+    catch { modeNote.textContent = "Mode changed for this tab only; the preference could not be saved."; }
+    renderHero();
+  });
+  listenButton.addEventListener("pointerdown", (event) => {
+    if (mode !== "push-to-talk" || event.button !== 0 || !event.isPrimary) return;
+    event.preventDefault();
+    listenButton.focus();
+    listenButton.setPointerCapture?.(event.pointerId);
+    beginHold(event.pointerId);
+  });
+  listenButton.addEventListener("lostpointercapture", pointerEnd);
+  doc.addEventListener("pointerup", pointerEnd);
+  doc.addEventListener("pointercancel", pointerEnd);
+  doc.addEventListener("keydown", shortcutDown);
+  doc.addEventListener("keyup", shortcutUp);
+  doc.addEventListener("focusin", focusMoved);
+  doc.addEventListener("visibilitychange", hide);
+  doc.defaultView?.addEventListener("blur", loseFocus);
   listenButton.addEventListener("click", () => {
+    if (mode === "push-to-talk") return; // Release's compatibility click must not reopen capture.
     if (session === "live" || session === "muted") void toggleMute();
     else void listen();
   });
@@ -1545,7 +1690,10 @@ export function wireVoice(doc: Document = document): VoicePage {
     captions.classList.remove("faded");
     if (activity !== "speaking") fadeCaptionLater();
   });
-  muteButton.addEventListener("click", () => void toggleMute());
+  muteButton.addEventListener("click", () => {
+    if (mode === "push-to-talk") releaseHold();
+    else void toggleMute();
+  });
   endButton.addEventListener("click", () => void end());
   deviceSelect.addEventListener("change", () => void chooseMic(deviceSelect.value));
   keyInput.addEventListener("input", renderSave);
@@ -1584,11 +1732,20 @@ export function wireVoice(doc: Document = document): VoicePage {
   return {
     stop(): void {
       disposed = true;
+      heldControl = null;
+      wantMuted = true;
+      doc.removeEventListener("pointerup", pointerEnd);
+      doc.removeEventListener("pointercancel", pointerEnd);
+      doc.removeEventListener("keydown", shortcutDown);
+      doc.removeEventListener("keyup", shortcutUp);
+      doc.removeEventListener("focusin", focusMoved);
+      doc.removeEventListener("visibilitychange", hide);
+      doc.defaultView?.removeEventListener("blur", loseFocus);
       viewport?.removeEventListener("resize", fitSettings);
       viewport?.removeEventListener("scroll", fitSettings);
       if (settings.open) settings.close();
       generation++;
-      captureEpoch++;
+      stopInput();
       clearCaptionTimer();
       clearOutput();
       clearInterval(stateTimer);
@@ -1597,8 +1754,6 @@ export function wireVoice(doc: Document = document): VoicePage {
       navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
       socket?.close();
       socket = null;
-      held?.stop();
-      held = null;
       playback?.close();
       playback = null;
     },

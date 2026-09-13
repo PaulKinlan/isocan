@@ -227,11 +227,14 @@ class Tap extends AudioWorkletProcessor {
 registerProcessor("tap", Tap);
 `;
 
+/** Own granted tracks during startup too: abort never waits for a worklet. */
 export async function capture(
   onFrame: (pcm: Int16Array) => void,
   deviceId?: string,
   onDone?: (pcm: Int16Array) => void,
+  signal?: AbortSignal,
 ): Promise<Capture> {
+  signal?.throwIfAborted();
   // `exact` because "prefer this one" silently gives you the system default,
   // which is the bug being fixed here.
   // Echo cancellation and noise suppression are REQUIRED for a voice loop:
@@ -246,46 +249,65 @@ export async function capture(
     },
     video: false,
   });
-  const track = stream.getAudioTracks()[0];
-  const settings = track?.getSettings?.() ?? {};
-  const context = new AudioContext();
-  await context.resume();
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
-  await context.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
-
-  const source = context.createMediaStreamSource(stream);
-  const node = new AudioWorkletNode(context, "tap");
-  const resampler = new Resampler(context.sampleRate / 16000);
-
-  node.port.onmessage = (message: MessageEvent<Float32Array>) => {
-    if (held.muted) return;
-    const pcm = resampler.push(message.data);
-    if (pcm.length === 0) return;
-    onFrame(pcm);
+  let context: AudioContext | undefined;
+  let source: MediaStreamAudioSourceNode | undefined;
+  let node: AudioWorkletNode | undefined;
+  let url: string | undefined;
+  let stopped = false;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    signal?.removeEventListener("abort", stop);
+    // Track ownership begins at the grant, not when the returned Capture is
+    // ready. This also runs while resume/addModule remain unresolved.
+    for (const track of stream.getTracks()) track.stop();
+    if (node) node.port.onmessage = null;
+    source?.disconnect();
+    node?.disconnect();
+    if (url) { URL.revokeObjectURL(url); url = undefined; }
+    void context?.close().catch(() => undefined);
+    void onDone;
   };
-  source.connect(node);
-  // The worklet needs a live path to be pulled; not to the speakers, or the
-  // page howls.
-  node.connect(context.destination);
+  signal?.addEventListener("abort", stop, { once: true });
+  try {
+    // A permission grant can arrive after release. Stop it before creating
+    // an audio graph, rather than handing it to a caller that has moved on.
+    signal?.throwIfAborted();
+    const track = stream.getAudioTracks()[0];
+    const settings = track?.getSettings?.() ?? {};
+    const readyContext = context = new AudioContext();
+    await readyContext.resume();
+    signal?.throwIfAborted();
+    url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+    try { await readyContext.audioWorklet.addModule(url); }
+    finally { if (url) { URL.revokeObjectURL(url); url = undefined; } }
+    signal?.throwIfAborted();
 
-  const held: Capture = {
-    path: "getUserMedia, audio only",
-    deviceId: settings.deviceId ?? deviceId ?? "default",
-    label: track?.label || "unnamed microphone",
-    muted: false,
-    context,
-    frames: onFrame,
-    stop: () => {
-      node.port.onmessage = null;
-      void onDone;
-      source.disconnect();
-      node.disconnect();
-      for (const track of stream.getTracks()) track.stop();
-      void context.close();
-    },
-  };
-  return held;
+    source = readyContext.createMediaStreamSource(stream);
+    node = new AudioWorkletNode(readyContext, "tap");
+    const resampler = new Resampler(readyContext.sampleRate / 16000);
+    node.port.onmessage = (message: MessageEvent<Float32Array>) => {
+      if (stopped || held.muted) return;
+      const pcm = resampler.push(message.data);
+      if (pcm.length > 0) onFrame(pcm);
+    };
+    source.connect(node);
+    // The worklet needs a live path to be pulled; not to the speakers.
+    node.connect(readyContext.destination);
+    const held: Capture = {
+      path: "getUserMedia, audio only",
+      deviceId: settings.deviceId ?? deviceId ?? "default",
+      label: track?.label || "unnamed microphone",
+      muted: false,
+      context: readyContext,
+      frames: onFrame,
+      stop,
+    };
+    return held;
+  } catch (err) {
+    stop();
+    throw err;
+  }
 }
 
 /** How long the first chunk of an utterance waits, so jitter cannot clip it. */

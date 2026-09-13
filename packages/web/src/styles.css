@@ -6725,6 +6725,8 @@ body:has(> .voice) { overflow: auto; }
 .voice-turn--you { color: var(--ink-muted); }
 
 /* Mute and End, and nothing else: the microphone is the page's one action. */
+.voice-shortcut { margin: 0; color: var(--ink-muted); font-size: var(--t-xs); }
+.voice-hero[data-mode="push-to-talk"] #listen { touch-action: none; user-select: none; }
 .voice-controls { display: grid; justify-items: center; gap: var(--s3); }
 .voice-session { display: flex; gap: var(--s2); }
 .voice-session button,
@@ -6979,13 +6981,14 @@ body:has(.voice-settings[open]) { overflow: hidden; }
 @media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
   .voice-hero {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 1fr auto;
-    grid-template-areas: "captions captions" "state controls";
+    grid-template-rows: 1fr auto auto;
+    grid-template-areas: "captions captions" "state controls" "shortcut controls";
     align-content: stretch;
     column-gap: var(--s5);
   }
   .voice-caption-slot { grid-area: captions; block-size: auto; min-block-size: 60px; }
   .voice-state { grid-area: state; align-self: center; }
+  .voice-shortcut { grid-area: shortcut; }
   .voice-controls { grid-area: controls; align-self: end; }
   /* Reserve the secondary row and its gap before sizing the circle: its
      centre must still reach the lower third, not push End into the inset. */

@@ -234,6 +234,159 @@ function fakeCapture(): { frame(): void } {
   return { frame: () => (worklet?.port.onmessage as ((event: { data: Float32Array }) => void) | null)?.({ data: new Float32Array(128).fill(0.25) }) };
 }
 
+describe("hold-to-talk microphone ownership", () => {
+  function pointer(type: string, target: EventTarget = element("listen")): void {
+    target.dispatchEvent(Object.assign(new Event(type, { bubbles: true, cancelable: true }), { pointerId: 1, isPrimary: true, button: 0 }));
+  }
+  function space(type: string, target: EventTarget = document.body, repeat = false): void {
+    target.dispatchEvent(new KeyboardEvent(type, { code: "Space", key: " ", repeat, bubbles: true, cancelable: true }));
+  }
+  function trackedMic() {
+    const mic = fakeCapture();
+    const track = { kind: "audio", label: "Fake microphone", readyState: "live", getSettings: () => ({}), stop: vi.fn() };
+    track.stop.mockImplementation(() => { track.readyState = "ended"; });
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream;
+    const grant = vi.fn(async () => stream);
+    navigator.mediaDevices.getUserMedia = grant;
+    localStorage.setItem("isocan.voice.inputMode", "push-to-talk");
+    return { ...mic, track, stream, grant };
+  }
+
+  it("defaults to Toggle, saves a real hold-mode choice, and rejects unknown preferences", async () => {
+    localStorage.setItem("isocan.voice.inputMode", "unknown");
+    await wire();
+    const select = element<HTMLSelectElement>("input-mode");
+    expect(select.value).toBe("toggle");
+    select.value = "push-to-talk";
+    select.dispatchEvent(new Event("change"));
+    expect(localStorage.getItem("isocan.voice.inputMode")).toBe("push-to-talk");
+    expect(element("mute").hidden).toBe(false);
+    expect(element<HTMLButtonElement>("mute").disabled).toBe(true);
+    expect(element("shortcut").textContent).toContain("release to mute");
+    expect(element("mode-note").textContent).toContain("does not send or end a turn");
+  });
+
+  it("stops tracks immediately while unmute is pending and keeps them stopped after its late reply", async () => {
+    const mic = trackedMic();
+    const normal = vi.mocked(fetch).getMockImplementation()!;
+    let acknowledge!: (value: Response) => void;
+    vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/session/unmute")
+      ? new Promise<Response>((resolve) => { acknowledge = resolve; }) : normal(input, init));
+    await wire();
+    pointer("pointerdown"); await flush();
+    const socket = FakeSocket.latest!;
+    socket.onopen?.(); await flush();
+    mic.frame(); expect(socket.sent.length).toBeGreaterThan(0);
+    const sent = socket.sent.length;
+    pointer("pointerup", document);
+    expect(mic.track.stop).toHaveBeenCalledOnce(); // No acknowledgement resolved.
+    expect(mic.track.readyState).toBe("ended");
+    expect(element("hero").textContent).toContain("microphone stopped; session still open");
+    mic.frame(); expect(socket.sent).toHaveLength(sent);
+    acknowledge(answer({ ok: true })); await flush();
+    expect(mic.track.readyState).toBe("ended");
+    expect(mic.grant).toHaveBeenCalledOnce();
+    expect(element("hero").dataset.muted).toBe("true");
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url)).filter((url) => /session\/(unmute|mute)$/.test(url))).toEqual(["/harness/session/unmute", "/harness/session/mute"]);
+  });
+
+  it("stops a late permission grant without ever sending its audio", async () => {
+    const mic = trackedMic();
+    let allow!: (stream: MediaStream) => void;
+    mic.grant.mockImplementation(() => new Promise((resolve) => { allow = resolve; }));
+    await wire(); pointer("pointerdown"); await flush();
+    pointer("pointerup", document);
+    expect(element("hero").dataset.muted).toBe("true");
+    expect(mic.track.stop).not.toHaveBeenCalled(); // There is no granted track yet.
+    allow(mic.stream); await flush();
+    expect(mic.track.stop).toHaveBeenCalledOnce();
+    expect(mic.track.readyState).toBe("ended");
+    const socket = FakeSocket.latest!;
+    socket.onopen?.(); await flush(); mic.frame();
+    expect(socket.sent).toHaveLength(0);
+    expect(element("hero").dataset.muted).toBe("true");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/session/unmute"))).toBe(false);
+  });
+
+  it("can honour a new hold while stopping the previous late grant", async () => {
+    const mic = trackedMic();
+    const second = { ...mic.track, readyState: "live", stop: vi.fn() };
+    second.stop.mockImplementation(() => { second.readyState = "ended"; });
+    const fresh = { getTracks: () => [second], getAudioTracks: () => [second] } as unknown as MediaStream;
+    let allow!: (stream: MediaStream) => void;
+    mic.grant.mockImplementationOnce(() => new Promise((resolve) => { allow = resolve; })).mockResolvedValueOnce(fresh);
+    await wire(); pointer("pointerdown"); await flush();
+    pointer("pointerup", document); pointer("pointerdown");
+    allow(mic.stream); await flush();
+    expect(mic.track.readyState).toBe("ended");
+    expect(mic.grant).toHaveBeenCalledTimes(2);
+    expect(second.readyState).toBe("live");
+    mic.frame(); expect(FakeSocket.latest!.sent.length).toBeGreaterThan(0);
+    pointer("pointerup", document); expect(second.readyState).toBe("ended");
+  });
+
+  it.each(["resume", "worklet"])("stops a granted track even while %s startup is unresolved", async (phase) => {
+    const mic = trackedMic();
+    let ready!: () => void;
+    class DelayedContext extends AudioContext {
+      constructor() {
+        super();
+        if (phase === "worklet") this.audioWorklet.addModule = () => new Promise<void>((resolve) => { ready = resolve; });
+      }
+      override resume(): Promise<void> {
+        return phase === "resume" ? new Promise<void>((resolve) => { ready = resolve; }) : super.resume();
+      }
+    }
+    vi.stubGlobal("AudioContext", DelayedContext);
+    await wire(); pointer("pointerdown"); await flush();
+    expect(ready).toBeTypeOf("function");
+    expect(mic.track.readyState).toBe("live");
+    pointer("pointerup", document);
+    const beforeResolution = mic.track.readyState;
+    ready(); await flush(); // The late continuation must not resurrect it either.
+    expect(beforeResolution).toBe("ended");
+    expect(mic.track.readyState).toBe("ended");
+    expect(element("hero").dataset.muted).toBe("true");
+  });
+
+  it.each(["pointercancel", "lostpointercapture", "blur"])("stops tracks on %s", async (event) => {
+    const mic = trackedMic();
+    await wire(); pointer("pointerdown"); await flush();
+    if (event === "blur") window.dispatchEvent(new Event("blur"));
+    else pointer(event, event === "pointercancel" ? document : element("listen"));
+    expect(mic.track.readyState).toBe("ended");
+    expect(element("hero").dataset.muted).toBe("true");
+  });
+
+  it("holds with Space, ignores repeats, and never reopens on the release's compatibility click", async () => {
+    const mic = trackedMic();
+    await wire(); space("keydown"); await flush();
+    space("keydown", document.body, true); await flush();
+    expect(mic.grant).toHaveBeenCalledOnce();
+    space("keyup"); element("listen").click();
+    expect(mic.track.readyState).toBe("ended");
+    expect(element("hero").dataset.muted).toBe("true");
+  });
+
+  it.each(["input", "textarea", "select", "button", "div"])("does not steal Space from a focused %s", async (tag) => {
+    const mic = trackedMic(); await wire();
+    const input = document.createElement(tag); input.tabIndex = 0;
+    if (tag === "div") input.setAttribute("contenteditable", "true");
+    document.body.appendChild(input); input.focus(); space("keydown", input); await flush();
+    expect(mic.grant).not.toHaveBeenCalled();
+  });
+
+  it("does not start from a modal, confirmation, or disposed page", async () => {
+    const mic = trackedMic(); await wire();
+    element("settings-open").click(); space("keydown"); await flush();
+    expect(mic.grant).not.toHaveBeenCalled();
+    element("settings-close").click(); element("confirm").hidden = false;
+    space("keydown"); await flush(); expect(mic.grant).not.toHaveBeenCalled();
+    element("confirm").hidden = true; page!.stop(); pointer("pointerdown"); space("keydown");
+    await flush(); expect(mic.grant).not.toHaveBeenCalled();
+  });
+});
+
 /** Start a session and hand back the socket the page opened. */
 async function goLive(): Promise<FakeSocket> {
   await element<HTMLButtonElement>("listen").click();
