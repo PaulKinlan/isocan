@@ -234,6 +234,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const outputSelect = required<HTMLSelectElement>("output", doc);
   const deviceNoteLine = required<HTMLElement>("device-note", doc);
   const micFact = required<HTMLElement>("mic-fact", doc);
+  const outputFactLine = required<HTMLElement>("output-fact", doc);
   const inputWave = required<SVGPathElement>("input-wave", doc);
   const outputWave = required<SVGPathElement>("output-wave", doc);
   const captions = required<HTMLElement>("captions", doc);
@@ -775,6 +776,37 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   /**
+   * **Both ends of the sound, as VALUES in the facts table.**
+   *
+   * Same words the pills use, minus the article a sentence needs and a value
+   * does not ("System default", not "the system default"), and the same
+   * states: a device that is not there says so here too, so the panel and the
+   * pill beside the microphone cannot disagree. Nothing in these two lines is
+   * the WISH where the truth is available — a route the browser refused is
+   * named by the device the reply is actually on.
+   */
+  function micFactWords(): string {
+    if (!chosenId) return "System default";
+    const name = nameOf(chosenId, mics, DEVICE_NAME_KEY);
+    return missingMicId() ? `${name} — not connected` : name;
+  }
+
+  function outputFactWords(): string {
+    if (!canRouteOutput()) return "System default (this browser cannot choose another)";
+    const gone = missingOutputId();
+    if (gone) return `${nameOf(gone, speakers, OUTPUT_NAME_KEY)} — not connected`;
+    // A refusal leaves the context on the device it was already using, and
+    // the panel is the last place that should repeat the request instead.
+    if (outputProblem) return speakerValue(playback?.sinkId ?? "");
+    return speakerValue(wantedOutput());
+  }
+
+  /** A speaker as a VALUE rather than as part of a sentence. */
+  function speakerValue(id: string): string {
+    return id ? nameOf(id, speakers, OUTPUT_NAME_KEY) : "System default";
+  }
+
+  /**
    * **The chosen device, when the browser's own list says it is gone.**
    *
    * Empty covers two different things on purpose: nothing was chosen, and
@@ -818,7 +850,12 @@ export function wireVoice(doc: Document = document): VoicePage {
     const chosen = kind === "input" ? chosenId : chosenOutputId;
     const nameKey = kind === "input" ? DEVICE_NAME_KEY : OUTPUT_NAME_KEY;
     const rows: DeviceRow[] = [
-      { value: "", text: kind === "input" ? "System default microphone" : "System default", gone: false },
+      // The same words on both pills, because the glyph and the label under it
+      // already say which end of the sound each one is: "System default
+      // microphone" was 100px of the input pill's width saying "microphone" a
+      // third time, and it is the width that decides whether a real device
+      // name fits beside it on a phone.
+      { value: "", text: "System default", gone: false },
     ];
     for (const one of found) rows.push({ value: one.id, text: one.label, gone: false });
     if (chosen && !found.some((one) => one.id === chosen)) {
@@ -834,7 +871,11 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   function fillSelect(select: HTMLSelectElement, rows: DeviceRow[]): void {
-    select.replaceChildren();
+    // Only the OPTIONS: a customizable select carries an authored button, and
+    // `replaceChildren` would delete the shape with the rows (the browser then
+    // rebuilds a default one, and the control quietly stops being the control
+    // this stylesheet was written for).
+    for (const option of [...select.options]) option.remove();
     for (const row of rows) {
       const option = doc.createElement("option");
       option.value = row.value;
@@ -880,7 +921,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     const micRows = deviceRows("input");
     const outputRows = deviceRows("output");
     const said = deviceNote();
-    const fact = micWords();
+    const micFactText = micFactWords();
+    const outputFactText = outputFactWords();
     /*
      * **A poll that found nothing new must not touch the DOM.**
      *
@@ -889,7 +931,16 @@ export function wireVoice(doc: Document = document): VoicePage {
      * each time would close a picker somebody had just opened — so the render
      * is skipped when every fact it would draw is the one already there.
      */
-    const signature = JSON.stringify([micRows, outputRows, said, fact, chosenId, chosenOutputId, canRouteOutput()]);
+    const signature = JSON.stringify([
+      micRows,
+      outputRows,
+      said,
+      micFactText,
+      outputFactText,
+      chosenId,
+      chosenOutputId,
+      canRouteOutput(),
+    ]);
     if (signature === devicesSignature) return;
     devicesSignature = signature;
 
@@ -902,7 +953,8 @@ export function wireVoice(doc: Document = document): VoicePage {
     outputSelect.disabled = !canRouteOutput();
     deviceNoteLine.hidden = said === "";
     deviceNoteLine.textContent = said;
-    micFact.textContent = fact;
+    micFact.textContent = micFactText;
+    outputFactLine.textContent = outputFactText;
   }
 
   /**

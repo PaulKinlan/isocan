@@ -6650,50 +6650,65 @@ body:has(> .voice) { overflow: auto; }
 .voice-hero[data-activity="speaking"] .voice-state::before { background: var(--good); }
 .voice-hero[data-activity="muted"] .voice-state::before { background: var(--warn); }
 
-/* THE TWO ENDS OF THE SOUND, beside the microphone rather than in Settings:
-   choosing a device is part of using voice, not configuring it. Quiet on
-   purpose — a hairline pill, a glyph and the browser's own control — because
-   the ring above them is the page's one loud thing and this must not compete
-   with it. */
+/* THE TWO ENDS OF THE SOUND, immediately under the ring (and beside it on a
+   wide window): choosing a device is part of using voice, not configuring it.
+   Side by side at EVERY width — two full-width rows read as two forms, not as
+   one pair — and deliberately small, because the ring is the page's one loud
+   thing. The HIT AREA stays 44px while the pill is drawn inset inside it, so
+   making the control small does not make it hard to press. */
 .voice-devices {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
+  align-items: center;
   gap: var(--s2);
   min-width: 0;
-  max-width: min(100%, 560px);
+  max-width: 100%;
 }
 .voice-device {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--s2);
   min-width: 0;
-  /* Tall enough to be a target, short enough not to be a button: the ring
-     above is the page's one loud thing. */
-  min-block-size: 34px;
+  /* The pill gives way only when the row has a definite width to give way into
+     — beside the ring, where the row is sized by its content, a shrinkable pill
+     made Chrome size the row from its min-content and the names truncated at
+     1440px (measured: 210px of pill became 118). That branch says `0 0 auto`. */
+  flex: 0 1 auto;
+  /* The target, not the picture: the select fills this box edge to edge. */
+  min-block-size: 44px;
   padding: 0 var(--s3) 0 var(--s2);
-  /* A hairline of `--line` is the app's edge everywhere else, but every other
-     control sits on a card: over the hero's open ground it measured almost
-     invisible, and a pill whose only edge you cannot see reads as a label.
-     Mixed toward the muted ink it stays quiet and keeps its shape in both
-     themes. */
+  border: 0;
+  background: none;
+}
+/* The picture: a hairline pill drawn inside the 44px target. `--line` is the
+   app's edge everywhere else, but every other control sits on a card; over the
+   hero's open ground it measured almost invisible, so this mixes toward the
+   muted ink and keeps its shape in both themes. */
+.voice-device::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  block-size: 30px;
+  transform: translateY(-50%);
   border: 1px solid color-mix(in srgb, var(--card) 72%, var(--ink-muted));
   border-radius: 999px;
   background: var(--card);
-  /* One pixel of lift is the rest of what makes it read as something a person
-     can open. */
   box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 7%, transparent);
   transition: border-color 160ms ease-out;
 }
 /* The focus lands on the pill, not on a box inside it: the whole control is
    one thing to look at, and the browser's own outline would draw a rectangle
    around the select alone. */
-.voice-device:focus-within { border-color: var(--accent); }
+.voice-device:focus-within::before { border-color: var(--accent); }
 .voice-device:focus-within select { outline: none; }
 .voice-device-glyph {
+  position: relative;
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: var(--ink-muted);
   stroke-width: 1.6;
@@ -6701,18 +6716,30 @@ body:has(> .voice) { overflow: auto; }
   stroke-linejoin: round;
 }
 .voice-device select {
+  position: relative;
   font: inherit;
   font-size: var(--t-xs);
   min-width: 0;
-  max-width: 30ch;
-  padding: var(--s1) 0;
+  max-width: 24ch;
+  /* Full height of the target, transparent: the pill above is the picture. */
+  block-size: 44px;
+  /* Centre the content in that box. Measured without it: the select's content
+     sat 12px above the capsule's centre line (`block-size` fixed the box, and
+     the content stayed at its top), so the name floated near the top of a pill
+     whose glyph was correctly centred. */
+  align-items: center;
+  /* The name is one line and may be long, and the box CLIPS it — which it must:
+     with `appearance: base-select` the selected content is laid out at its
+     natural width, and unclipped it grew the whole page (measured: a 420px
+     viewport with a 696px document the moment a long-named device was
+     selected). */
+  padding: 0;
+  overflow: hidden;
   border: 0;
   background: transparent;
   color: var(--ink);
   /* One line, however long the name: a pill that wraps mid-phrase grows a
-     second line and stops matching the pill beside it. A long name is
-     truncated — but NOT by `overflow: hidden` here, which also clipped the
-     picker's own arrow off the one pill that was hiding text. */
+     second line and stops matching the pill beside it. */
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: pointer;
@@ -6730,6 +6757,45 @@ body:has(> .voice) { overflow: auto; }
   text-wrap: pretty;
 }
 
+/*
+ * **Beside the microphone where there is room to be beside it.**
+ *
+ * Paul: "these need to vertical center … I would expect both speaker and mic to
+ * be side by side". A row under the ring is below the microphone; the literal
+ * reading is the ring's own line, with the pair centred on the ring's centre
+ * line. The side columns are equal, so the microphone stays exactly where it
+ * was on the page — only the pair moves.
+ *
+ * 1240px, not 900: that is the width at which the WORST-CASE pair — two
+ * names at the 24ch cap, which is how long a real device name gets — fits in a
+ * side column beside the ring. Narrower than that the pair stays under the
+ * ring, where there is a definite width to shrink into.
+ */
+@media (min-width: 1240px) {
+  /* The ring and the pair share one grid cell: the ring centred in it, the row
+     placed just past the ring's right edge and centred on its centre line.
+     Everything else is auto-placed into the rows below, because the first row
+     is taken — which is why this needs no `:not()` list naming every other
+     child (and a chained `:not(.a):not(.b)` reads, to the stylesheet's own
+     guard, as a state class with a stray rule of its own). */
+  .voice-mic { grid-area: 1 / 1; }
+  .voice-devices {
+    grid-area: 1 / 1;
+    justify-self: start;
+    align-self: center;
+    margin-inline-start: calc(50% + 120px + var(--s4));
+  }
+  /* A pill knows its own width here: the row's box is a definite one. */
+  .voice-device { flex: 0 0 auto; }
+}
+
+/* Under the narrowest phone the row gives rather than scrolling sideways: here
+   the hero is one column with a definite width, so shrinking truncates the
+   names instead of collapsing the pill. */
+@media (max-width: 360px) {
+  .voice-device { flex: 0 1 auto; }
+}
+
 /* The customizable select (Chrome 135+): the picker is drawn to match the card
    instead of borrowing the platform's, and the arrow stops carrying the OS's
    own weight. Everywhere else a person gets the native control they already
@@ -6740,12 +6806,76 @@ body:has(> .voice) { overflow: auto; }
   .voice-device select::picker(select) {
     margin-top: var(--s2);
     padding: var(--s1);
+    /* The picker is sized to its LONGEST option and lives in the top layer, so
+       one long device name ("… Digital Stereo (HDMI) [DELL U2721DE]") made the
+       whole page horizontally scrollable — measured at 420px: a 420px viewport
+       with a 696px document, while every visible element fitted. The list caps
+       its width and wraps the name instead. */
+    max-width: min(42ch, calc(100vw - var(--s4) * 2));
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--card);
     box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 13%, transparent);
   }
-  .voice-device select::picker-icon { color: var(--ink-muted); }
+  /*
+   * **The arrow is drawn on the PILL, not by the platform.**
+   *
+   * With `appearance: base-select` the picker's icon is laid out after the
+   * selected content inside the select, so a name too long for the box pushes
+   * it outside — and the clip that keeps the page from growing then eats it
+   * (measured: the same pill carries the arrow with a short name and loses it
+   * with a long one). An arrow the text cannot reach is the fix.
+   */
+  .voice-device select::picker-icon { display: none; }
+  /* A name too long for the capsule FADES at the arrow rather than being cut
+     dead: the platform's own ellipsis would need the selected content's box,
+     which is inside the select's shadow tree and not styleable from here
+     (measured: `::part(button)`, `::part(selectedcontent)` and the child
+     selector all painted nothing). A fade says "there is more" in the same
+     breath that a cut says "this is the name".
+     The padding is the fade's runway, and it is the whole point: with the fade
+     against the content edge, a name that FITS ended inside the fade zone and
+     its last letter went grey (measured on "System default"). The text now
+     ends exactly where the fade begins, so only text that overflows is dimmed. */
+  .voice-device select {
+    padding-inline-end: 12px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
+  }
+  .voice-device::after {
+    content: "";
+    position: absolute;
+    inset-inline-end: 7px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid var(--ink-muted);
+    border-bottom: 1.5px solid var(--ink-muted);
+    /* Half a turn so the square's corner points down, which is the shape a
+       person already reads as "this opens". */
+    transform: translateY(-60%) rotate(45deg);
+    pointer-events: none;
+  }
+  /* The closed control truncates the name; the LIST does not. The button is
+     where that happens, and the arrow is its sibling — so a long name cannot
+     push the arrow out of the box the way an overflowing selected content did
+     (measured: the chevron vanished off the pill that was hiding text). */
+  .voice-device select > button {
+    min-width: 0;
+    align-items: center;
+    overflow: hidden;
+  }
+  .voice-device selectedcontent {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* The options may wrap: the select itself is one line, and if the options
+     inherit that the picker's min-content width is the longest device name —
+     which no `max-width` on the picker can then shrink, and the page grows a
+     horizontal scrollbar for a device nobody can rename. */
+  .voice-device option { white-space: normal; }
   /* Open, said on the pill itself: the arrow darkens and the edge takes the
      accent, so a person can see which of the two pickers is down. */
   .voice-device select:open::picker-icon { color: var(--ink); }
@@ -7201,6 +7331,13 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
   margin: 0;
 }
 
+/* A phone lying down has less height than the hero's whole stack. The gaps are
+   what this row can give: tightening them lifts the pills above the fold
+   instead of leaving a capsule cut by the window edge. */
+@media (max-height: 480px) {
+  .voice-hero { gap: var(--s2); padding: var(--s3) 0; }
+}
+
 @media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   .voice {
     --voice-safe-top: max(var(--s3), env(safe-area-inset-top));
@@ -7217,12 +7354,10 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
   .voice-hero { padding: var(--s3) 0 0; gap: var(--s3); align-content: end; }
   .voice-mic { width: min(64vw, 30svh, 240px); }
   .voice-glyph { width: 38px; height: 38px; }
-  /* One pill per line, the width of the row: a phone has no room for two
-     half-width pills and a device name at the same time, and the name is what
-     the row is for. Both stay a thumb's worth tall. */
-  .voice-devices { width: 100%; }
-  .voice-device { width: 100%; min-height: 44px; }
-  .voice-device select { flex: 1 1 auto; max-width: none; }
+  /* Still side by side on a phone — two small pills, never two full-width
+     rows — with the drawn pill a little taller under a thumb. The 44px hit
+     area is unchanged: it belongs to the select, not to the picture. */
+  .voice-device::before { block-size: 34px; }
   .voice-facts { grid-template-columns: minmax(0, 1fr); }
   .voice-caption-slot { block-size: min(160px, 22svh); }
   .voice-caption-choice { min-block-size: 44px; }
@@ -7244,6 +7379,7 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
      centre must still reach the lower third, not push End into the inset. */
   .voice-mic { width: clamp(56px, calc(2 * (100svh / 3 - var(--voice-safe-bottom) - 44px - var(--s3)) - var(--s2)), 156px); }
   .voice-complaint, .voice-confirm { grid-column: 1 / -1; }
+}
 }
 
 @media (prefers-reduced-motion: reduce) {

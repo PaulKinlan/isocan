@@ -32,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { browser, until } from "./lib/browser.mjs";
+import { decodePng, inkInStrip, inkRows } from "./lib/png.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outIndex = process.argv.indexOf("--out");
@@ -273,6 +274,29 @@ try {
   step(`rows: chosen output ${JSON.stringify(before.chosen)}; note ${JSON.stringify(before.note)}`);
   const openShot = await shot(b, "01-rows-1440-light");
 
+  /*
+   * The settings panel, opened: both ends of the sound as FACTS.
+   *
+   * The controls are the pills beside the microphone and they stay there; a
+   * panel that names one end of the path describes half of it, so the two rows
+   * are read here — in the same words the pills use, in the order of the path.
+   */
+  const readFacts = async () => ({
+    mic: await b.ev(`document.getElementById("mic-fact").textContent`),
+    output: await b.ev(`document.getElementById("output-fact").textContent`),
+    order: await b.ev(
+      `[...document.querySelectorAll(".voice-facts > div")].map((row) => row.querySelector("dt")?.textContent).filter((one) => one === "Microphone" || one === "Output")`,
+    ),
+  });
+  await b.ev(`document.getElementById("settings-open").click()`);
+  await until(b, `document.getElementById("settings").open`, "the settings panel");
+  await sleep(300);
+  const facts = await readFacts();
+  const factsShot = await shot(b, "02-facts-panel-1440-light");
+  await b.ev(`document.getElementById("settings-close").click()`);
+  await sleep(200);
+  step(`facts panel: Microphone ${JSON.stringify(facts.mic)}, Output ${JSON.stringify(facts.output)}, rows in the order ${facts.order.join(" → ")} — ${factsShot}`);
+
   /* The picker, opened the way a person opens it. The rows the browser will
      actually offer are drawn by the browser in the top layer — including the
      long device names and whichever one is selected — which is a different
@@ -282,7 +306,7 @@ try {
     await b.send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
   }
   await sleep(600);
-  const pickerShot = await shot(b, "02-output-picker-1440-light");
+  const pickerShot = await shot(b, "03-output-picker-1440-light");
   await b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await sleep(300);
 
@@ -334,7 +358,7 @@ try {
   const aIndex = sinkIndex(aSink);
   const routed = chromeStreams().filter((one) => one.sink === aIndex);
   const [playedA, playedB] = [peakOf(await duringA), peakOf(await duringB)];
-  const playingShot = await shot(b, "03-playing-1440-light");
+  const playingShot = await shot(b, "04-playing-1440-light");
   step(`reply: 25 frames (2.5 s of 440 Hz at half scale) sent by the harness`);
   step(`reply: ${aSink}.monitor peak ${playedA}, ${bSink}.monitor (control) peak ${playedB} — ${playedA > 4000 && playedB < 500 ? "only the chosen device received it" : "NOT the clean result this claims"}`);
   step(`reply: PulseAudio renders ${routed.length} Chrome stream(s) for the page on sink ${aIndex} (${aSink})${routed.length ? `, first #${routed[0].index}` : " — NONE, which would mean the tone went somewhere else"}`);
@@ -356,7 +380,16 @@ try {
   pactl("unload-module", aModule);
   await until(b, `!document.getElementById("device-note").hidden`, "the page to notice the device is gone", 15_000);
   const gone = await read();
-  const goneShot = await shot(b, "04-gone-device-1440-light");
+  const goneShot = await shot(b, "05-gone-device-1440-light");
+  // And the panel agrees with the pill, in the same words: a chosen device that
+  // walked away says so in both places.
+  await b.ev(`document.getElementById("settings-open").click()`);
+  await until(b, `document.getElementById("settings").open`, "the settings panel after the unplug");
+  await sleep(300);
+  const goneFacts = await readFacts();
+  await b.ev(`document.getElementById("settings-close").click()`);
+  await sleep(200);
+  step(`facts panel after the unplug: Output ${JSON.stringify(goneFacts.output)}`);
   step(`unplugged: ${aSink} unloaded (${gone.output.length} output rows)`);
   step(`unplugged: rows now ${JSON.stringify(gone.output)}; selection ${JSON.stringify(gone.chosen)}`);
   step(`unplugged: note ${JSON.stringify(gone.note)}`);
@@ -373,38 +406,110 @@ try {
   step(`after unplug: Chrome ${routedPid}'s stream is now rendered on sink ${movedTo?.sink} (${movedTo?.sink === defaultIndex ? `the system default, ${defaultSink}` : "NOT the system default — check the note"}), and the control sink peak was ${controlAfter}`);
   const moved = movedTo?.sink === defaultIndex;
 
-  /* Both controls at both widths, in both themes — the page's own theme
-     mechanism, so what is photographed is what a person would get. */
-  const shots = [goneShot, openShot, pickerShot];
-  for (const [width, theme, number] of [
-    [420, "light", 5],
-    [420, "dark", 6],
-    [1440, "dark", 7],
+  /**
+   * The two pixel facts about one pill, from a clipped screenshot of it: how
+   * much ink is in its right 16px (the arrow that says "this opens"), and where
+   * the text's rows sit against the pill's centre line. Light theme, because
+   * "ink" here means darker than the card.
+   */
+  const measurePill = async (id, [width, height]) => {
+    await b.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    await sleep(250);
+    const box = await b.ev(`(() => { const r = document.querySelector("#${id}").closest(".voice-device").getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+    const { data } = await b.send("Page.captureScreenshot", { format: "png", clip: { x: box.x, y: box.y, width: box.w, height: box.h, scale: 1 } });
+    const png = decodePng(Buffer.from(data, "base64"));
+    const glyph = inkRows(png, { left: 0, right: 22 });
+    const text = inkRows(png, { left: 22, right: Math.max(0, png.width - 24) });
+    return {
+      width: Math.round(box.w),
+      centre: (png.height - 1) / 2,
+      glyph: [glyph.first, glyph.last],
+      text: [text.first, text.last],
+      arrowInk: inkInStrip(png, { left: Math.max(0, png.width - 16), right: png.width }),
+    };
+  };
+
+  /*
+   * **The rows, measured the way Paul asked:** the microphone's centre, the
+   * pills' centre relative to it, both widths, both orientations, the drawn
+   * pill against the target a thumb has to hit, and whether anything leaves
+   * the window.
+   */
+  const shots = [goneShot, openShot, factsShot, pickerShot];
+  const geometry = [];
+  for (const [width, height, theme, shotName, label] of [
+    [420, 900, "light", "06-rows-420-light", "narrow portrait"],
+    [420, 900, "dark", "07-rows-420-dark", "narrow portrait, dark"],
+    [1440, 900, "dark", "08-rows-1440-dark", "desktop, dark"],
+    [844, 390, "light", "11-landscape-844x390", "phone landscape"],
+    [390, 844, "light", "12-portrait-390x844", "phone portrait"],
+    [1240, 800, "light", "13-beside-ring-1240x800", "smallest window that puts them beside the ring"],
   ]) {
-    await b.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await b.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     await setTheme(b, theme);
-    const narrow = await b.ev(`(() => {
-      const row = document.querySelector(".voice-devices").getBoundingClientRect();
-      const pills = [...document.querySelectorAll(".voice-device")].map((p) => p.getBoundingClientRect());
-      const hero = document.querySelector(".voice-hero").getBoundingClientRect();
+    const measured = await b.ev(`(() => {
+      const rect = (sel) => document.querySelector(sel).getBoundingClientRect();
+      const mic = rect(".voice-mic");
+      const row = rect(".voice-devices");
+      const pills = [...document.querySelectorAll(".voice-device")].map((p) => {
+        const r = p.getBoundingClientRect();
+        const skin = getComputedStyle(p, "::before");
+        const select = p.querySelector("select").getBoundingClientRect();
+        return { w: Math.round(r.width), drawn: parseFloat(skin.blockSize), target: Math.round(select.height), top: Math.round(r.top) };
+      });
       return {
-        viewport: window.innerWidth,
-        document: document.documentElement.scrollWidth,
-        rowLeft: Math.round(row.left),
-        rowRight: Math.round(row.right),
-        pills: pills.map((r) => Math.round(r.width)),
-        pillHeights: pills.map((r) => Math.round(r.height)),
-        pillTheme: document.documentElement.dataset.theme,
-        stacked: pills.length > 1 && Math.round(pills[1].top) > Math.round(pills[0].top),
-        mic: Math.round(document.querySelector(".voice-mic").getBoundingClientRect().width),
-        heroWidth: Math.round(hero.width),
-        theme: document.documentElement.dataset.theme,
+        viewport: [window.innerWidth, window.innerHeight],
+        document: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+        micCentre: Math.round(mic.top + mic.height / 2),
+        rowCentre: Math.round(row.top + row.height / 2),
+        rowTop: Math.round(row.top),
+        pills,
+        sameLine: pills.length > 1 && Math.abs(pills[0].top - pills[1].top) < 2,
+        besideRing: row.left > mic.right,
+        note: !document.getElementById("device-note").hidden,
       };
     })()`);
-    const file = await shot(b, `0${number}-rows-${width}-${theme}`);
+    const file = await shot(b, shotName);
     shots.push(file);
-    step(`layout: ${width}px ${theme} — document ${narrow.document}px, device row ${narrow.rowLeft}…${narrow.rowRight} of ${narrow.viewport}, pill widths ${JSON.stringify(narrow.pills)} heights ${JSON.stringify(narrow.pillHeights)}${narrow.stacked ? " (stacked)" : " (one line)"}, microphone ${narrow.mic}px of a ${narrow.heroWidth}px hero — ${file}`);
+    const delta = measured.rowCentre - measured.micCentre;
+    const horizontal = measured.document[0] - measured.viewport[0];
+    const vertical = measured.document[1] - measured.viewport[1];
+    step(
+      `layout: ${label} (${width}×${height}, ${theme}) — pills ${measured.pills.map((p) => `${p.w}px wide`).join(" + ")}${measured.sameLine ? ", one line" : ", STACKED"}, drawn ${measured.pills[0].drawn}px tall with a ${measured.pills[0].target}px hit area, ` +
+        `${measured.besideRing ? "beside the ring" : "under the ring"}, row centre ${delta >= 0 ? "+" : ""}${delta}px from the microphone's centre, ` +
+        `document ${measured.document[0]}×${measured.document[1]} in ${measured.viewport[0]}×${measured.viewport[1]} (horizontal overflow ${horizontal > 1 ? `YES +${horizontal}` : "none"}, vertical ${vertical > 1 ? `+${vertical} (the hero is taller than a landscape window: astra's stack, not this row)` : "none"}) — ${file}`,
+    );
+    geometry.push({ label, width, height, delta, pills: measured.pills, horizontal, vertical, besideRing: measured.besideRing });
   }
+  /*
+   * **The arrow and the centre line, measured with a name that does not fit.**
+   *
+   * The machine has a real output whose name is longer than the pill: select it
+   * (through the row, as a person would) and the two pixel facts are read off
+   * the pill itself. Both were broken before this measurement existed: the
+   * platform's arrow is laid out AFTER the selected content, so the clip that
+   * stops a long name growing the page ate the affordance (measured 0 ink in
+   * the right 16px), and the text sat 12px above the capsule's centre line.
+   */
+  const longest = await b.ev(`(() => {
+    const options = [...document.getElementById("output").options].filter((o) => o.value);
+    const longest = options.sort((a, b) => b.textContent.length - a.textContent.length)[0];
+    return longest ? { value: longest.value, text: longest.textContent } : null;
+  })()`);
+  await b.ev(`(() => { const s = document.getElementById("output"); s.value = ${JSON.stringify(longest?.value ?? "")}; s.dispatchEvent(new Event("change")); return true; })()`);
+  await sleep(300);
+  const longPill = await measurePill("output", [1440, 900]);
+  const longPillNarrow = await measurePill("output", [420, 900]);
+  const shortPill = await measurePill("device", [1440, 900]);
+  step(
+    `pills measured (light theme, ink counted from a clipped screenshot): with the longest real name ${JSON.stringify(longest?.text ?? "none")} the output pill is ${longPill.width}px wide at 1440 and ${longPillNarrow.width}px at 420, ` +
+      `and its right 16px carries ${longPill.arrowInk} ink pixels at 1440 / ${longPillNarrow.arrowInk} at 420 (the arrow that says it opens) — ` +
+      `text rows ${longPill.text[0]}–${longPill.text[1]} and ${longPillNarrow.text[0]}–${longPillNarrow.text[1]} against a centre line at ${longPill.centre}px, ` +
+      `glyph rows ${longPill.glyph[0]}–${longPill.glyph[1]} / ${longPillNarrow.glyph[0]}–${longPillNarrow.glyph[1]}; the microphone pill with a short name: ${shortPill.width}px wide, arrow ink ${shortPill.arrowInk}, text rows ${shortPill.text[0]}–${shortPill.text[1]}`,
+  );
+  await b.ev(`(() => { const s = document.getElementById("output"); s.value = ""; s.dispatchEvent(new Event("change")); return true; })()`);
+  await sleep(200);
+
   await b.send("Emulation.clearDeviceMetricsOverride");
   await b.ev(`document.getElementById("end").click()`);
   await sleep(300);
@@ -437,7 +542,7 @@ try {
     await until(withheldBrowser, `document.querySelectorAll("#output option").length > 0`, "the rows with no permission asked");
     await setTheme(withheldBrowser, "light");
     states.withheld = await lookAt(withheldBrowser);
-    const file = await shot(withheldBrowser, "08-names-withheld-1440-light");
+    const file = await shot(withheldBrowser, "09-names-withheld-1440-light");
     shots.push(file);
     step(`no permission asked: microphone rows ${JSON.stringify(states.withheld.mic)}, output rows ${JSON.stringify(states.withheld.output)}`);
     step(`no permission asked: note ${JSON.stringify(states.withheld.note)} — ${file}`);
@@ -456,7 +561,7 @@ try {
     await until(noApiBrowser, `document.querySelectorAll("#output option").length > 0`, "the rows in a browser with no output routing");
     await setTheme(noApiBrowser, "light");
     states.noApi = await lookAt(noApiBrowser);
-    const file = await shot(noApiBrowser, "09-no-output-api-1440-light");
+    const file = await shot(noApiBrowser, "10-no-output-api-1440-light");
     shots.push(file);
     step(`no output API: output rows ${JSON.stringify(states.noApi.output)}, control disabled ${states.noApi.disabled}`);
     step(`no output API: note ${JSON.stringify(states.noApi.note)} — ${file}`);
@@ -482,6 +587,8 @@ try {
     `- setSinkId is per AudioContext (measured): the capture context stays on the system default while the playback context is routed, so only the reply moves`,
     `- after the device was unplugged: the same browser (pid ${routedPid}, stream #${routedStream}) had its audio rendered on sink ${movedTo?.sink}, which is ${movedTo?.sink === defaultIndex ? `the system default (${defaultSink})` : "NOT the system default"}`,
     ``,
+    `- facts panel at load: Microphone ${JSON.stringify(facts.mic)}, Output ${JSON.stringify(facts.output)} (rows ${facts.order.join(" then ")})`,
+    `- facts panel after the unplug: Output ${JSON.stringify(goneFacts.output)}`,
     `- microphone row: ${JSON.stringify(before.mic)}`,
     `- output row: ${JSON.stringify(before.output)}`,
     `- output at load: ${JSON.stringify(before.chosen)} (nothing chosen yet) then ${JSON.stringify(aLabel)} (${JSON.stringify(stored)})`,
@@ -491,6 +598,19 @@ try {
     `- with no microphone permission asked: microphone rows ${JSON.stringify(states.withheld?.mic)}, output rows ${JSON.stringify(states.withheld?.output)}, note ${JSON.stringify(states.withheld?.note)}`,
     `- with AudioContext.setSinkId deleted (a browser that cannot route output): rows ${JSON.stringify(states.noApi?.output)}, control disabled ${states.noApi?.disabled}, note ${JSON.stringify(states.noApi?.note)}`,
     `- microphone frames the stub harness received from the page: ${micFrames} (${micBytes} bytes)`,
+    ``,
+    `## The pills, measured`,
+    ``,
+    `| window | pills | drawn / hit area | where | row centre vs microphone centre | horizontal overflow |`,
+    `| --- | --- | --- | --- | --- | --- |`,
+    ...geometry.map(
+      (g) =>
+        `| ${g.width}×${g.height} (${g.label}) | ${g.pills.map((p) => `${p.w}px`).join(" + ")} | ${g.pills[0].drawn}px / ${g.pills[0].target}px | ${g.besideRing ? "beside the ring" : "under the ring"} | ${g.delta >= 0 ? "+" : ""}${g.delta}px | ${g.horizontal > 1 ? `+${g.horizontal}px` : "none"} |`,
+    ),
+    ``,
+    `With a real long device name (${JSON.stringify(longest?.text ?? "none")}) selected, the output pill's right 16px carried ${longPill.arrowInk} ink pixels at 1440 and ${longPillNarrow.arrowInk} at 420 — the arrow, which the platform's own icon lost the moment the name did not fit — and its text rows sat at ${longPill.text[0]}–${longPill.text[1]} (1440) and ${longPillNarrow.text[0]}–${longPillNarrow.text[1]} (420) around a centre line at ${longPill.centre}px, with the glyph at ${longPill.glyph[0]}–${longPill.glyph[1]}.`,
+    ``,
+    `The drawn pill is the hairline capsule; the hit area is the select inside it, which is what a thumb has to reach. Both pills stay on one line at every size, and neither the row nor the list leaves the window at any of them.`,
     ``,
     `## Screenshots`,
     ...shots.map((one) => `- ${one}`),
