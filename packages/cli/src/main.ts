@@ -9291,7 +9291,7 @@ program
   .action(
     run(async (opts: { canvas?: string; mentions?: boolean; new?: boolean; limit?: string }, cmd: Command) => {
       const ctx = await ctxOf(cmd);
-      const target = opts.canvas ? await resolveCanvas({ ...ctx, canvasRef: opts.canvas }) : null;
+      const target = ctx.canvasRef !== undefined ? await resolveCanvas(ctx) : null;
       const session = await readSessionFile(ctx.home, ctx.actor.id).catch(() => null);
       const { entries, marks, unavailable } = await ctx.client.inbox(ctx.actor.id, {
         ...(target ? { canvasId: target.id } : {}),

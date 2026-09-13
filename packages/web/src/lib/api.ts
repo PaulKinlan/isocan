@@ -73,7 +73,7 @@ import {
   spaceGrantRevokeRoute,
   spaceGrantsRoute,
   spaceLinkRoute,
-  SEEN_ROUTE,
+  seenMarksRoute,
   seenRoute,
   spaceRoute,
   SPACES_ROUTE,
@@ -187,7 +187,7 @@ export function homeAnswered(err: unknown): err is ApiError {
  * — a hook keeps the dependency pointing one way.
  */
 let reclaim: (() => Promise<unknown>) | null = null;
-let reclaiming = false;
+let reclaiming: Promise<boolean> | null = null;
 
 export function onReBadge(fn: () => Promise<unknown>): void {
   reclaim = fn;
@@ -292,6 +292,7 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
       ? await knockOnDoor()
       : json?.code === "not-your-actor" && (await reclaimNow());
   if (recovered) {
+    signal?.throwIfAborted();
     res = await send();
     json = (await res.json().catch(() => null)) as any;
   } else if (res.status === 401 && lastDoorRefusal) {
@@ -307,16 +308,15 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
 }
 
 async function reclaimNow(): Promise<boolean> {
-  if (!reclaim || reclaiming) return false;
-  reclaiming = true;
-  try {
-    await reclaim();
-    return true;
-  } catch {
-    return false; // somebody else is that persona now; the replay says so
-  } finally {
-    reclaiming = false;
-  }
+  if (!reclaim) return false;
+  if (reclaiming) return reclaiming;
+  // Distinct inbox/visit scopes still share one identity claim. A second
+  // request waits for it, then gets its own single replay and cancellation.
+  const claim = reclaim;
+  const shared = Promise.resolve().then(claim).then(() => true, () => false)
+    .finally(() => { if (reclaiming === shared) reclaiming = null; });
+  reclaiming = shared;
+  return shared;
 }
 
 /** Name (or resume) this browser's actor — the one op sent without an
@@ -566,10 +566,11 @@ export async function fetchRefused(canvasId: string): Promise<RefusalNotice | nu
  * **What you have already seen** (#147, #134) — your own marks, every canvas,
  * one read. Desk state at the home, so this is asked rather than remembered:
  * the point of the feature is that your other machine finds what this one
- * saw. There is deliberately no way to ask for anybody else's.
+ * saw. A canvas selector asks that canvas's home for only its prior mark.
+ * There is deliberately no way to ask for anybody else's.
  */
-export function fetchSeen(actorId: string, signal?: AbortSignal): Promise<SeenMarksResponse> {
-  return request("GET", `${SEEN_ROUTE}?actorId=${encodeURIComponent(actorId)}`, undefined, signal);
+export function fetchSeen(actorId: string, signal?: AbortSignal, canvasId?: string): Promise<SeenMarksResponse> {
+  return request("GET", seenMarksRoute(actorId, canvasId), undefined, signal);
 }
 
 /** Move the mark for one canvas to the head you had in front of you. Called

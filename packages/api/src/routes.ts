@@ -92,7 +92,7 @@ import {
   spaceGrantRevokeRoute,
   spaceGrantsRoute,
   spaceLinkRoute,
-  SEEN_ROUTE,
+  seenMarksRoute,
   seenRoute,
   spaceRoute,
   SPACES_ROUTE,
@@ -585,11 +585,10 @@ export class DaemonRoutes {
   // local record: the point of the feature is that your other machine finds
   // what this one saw. `docs/research/2026-09-12-seen-marks.md`.
 
-  /** Your own marks, every canvas, one read. There is deliberately no way to
-   *  ask for anybody else's. */
-  seen(actorId?: string): Promise<SeenMarksResponse> {
-    const query = actorId ? `?actorId=${encodeURIComponent(actorId)}` : "";
-    return this.request("GET", `${SEEN_ROUTE}${query}`);
+  /** Your own marks, or one canvas's prior mark at its authoritative home.
+   *  There is deliberately no way to ask for anybody else's. */
+  seen(actorId?: string, canvasId?: string): Promise<SeenMarksResponse> {
+    return this.request("GET", seenMarksRoute(actorId, canvasId));
   }
 
   /** Move the mark for one canvas to the head you had in front of you. The

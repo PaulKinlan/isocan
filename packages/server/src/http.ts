@@ -2632,6 +2632,10 @@ export function registerRoutes(
         }
         const down = refusals.of(canvas.id);
         if (down) throw new TakenDownError(down);
+        // Assembly sits outside the canvas route hook, so it must repeat the
+        // same refusal before an existing admission can short-circuit it.
+        const refused = refusals.refusingAttestation(req.badge!.attestations ?? []);
+        if (refused) throw new RefusedError(refused);
         await admit(req, canvas.id);
         const snapshot = await engine.getSnapshot(canvas.id);
         const marks = await readMarks();
@@ -2648,9 +2652,9 @@ export function registerRoutes(
   // ---- seen-marks: what one person has already looked at (#147, #134) ----
   //
   // `docs/research/2026-09-12-seen-marks.md`. Desk state, so a replica
-  // forwards both routes through `homeScoped()` for the space routes' reason
-  // — the row lives at the home, and the whole promise of the feature is that
-  // your other machine finds what this one saw.
+  // reads the home-scoped ledger, while a mark or targeted prior-read names
+  // its canvas and forwards to that canvas's home. Even on a mixed rig, the inbox
+  // reads it at the same authoritative home.
   //
   // **Not canvas-scoped, deliberately, and this is the roles half of the
   // design.** `PUT /api/seen/:canvasId` names a canvas but is not a write TO
@@ -2666,11 +2670,37 @@ export function registerRoutes(
 
   /** Your own marks, every canvas, one read — what the inbox and the
    *  switcher's "lately" both start from. */
-  app.get(SEEN_ROUTE, async (req) => {
-    const query = req.query as { actorId?: unknown };
+  app.get(SEEN_ROUTE, async (req, reply) => {
+    const query = req.query as { actorId?: unknown; canvasId?: unknown };
     const actorId = await actingActor(req, query.actorId);
-    const home = options.homes?.homeScoped() ?? null;
-    if (home) return home.seen(await actorNamed(actorId));
+    const canvasId = typeof query.canvasId === "string" ? query.canvasId : undefined;
+    if (canvasId !== undefined && !actorId) {
+      return reply.status(400).send({ error: "a canvas seen-read needs an actorId claimed by this badge", code: "bad-op" });
+    }
+    const home = canvasId === undefined ? options.homes?.homeScoped() : options.homes?.for(canvasId);
+    if (home) {
+      const aborter = new AbortController();
+      const cancel = () => { if (!reply.raw.writableEnded) aborter.abort(); };
+      reply.raw.on("close", cancel);
+      const signal = AbortSignal.any([aborter.signal, AbortSignal.timeout(8000)]);
+      try {
+        return await home.seen(await actorNamed(actorId), canvasId, signal);
+      } catch (error) {
+        if (aborter.signal.aborted) return reply; // the caller left; there is nobody to answer
+        if (signal.aborted) throw new HomeUnreachableError(home.homeUrl, "seen read timed out");
+        throw error;
+      } finally {
+        reply.raw.off("close", cancel);
+      }
+    }
+    if (canvasId !== undefined) {
+      // The targeted prior-visit read uses the same joined person's ledger
+      // that the authoritative inbox compares against its comment sequences.
+      const joins = await engine.actorJoins();
+      const ids = actorAliases(joins, resolveActor(joins, actorId!));
+      const marks = mergeSeen(...await Promise.all(ids.map((id) => desk.seenOf(id))));
+      return { marks: marks[canvasId] ? { [canvasId]: marks[canvasId]! } : {} } satisfies SeenMarksResponse;
+    }
     // Every actor this badge claims, merged: a person who was two actors and
     // folded them (`actor.join`) holds two ledgers of marks for one person,
     // and a badge that claims both is precisely what the fold required of it.
@@ -2706,7 +2736,7 @@ export function registerRoutes(
         .send({ error: "`seq` is the canvas's oplog head you had in front of you", code: "bad-op" });
     }
     const actorId = await actingActor(req, body.actorId);
-    const home = options.homes?.homeScoped() ?? null;
+    const home = options.homes?.for(canvasId) ?? null;
     if (home) return home.markSeen(canvasId, seq, await actorNamed(actorId));
     if (!actorId) {
       return reply.status(400).send({

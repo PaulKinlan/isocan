@@ -34,6 +34,7 @@ interface SeenRead {
   settled: boolean;
 }
 const asking = new Map<string, SeenRead>();
+const loaded = new Set<string>();
 /** Preparation is a nicety, so a stalled home cannot hold navigation forever. */
 const SEEN_READ_TIMEOUT_MS = 8000;
 const visits = new Set<(actorId: string, canvasId: string, mark: SeenMark) => void>();
@@ -62,18 +63,21 @@ export function seenMarks(actorId: string): SeenMarks {
  * work, so a hidden navigation cannot cancel an actual canvas visit. */
 export function loadSeen(
   actorId: string,
-  options: { signal?: AbortSignal; refresh?: boolean } = {},
+  options: { signal?: AbortSignal; refresh?: boolean; canvasId?: string } = {},
 ): Promise<boolean> {
   options.signal?.throwIfAborted();
-  if (!options.refresh && cached.has(actorId)) return Promise.resolve(true);
-  let pending = asking.get(actorId);
+  const key = JSON.stringify([actorId, options.canvasId ?? null]);
+  if (!options.refresh && loaded.has(key)) return Promise.resolve(true);
+  let pending = asking.get(key);
   if (!pending || pending.controller.signal.aborted) {
     const controller = new AbortController();
     const read: SeenRead = { controller, users: 0, settled: false, promise: Promise.resolve(false) };
-    read.promise = fetchSeen(actorId, AbortSignal.any([controller.signal, AbortSignal.timeout(SEEN_READ_TIMEOUT_MS)]))
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(SEEN_READ_TIMEOUT_MS)]);
+    read.promise = untilAborted(fetchSeen(actorId, signal, options.canvasId), signal)
       .then(({ marks }) => {
         controller.signal.throwIfAborted();
         rememberSeen(actorId, marks);
+        loaded.add(key);
         return true;
       }, () => {
         controller.signal.throwIfAborted();
@@ -81,9 +85,9 @@ export function loadSeen(
       })
       .finally(() => {
         read.settled = true;
-        if (asking.get(actorId) === read) asking.delete(actorId);
+        if (asking.get(key) === read) asking.delete(key);
       });
-    asking.set(actorId, read);
+    asking.set(key, read);
     pending = read;
   }
   const read = pending;
@@ -130,4 +134,15 @@ export async function noteVisit(canvasId: string, seq: number, actorId: string):
     for (const received of visits) received(actorId, canvasId, accepted);
   }, () => {});
   return prior;
+}
+
+/** A caller can leave shared claim recovery even if its callback cannot be
+ * cancelled. The owned seen HTTP request receives the same signal. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const cancel = () => reject(signal.reason);
+    if (signal.aborted) cancel();
+    else signal.addEventListener("abort", cancel, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", cancel));
+  });
 }

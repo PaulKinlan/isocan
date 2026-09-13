@@ -75,3 +75,19 @@ describe("shared seen-read ownership", () => {
     expect(await loadSeen("usr_retry", { refresh: true })).toBe(true);
   });
 });
+
+it("does not satisfy a targeted read from an unscoped read's result or pending request", async () => {
+  let finish!: (value: { marks: {} }) => void;
+  api.fetchSeen.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  api.fetchSeen.mockResolvedValueOnce({ marks: { prj_target: { seq: 9, at: "2026-09-13T01:00:00Z" } } });
+  const { loadSeen, seenMarks } = await import("../src/lib/seen.ts");
+  const unscoped = loadSeen("usr_scope");
+  expect(await loadSeen("usr_scope", { canvasId: "prj_target" })).toBe(true);
+  expect(api.fetchSeen).toHaveBeenLastCalledWith("usr_scope", expect.any(AbortSignal), "prj_target");
+  expect(seenMarks("usr_scope").prj_target?.seq).toBe(9);
+  finish({ marks: {} });
+  expect(await unscoped).toBe(true);
+  api.fetchSeen.mockResolvedValueOnce({ marks: {} });
+  expect(await loadSeen("usr_scope", { canvasId: "prj_other" })).toBe(true);
+  expect(api.fetchSeen).toHaveBeenLastCalledWith("usr_scope", expect.any(AbortSignal), "prj_other");
+});

@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { inboxRoute, newSince, seenRoute, type Actor, type Canvas, type InboxResponse, type Operation } from "@isocan/core";
+import { inboxRoute, newSince, seenRoute, seenMarksRoute, formatBadgeToken, type Actor, type Canvas, type InboxResponse, type Operation } from "@isocan/core";
 import { startDaemon, type Daemon } from "../src/daemon.ts";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 import { collectInbox } from "../src/inbox.ts";
+import { readBadge } from "../src/badge-store.ts";
 
 const ada = { id: "usr_ada", name: "Ada" };
 const bo = { id: "usr_bo", name: "Bo" };
@@ -149,4 +150,132 @@ it("keeps a comment after the visited snapshot new when the seen request arrives
   expect(result.entries[0]!.seq).toBe(head + 1);
   expect(result.entries[0]!.comment.createdAt <= result.marks.prj_race!.at).toBe(true);
   expect(newSince(result.entries, result.marks).map((entry) => entry.threadId)).toEqual(["thr_later"]);
+});
+
+
+/** The refusal row is durable before the operator finishes its badge sweep.
+ * Restart at that boundary: existing badges are still alive, and every read
+ * must obey the refusal registry that boot just loaded. */
+async function refuseBeforeSweep(home: Awaited<ReturnType<typeof node>>, badgeId: string) {
+  await home.daemon.desk.attest(badgeId, {
+    attribute: "email:blocked@example.test", verifiedVia: "magic-link", at: new Date().toISOString(),
+  });
+  await home.daemon.desk.recordRefusal({
+    subject: "email:blocked@example.test", kind: "email", at: new Date().toISOString(),
+    reason: "harassment", by: "email:operator@example.test", actId: "opr_acme",
+  });
+  const previous = home.daemon;
+  await previous.close();
+  home.daemon = await startDaemon({ port: Number(new URL(home.base).port), home: home.dir, birthHome: null });
+  nodes.find((node) => node.daemon === previous)!.daemon = home.daemon;
+}
+
+it("refuses inbox content and marks wherever the ordinary snapshot refuses an attestation", async () => {
+  const home = await node();
+  const mine = await mintTestBadge(home.base); await mine.speakAs(ada);
+  const author = await mintTestBadge(home.base); await author.speakAs(bo);
+  await op(home.base, mine, ada, null, { type: "project.create", canvasId: "prj_refused", title: "Acme private" });
+  await op(home.base, author, bo, "prj_refused", thread("thr_refused", "Synthetic protected comment"));
+  expect((await request(home.base, mine, "PUT", seenRoute("prj_refused"), { actorId: ada.id, seq: 0 })).status).toBe(200);
+  expect((await inbox(home.base, mine)).entries).toHaveLength(1);
+  await refuseBeforeSweep(home, mine.badgeId);
+  const ordinary = await request(home.base, mine, "GET", "/api/projects/prj_refused/canvas");
+  expect(ordinary.status).toBe(403);
+  expect(await ordinary.json()).toMatchObject({ reason: "refused" });
+  for (const scope of [undefined, "prj_refused"]) {
+    const result = await inbox(home.base, mine, scope);
+    expect(result.entries).toEqual([]);
+    expect(result.marks).toEqual({});
+    expect(result.homes).toEqual({});
+    expect(result.unavailable.map((entry) => entry.canvasId)).toEqual(["prj_refused"]);
+    expect(JSON.stringify(result)).not.toContain("Synthetic protected comment");
+  }
+});
+
+it("keeps an unrelated home's inbox available when a forwarded badge's attestation is refused", async () => {
+  const first = await node(); const other = await node(); const local = await node();
+  const mine = await mintTestBadge(local.base); await mine.speakAs(ada);
+  for (const [home, id] of [[first, "prj_blocked"], [other, "prj_available"]] as const) {
+    const author = await mintTestBadge(home.base); await author.speakAs(bo);
+    await op(home.base, author, bo, null, { type: "project.create", canvasId: id, title: id });
+    await op(home.base, author, bo, id, thread(`thr_${id}`, `Synthetic comment for ${id}`));
+    expect((await request(local.base, mine, "POST", "/api/home/join", { canvasId: id, home: home.base })).status).toBe(200);
+  }
+  const deadline = Date.now() + 5000;
+  while ((await local.daemon.engine.listCanvases()).length < 2) {
+    if (Date.now() > deadline) throw new Error("both inbox replicas did not settle");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const initial = await inbox(local.base, mine);
+  expect(initial.entries).toHaveLength(2);
+  await first.daemon.desk.markSeen(ada.id, "prj_blocked", { seq: 0, at: "2026-01-01T00:00:00Z" });
+  const held = (await readBadge(local.dir, first.base))!;
+  expect(held).not.toBeNull();
+  await refuseBeforeSweep(first, held.badgeId);
+  const ordinary = await fetch(`${first.base}/api/projects/prj_blocked/canvas`, {
+    headers: { ...mine.headers, Authorization: `Bearer ${formatBadgeToken(held.badgeId, held.secret)}` },
+  });
+  expect(ordinary.status).toBe(403);
+  expect(await ordinary.json()).toMatchObject({ reason: "refused" });
+  const mixed = await inbox(local.base, mine);
+  expect(mixed.entries.map((entry) => entry.canvasId)).toEqual(["prj_available"]);
+  expect(mixed.marks.prj_blocked).toBeUndefined();
+  expect(mixed.unavailable.map((entry) => entry.canvasId)).toContain("prj_blocked");
+  const scoped = await inbox(local.base, mine, "prj_blocked");
+  expect(scoped.entries).toEqual([]);
+  expect(scoped.marks).toEqual({});
+  expect(JSON.stringify(scoped)).not.toContain("Synthetic comment for prj_blocked");
+}, 20_000);
+
+
+it("cancels a forwarded prior-read's home HTTP request when the client leaves and allows retry", async () => {
+  const home = await node(); const local = await node();
+  const mine = await mintTestBadge(local.base); await mine.speakAs(ada);
+  const owner = await mintTestBadge(home.base); await owner.speakAs(bo);
+  await op(home.base, owner, bo, null, { type: "project.create", canvasId: "prj_prior", title: "Acme prior" });
+  expect((await request(local.base, mine, "POST", "/api/home/join", { canvasId: "prj_prior", home: home.base })).status).toBe(200);
+  const deadline = Date.now() + 5000;
+  while (!(await local.daemon.engine.listCanvases()).some((canvas) => canvas.id === "prj_prior")) {
+    if (Date.now() > deadline) throw new Error("replica did not settle");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  // Claim through the normal forwarded read before holding only seen HTTP.
+  await inbox(local.base, mine, "prj_prior");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  let closed!: () => void;
+  const disconnected = new Promise<void>((resolve) => { closed = resolve; });
+  const observe = (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
+    if (req.url?.startsWith("/api/seen?")) res.once("close", closed);
+  };
+  home.daemon.app.server.on("request", observe);
+  const original = home.daemon.desk.seenOf.bind(home.daemon.desk);
+  const read = vi.spyOn(home.daemon.desk, "seenOf").mockImplementationOnce(async (actorId) => {
+    entered();
+    await held;
+    return original(actorId);
+  });
+  try {
+    const aborter = new AbortController();
+    const response = fetch(local.base + seenMarksRoute(ada.id, "prj_prior"), { headers: mine.headers, signal: aborter.signal });
+    const rejected = expect(response).rejects.toThrow();
+    await started;
+    aborter.abort();
+    await rejected;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopped = await Promise.race([
+      disconnected.then(() => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), 1000); }),
+    ]).finally(() => clearTimeout(timer));
+    expect(stopped, "disconnect must reach the actual home request, not only the replica socket").toBe(true);
+    release();
+    const retry = await request(local.base, mine, "GET", seenMarksRoute(ada.id, "prj_prior"));
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ marks: {} });
+  } finally {
+    release(); read.mockRestore();
+    home.daemon.app.server.off("request", observe);
+  }
 });

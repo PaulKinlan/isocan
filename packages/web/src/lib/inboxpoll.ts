@@ -8,6 +8,8 @@ export interface InboxPollState { data: InboxResponse | null; error: string | nu
 /** One request at a time, only while visible. Every lifecycle owns its own
  * signal, so a hidden tab or old identity cannot publish a late answer. */
 export function startInboxPoll(options: {
+  /** Claim-healing preparation belongs to this cancellable attempt too. */
+  prepare?: (signal: AbortSignal) => Promise<void>;
   read: (signal: AbortSignal) => Promise<InboxResponse>;
   changed: (state: InboxPollState) => void;
   visibility: Pick<Document, "visibilityState" | "addEventListener" | "removeEventListener">;
@@ -27,7 +29,10 @@ export function startInboxPoll(options: {
     const aborter = new AbortController();
     current = aborter;
     try {
-      const data = await options.read(AbortSignal.any([aborter.signal, AbortSignal.timeout(25_000)]));
+      const signal = AbortSignal.any([aborter.signal, AbortSignal.timeout(25_000)]);
+      if (options.prepare) await options.prepare(signal);
+      signal.throwIfAborted();
+      const data = await options.read(signal);
       if (!aborter.signal.aborted && !stopped) options.changed({ data, error: null, loading: false });
     } catch (error) {
       if (!aborter.signal.aborted && !stopped) options.changed({

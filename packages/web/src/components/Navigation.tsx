@@ -33,7 +33,6 @@ export function Navigation({ actor }: { actor: Actor }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     let live = true;
-    let polling: ReturnType<typeof startInboxPoll> | undefined;
     let visited: SeenMarks = {};
     const unwatch = onSeenVisit((actorId, canvasId, mark) => {
       if (!live || actorId !== actor.id) return;
@@ -43,24 +42,23 @@ export function Navigation({ actor }: { actor: Actor }) {
         : {});
     });
     useInboxStore.setState({ actorId: actor.id, data: null, error: null, loading: true, refresh: () => {} });
-    // The shared initial read heals a claim before either visits or polling
-    // assert it, following the visit's existing read-before-write boundary.
-    void loadSeen(actor.id).then(() => {
-      if (!live) return;
-      polling = startInboxPoll({
-        read: (signal) => fetchInbox(actor.id, signal), visibility: document,
-        changed: (next) => {
-          if (!live) return;
-          // A poll may have started just before this tab's visit. Its older
-          // answer cannot undo the mark the home has since accepted.
-          const data = next.data ? { ...next.data, marks: mergeSeen(next.data.marks, visited) } : null;
-          if (data) rememberSeen(actor.id, data.marks);
-          useInboxStore.setState({ ...next, data });
-        },
-      });
-      useInboxStore.setState({ refresh: polling.refresh });
+    // Preparation heals a claim before inbox assertions, inside the same
+    // visible-tab lifecycle. A stalled read is cancellable and retryable.
+    const polling = startInboxPoll({
+      prepare: async (signal) => {
+        if (!await loadSeen(actor.id, { signal })) throw new Error("Could not read your seen marks. Refresh the inbox to try again.");
+      },
+      read: (signal) => fetchInbox(actor.id, signal), visibility: document,
+      changed: (next) => {
+        if (!live) return;
+        // An older poll cannot undo a mark this tab's visit just received.
+        const data = next.data ? { ...next.data, marks: mergeSeen(next.data.marks, visited) } : null;
+        if (data) rememberSeen(actor.id, data.marks);
+        useInboxStore.setState({ ...next, data });
+      },
     });
-    return () => { live = false; unwatch(); polling?.stop(); setMode(null); };
+    useInboxStore.setState({ refresh: polling.refresh });
+    return () => { live = false; unwatch(); polling.stop(); setMode(null); };
   }, [actor.id, setMode]);
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

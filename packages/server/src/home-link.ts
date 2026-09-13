@@ -56,7 +56,7 @@ import {
   spaceLinkRoute,
   spaceRoute,
   SPACES_ROUTE,
-  SEEN_ROUTE,
+  seenMarksRoute,
   seenRoute,
   BADGES_ROUTE,
   badgeRoute,
@@ -310,7 +310,7 @@ export interface HomeConnection {
    * per-browser answer seen-marks exist to replace.
    */
   inbox(canvasId: string, actor: Actor, label?: string, signal?: AbortSignal): Promise<InboxResponse>;
-  seen(actor?: Actor): Promise<SeenMarksResponse>;
+  seen(actor?: Actor, canvasId?: string, signal?: AbortSignal): Promise<SeenMarksResponse>;
   markSeen(canvasId: string, seq: number, actor?: Actor): Promise<SeenResponse>;
   spaces(): Promise<SpacesResponse>;
   createSpace(name: string, actor?: Actor): Promise<SpaceResponse>;
@@ -1882,12 +1882,11 @@ export class HomeLink implements HomeConnection {
     return abortable(this.api<InboxResponse>("GET", inboxRoute(actor.id, { canvasId, ...(label !== undefined ? { label } : {}) }), undefined, signal), signal);
   }
 
-  async seen(actor?: Actor): Promise<SeenMarksResponse> {
-    if (actor) await this.ensureClaim(actor);
-    return this.api<SeenMarksResponse>(
-      "GET",
-      actor ? `${SEEN_ROUTE}?actorId=${encodeURIComponent(actor.id)}` : SEEN_ROUTE,
-    );
+  async seen(actor?: Actor, canvasId?: string, signal?: AbortSignal): Promise<SeenMarksResponse> {
+    signal?.throwIfAborted();
+    if (actor) await abortable(this.ensureClaim(actor), signal);
+    signal?.throwIfAborted();
+    return abortable(this.api<SeenMarksResponse>("GET", seenMarksRoute(actor?.id, canvasId), undefined, signal), signal);
   }
 
   async markSeen(canvasId: string, seq: number, actor?: Actor): Promise<SeenResponse> {
