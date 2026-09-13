@@ -84,40 +84,6 @@ const canvasNames = async () => {
   return (await r.json()).names ?? {};
 };
 
-/* An enrolment, the documented way, so the rename has an enrolment to move —
-   the drawer's own "Enrol from here" is a later commit's endpoint, and this one
-   is about the claim. */
-{
-  const { spawn: spawnCli } = await import("node:child_process");
-  const runCli = async (args, env) => {
-    const child = spawnCli(process.execPath, [cli, ...args], {
-      env: { ...process.env, ISOCAN_HOME: home, ISOCAN_PORT: String(daemonPort), ...env },
-      cwd: repo,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let said = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (d) => (said += d));
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (d) => (said += d));
-    await new Promise((r) => child.on("close", r));
-    return said;
-  };
-  // The machine's badge has to hold the person before it may enrol anyone —
-  // the same first step every CLI test takes.
-  await runCli(["identity", "--name", "Person", "--as", "usr_person", "--session"], {
-    ISOCAN_SESSION_ID: "person",
-    ISOCAN_HARNESS: "isocan",
-  });
-  const saidEnrol = await runCli(["rc", "add", "Voice", "--harness", "voice", "--canvas", "prj_voice", "--dir", repo], {
-    ISOCAN_SESSION_ID: "Voice",
-    ISOCAN_HARNESS: "agent",
-  });
-  if (!saidEnrol.includes("enrolled")) {
-    console.error(`  enrol said:\n${saidEnrol.slice(0, 2000)}`);
-  }
-  step(`enrolled for the walk: ${saidEnrol.trim().split("\n").slice(0, 3).join(" | ")}`);
-}
 const rosterNow = async () =>
   JSON.parse(await (await import("node:fs/promises")).readFile(path.join(home, "rc-agents.json"), "utf8").catch(() => "[]"));
 step(`before: roster row ${JSON.stringify((await rosterNow()).map((r) => r.name))}`);
@@ -125,7 +91,7 @@ step(`before: roster row ${JSON.stringify((await rosterNow()).map((r) => r.name)
 /* The harness, on a free port — never 7654, which may be somebody's. */
 const voicePort = 7800 + Math.floor(Math.random() * 400);
 const voice = spawn(process.execPath, [cli, "voice", "--voice-port", String(voicePort), "--canvas", "prj_voice"], {
-  cwd: repo,
+  cwd: home,
   env: { ...process.env, ISOCAN_HOME: home, ISOCAN_PORT: String(daemonPort), ISOCAN_SESSION_ID: "Voice", ISOCAN_HARNESS: "agent" },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -231,6 +197,29 @@ try {
   );
   step(`drawer: actor “${opened.actor}”, ${opened.steps.length} setup step(s), the claim control present`);
 
+  /* ---- the enrolment, from the same drawer ---- */
+  const enrolStep = opened.steps.find((line) => line.startsWith("Not enrolled"));
+  expect(Boolean(enrolStep), `the drawer says what is missing and offers the fix: ${JSON.stringify(enrolStep)}`);
+  await b.ev(
+    `(() => { const b = [...document.querySelectorAll("#setup-steps button")].find((x) => x.textContent.trim() === "Enrol from here"); b.click(); return true; })()`,
+  );
+  await until(
+    b,
+    `!document.querySelector("#actor-standing") || document.getElementById("actor-standing").hidden || !document.getElementById("actor-standing").textContent.includes("not enrolled")`,
+    "the drawer's enrolment line to stop saying it is not enrolled",
+  );
+  const enrolledFacts = await (await fetch(`${harnessUrl}connection`)).json();
+  evidence.enrolled = enrolledFacts.agent;
+  const enrolledRoster = await rosterNow();
+  evidence.rosterAfterEnrol = enrolledRoster;
+  expect(enrolledFacts.agent.enrolled === true, "the harness says it is enrolled, from the page alone");
+  expect(
+    enrolledRoster.some((r) => r.actorId === enrolledFacts.agent.id && r.harness === "voice"),
+    `the machine's rc half is there: ${JSON.stringify(enrolledRoster.map((r) => ({ name: r.name, harness: r.harness })))}`,
+  );
+  await shot("01b-enrolled");
+  step("enrolled from the drawer — no CLI, no config edit");
+
   // 2. Type a name and press the button — no CLI, no config.
   await b.ev(`(() => {
     const input = document.querySelector('#setup-steps input[aria-label="actor name"]');
@@ -326,8 +315,14 @@ evidence.state = { name: state.name, agent: state.agent, canvas: state.canvas };
 expect(state.name === "Nova" && state.agent.id === evidence.facts.agent.id, `/state agrees: “${state.name}” ${state.agent.id}`);
 
 const freshPort = 8300 + Math.floor(Math.random() * 300);
-const fresh = spawn(process.execPath, [cli, "voice", "--voice-port", String(freshPort)], {
-  cwd: repo,
+// The canvas the session is on is named explicitly — a restart with no
+// `--canvas` in a home holding several is the OTHER refusal, and this walk is
+// about the name, not about binding.
+const fresh = spawn(process.execPath, [cli, "voice", "--voice-port", String(freshPort), "--canvas", "prj_launch"], {
+  // NOT the repo: this checkout is bound to isocan's own canvas, which does not
+  // exist in a throwaway home — the same refusal any stranger would meet, and
+  // beside the point of this walk.
+  cwd: home,
   env: { ...process.env, ISOCAN_HOME: home, ISOCAN_PORT: String(daemonPort), ISOCAN_SESSION_ID: "Voice", ISOCAN_HARNESS: "agent" },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -343,7 +338,7 @@ fresh.stderr.on("data", (d) => (freshSaid += d));
 const freshUp = freshSaid.includes(`talk at http://127.0.0.1:${freshPort}/`);
 if (freshUp) {
   const freshState = await (await fetch(`http://127.0.0.1:${freshPort}/state`)).json();
-  evidence.freshStart = { name: freshState.name, agent: freshState.agent, said: freshSaid.slice(-400) };
+  evidence.freshStart = { name: freshState.name, agent: freshState.agent, canvas: freshState.canvas, said: freshSaid.slice(-400) };
   expect(
     freshState.name === "Nova" && freshState.agent.id === evidence.facts.agent.id,
     `a harness started AFTER the claim (by the old env name “Voice”) resumes “${freshState.name}” ${freshState.agent.id}`,
@@ -372,8 +367,10 @@ writeFileSync(
     `Screenshots: 01-drawer-open.png, 02-name-typed.png, 03-claimed.png,\n` +
     `04-canvas-chosen.png.\n` +
     `Raw: evidence.json.\n\n` +
-    `What is not covered here: \`GET /daemons\` + \`POST /daemon\` and \`POST /enrol\` —\n` +
-    `the claim and the project picker are.\n`,
+    `What is not covered here: \`GET /daemons\` + \`POST /daemon\` — the daemon is\n` +
+    `what the harness attaches to at start, so that pair is a different question\n` +
+    `(answered or refused, never 405). Everything else in the contract is walked\n` +
+    `above: enrol, claim, and the canvas picker.\n`,
 );
 console.log(`\n  ${steps.length} steps, ${((Date.now() - begun) / 1000).toFixed(1)}s — evidence in ${path.relative(repo, outDir)}`);
 

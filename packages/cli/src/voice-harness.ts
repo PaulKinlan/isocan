@@ -29,6 +29,7 @@ import {
 } from "@isocan/core";
 import { enrolmentKey, identityOfKey } from "./acp.ts";
 import { readRcAgents, upsertRcAgent } from "./rc.ts";
+import { adapterFor } from "./harnesses.ts";
 import { voicePage } from "./voice-harness-page.ts";
 
 /**
@@ -2634,6 +2635,63 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     }
   }
 
+  /**
+   * **One enrolment, two callers** — the model's `agent_enroll` tool and the
+   * drawer's "Enrol from here".
+   *
+   * The same four things `isocan rc add <name> --harness voice` does, in the
+   * same order and for the same reasons (that function's comments carry the
+   * argument): the standing as an `agent.enroll` op on the canvas, the cursor
+   * row seeded at THAT op so a comment arriving before the first summons still
+   * reaches it, and this machine's rc half — harness, working directory, and no
+   * ACP session yet.
+   *
+   * The one difference from the CLI verb is that nothing is MINTED here: the
+   * actor is already this harness's own, renamed or not, so the enrolment
+   * records the actor that speaks rather than claiming a name that might have
+   * moved. `rules` are left alone — absent means the default (the owner's word
+   * alone wakes it), which is the same thing `rc add` without `--listen` means,
+   * and re-enrolling must never quietly widen a gate.
+   */
+  async function enrolThisAgent(): Promise<
+    | { ok: true; enrolled: true; adapter: { harness: string; declared: boolean }; answer: string }
+    | { ok: false; error: string }
+  > {
+    try {
+      const enrolled = await target.canvas.ctx.client.sendOp(target.canvasId, target.canvas.ctx.actor, {
+        type: "agent.enroll",
+        agent: { id: target.actorId, name: target.name },
+      });
+      // The cursor row is born WITH the standing: a comment landing five
+      // minutes from now must reach the first summons, so the floor is the
+      // enrolment op itself.
+      await target.canvas.ctx.client
+        .parkClaim({ canvasId: target.canvasId, actorId: target.actorId, seedAt: enrolled.seq })
+        .catch(() => {});
+      const existing = (await readRcAgents(home).catch(() => [])).find(
+        (row) => row.canvasId === target.canvasId && row.actorId === target.actorId,
+      );
+      await upsertRcAgent(home, {
+        canvasId: target.canvasId,
+        actorId: target.actorId,
+        name: target.name,
+        harness: VOICE_HARNESS,
+        cwd: existing?.cwd ?? process.cwd(),
+        sessionId: existing?.sessionId ?? null,
+      });
+      const declared = (await adapterFor(home, VOICE_HARNESS).catch(() => null)) !== null;
+      const answer =
+        `enrolled “${target.name}” on “${target.canvasLabel}” — it answers on this canvas now` +
+        (declared
+          ? ""
+          : `. Nothing can START it yet: declare the adapter as {"acpAdapters": {"${VOICE_HARNESS}": ["node", "<isocan.js>", "voice", "--acp"]}} in ~/.isocan/config.json`);
+      narrate(`enrolled: “${target.name}” on “${target.canvasLabel}”${declared ? "" : " (no adapter declared)"}`);
+      return { ok: true, enrolled: true, adapter: { harness: VOICE_HARNESS, declared }, answer };
+    } catch (err) {
+      return { ok: false, error: `not enrolled — ${(err as Error).message}` };
+    }
+  }
+
   /** Everything the page — and a check — needs to say what this harness is
    * connected to: the canvas by title AND id, the daemon, the home it answers
    * to, the actor and whether it is enrolled, and the provider and model the
@@ -2752,6 +2810,46 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const merged = Array.from(map.values());
         merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
         respond(200, { entries: merged, count: merged.length });
+        return;
+      }
+      /**
+       * **`POST /enrol` — the drawer's "Enrol from here".**
+       *
+       * The page's step for an actor nothing can summon posts `{ name }`; the
+       * name is the page's own reading of who this is, and the answer is the
+       * harness's, so the request body is deliberately not trusted for
+       * anything but the trigger. `enrolThisAgent` does the work — the same
+       * function the model's `agent_enroll` tool runs.
+       */
+      if (req.method === "POST" && url.pathname === "/enrol") {
+        const enrolled = await enrolThisAgent();
+        if (!enrolled.ok) {
+          recordToolLog({
+            type: "tool_call",
+            source: "typed",
+            name: "agent_enroll",
+            args: { via: "settings" },
+            result: { ok: false, error: enrolled.error },
+          });
+          respond(400, { error: enrolled.error });
+          return;
+        }
+        recordToolLog({
+          type: "tool_call",
+          source: "typed",
+          name: "agent_enroll",
+          args: { via: "settings" },
+          op: { type: "agent.enroll", said: `enrolled ${target.name}`, target: target.actorId },
+          result: { ok: true, answer: enrolled.answer, via: "settings", ...enrolled.adapter },
+        });
+        respond(200, {
+          ok: true,
+          enrolled: true,
+          actor: { id: target.actorId, name: target.name },
+          canvas: { id: target.canvasId, title: target.canvasLabel },
+          adapter: enrolled.adapter,
+          answer: enrolled.answer,
+        });
         return;
       }
       /**

@@ -778,6 +778,54 @@ describe("the person's gate", () => {
     expect(blank.status).toBe(400);
   });
 
+  it("takes an enrolment from the page: POST /enrol stands the agent up, once, and says what is missing", async () => {
+    const server = await serve();
+    const before = ((await (await fetch(`${server.state.url}state`)).json()) as any).agent as { id: string; enrolled: boolean };
+    expect(before.enrolled, "nothing has enrolled it yet").toBe(false);
+
+    // What the drawer's "Enrol from here" posts.
+    const enrolled = await fetch(`${server.state.url}enrol`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Voice" }),
+    });
+    expect(enrolled.status).toBe(200);
+    const body = (await enrolled.json()) as { enrolled: boolean; adapter: { declared: boolean }; answer: string };
+    expect(body.enrolled).toBe(true);
+    // Nothing has declared the voice adapter in this home, and the answer says
+    // so rather than implying the agent can be summoned.
+    expect(body.adapter.declared).toBe(false);
+    expect(body.answer).toContain("acpAdapters");
+
+    // The canvas now carries the standing — an op everybody can read.
+    const snap = (await (
+      await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })
+    ).json()) as { canvas: { agents?: Record<string, { actor: { id: string; name: string } }> } };
+    expect(snap.canvas.agents?.[before.id]?.actor.name).toBe("Voice");
+    expect((await log())[0]!.type).toBe("project.create");
+    expect((await log()).at(-1)!.type).toBe("agent.enroll");
+
+    // And the machine's half, at the harness's own working directory.
+    const rows = await readRcAgents(home);
+    const row = rows.find((r) => r.actorId === before.id)!;
+    expect(row.name).toBe("Voice");
+    expect(row.harness).toBe("voice");
+    expect(rows.filter((r) => r.actorId === before.id), "one row, not two").toHaveLength(1);
+
+    // The page's own facts follow, which is what removes the step.
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as any;
+    expect(state.agent.enrolled, "the drawer's step disappears because the fact changed").toBe(true);
+
+    // Enrolling twice is the same enrolment, not a second one.
+    const again = await fetch(`${server.state.url}enrol`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Voice" }),
+    });
+    expect(again.status).toBe(200);
+    expect((await readRcAgents(home)).filter((r) => r.actorId === before.id)).toHaveLength(1);
+  });
+
   it("takes a canvas choice from the page: GET /canvases offers them, POST /canvas moves the session", async () => {
     await post("/api/ops", {
       canvasId: null,
