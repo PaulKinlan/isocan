@@ -77,6 +77,28 @@ listen. The typed grammar remains as the deterministic second path, and
 `transcribe()` plus `POST /audio` remain as the one-shot fallback when the live
 socket never opens.
 
+**Two things the model proposes and a person disposes of** (13 Sep). A delete
+and a change of the agent's own name both stop at a question on the page: the
+harness holds the operation, `/confirm` carries the answer, and no answer inside
+a minute is a no — a microphone nobody is sitting at is not consent. The gate is
+keyed on the OPERATION (`item.delete`, `items.delete`, `actor.claim`), so the
+typed path asks the same question the spoken one does, and the log holds
+`confirm_requested` / `confirm_allowed` / `confirm_declined` beside the call
+that asked. A rename is claimed **in place**, under the session key the harness
+already holds: the actor keeps its id, so its comments, its ops and its undo
+history stay its own.
+
+**Projects are the session's, not the flag's** (13 Sep). `--canvas` used to fix
+a session's canvas for its whole life; `project_list`, `project_create`,
+`project_update` and `project_switch` make the canvas something a person can
+ask about and move between by voice. A switch mints no operation — it re-resolves
+the session's handle, ends its presence on the old canvas and takes it up on the
+new one, and tells the page, so what follows the name is the room the agent is
+standing in and not a stale copy in a header. The Live session's system
+instruction is written once at start and the API has no mid-session system
+channel; the switch's answer carries the new canvas's items, ids included, and
+that tool result is the honest correction.
+
 ## What is not built yet
 
 - **The Live session has never run against Google.** No key in the test home
@@ -97,6 +119,17 @@ socket never opens.
   note calls the operation most worth saying ("keep the new one").
 
 ## Evidence
+
+`node scripts/voice-confirm-evidence.mjs` — the person's gate, clicked in a real
+browser, because a question nobody can click is not a gate. It starts the real
+verb, types "delete the Checkout screen" into the page's own box, and clicks the
+page's own buttons: No leaves the item on the canvas and the oplog without a
+delete, Yes takes it off and leaves `item.delete` there, and the harness's /log
+reads `confirm_requested, confirm_declined, confirm_requested, confirm_allowed`.
+Photographs and the raw record are in `reports/voice-harness/confirm-gate/`.
+What it does not cover, and says so: a tool call blocking until the answer (a
+fake provider socket in `packages/cli/test/voice-harness.test.ts` drives that)
+and the page's canvas label following a switch (a live-session path).
 
 `node scripts/voice-evidence.mjs` — a throwaway home and daemon, the real
 `isocan voice` verb, a real Chrome with a synthetic microphone, and photographs.
