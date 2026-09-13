@@ -136,10 +136,12 @@
         <!-- Flat on purpose: one scroll, no disclosure. Everything the cog
              holds is readable by scrolling, so nothing has to be opened. -->
         <section class="voice-settings-part" id="connection-panel" aria-labelledby="connection-title">
-          <h3 class="voice-settings-part-title" id="connection-title">
-            Connected to
-            <span class="voice-summary" id="connection-summary">unknown</span>
-          </h3>
+          <div class="voice-settings-part-title">
+            <h3 id="connection-title">
+              Connected to
+              <span class="voice-summary" id="connection-summary">unknown</span>
+            </h3>
+          </div>
           <section class="voice-facts-strip" aria-label="Connection">
             <div class="voice-setup" id="setup" hidden>
               <h3>Set this up</h3>
@@ -149,14 +151,17 @@
 
             <dl class="voice-facts">
               <div>
-                <dt>Canvas</dt>
+                <dt>Canvas <button class="voice-help" type="button" commandfor="help-canvas" command="toggle-popover" aria-label="About the canvas" aria-describedby="help-canvas"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
                 <dd>
                   <span id="canvas-title">unknown</span> <span class="voice-id" id="canvas-id">no id</span>
-                  <button id="open-project" class="voice-open" type="button">Open the project ↗</button>
+                  <button id="open-project" class="voice-open" type="button" aria-describedby="help-canvas">Open the project ↗</button>
+                  <div class="voice-help-card" popover="hint" id="help-canvas">
+                    <p>The canvas every command in this conversation lands on. The agent switches it when you ask it to, so if work appears somewhere you were not looking, this is the line that says where it went.</p>
+                  </div>
                 </dd>
               </div>
               <div>
-                <dt>Daemon</dt>
+                <dt>Daemon <button class="voice-help" type="button" commandfor="help-daemon" command="toggle-popover" aria-label="About the daemon" aria-describedby="help-daemon"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
                 <dd>
                   <span id="daemon">unknown</span>
                   <span class="voice-id" id="daemon-note"></span>
@@ -166,24 +171,48 @@
                        same-origin /harness proxy, so this is the daemon the
                        SESSION attaches to, not a new address for the page. -->
                   <div class="voice-keyrow">
-                    <input id="daemon-field" type="text" aria-label="daemon address" placeholder="http://127.0.0.1:4441" autocomplete="off" />
+                    <input id="daemon-field" type="text" aria-label="daemon address" aria-describedby="help-daemon" placeholder="http://127.0.0.1:4441" autocomplete="off" />
                     <button id="daemon-use" type="button">Use this daemon</button>
                     <button id="daemon-reset" type="button" hidden>Reset</button>
                   </div>
+                  <div class="voice-help-card" popover="hint" id="help-daemon">
+                    <p>The daemon this harness attaches to — normally the one on this machine. Point it somewhere else only when the harness runs elsewhere; a daemon that does not answer is why a session refuses to start.</p>
+                  </div>
                 </dd>
               </div>
-              <div><dt>Home</dt><dd id="home">none configured</dd></div>
               <div>
-                <dt>Actor</dt>
+                <dt>Home <button class="voice-help" type="button" commandfor="help-home" command="toggle-popover" aria-label="About home" aria-describedby="help-home"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
+                <dd id="home">none configured</dd>
+                <div class="voice-help-card" popover="hint" id="help-home">
+                  <p>Which isocan installation this daemon reads: its identity, its key file, its log. Two daemons on one machine is the confusion this answers. It is not set here — a daemon is started with a home, and this is what it was given.</p>
+                </div>
+              </div>
+              <div>
+                <dt>Actor <button class="voice-help" type="button" commandfor="help-actor" command="toggle-popover" aria-label="About the actor" aria-describedby="help-actor"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
                 <dd>
                   <span id="actor-name">unknown</span> <span class="voice-id" id="actor-id">no id</span>
                   <span id="actor-standing" class="voice-bad">not enrolled — nothing can summon it</span>
+                  <div class="voice-help-card" popover="hint" id="help-actor">
+                    <p>The name your edits are attributed to, and whether anything can summon it. Enrolled means the daemon accepts work under that name; not enrolled still speaks from the microphone, but no other harness can hand it a job.</p>
+                  </div>
                 </dd>
               </div>
-              <div><dt>Audio</dt><dd id="audio">no provider · no model · no key stored</dd></div>
-              <div><dt>Version</dt><dd><span id="version">unknown</span> <span class="voice-id" id="updated">updated unknown</span></dd></div>
               <div>
-                <dt>Local files</dt>
+                <dt>Audio <button class="voice-help" type="button" commandfor="help-audio" command="toggle-popover" aria-label="About the audio" aria-describedby="help-audio"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
+                <dd id="audio">no provider · no model · no key stored</dd>
+                <div class="voice-help-card" popover="hint" id="help-audio">
+                  <p>Which provider and model are on the other end of the conversation, and whether a key has been stored for them. The model decides how fast replies come back and what they cost; it is chosen where the harness starts, so this line is what you have rather than something you pick here.</p>
+                </div>
+              </div>
+              <div>
+                <dt>Version <button class="voice-help" type="button" commandfor="help-version" command="toggle-popover" aria-label="About the version" aria-describedby="help-version"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
+                <dd><span id="version">unknown</span> <span class="voice-id" id="updated">updated unknown</span></dd>
+                <div class="voice-help-card" popover="hint" id="help-version">
+                  <p>The build this page was served from, and when the code behind it last changed. If a fix you merged is not visible here, this is the comparison that says the harness is older than the branch.</p>
+                </div>
+              </div>
+              <div>
+                <dt>Local files <button class="voice-help" type="button" commandfor="help-localfiles" command="toggle-popover" aria-label="About local files" aria-describedby="help-localfiles"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
                 <dd>
                   <span id="folder-name">no folder granted</span>
                   <span class="voice-id" id="folder-note"></span>
@@ -192,18 +221,24 @@
                        tab; the harness is told the folder's NAME and nothing
                        that could read it. -->
                   <div class="voice-keyrow">
-                    <button id="folder-pick" type="button">Choose a folder…</button>
+                    <button id="folder-pick" type="button" aria-describedby="help-localfiles">Choose a folder…</button>
                     <button id="folder-reconnect" type="button" hidden>Reconnect</button>
                     <button id="folder-forget" type="button" hidden>Forget</button>
+                  </div>
+                  <div class="voice-help-card" popover="hint" id="help-localfiles">
+                    <p>The one folder the agent may read and write when a job needs files. The permission lives in this tab, so a reload can leave it needing to be reconnected — without it the file tools refuse with an explanation rather than an empty listing.</p>
                   </div>
                 </dd>
               </div>
               <div>
-                <dt>Microphone</dt>
+                <dt>Microphone <button class="voice-help" type="button" commandfor="help-microphone" command="toggle-popover" aria-label="About the microphone" aria-describedby="help-microphone"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
                 <dd>
                   <label class="voice-pick">
-                    <select id="device" aria-label="microphone"></select>
+                    <select id="device" aria-label="microphone" aria-describedby="help-microphone"></select>
                   </label>
+                  <div class="voice-help-card" popover="hint" id="help-microphone">
+                    <p>Which input the page captures. The list holds everything the machine offers, including a muted headset and any virtual device another app installed — the wrong pick is why the agent answers room noise instead of you.</p>
+                  </div>
                 </dd>
               </div>
             </dl>
@@ -212,19 +247,25 @@
         </section>
 
         <section class="voice-settings-part" id="key-panel" aria-labelledby="key-title">
-          <h3 class="voice-settings-part-title" id="key-title">Key</h3>
+          <div class="voice-settings-part-title">
+            <h3 id="key-title">Key</h3>
+            <button class="voice-help" type="button" commandfor="help-key" command="toggle-popover" aria-label="About the provider key" aria-describedby="help-key"><span class="voice-help-glyph" aria-hidden="true">?</span></button>
+          </div>
           <p class="voice-hint">
             The key drives <b>Gemini Live</b> — the conversation itself. The harness stores it at
             <code>~/.isocan/voice/key.json</code> (0600); this page posts it once over loopback and keeps no copy. The
             provider checks the key when you press Test key. This harness uses Gemini Live only.
           </p>
           <div class="voice-keyrow">
-            <input id="key" type="password" aria-label="provider key" placeholder="paste your Gemini API key" autocomplete="off" />
+            <input id="key" type="password" aria-label="provider key" aria-describedby="help-key" placeholder="paste your Gemini API key" autocomplete="off" />
           </div>
           <div class="voice-keyrow">
             <button id="save-key" type="button" disabled>Save key</button>
             <button id="test-key" type="button">Test key</button>
             <button id="forget-key" type="button">Forget</button>
+          </div>
+          <div class="voice-help-card" popover="hint" id="help-key">
+            <p>Sent once to the provider to open the conversation, and stored 0600 under your isocan home. You would change it when the key is revoked, out of quota or from another account; Test key is the check that says so before it fails halfway through a sentence.</p>
           </div>
           <p class="voice-hint" id="key-note" role="status" hidden></p>
         </section>

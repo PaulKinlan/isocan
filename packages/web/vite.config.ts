@@ -62,7 +62,10 @@ export default defineConfig({
       // The voice harness, same-origin so the daemon needs no CORS header and
       // the audio socket survives HMR. `ws: true` for /harness/audio.
       "/harness": {
-        target: "http://127.0.0.1:7654",
+        // `ISOCAN_VOICE_HARNESS` lets a driver point a throwaway vite at its
+        // own stub harness (`scripts/voice-help-evidence.mjs`) instead of the
+        // one on 7654, which is somebody's live session.
+        target: process.env.ISOCAN_VOICE_HARNESS ?? "http://127.0.0.1:7654",
         changeOrigin: true,
         ws: true,
         rewrite: (path: string) => path.replace(/^\/harness/, ""),

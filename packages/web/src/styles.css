@@ -6800,9 +6800,124 @@ body:has(> .voice) { overflow: auto; }
   margin: 0;
   font-size: var(--t-sm);
 }
-.voice-facts div { min-width: 0; display: grid; gap: var(--s1); }
-.voice-facts dt { color: var(--ink-muted); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.voice-facts div:not(.voice-help-card) { min-width: 0; display: grid; gap: var(--s1); }
+.voice-facts dt {
+  color: var(--ink-muted);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  /* The label's line is where the room for a thumb-sized "?" comes from: the
+     row is 44px and the glyph inside it is 20px, so the target is honest
+     without a settings list that looks like a toolbar. */
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
 .voice-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* **The "?" beside a setting, and the card it opens.**
+   Small glyph, 44px target, and nothing in the row moves when a card opens:
+   the card is a popover in the top layer, which is the whole reason this is
+   not an expanding panel.
+   Note the `:not(.voice-help-card)` on the row rule above. A `display` from an
+   author sheet beats the UA's own hiding of a closed popover (author origin
+   wins regardless of specificity), so a card that inherited `display: grid`
+   was PAINTED while closed — nine explanations stacked over the settings,
+   each anchored to its glyph. Anything that sets display and could match a
+   card has to exclude it, and the evidence run checks every card's computed
+   display with nothing open. */
+.voice-help {
+  flex: 0 0 auto;
+  inline-size: 44px;
+  block-size: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  /* Case and tracking belong to the label's words; the glyph is not one. */
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.voice-help-glyph {
+  display: grid;
+  place-items: center;
+  inline-size: 20px;
+  block-size: 20px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  font-size: var(--t-xs);
+  line-height: 1;
+}
+.voice-help:hover .voice-help-glyph,
+.voice-help:focus-visible .voice-help-glyph { border-color: var(--accent); color: var(--ink); }
+
+.voice-help-card {
+  /* The anchor pair: the name is on the row both the glyph and this card live
+     in, and the glyph carries it. */
+  position-anchor: var(--help-anchor, none);
+  max-inline-size: min(340px, calc(100vw - var(--s4) * 2));
+  inline-size: max-content;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--t-sm);
+  line-height: 1.45;
+}
+.voice-help-card p { margin: 0; }
+
+/* The glyph is the anchor and the card hangs off it. One name per setting,
+   named on the row both of them live in; a browser can have anchor
+   positioning without the invoker commands that would make the anchor
+   implicit, so the pair is spelled out rather than assumed. */
+#settings .voice-facts > div:has([commandfor="help-canvas"]) { --help-anchor: --help-canvas; }
+#settings .voice-facts > div:has([commandfor="help-daemon"]) { --help-anchor: --help-daemon; }
+#settings .voice-facts > div:has([commandfor="help-home"]) { --help-anchor: --help-home; }
+#settings .voice-facts > div:has([commandfor="help-actor"]) { --help-anchor: --help-actor; }
+#settings .voice-facts > div:has([commandfor="help-audio"]) { --help-anchor: --help-audio; }
+#settings .voice-facts > div:has([commandfor="help-version"]) { --help-anchor: --help-version; }
+#settings .voice-facts > div:has([commandfor="help-localfiles"]) { --help-anchor: --help-localfiles; }
+#settings .voice-facts > div:has([commandfor="help-microphone"]) { --help-anchor: --help-microphone; }
+#settings #key-panel { --help-anchor: --help-key; }
+
+#settings .voice-help { anchor-name: var(--help-anchor, none); }
+
+@supports (position-area: block-end) {
+  .voice-help-card {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    position-area: block-end span-inline-end;
+    /* Below the glyph, then above it, then the other side of it, then the
+       narrow screen's own answer, then the sheet — each one tried because the
+       previous did not fit. */
+    position-try-fallbacks: flip-block, flip-inline, --voice-help-narrow, --voice-help-sheet;
+  }
+}
+/* A glyph near the edge of a narrow screen has no room on either side of it,
+   and the card is most of the column wide. It goes back under the glyph and
+   holds to the page's own margins: still beside the setting it explains, and
+   narrower than the screen by construction, so it cannot fall off it. */
+@position-try --voice-help-narrow {
+  position-area: none;
+  inset-block-start: anchor(bottom);
+  inset-block-end: auto;
+  inset-inline-start: max(var(--s4), env(safe-area-inset-left));
+  inset-inline-end: auto;
+}
+/* And the last resort, for a glyph with no room below it either: the same
+   card, as a sheet along the bottom, inside the safe area. */
+@position-try --voice-help-sheet {
+  position-area: none;
+  inset: auto max(var(--s4), env(safe-area-inset-right)) max(var(--s4), env(safe-area-inset-bottom)) max(var(--s4), env(safe-area-inset-left));
+  inline-size: auto;
+}
 .voice-open {
   font: inherit;
   font-size: var(--t-xs);
@@ -6980,6 +7095,12 @@ body:has(.voice-settings[open]) { overflow: hidden; }
   text-transform: uppercase;
   color: var(--ink-muted);
 }
+/* The heading is the words; the "?" beside it is a control, and a control's
+   name is part of a heading's name when it is inside one — the key panel's
+   heading read "KEY About the provider key" in the accessibility tree until
+   the two were separated. So the row is the flex container and the heading is
+   a plain <h3> in it. */
+.voice-settings-part-title h3 { margin: 0; font: inherit; }
 .voice-setup-callout { display: grid; justify-items: center; gap: var(--s1); font-size: var(--t-sm); }
 .voice-setup-callout p { margin: 0; color: var(--ink-muted); }
 .voice-settings .voice-complaint { margin-bottom: var(--s4); }
