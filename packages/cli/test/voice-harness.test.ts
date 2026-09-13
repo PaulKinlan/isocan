@@ -190,6 +190,91 @@ async function utterance(baseUrl: string, text: string): Promise<{ sent: string[
   return (await r.json()) as { sent: string[]; failed: string[]; reply: string; state: string };
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * **A live session on a fake provider socket** — the shape every tool call in
+ * this file arrives through — plus the two handles a person has: the page and
+ * the canvas.
+ */
+async function liveServer() {
+  await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+  let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
+  class FakeLiveSocket {
+    readyState = 1;
+    sent: string[] = [];
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    constructor(readonly url: string) {
+      providerSocket = this;
+      queueMicrotask(() => this.onopen?.());
+    }
+    send(data: string) {
+      this.sent.push(data);
+    }
+    close() {}
+    emit(message: unknown) {
+      this.onmessage?.({ data: JSON.stringify(message) });
+    }
+  }
+
+  const server = await startVoiceServer({
+    home,
+    port: 0,
+    identity: { session: "Voice", harness: "agent" },
+    canvas: "prj_1",
+    daemonPort: Number(new URL(base).port),
+    // A gate nobody answers must not hold a test for a minute.
+    confirmTimeoutMs: 2000,
+    WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+  });
+  const { WebSocket: WsClient } = await import("ws");
+  const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+  await new Promise<void>((resolve) => clientWs.on("open", () => resolve()));
+  /** Everything the page is told on its live socket, in order. */
+  const toPage: any[] = [];
+  clientWs.on("message", (data: unknown) => {
+    try {
+      toPage.push(JSON.parse(String(data)));
+    } catch {
+      // binary audio
+    }
+  });
+  while (!providerSocket) await sleep(10);
+  providerSocket.emit({ setupComplete: {} });
+  await sleep(50);
+  return {
+    server,
+    providerSocket,
+    toPage,
+    close: async () => {
+      clientWs.close();
+      await server.close();
+    },
+  };
+}
+
+/**
+ * The model's call, answered. Started without awaiting when the person has to
+ * answer first, and then awaited — the tool response only arrives after the
+ * gate opens.
+ */
+async function callTool(
+  socket: { emit: (message: unknown) => void; sent: string[] },
+  id: string,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<{ id: string; response: any }> {
+  const before = socket.sent.length;
+  socket.emit({ toolCall: { functionCalls: [{ id, name, args }] } });
+  const deadline = Date.now() + 8000;
+  while (socket.sent.length <= before && Date.now() < deadline) await sleep(10);
+  const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
+  return reply.toolResponse?.functionResponses?.[0];
+}
+
 /** The CLI, with this test's temp home and daemon — the same launcher the acp
  * suite uses, so the machine badge and the identity resolution are the real
  * ones. */
@@ -596,76 +681,7 @@ describe("the person's gate", () => {
 });
 
 describe("what an agent is called", () => {
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  /**
-   * A live session on a fake provider socket — the shape every tool call in
-   * this file arrives through — plus the two handles a person has: the page's
-   * `/confirm` and the canvas itself.
-   */
-  async function liveServer() {
-    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
-    let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
-    class FakeLiveSocket {
-      readyState = 1;
-      sent: string[] = [];
-      onopen: (() => void) | null = null;
-      onclose: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      onmessage: ((event: { data: unknown }) => void) | null = null;
-      constructor(readonly url: string) {
-        providerSocket = this;
-        queueMicrotask(() => this.onopen?.());
-      }
-      send(data: string) {
-        this.sent.push(data);
-      }
-      close() {}
-      emit(message: unknown) {
-        this.onmessage?.({ data: JSON.stringify(message) });
-      }
-    }
-
-    const server = await startVoiceServer({
-      home,
-      port: 0,
-      identity: { session: "Voice", harness: "agent" },
-      canvas: "prj_1",
-      daemonPort: Number(new URL(base).port),
-      confirmTimeoutMs: 2000,
-      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
-    });
-    const { WebSocket: WsClient } = await import("ws");
-    const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
-    await new Promise<void>((resolve) => clientWs.on("open", () => resolve()));
-    while (!providerSocket) await sleep(10);
-    providerSocket.emit({ setupComplete: {} });
-    await sleep(50);
-    return {
-      server,
-      providerSocket,
-      close: async () => {
-        clientWs.close();
-        await server.close();
-      },
-    };
-  }
-
-  /** The model's call, answered — started without awaiting when the person
-   * has to answer first. */
-  async function callTool(
-    socket: { emit: (message: unknown) => void; sent: string[] },
-    id: string,
-    name: string,
-    args: Record<string, unknown>,
-  ): Promise<{ id: string; response: any }> {
-    const before = socket.sent.length;
-    socket.emit({ toolCall: { functionCalls: [{ id, name, args }] } });
-    const deadline = Date.now() + 8000;
-    while (socket.sent.length <= before && Date.now() < deadline) await sleep(10);
-    const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
-    return reply.toolResponse?.functionResponses?.[0];
-  }
 
   async function canvasNames(): Promise<Record<string, string>> {
     const res = await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers });
@@ -765,70 +781,7 @@ describe("what an agent is called", () => {
 });
 
 describe("the projects this session can work on", () => {
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  /** The same fake provider socket every live test builds, in one place. */
-  async function liveServer() {
-    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
-    let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
-    class FakeLiveSocket {
-      readyState = 1;
-      sent: string[] = [];
-      onopen: (() => void) | null = null;
-      onclose: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      onmessage: ((event: { data: unknown }) => void) | null = null;
-      constructor(readonly url: string) {
-        providerSocket = this;
-        queueMicrotask(() => this.onopen?.());
-      }
-      send(data: string) {
-        this.sent.push(data);
-      }
-      close() {}
-      emit(message: unknown) {
-        this.onmessage?.({ data: JSON.stringify(message) });
-      }
-    }
-
-    const server = await startVoiceServer({
-      home,
-      port: 0,
-      identity: { session: "Voice", harness: "agent" },
-      canvas: "prj_1",
-      daemonPort: Number(new URL(base).port),
-      confirmTimeoutMs: 2000,
-      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
-    });
-    const { WebSocket: WsClient } = await import("ws");
-    const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
-    await new Promise<void>((resolve) => clientWs.on("open", () => resolve()));
-    while (!providerSocket) await sleep(10);
-    providerSocket.emit({ setupComplete: {} });
-    await sleep(50);
-    return {
-      server,
-      providerSocket,
-      close: async () => {
-        clientWs.close();
-        await server.close();
-      },
-    };
-  }
-
-  async function callTool(
-    socket: { emit: (message: unknown) => void; sent: string[] },
-    id: string,
-    name: string,
-    args: Record<string, unknown> = {},
-  ): Promise<{ id: string; response: any }> {
-    const before = socket.sent.length;
-    socket.emit({ toolCall: { functionCalls: [{ id, name, args }] } });
-    const deadline = Date.now() + 8000;
-    while (socket.sent.length <= before && Date.now() < deadline) await sleep(10);
-    const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
-    return reply.toolResponse?.functionResponses?.[0];
-  }
 
   it("makes a canvas the person asked for, and leaves the session where it was", async () => {
     const live = await liveServer();
@@ -867,6 +820,104 @@ describe("the projects this session can work on", () => {
       const row = entries.find((e) => e.name === "project_create" && e.result?.ok === true);
       expect(row.op.type).toBe("project.create");
       expect(row.result.canvasId).toBe(canvasId);
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("switches the session to another canvas, and the log, the tool context and the page follow it", async () => {
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    await post("/api/ops", {
+      canvasId: "prj_2",
+      actor: seeder,
+      op: {
+        type: "item.add",
+        itemId: "itm_launch",
+        version: { id: "ver_l", blobHash: "h9", mimeType: "text/markdown", filename: "l.md", size: 3 },
+        width: 320,
+        height: 240,
+        placement: { x: 40, y: 40 },
+        title: "Launch checklist",
+      },
+    });
+
+    const live = await liveServer();
+    try {
+      const before = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(before.canvas.id).toBe("prj_1");
+
+      const moved = await callTool(live.providerSocket, "call-switch", "project_switch", {
+        canvas_ref: "Launch plan",
+      });
+      expect(moved.response.ok).toBe(true);
+      expect(moved.response.canvas).toEqual({ id: "prj_2", title: "Launch plan" });
+      expect(moved.response.previous).toEqual({ id: "prj_1", title: "Voice test" });
+      // The tool context followed: the answer carries the NEW canvas's items,
+      // which is what the model has to work with from here.
+      expect(moved.response.items.map((i: { title: string }) => i.title)).toEqual(["Launch checklist"]);
+      expect(moved.response.answer).toContain("Every operation from here lands on it");
+
+      // Nothing was minted by the move itself: switching is not a canvas edit.
+      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+
+      // The harness's own account of itself, and the page's, followed.
+      const after = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(after.canvas).toEqual({ title: "Launch plan", id: "prj_2" });
+      expect(live.toPage.some((m) => m.canvas?.id === "prj_2"), "the page is told, not left naming the old room").toBe(
+        true,
+      );
+      // ...and so did the machine-readable file this harness keeps for anyone
+      // looking from outside.
+      const recorded = JSON.parse(await fs.readFile(path.join(home, "voice", "server.json"), "utf8")) as {
+        canvas: string;
+      };
+      expect(recorded.canvas).toBe("Launch plan");
+
+      // Presence moved rooms: ended on the old canvas, standing on the new.
+      const onOld = (await (
+        await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })
+      ).json()) as { actor: { id: string } }[];
+      const onNew = (await (
+        await fetch(`${base}/api/projects/prj_2/sessions`, { headers: badge.headers })
+      ).json()) as { actor: { id: string } }[];
+      const me = after.agent.id as string;
+      expect(onOld.some((s) => s.actor.id === me), "not still standing in the room it left").toBe(false);
+      expect(onNew.some((s) => s.actor.id === me)).toBe(true);
+
+      // Now the point of the whole thing: a command SPOKEN after the switch
+      // lands on the new canvas — and shows up in that canvas's log, not the
+      // other one.
+      const spoken = await callTool(live.providerSocket, "call-add", "add_item", {
+        title: "Kick-off notes",
+        text: "what the plan says",
+      });
+      expect(spoken.response.ok).toBe(true);
+      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "item.add", "item.add"]);
+      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+
+      // The harness's /log says the move happened, and to where.
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_switch" && e.result?.ok === true);
+      expect(row.result.canvasId).toBe("prj_2");
+      expect(row.result.from).toBe("prj_1");
+      expect(row.op, "a move mints no operation").toBeUndefined();
+
+      // Asking for the canvas it is already on is not an error.
+      const again = await callTool(live.providerSocket, "call-again", "project_switch", {
+        canvas_ref: "prj_2",
+      });
+      expect(again.response.ok).toBe(true);
+      expect(again.response.answer).toContain("already on");
+
+      const nowhere = await callTool(live.providerSocket, "call-nowhere", "project_switch", {
+        canvas_ref: "no such project",
+      });
+      expect(nowhere.response.ok).toBe(false);
+      expect(nowhere.response.error).toContain("no canvas matches");
     } finally {
       await live.close();
     }

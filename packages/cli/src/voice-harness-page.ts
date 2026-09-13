@@ -85,6 +85,10 @@ const els = {
   testKey: document.getElementById("test-key"),
   provider: document.getElementById("provider"),
   version: document.getElementById("version"),
+  canvasTitle: document.getElementById("canvas-title"),
+  canvasFact: document.getElementById("canvas-fact"),
+  canvasFactId: document.getElementById("canvas-fact-id"),
+  agentName: document.getElementById("agent-name"),
   confirm: document.getElementById("confirm"),
   confirmWhat: document.getElementById("confirm-what"),
   confirmYes: document.getElementById("confirm-yes"),
@@ -137,6 +141,24 @@ async function post(path, body) {
  * announces the question on the live socket AND keeps it in /state, so a
  * question asked while this tab was closed still appears.
  */
+/* ---- which canvas, and who is speaking ----
+ *
+ * Both move while the session runs: a switch re-points every operation, and a
+ * claim renames the agent. Neither is worth a page reload — a reload would
+ * throw away the transcript, which is the record of what was said — so both
+ * are patched in place, and the poll catches up a tab that was not listening
+ * when it happened.
+ */
+function showCanvas(canvas) {
+  if (!canvas) return;
+  els.canvasTitle.textContent = canvas.title;
+  els.canvasFact.textContent = canvas.title;
+  els.canvasFactId.textContent = canvas.id;
+}
+function showAgent(name) {
+  if (name) els.agentName.textContent = name;
+}
+
 let asking = null;
 function showConfirm(ask) {
   asking = ask && ask.id ? ask : null;
@@ -415,6 +437,8 @@ async function start() {
     if (message.text) say(els.transcript, message.text, "agent");
     if (message.heard) say(els.transcript, message.heard, "you spoken");
     if (message.confirm !== undefined) showConfirm(message.confirm);
+    if (message.canvas) showCanvas(message.canvas);
+    if (message.agent) showAgent(message.agent.name);
     for (const line of message.sent || []) say(els.log, line, "op");
     for (const line of message.failed || []) say(els.log, line, "bad");
     if (message.state) status(message.state, message.bad ? "warn" : "");
@@ -517,6 +541,14 @@ setInterval(async () => {
     // seen here — and a question answered in another tab disappears here.
     const askId = s.confirm ? s.confirm.id : null;
     if ((asking && asking.id) !== askId) showConfirm(s.confirm || null);
+    if (s.canvas && s.canvas.id !== facts.canvas.id) {
+      facts.canvas = s.canvas;
+      showCanvas(s.canvas);
+    }
+    if (s.name && s.name !== facts.name) {
+      facts.name = s.name;
+      showAgent(s.name);
+    }
   } catch {}
 }, 2500);
 
@@ -694,7 +726,7 @@ export function voicePage(facts: VoicePageFacts): string {
 <body>
 <header>
   <h1>isocan voice</h1>
-  <span class="canvas">${escapeHtml(facts.canvas.title)}</span>
+  <span class="canvas" id="canvas-title">${escapeHtml(facts.canvas.title)}</span>
   <span class="spacer"></span>
   <span id="state" class="state">ready</span>
 </header>
@@ -705,7 +737,7 @@ export function voicePage(facts: VoicePageFacts): string {
     <div id="transcript"></div>
   </section>
   <section class="panel" style="flex: 1">
-    <h2>Operations sent, as ${escapeHtml(facts.name)}</h2>
+    <h2>Operations sent, as <span id="agent-name">${escapeHtml(facts.name)}</span></h2>
     <div id="log"></div>
   </section>
   <form class="composer" onsubmit="return false">
@@ -737,7 +769,7 @@ export function voicePage(facts: VoicePageFacts): string {
   <section class="panel">
     <h2>Connected to</h2>
     <dl class="facts">
-      <dt>Canvas</dt><dd>${escapeHtml(facts.canvas.title)} <span class="id">${escapeHtml(facts.canvas.id)}</span></dd>
+      <dt>Canvas</dt><dd><span id="canvas-fact">${escapeHtml(facts.canvas.title)}</span> <span class="id" id="canvas-fact-id">${escapeHtml(facts.canvas.id)}</span></dd>
       <dt>Daemon</dt><dd>${escapeHtml(facts.daemon)}</dd>
       <dt>Home</dt><dd>${escapeHtml(facts.home)}</dd>
       <dt>Agent</dt><dd>${escapeHtml(facts.agent.name)} <span class="id">${escapeHtml(facts.agent.id)}</span>${facts.agent.enrolled ? "" : " <span class=\"warn\">not enrolled — nothing can summon it</span>"}</dd>

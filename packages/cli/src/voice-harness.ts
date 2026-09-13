@@ -902,6 +902,20 @@ export const LIVE_TOOLS = [
 
   // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
   {
+    name: "project_switch",
+    description:
+      "Move this session to another canvas (project), without restarting — after this EVERY operation lands on the new " +
+      "canvas, and the page says which one. Use for 'switch to Launch plan', 'work on the Winter canvas', 'open the other " +
+      "project'. The new canvas's items are in the answer.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        canvas_ref: { type: "STRING", description: "The canvas to move to: its title (or prefix), or its id." },
+      },
+      required: ["canvas_ref"],
+    },
+  },
+  {
     name: "project_update",
     description:
       "Rename or re-describe a canvas (project). With no canvas_ref it is the canvas this session is working on; " +
@@ -2097,7 +2111,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   close: () => Promise<void>;
 }> {
   const home = options.home;
-  const target = await handleFor(options);
+  /**
+   * **Which canvas this session is working on — and the one thing that moves
+   * while it runs.** `project_switch` re-resolves this handle against another
+   * canvas: every tool call, the page's facts, the presence heartbeat, the
+   * "open canvas" pass and the state file read it at the moment they act, so
+   * what moves is the session, not a copy of it.
+   */
+  let target = await handleFor(options);
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;
@@ -2766,6 +2787,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
                   presenceSessionId = null;
                 }
                 await announcePresence("enrolled — nobody is listening right now");
+                await rememberWhatIAm();
+                // The page's own headings name the agent; told, so a listening
+                // tab does not keep saying the old name back to the person.
+                announce?.({ agent: { name: actor.name } });
 
                 const answer = `this agent now answers to “${actor.name}” (it was “${was}”)`;
                 say({ text: answer });
@@ -2788,6 +2813,90 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             }
 
             // 1. Read & Inspection tools:
+            if (name === "project_switch") {
+              const ref = String(args.canvas_ref ?? "").trim();
+              const refuseSwitch = (message: string) => {
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              };
+              if (!ref) return refuseSwitch("a switch needs the canvas to move to — ask the person which one");
+              let next: { id: string; title: string };
+              try {
+                next = matchRef(await target.canvas.ctx.client.listCanvases(), ref);
+              } catch (err) {
+                return refuseSwitch((err as Error).message);
+              }
+              if (next.id === target.canvasId) {
+                const here = `this session is already on “${target.canvasLabel}” — nothing to move`;
+                say({ text: here });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: true, answer: here },
+                });
+                return { ok: true, canvas: { id: target.canvasId, title: target.canvasLabel }, answer: here };
+              }
+
+              const was = { id: target.canvasId, title: target.canvasLabel };
+              try {
+                /* The room changes with the work: the presence session on the
+                   old canvas is ended, not left to look like somebody still
+                   standing in a room this agent has left. */
+                if (presenceSessionId) {
+                  await target.canvas.ctx.client.endSession(was.id, presenceSessionId).catch(() => {});
+                  presenceSessionId = null;
+                }
+                target = await handleFor({ ...options, canvas: next.id });
+                /* The model's referents move too. "that one" pointed at an
+                   item on the canvas it just left, and an id from the other
+                   canvas does not resolve here — so the short-list of recent
+                   actions is emptied rather than left to be a trap. */
+                recentActions.splice(0, recentActions.length);
+                const here = await target.canvas.items().catch(() => []);
+                const answer =
+                  `moved to the canvas “${target.canvasLabel}” [${target.canvasId}] — ` +
+                  `${here.length} item${here.length === 1 ? "" : "s"}: ${here.map((i) => `${i.title} [${i.id}]`).join("; ") || "none"}. ` +
+                  `Every operation from here lands on it.`;
+                await announcePresence(sessionState === "live" ? "listening" : "enrolled — nobody is listening right now");
+                await rememberWhatIAm();
+                // The page's header and facts panel name the canvas: told, so
+                // a tab that is listening does not sit there naming the room
+                // the session just left.
+                announce?.({ canvas: { title: target.canvasLabel, id: target.canvasId } });
+                narrate(`switched canvas: “${was.title}” → “${target.canvasLabel}”`);
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: {
+                    ok: true,
+                    answer,
+                    canvasId: target.canvasId,
+                    from: was.id,
+                  },
+                });
+                return {
+                  ok: true,
+                  canvas: { id: target.canvasId, title: target.canvasLabel },
+                  previous: was,
+                  items: here.map((i) => ({ id: i.id, title: i.title })),
+                  answer,
+                };
+              } catch (err) {
+                return refuseSwitch(`could not move to “${next.title}” — ${(err as Error).message}`);
+              }
+            }
             if (name === "project_update") {
               const hasTitle = typeof args.title === "string" && args.title.trim() !== "";
               const hasDescription = typeof args.description === "string" && args.description.trim() !== "";
@@ -3330,12 +3439,20 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     session: { state: sessionState },
     toolLog,
   };
-  await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
-  await fs.writeFile(
-    voiceServerFile(home),
-    `${JSON.stringify({ pid: process.pid, port: listening, url, name: state.name, canvas: state.canvas, at: new Date().toISOString() }, null, 2)}\n`,
-    { mode: 0o600 },
-  );
+  /** What this harness says it is, for anything reading from outside — the
+   * standing-server probe, and whoever looks at the file a week later. Written
+   * again whenever it stops being true. */
+  const rememberWhatIAm = async (): Promise<void> => {
+    state.name = target.name;
+    state.canvas = target.canvasLabel;
+    await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
+    await fs.writeFile(
+      voiceServerFile(home),
+      `${JSON.stringify({ pid: process.pid, port: listening, url, name: state.name, canvas: state.canvas, at: new Date().toISOString() }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+  };
+  await rememberWhatIAm();
 
   // Announce presence on the canvas so `isocan who` and the canvas facepile
   // show the voice agent in the room:
