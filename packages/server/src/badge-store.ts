@@ -174,13 +174,13 @@ export type DoorAnswer =
   | { badge: StoredBadge }
   | { refused: { status: number; error: string; code?: string } };
 
-export async function askTheDoor(base: string, timeoutMs = 10_000): Promise<DoorAnswer> {
+export async function askTheDoor(base: string, timeoutMs = 10_000, signal?: AbortSignal): Promise<DoorAnswer> {
   try {
     const res = await fetch(`${base}${DOOR_ROUTE}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ carrier: "bearer" }),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]),
     });
     const body = (await res.json().catch(() => null)) as (DoorResponse & Refused) | null;
     if (!res.ok) {

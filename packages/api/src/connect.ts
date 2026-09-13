@@ -110,6 +110,8 @@ export interface ConnectOptions {
   identity?: ExplicitIdentity;
   /** The daemon port, when it is not `ISOCAN_PORT`/the default. */
   port?: number;
+  /** Optional lifetime for this connection, including identity and admission IO. */
+  signal?: AbortSignal;
 }
 
 export async function connect(options: ConnectOptions = {}): Promise<Home> {
@@ -117,7 +119,9 @@ export async function connect(options: ConnectOptions = {}): Promise<Home> {
     interactive: false,
     ...(options.port !== undefined ? { port: options.port } : {}),
     ...(options.identity !== undefined ? { identity: options.identity } : {}),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
   });
+  options.signal?.throwIfAborted();
   // Refused with a reason, at the door (the phases' settled answer to the
   // harness-less environment — mint-and-warn stays a closed door). The lazy
   // getter is the CLI's shape, where `ls` should not demand a name; a script
@@ -142,7 +146,8 @@ export async function connect(options: ConnectOptions = {}): Promise<Home> {
 /** Deliberately claim a stable caller session without changing process-wide identity. */
 export async function claimSession(options: ConnectOptions & { identity: ExplicitIdentity; name: string }): Promise<Actor> {
   if (!options.identity.session.trim() || !options.name.trim()) throw new Error("a session key and agent name are required");
-  const ctx = await resolveCtx({ interactive: false, ...(options.port === undefined ? {} : { port: options.port }), identity: options.identity });
+  const ctx = await resolveCtx({ interactive: false, ...(options.port === undefined ? {} : { port: options.port }), ...(options.signal ? { signal: options.signal } : {}), identity: options.identity });
+  options.signal?.throwIfAborted();
   const result = await claimSessionIdentity(ctx.client, ctx.home, { identity: options.identity, name: options.name, ...(ctx.binding ? { canvasId: ctx.binding.canvasId } : {}) });
   return result.actor;
 }

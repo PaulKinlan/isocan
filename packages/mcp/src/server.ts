@@ -1,6 +1,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { CanvasHandle, ExplicitIdentity, Home } from "@isocan/api";
+import { waitForResolvedFeedback, type CanvasHandle, type ExplicitIdentity, type Home } from "@isocan/api";
 import type { Actor } from "@isocan/core";
 
 /**
@@ -42,7 +42,8 @@ import type { Actor } from "@isocan/core";
  * rather than held: a daemon that restarts under a long-lived MCP server must
  * not leave every tool broken until somebody notices. */
 export interface ServerDeps {
-  home: (identity?: ExplicitIdentity) => Promise<Home>;
+  /** A feedback call's signal must reach the connection's setup HTTP too. */
+  home: (identity?: ExplicitIdentity, signal?: AbortSignal) => Promise<Home>;
   /** Explicit claim uses the same durable registry as CLI identity --session. */
   claim?: (identity: ExplicitIdentity, name: string) => Promise<Actor>;
   /** Reported on `initialize`, so a host can say which build it is talking
@@ -305,7 +306,13 @@ export function createServer(deps: ServerDeps): McpServer {
     description: "Wait up to 60 seconds for mentions, Chat messages or participating-thread replies addressed to this identity. Return and resume the cursor, including irrelevant traffic; timeout/cancellation ends the poll. Marks nothing seen and advertises no presence.",
     annotations: { readOnlyHint: true },
     inputSchema: { ...canvasArg, cursor: z.number().int().nonnegative().optional(), timeoutMs: z.number().int().min(1).max(60000).default(30000) },
-  }, async ({ canvas, session, cursor, timeoutMs }, extra) => answering(async () => (await canvasOf(canvas, session)).waitForFeedback({ ...(cursor === undefined ? {} : { since: cursor }), timeoutMs, signal: extra.signal })));
+  }, async ({ canvas, session, cursor, timeoutMs }, extra) => answering(() => waitForResolvedFeedback(async (signal) => {
+    const home = await deps.home(identityOf(session), signal);
+    signal.throwIfAborted();
+    const handle = await home.canvas(canvas);
+    signal.throwIfAborted();
+    return { client: handle.ctx.client, canvasId: handle.id, actor: handle.ctx.actor };
+  }, { ...(cursor === undefined ? {} : { since: cursor }), timeoutMs, signal: extra.signal })));
 
   for (const kind of ["canvas", "context"] as const) {
     const uriFor = (id: string) => `isocan://canvas/${encodeURIComponent(id)}${kind === "context" ? "/context" : ""}`;

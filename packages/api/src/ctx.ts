@@ -214,6 +214,8 @@ export interface CtxOptions {
    * that says who it is must never quietly run as somebody else).
    */
   identity?: ExplicitIdentity;
+  /** A per-call connection lifetime; ordinary HTTP and setup share its cancellation. */
+  signal?: AbortSignal;
   /**
    * May a person at a TTY be asked for a name — the CLI's first-run flow.
    * Defaults on; `connect()` turns it off, because an API call must never
@@ -225,6 +227,7 @@ export interface CtxOptions {
 }
 
 export async function resolveCtx(options: CtxOptions = {}): Promise<Ctx> {
+  options.signal?.throwIfAborted();
   const home = paths.isocanHome();
   const port = options.port ?? Number(process.env.ISOCAN_PORT ?? DEFAULT_PORT);
   /**
@@ -238,13 +241,15 @@ export async function resolveCtx(options: CtxOptions = {}): Promise<Ctx> {
    */
   const binding = await findBinding(process.cwd(), home);
   const { base, direct } = await resolveBase(home, port, binding);
-  const client = new DaemonClient(base, home);
+  options.signal?.throwIfAborted();
+  const client = new DaemonClient(base, home, options.signal);
   // A person at a keyboard is asked once, up front. Everyone else is asked
   // only if it turns out to matter: looking (`ls`, `canvas list`, `show`)
   // stamps nothing, and an agent should be able to see where it has landed
   // before it decides what to call itself. The getter is what makes that
   // lazy — reads never touch `actor`, so they never demand one.
   await retireStrandedIdentities(process.cwd(), home);
+  options.signal?.throwIfAborted();
   const known = options.identity
     ? await resolveExplicitIdentity(client, home, options.identity)
     : await resolveIdentity(client, home);
@@ -271,6 +276,7 @@ export async function resolveCtx(options: CtxOptions = {}): Promise<Ctx> {
   if (!direct) await warnIfStale(health, home);
   await warnIfBehind(health, home);
   const birthHome = health?.home ?? null;
+  options.signal?.throwIfAborted();
   // Lazily, and at most once: `GET /api/homes` is a second round trip, and
   // most commands never name an address. `ls` should not pay for `share`.
   let record: Promise<HomeRecord> | null = null;

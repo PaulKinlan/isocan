@@ -217,6 +217,8 @@ export class DaemonRoutes {
   constructor(
     readonly base: string,
     readonly home: string,
+    /** Optional lifetime of a per-call connection, including its identity setup. */
+    protected readonly lifetime?: AbortSignal,
   ) {}
 
   /**
@@ -260,8 +262,11 @@ export class DaemonRoutes {
      */
     extra?: Record<string, string>,
   ): Promise<T> {
+    signal = this.lifetime ? AbortSignal.any([this.lifetime, ...(signal ? [signal] : [])]) : signal;
+    signal?.throwIfAborted();
     const send = async () => {
       const headers: Record<string, string> = { ...(await this.authHeader()), [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE, ...extra };
+      signal?.throwIfAborted();
       if (body !== undefined) headers["Content-Type"] = "application/json";
       return this.fetcher(`${this.base}${url}`, {
         method,
@@ -272,6 +277,7 @@ export class DaemonRoutes {
     };
     let res = await send();
     let json = (await res.json().catch(() => null)) as any;
+    signal?.throwIfAborted();
     /**
      * **An end by the operator is not recovered from** (operator phase 4;
      * journey 7 step 4: *Sam's CLI does not quietly knock for a new badge and
@@ -292,12 +298,14 @@ export class DaemonRoutes {
     }
     const recovered =
       res.status === 401
-        ? await this.reBadge()
+        ? await this.reBadge(signal)
         : json?.code === "not-your-actor" && (await this.reclaimIdentity());
     if (recovered) {
+      signal?.throwIfAborted();
       res = await send();
       json = (await res.json().catch(() => null)) as any;
     }
+    signal?.throwIfAborted();
     if (!res.ok) {
       throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
     }
@@ -323,8 +331,10 @@ export class DaemonRoutes {
    * "a badge is required — ask the door for one" — would advise repeating
    * the act the door just refused. Carry its status, code and words instead;
    * other recovery failures leave the original answer intact. */
-  private async reBadge(): Promise<boolean> {
-    const answer = await askTheDoor(this.base);
+  private async reBadge(signal: AbortSignal | undefined = this.lifetime): Promise<boolean> {
+    signal?.throwIfAborted();
+    const answer = await askTheDoor(this.base, 10_000, signal);
+    signal?.throwIfAborted();
     if ("refused" in answer) {
       if (answer.refused.status === 403 || answer.refused.status === 429) {
         throw new ApiError(answer.refused.status, answer.refused.error, answer.refused.code);
@@ -334,6 +344,7 @@ export class DaemonRoutes {
     const badge = answer.badge;
     this.badge = badge;
     await writeBadge(this.home, this.base, badge);
+    signal?.throwIfAborted();
     // Re-claim, THEN replay. Without this the recovery path is a 401
     // followed by a `not-your-actor`: the door mints a badge whose claims
     // are empty while the client goes on asserting the actor it has held
@@ -417,6 +428,7 @@ export class DaemonRoutes {
    * dead. See `healthPath`. */
   async healthz(timeoutMs = 300): Promise<Health | null> {
     try {
+      this.lifetime?.throwIfAborted();
       // Deliberately NOT `this.fetcher`: this is the probe, and it already
       // carries the tighter bound. A connect deadline under a 300ms abort
       // could never fire, and a retry under it would only make `isocan
@@ -424,10 +436,11 @@ export class DaemonRoutes {
       // "nothing is there yet". The deadline is for the calls whose failure
       // reaches a person as an error.
       const res = await fetch(`${this.base}${healthPath(this.base)}`, {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(this.lifetime ? [this.lifetime] : [])]),
       });
       return res.ok ? ((await res.json()) as Health) : null;
     } catch {
+      this.lifetime?.throwIfAborted();
       return null;
     }
   }
@@ -1270,28 +1283,37 @@ export class DaemonRoutes {
     // Blobs bypass `request` (raw bytes, no JSON), so they need the badge and
     // the recovery retry spelled out — easy to miss, and a 401 on an upload
     // would read as a broken drop.
-    const send = async () =>
-      this.fetcher(`${this.base}/api/projects/${canvasId}/blobs`, {
+    const send = async () => {
+      const auth = await this.authHeader();
+      this.lifetime?.throwIfAborted();
+      return this.fetcher(`${this.base}/api/projects/${canvasId}/blobs`, {
         method: "POST",
         headers: {
-          ...(await this.authHeader()),
+          ...auth,
           "Content-Type": mimeType,
           [FILENAME_HEADER]: encodeFilename(filename),
         },
         body: new Uint8Array(data),
+        ...(this.lifetime ? { signal: this.lifetime } : {}),
       });
+    };
     let res = await send();
     if (res.status === 401 && (await this.reBadge())) res = await send();
     const json = (await res.json().catch(() => null)) as any;
+    this.lifetime?.throwIfAborted();
     if (!res.ok) throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
     return json as BlobUploadResponse;
   }
 
   async downloadBlob(canvasId: string, blobHash: string): Promise<Buffer> {
-    const send = async () =>
-      this.fetcher(`${this.base}/api/projects/${canvasId}/blobs/${blobHash}`, {
-        headers: await this.authHeader(),
+    const send = async () => {
+      const headers = await this.authHeader();
+      this.lifetime?.throwIfAborted();
+      return this.fetcher(`${this.base}/api/projects/${canvasId}/blobs/${blobHash}`, {
+        headers,
+        ...(this.lifetime ? { signal: this.lifetime } : {}),
       });
+    };
     let res = await send();
     if (res.status === 401 && (await this.reBadge())) res = await send();
     if (!res.ok) {

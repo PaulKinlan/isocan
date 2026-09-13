@@ -32,7 +32,7 @@ import { createServer } from "./server.ts";
  */
 export async function serveStdio(options: { version?: string } = {}): Promise<void> {
   const server = createServer({
-    home: (identity) => connect(identity ? { identity } : {}),
+    home: (identity, signal) => connect({ ...(identity ? { identity } : {}), ...(signal ? { signal } : {}) }),
     claim: (identity, name) => claimSession({ identity, name }),
     ...(options.version !== undefined ? { version: options.version } : {}),
   });
