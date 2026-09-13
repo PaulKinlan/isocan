@@ -5,7 +5,7 @@ The journeys here turn its first three stages into reviewable proofs. There
 is no new operation; gestures reach the intents both clients already share.
 
 **Where we are:** stage 0's pan, pinch and basic narrow layout shipped before
-this continuation. Finish its controls, then stage 1's phone face and stage
+this continuation. Finish its controls; phase 1 (the phone face) is the next unstarted phase, then stage
 2's presentation input. The node-walk revision from `origin/main` was
 incorporated before implementation: stage 1 uses the existing directional
 walk, then the prior-visit digest and request-linked Chat cards. Emulated

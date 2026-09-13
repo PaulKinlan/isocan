@@ -1,6 +1,6 @@
 # Inbox — the walk
 
-**Where we are:** steps 1 and 2 are built. Steps 3 and 4 share the
+**Where we are:** steps 1 and 2 are built. Phase 3 is next; steps 3 and 4 share the
 [authoritative assembly](design.md) specified 13 September 2026 and are next.
 
 ## Phase 1 — The CLI inbox
