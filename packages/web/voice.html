@@ -431,6 +431,28 @@
             <button id="memory-forget-all" type="button" hidden>Forget everything</button>
           </div>
         </section>
+
+        <section class="voice-dialog-part" id="prompt-panel">
+          <h3 class="voice-dialog-part-title">
+            <span>System prompt</span>
+            <span class="voice-summary" id="prompt-summary">not read yet</span>
+          </h3>
+          <!-- What the model is actually told, and the one part of it a person
+               owns. The rules are editable; the project instructions and the
+               canvas snapshot are generated for each session and are shown,
+               not hidden — an inspector that displayed a fragment would be
+               worse than one that said it could not show it. -->
+          <p class="voice-hint" id="prompt-note" role="status"></p>
+          <div class="voice-prompt-field">
+            <label class="voice-prompt-label" for="prompt-rules">Rules — yours to edit</label>
+            <textarea id="prompt-rules" class="voice-prompt-text" rows="8" spellcheck="false" autocomplete="off"></textarea>
+          </div>
+          <div class="voice-keyrow">
+            <button id="prompt-save" type="button" disabled>Save rules</button>
+            <button id="prompt-reset" type="button">Reset to default</button>
+          </div>
+          <dl class="voice-facts voice-prompt-parts" id="prompt-generated"></dl>
+        </section>
           </div>
         </section>
       </dialog>

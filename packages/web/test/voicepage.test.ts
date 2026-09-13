@@ -48,6 +48,20 @@ let modelsReply: unknown = {
 let useModelReply: unknown = { ok: true, model: "models/gemini-9-beta", source: "stored", appliesTo: "now" };
 let checkModelReply: unknown = { ok: true, model: "models/gemini-9-beta", answer: "accepted: the provider completed the setup", why: "the provider lists it as Live" };
 let openThrows = false;
+/** `/prompt`: the harness's own answer, or a 404 when this build has no route. */
+const promptAnswer = () => ({
+  rules: { default: "You are Voice. Call the tool first.", edited: null, effective: "You are Voice. Call the tool first." },
+  generated: [
+    { what: "Project instructions", source: "AGENTS.md", text: "Repo rules here.", truncated: false, why: "read from the project directory bound to this canvas" },
+    { what: "Canvas snapshot", source: "3 items, 1 thread", text: "Current canvas state (ids are authoritative)", truncated: false, why: "rebuilt at every session start" },
+  ],
+  tools: ["rename_item", "delete_item"],
+  sent: "You are Voice. Call the tool first.",
+  cap: 8000,
+  note: "The rules are yours to edit; everything below them is generated for each session.",
+});
+let promptReply: unknown = promptAnswer();
+let promptMissing = false;
 let fakeTab: { location: { replace: ReturnType<typeof vi.fn> } };
 let page: VoicePage | null = null;
 
@@ -83,6 +97,8 @@ beforeEach(() => {
   logReply = { entries: [] };
   openReply = { url: "https://isocan.io/p/prj_cr7#pss_fresh" };
   openThrows = false;
+  promptReply = promptAnswer();
+  promptMissing = false;
   fakeTab = { location: { replace: vi.fn() } };
   vi.useFakeTimers();
   vi.stubGlobal(
@@ -94,6 +110,19 @@ beforeEach(() => {
       if (url.endsWith("/model/test")) return answer(checkModelReply);
       if (url.endsWith("/model")) return answer(useModelReply);
       if (url.endsWith("/log")) return answer(logReply);
+      if (url.endsWith("/prompt")) {
+        if (promptMissing) {
+          const refused = { error: "no such door" };
+          return {
+            ok: false,
+            status: 404,
+            url: "",
+            text: async () => JSON.stringify(refused),
+            json: async () => refused,
+          } as unknown as Response;
+        }
+        return answer(promptReply);
+      }
       if (url.endsWith("/open")) {
         if (openThrows) throw new TypeError("Failed to fetch");
         return answer(openReply);
@@ -2003,6 +2032,117 @@ describe("the page asks for a folder, and answers file questions from it", () =>
  * (reload, then a browser restart) is run separately, against the code as
  * shipped.
  */
+describe("the system prompt, behind the same cog", () => {
+  it("reads the rules when the panel opens, and shows the parts it does not own", async () => {
+    await wire();
+    // Nothing is read until it is opened: the panel is a reading of the
+    // harness, not a copy kept in the page.
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/prompt"))).toBe(false);
+
+    element<HTMLButtonElement>("settings-open").click();
+    await flush();
+    expect(element<HTMLTextAreaElement>("prompt-rules").value).toBe("You are Voice. Call the tool first.");
+    expect(element("prompt-summary").textContent).toBe("the default");
+    expect(element("prompt-note").textContent).toContain("generated for each session");
+
+    // The two generated blocks, each with where it came from and why it is
+    // not editable here — an inspector that showed only the rules would be
+    // showing a fragment of the real instruction.
+    const parts = element("prompt-generated");
+    expect(parts.textContent).toContain("Project instructions");
+    expect(parts.textContent).toContain("AGENTS.md");
+    expect(parts.textContent).toContain("Canvas snapshot");
+    expect(parts.textContent).toContain("rebuilt at every session start");
+    // And the tool list, which rides outside the text.
+    expect(parts.textContent).toContain("2 declarations: rename_item, delete_item");
+    // The generated text is shown — in a read-only box, because a textarea's
+    // value is what a person reads, and it must not be editable.
+    const areas = [...parts.querySelectorAll("textarea")] as HTMLTextAreaElement[];
+    expect(areas).toHaveLength(2);
+    for (const area of areas) expect(area.readOnly).toBe(true);
+    expect(areas.map((area) => area.value).join("\n")).toContain("Repo rules here.");
+    expect(areas.map((area) => area.value).join("\n")).toContain("Current canvas state");
+  });
+
+  it("saves an edit through the harness, and hands back what is now in force", async () => {
+    await wire();
+    element<HTMLButtonElement>("settings-open").click();
+    await flush();
+    const rules = element<HTMLTextAreaElement>("prompt-rules");
+    // Save is inert until the text actually differs from what is in force.
+    expect(element<HTMLButtonElement>("prompt-save").disabled).toBe(true);
+    rules.value = "Speak like a ship's captain.";
+    rules.dispatchEvent(new Event("input"));
+    expect(element<HTMLButtonElement>("prompt-save").disabled).toBe(false);
+
+    // The harness's answer is the new state: the panel re-renders from it.
+    promptReply = {
+      ...(promptReply as Record<string, unknown>),
+      rules: { default: "You are Voice. Call the tool first.", edited: "Speak like a ship's captain.", effective: "Speak like a ship's captain." },
+    };
+    element<HTMLButtonElement>("prompt-save").click();
+    await flush();
+    const posted = JSON.parse(
+      String(
+        (vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/prompt")).at(-1)?.[1] as RequestInit).body,
+      ),
+    );
+    expect(posted).toEqual({ text: "Speak like a ship's captain." });
+    expect(element("prompt-summary").textContent).toBe("edited by you");
+    expect(element<HTMLTextAreaElement>("prompt-rules").value).toBe("Speak like a ship's captain.");
+  });
+
+  it("resets to the default through the same route", async () => {
+    await wire();
+    promptReply = {
+      ...(promptReply as Record<string, unknown>),
+      rules: { default: "You are Voice. Call the tool first.", edited: "an earlier edit", effective: "an earlier edit" },
+    };
+    element<HTMLButtonElement>("settings-open").click();
+    await flush();
+    expect(element("prompt-summary").textContent).toBe("edited by you");
+
+    promptReply = promptAnswer();
+    element<HTMLButtonElement>("prompt-reset").click();
+    await flush();
+    const posted = JSON.parse(
+      String(
+        (vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/prompt")).at(-1)?.[1] as RequestInit).body,
+      ),
+    );
+    expect(posted).toEqual({ reset: true });
+    expect(element("prompt-summary").textContent).toBe("the default");
+  });
+
+  it("says so when the harness has no such route, instead of showing a copy", async () => {
+    promptMissing = true;
+    await wire();
+    element<HTMLButtonElement>("settings-open").click();
+    await flush();
+    expect(element("prompt-summary").textContent).toBe("not available");
+    expect(element("prompt-note").textContent).toContain("no /prompt route");
+    expect(element<HTMLTextAreaElement>("prompt-rules").value).toBe("");
+    expect(element<HTMLTextAreaElement>("prompt-rules").disabled).toBe(true);
+    expect(element<HTMLButtonElement>("prompt-save").disabled).toBe(true);
+    expect(element<HTMLButtonElement>("prompt-reset").disabled).toBe(true);
+    expect(element("prompt-generated").textContent).toBe("");
+  });
+
+  it("says the harness refused an edit rather than pretending it landed", async () => {
+    await wire();
+    element<HTMLButtonElement>("settings-open").click();
+    await flush();
+    promptMissing = true; // the POST is refused, and the panel must say so
+    const rules = element<HTMLTextAreaElement>("prompt-rules");
+    rules.value = "Try to save this.";
+    rules.dispatchEvent(new Event("input"));
+    element<HTMLButtonElement>("prompt-save").click();
+    await flush();
+    expect(element("prompt-note").textContent).toContain("The harness refused that");
+    expect(element("prompt-summary").textContent).not.toBe("edited by you");
+  });
+});
+
 describe("memory lives in the page's store", () => {
   const fakeOpfs = () => {
     const files = new Map<string, string>();
@@ -2104,6 +2244,71 @@ describe("memory lives in the page's store", () => {
     await flush();
     expect(element("memory-summary").textContent).toBe("nothing stored");
     expect(element<HTMLButtonElement>("memory-forget-all").hidden).toBe(true);
+  });
+
+  it("says a store it cannot read is not an empty one", async () => {
+    const opfs = fakeOpfs();
+    opfs.files.set("voice/memories.json", "{ this is not the JSON we wrote");
+    withStorage(opfs.storage);
+    fakeCapture();
+    await wire();
+    await flush();
+
+    // The distinction the panel exists to make: a broken shelf is not an
+    // empty one, and "nothing stored" here would be a lie about the person's
+    // own data — the confusion that made the memory bug of 13 Sep look like a
+    // model that had forgotten.
+    expect(element("memory-summary").textContent).toBe("could not be read");
+    expect(element("memory-note").textContent).toContain("not the same as nothing stored");
+    expect(element("memory-list").textContent).not.toContain("Nothing stored yet");
+    // Nothing to forget when nothing can be seen: the bulk delete is hidden
+    // rather than offered over a store that was never read.
+    expect(element<HTMLButtonElement>("memory-forget-all").hidden).toBe(true);
+
+    // And the agent is told the same truth, rather than "no such memory".
+    const socket = await goLive();
+    socket.event({ memory: { callId: "r1", op: "read", id: "mem_anything" } });
+    await flush();
+    const refused = JSON.parse(
+      String(
+        (vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/memory/result")).at(-1)?.[1] as RequestInit).body,
+      ),
+    );
+    expect(refused.ok).toBe(false);
+    expect(String(refused.error)).toContain("could not be read");
+  });
+
+  it("counts an entry it cannot read instead of dropping it in silence", async () => {
+    const opfs = fakeOpfs();
+    opfs.files.set(
+      "voice/memories.json",
+      JSON.stringify([
+        { id: "mem_ok", text: "a real one", tags: ["kept"], at: "2026-09-13T10:00:00.000Z", session: "Voice" },
+        { nonsense: true },
+      ]),
+    );
+    withStorage(opfs.storage);
+    await wire();
+    await flush();
+
+    expect(element("memory-summary").textContent).toBe("1 memory");
+    expect(element("memory-list").textContent).toContain("a real one");
+    expect(element("memory-note").textContent).toContain("1 entry in the file could not be read");
+  });
+
+  it("reads an entry written without tags rather than crashing on it", async () => {
+    const opfs = fakeOpfs();
+    // A store written by a version that did not carry tags: `memoryWords` used
+    // to read `one.tags.length` and took the whole panel down with it.
+    opfs.files.set(
+      "voice/memories.json",
+      JSON.stringify([{ id: "mem_bare", text: "no tags here", at: "2026-09-13T10:00:00.000Z", session: "Voice" }]),
+    );
+    withStorage(opfs.storage);
+    await wire();
+    await flush();
+    expect(element("memory-summary").textContent).toBe("1 memory");
+    expect(element("memory-list").textContent).toContain("no tags here");
   });
 
   it("keeps memory across a page reload when OPFS is there", async () => {

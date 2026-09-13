@@ -7310,7 +7310,31 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
 }
 .voice-dialog-head h2 { margin: 0; font-size: var(--t-lg); }
 .voice-dialog :is(button, select, input), .voice-setup-callout button { min-block-size: 44px; }
-.voice-dialog :is(input, select) { font-size: 16px; }
+.voice-dialog :is(input, select, textarea) { font-size: 16px; }
+/* The rules are a text box rather than a paragraph: they are edited, and the
+   panel must not let the page's own wrapping stand in for the text. The
+   generated blocks below them are read-only and wear a quieter surface so the
+   one thing a person can change looks like the one thing they can change. */
+.voice-prompt-field { display: grid; gap: var(--s1); padding-bottom: var(--s2); }
+.voice-prompt-label { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-muted); }
+.voice-prompt-parts { grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
+.voice-prompt-text {
+  width: 100%;
+  min-block-size: 88px;
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font-family: ui-monospace, monospace;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  resize: vertical;
+}
+.voice-prompt-text[readonly] {
+  font-size: var(--t-sm);
+  background: color-mix(in srgb, var(--ink) 5%, var(--card));
+}
 /* Flat, not folded: a heading per part and everything under it visible, so a
    person reads the whole state of the thing by scrolling once. One scroll
    container only — the dialog itself — never a scrolling region inside it. */
