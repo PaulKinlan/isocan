@@ -192,7 +192,22 @@ export function voiceMemoryFile(home: string): string {
  * empty list rather than a thrown error: a corrupt memory must never be the
  * reason the harness cannot start, and the next write repairs the file.
  */
-export async function readMemories(home: string): Promise<Memory[]> {
+/**
+ * **The old file, read once so nobody loses a memory.**
+ *
+ * Memory used to live here — `~/.isocan/voice/memories.json`, 0600, the
+ * harness's own store. Paul's ruling moved the agent's state to the page's OPFS
+ * (the DirectoryHandle is for the person's files), so this file is now only a
+ * source for the one-time migration: `GET /memory/legacy` hands the entries to
+ * the page, the page writes them into OPFS, and `POST /memory/migrated` renames
+ * the file aside — kept, not deleted, and never re-imported. After that the
+ * harness owns no memory at all.
+ *
+ * A missing or malformed file is an empty list rather than a thrown error: a
+ * corrupt legacy file must not be the reason the harness cannot start, and the
+ * entries it did hold are recoverable by hand.
+ */
+export async function readLegacyMemories(home: string): Promise<Memory[]> {
   try {
     const raw = await fs.readFile(voiceMemoryFile(home), "utf8");
     const parsed = JSON.parse(raw) as unknown;
@@ -216,21 +231,17 @@ export async function readMemories(home: string): Promise<Memory[]> {
   }
 }
 
-/** Write the whole list atomically (temp + rename), 0600, in the key's dir. */
-export async function writeMemories(home: string, memories: Memory[]): Promise<string> {
-  const dir = voiceDir(home);
-  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+/** Move the legacy file aside, keeping its bytes. The page says when. */
+export async function retireLegacyMemories(home: string): Promise<string | null> {
   const file = voiceMemoryFile(home);
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs.writeFile(tmp, `${JSON.stringify(memories, null, 2)}\n`, { mode: 0o600 });
-  await fs.chmod(tmp, 0o600);
-  await fs.rename(tmp, file);
-  return file;
-}
-
-/** Ids are readable (a timestamp) and unique within a session (a suffix). */
-export function memoryId(at: Date = new Date()): string {
-  return `mem_${at.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const kept = `${file}.migrated`;
+  try {
+    await fs.access(file);
+  } catch {
+    return null; // nothing to retire
+  }
+  await fs.rename(file, kept);
+  return kept;
 }
 
 /** Tags arrive from a model: a string, an array, or nothing. Normalise, cap. */
@@ -246,126 +257,159 @@ export function normalizeTags(tags: unknown): string[] {
   return out;
 }
 
-export interface RememberInput {
-  text: string;
-  tags?: unknown;
-  /** The enrolled actor storing it. */
-  session: string;
-  /** The presence session at the time, when there is one. */
-  presenceId?: string | null;
-}
-
-/** Store one memory. Answers the record, so the caller can log exactly it. */
-export async function rememberMemory(home: string, input: RememberInput): Promise<Memory> {
-  const text = String(input.text ?? "").trim().slice(0, MAX_MEMORY_TEXT);
-  if (!text) throw new Error("a memory needs text");
-  const memory: Memory = {
-    id: memoryId(),
-    text,
-    tags: normalizeTags(input.tags),
-    at: new Date().toISOString(),
-    session: input.session,
-    ...(input.presenceId ? { presenceId: input.presenceId } : {}),
-  };
-  const memories = await readMemories(home);
-  memories.push(memory);
-  await writeMemories(home, memories);
-  return memory;
-}
-
-export async function readMemory(home: string, id: string): Promise<Memory | null> {
-  return (await readMemories(home)).find((one) => one.id === id) ?? null;
+/** What the page answers for one memory question. */
+export interface MemoryAnswer {
+  ok: boolean;
+  id?: string;
+  at?: string;
+  tags?: string[];
+  memory?: Memory | null;
+  memories?: Memory[];
+  count?: number;
+  recentIds?: string[];
+  error?: string;
 }
 
 /**
- * **Substring search, and the tool description says so.**
+ * **The harness asks the page; the page owns the store.**
  *
- * There is no embedding model here and no index: this is a case-insensitive
- * `includes` over the text and the tags. That is honest for a local harness
- * with tens or hundreds of memories, and it is deliberately NOT advertised as
- * semantic recall — a model that believes "find where we discussed the port"
- * will also match "port" would be lied to, and would stop writing the words it
- * will later need to search for. An empty query lists everything, so "what do
- * you remember" is the same call.
+ * Memory lives in the page's OPFS (per-origin, persistent, no prompt) because
+ * that is where the agent's own state belongs — Paul's ruling. The harness is
+ * the model-facing side: it does not keep memories and cannot read the store;
+ * it asks over the same socket the file tools use, and names every way the
+ * question can fail (no page, no answer in time, the page closing mid-question)
+ * rather than reporting an empty store it never saw.
+ *
+ * The contract the page must satisfy is unchanged — `{id, text, tags, at,
+ * session, presenceId}` — and so is the honesty: search is substring, the model
+ * cannot delete or enumerate, and every write is logged with its text.
  */
-export async function searchMemories(home: string, query: string): Promise<Memory[]> {
-  const memories = await readMemories(home);
-  const needle = query.trim().toLowerCase();
-  if (!needle) return memories;
-  return memories.filter(
-    (one) =>
-      one.text.toLowerCase().includes(needle) || one.tags.some((tag) => tag.toLowerCase().includes(needle)),
-  );
+export function createMemoryBroker(channel: FileChannel, opts: { timeoutMs?: number } = {}) {
+  const timeoutMs = opts.timeoutMs ?? FS_ASK_TIMEOUT_MS;
+  const waiting = new Map<
+    string,
+    { resolve: (answer: MemoryAnswer) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  function settle(callId: string, answer: MemoryAnswer): boolean {
+    const held = waiting.get(callId);
+    if (!held) return false;
+    clearTimeout(held.timer);
+    waiting.delete(callId);
+    held.resolve(answer);
+    return true;
+  }
+
+  return {
+    waiting: (): number => waiting.size,
+    abandon: (): void => {
+      for (const [callId, held] of waiting) {
+        clearTimeout(held.timer);
+        waiting.delete(callId);
+        held.resolve({ ok: false, error: "the page closed before it answered" });
+      }
+    },
+    answer: (callId: string, answer: MemoryAnswer): boolean => settle(callId, answer),
+    ask: async (
+      op: "remember" | "read" | "search",
+      payload: Record<string, unknown>,
+    ): Promise<MemoryAnswer> => {
+      if (!channel.connected()) {
+        return {
+          ok: false,
+          error: "no page is connected — memory lives in the page's own store, which is where it is kept",
+        };
+      }
+      const callId = `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      return await new Promise<MemoryAnswer>((resolve) => {
+        const timer = setTimeout(() => {
+          waiting.delete(callId);
+          resolve({ ok: false, error: `the page did not answer the ${op} request in time` });
+        }, timeoutMs);
+        waiting.set(callId, { resolve, timer });
+        channel.send({ memory: { callId, op, ...payload } });
+      });
+    },
+  };
 }
 
-/** The person's delete: forget one memory, answering whether it existed. */
-export async function forgetMemory(home: string, id: string): Promise<boolean> {
-  const memories = await readMemories(home);
-  const kept = memories.filter((one) => one.id !== id);
-  if (kept.length === memories.length) return false;
-  await writeMemories(home, kept);
-  return true;
-}
+export type MemoryBroker = ReturnType<typeof createMemoryBroker>;
 
 /**
  * **The model's three memory tools, and nothing else's.**
  *
- * Deliberately narrow: the model can write, read one, and search — it cannot
- * delete, and it cannot list everything in one call. A memory the model can
- * erase or quietly enumerate is a memory the person cannot trust; forgetting
- * is theirs (the `DELETE /memory/<id>` route, and the inspector UI on top of
- * it). Every write here is logged by the caller with its text, so nothing is
- * stored "about" the person without appearing in the record.
+ * Deliberately narrow, exactly as before the move: write, read one, search.
+ * No delete and no list-everything — a memory the model can erase or quietly
+ * enumerate is one the person cannot trust. Forgetting and listing happen in
+ * the page, from the page's own store.
  */
 export async function runMemoryTool(
-  home: string,
   name: "remember" | "read_memory" | "search_memory",
   args: Record<string, unknown>,
+  ask: (op: "remember" | "read" | "search", payload: Record<string, unknown>) => Promise<MemoryAnswer>,
   who: { session: string; presenceId?: string | null },
 ): Promise<{ ok: boolean; said: string; answer: { ok: boolean; [k: string]: unknown } }> {
   if (name === "remember") {
-    const memory = await rememberMemory(home, {
-      text: String(args.text ?? ""),
-      tags: args.tags,
+    const text = String(args.text ?? "").trim().slice(0, MAX_MEMORY_TEXT);
+    if (!text) {
+      return { ok: false, said: "a memory needs text", answer: { ok: false, error: "a memory needs text" } };
+    }
+    const tags = normalizeTags(args.tags);
+    const answer = await ask("remember", {
+      text,
+      tags,
       session: who.session,
-      presenceId: who.presenceId ?? null,
+      ...(who.presenceId ? { presenceId: who.presenceId } : {}),
     });
+    if (!answer.ok) {
+      const error = answer.error ?? "the page could not store that";
+      return { ok: false, said: error, answer: { ok: false, error } };
+    }
     return {
       ok: true,
-      said: `remembered (${memory.id}): ${memory.text.slice(0, 120)}${memory.tags.length ? ` [${memory.tags.join(", ")}]` : ""}`,
-      answer: { ok: true, id: memory.id, at: memory.at, tags: memory.tags },
+      said: `remembered (${answer.id}): ${text.slice(0, 120)}${tags.length ? ` [${tags.join(", ")}]` : ""}`,
+      answer: { ok: true, id: answer.id, at: answer.at, tags: answer.tags ?? tags },
     };
   }
   if (name === "read_memory") {
     const id = String(args.id ?? "").trim();
-    const memory = id ? await readMemory(home, id) : null;
-    if (!memory) {
-      const ids = (await readMemories(home)).slice(-5).map((one) => one.id);
+    const answer = await ask("read", { id });
+    if (!answer.ok || !answer.memory) {
+      const error = answer.error ?? `no memory with id "${id}"`;
       return {
         ok: false,
-        said: `no memory with id "${id}"`,
+        said: error,
         answer: {
           ok: false,
           error: "no memory with that id — ids come from remember or search_memory",
-          recentIds: ids,
+          ...(answer.recentIds ? { recentIds: answer.recentIds } : {}),
         },
       };
     }
-    return { ok: true, said: `memory ${memory.id}: ${memory.text.slice(0, 160)}`, answer: { ok: true, memory } };
+    return {
+      ok: true,
+      said: `memory ${answer.memory.id}: ${answer.memory.text.slice(0, 160)}`,
+      answer: { ok: true, memory: answer.memory },
+    };
   }
   const query = String(args.query ?? "");
-  const found = await searchMemories(home, query);
+  const answer = await ask("search", { query });
+  if (!answer.ok) {
+    const error = answer.error ?? "the page could not search its store";
+    return { ok: false, said: error, answer: { ok: false, error } };
+  }
+  const memories = answer.memories ?? [];
   return {
     ok: true,
     said: query.trim()
-      ? `${found.length} ${found.length === 1 ? "memory" : "memories"} matching "${query}"`
-      : `${found.length} memories`,
+      ? `${memories.length} ${memories.length === 1 ? "memory" : "memories"} matching "${query}"`
+      : `${memories.length} memories`,
     answer: {
       ok: true,
       query,
       match: "case-insensitive substring over text and tags — not semantic search",
-      count: found.length,
-      memories: found.slice(-50),
+      count: memories.length,
+      memories: memories.slice(-50),
     },
   };
 }
@@ -2176,6 +2220,8 @@ export interface VoiceServerOptions {
   confirmTimeoutMs?: number;
   /** How long a page has to answer a file question, for a test. */
   fsTimeoutMs?: number;
+  /** The same, for a memory question. */
+  memoryTimeoutMs?: number;
   /** The network, for a test. */
   fetchImpl?: typeof fetch;
   /** WebSocket implementation override for tests. */
@@ -2638,6 +2684,16 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     options.fsTimeoutMs ? { timeoutMs: options.fsTimeoutMs } : {},
   );
 
+  /**
+   * Memory is the same conversation, about the page's OWN state: the page
+   * keeps it in OPFS (per-origin, persistent, no prompt), and this process
+   * only ever asks. Paul's ruling, 2026-09-13.
+   */
+  const memories = createMemoryBroker(
+    { connected: () => Boolean(announce), send: (message) => announce?.(message) },
+    options.memoryTimeoutMs ? { timeoutMs: options.memoryTimeoutMs } : {},
+  );
+
   function askThePerson(what: string): Promise<boolean> {
     const timeout = options.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS;
     pending?.resolve(false);
@@ -2690,9 +2746,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       agent: { name: target.name, id: target.actorId, enrolled },
       provider: { name: stored?.provider ?? null, model: options.model ?? LIVE_MODEL, key: stored !== null },
       session: { state: sessionState },
-      // What the agent keeps for the next session: a count and where it lives,
-      // never the contents — the page that wants them asks GET /memory.
-      memory: { count: (await readMemories(home).catch(() => [])).length, file: voiceMemoryFile(home) },
+      // Memory is the page's now (OPFS, per-origin): the harness cannot count
+      // it, and says so by not pretending to. The legacy file it used to keep
+      // is offered once at GET /memory/legacy so nothing is orphaned.
+      memory: { store: "page-opfs", legacy: voiceMemoryFile(home) },
       // The grant, visible: which folder the agent may read through the page,
       // and since when. The page shows this; nothing here reads it.
       files: { granted: files.state().folder !== null, folder: files.state().folder, at: files.state().at ?? null },
@@ -2777,28 +2834,12 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           return;
         }
       }
-      if (req.method === "GET" && url.pathname === "/memory") {
-        // The person's list, and the inspector's data source. Read from disk on
-        // every request: what is written is what is shown, with no cache in
-        // between that could disagree with the file after a restart.
-        const memories = await readMemories(home);
-        respond(200, { memories, count: memories.length, file: voiceMemoryFile(home), match: "substring" });
-        return;
-      }
-      if (req.method === "DELETE" && url.pathname.startsWith("/memory/")) {
-        const id = decodeURIComponent(url.pathname.slice("/memory/".length));
-        const forgotten = await forgetMemory(home, id);
-        if (!forgotten) {
-          respond(404, { ok: false, error: `no memory with id "${id}"` });
-          return;
-        }
-        const written = await readMemories(home);
-        recordToolLog({
-          type: "session_event",
-          event: `person forgot memory ${id}`,
-          details: { kind: "memory_forgotten", id, remaining: written.length },
-        });
-        respond(200, { ok: true, forgotten: id, remaining: written.length });
+      if (req.method === "GET" && url.pathname === "/memory/legacy") {
+        // The one-time migration source: what the harness used to own, offered
+        // to the page so nobody loses a memory because the shelf moved. Empty
+        // once `POST /memory/migrated` has retired the file.
+        const entries = await readLegacyMemories(home);
+        respond(200, { entries, count: entries.length, file: voiceMemoryFile(home) });
         return;
       }
       if (req.method === "GET" && url.pathname === "/fs") {
@@ -2879,10 +2920,50 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method !== "POST") {
-        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log, /memory, /fs and POST /key, /audio, /utterance, /summons, /session/*, /confirm, /fs/grant, /fs/result; DELETE /memory/<id>" });
+        respond(405, { error: "the voice harness answers GET /, /state, /connection, /log, /memory/legacy, /fs and POST /key, /audio, /utterance, /summons, /session/*, /confirm, /fs/grant, /fs/result, /memory/result, /memory/migrated" });
         return;
       }
       const body = await readBody();
+      if (url.pathname === "/memory/result") {
+        const posted = typeof body === "string" ? {} : body;
+        const callId = String(posted.callId ?? "");
+        const taken = memories.answer(callId, {
+          ok: posted.ok === true,
+          ...(typeof posted.id === "string" ? { id: posted.id } : {}),
+          ...(typeof posted.at === "string" ? { at: posted.at } : {}),
+          ...(Array.isArray(posted.tags) ? { tags: posted.tags.filter((t) => typeof t === "string") } : {}),
+          ...(posted.memory && typeof posted.memory === "object" ? { memory: posted.memory as Memory } : {}),
+          ...(Array.isArray(posted.memories) ? { memories: posted.memories as Memory[] } : {}),
+          ...(typeof posted.count === "number" ? { count: posted.count } : {}),
+          ...(Array.isArray(posted.recentIds) ? { recentIds: posted.recentIds.filter((r) => typeof r === "string") } : {}),
+          ...(typeof posted.error === "string" ? { error: posted.error } : {}),
+        });
+        if (!taken) {
+          respond(200, {
+            ok: false,
+            error: "nothing is waiting for that callId — it expired, or it was already answered",
+          });
+          return;
+        }
+        respond(200, { ok: true });
+        return;
+      }
+      if (url.pathname === "/memory/migrated") {
+        // The page says it has written the legacy entries into OPFS. The file
+        // is renamed aside — kept, not deleted — so nothing re-imports and
+        // nothing is lost if the page's store is later cleared.
+        const posted = typeof body === "string" ? {} : body;
+        const count = typeof posted.count === "number" ? posted.count : 0;
+        const kept = await retireLegacyMemories(home);
+        narrate(kept ? `legacy memories retired to ${path.basename(kept)} (${count} imported)` : "no legacy memories to retire");
+        recordToolLog({
+          type: "session_event",
+          event: kept ? `legacy memories migrated to the page's store (${count} entries)` : "legacy memory file absent at migration",
+          details: { kind: "memory_migrated", count, kept: kept ? path.basename(kept) : null },
+        });
+        respond(200, { ok: true, migrated: count, kept: kept ? path.basename(kept) : null });
+        return;
+      }
       if (url.pathname === "/fs/grant") {
         // The page reports the grant, never the handle: this process learns a
         // folder's NAME and nothing that could read it on its own.
@@ -3110,6 +3191,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (announce === say) announce = null;
       // A question owed by the page that closed is refused, not left hanging.
       files.abandon();
+      memories.abandon();
     });
     const onLog = (entry: ToolLogEntry) => {
       say({ type: "tool_log", entry });
@@ -3198,14 +3280,16 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             const items = Object.values(snapCanvas.items).map((item) => ({ ...item, kind: itemKind(item) }));
             const trashItems = Object.values(snapCanvas.trash ?? {}).map((t) => ({ ...t.item, kind: itemKind(t.item) }));
 
-            // 0. Memory: the harness's own file, not canvas state. It needs no
-            //    snapshot and no daemon, so it is answered first.
+            // 0. Memory: the page's own store (OPFS), asked over the socket —
+            //    the same pattern as the file tools. No canvas, no daemon.
             if (name === "remember" || name === "read_memory" || name === "search_memory") {
               try {
-                const outcome = await runMemoryTool(home, name, args as Record<string, unknown>, {
-                  session: target.name,
-                  presenceId: presenceSessionId,
-                });
+                const outcome = await runMemoryTool(
+                  name,
+                  args as Record<string, unknown>,
+                  (op, payload) => memories.ask(op, payload),
+                  { session: target.name, presenceId: presenceSessionId },
+                );
                 narrate(outcome.said);
                 // The write is recorded with its text: a memory about the person
                 // is attributable and visible, never a private note.
