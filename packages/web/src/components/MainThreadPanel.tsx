@@ -2,7 +2,7 @@ import { useChatDraft } from "../lib/chatdraft.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Markdown } from "../lib/markdown.tsx";
 import type { Actor, CanvasContents, Comment, CommentThread, Item } from "@isocan/core";
-import { isSystemActor, laneFor, mainThread, parseSlashCommand, workedFor } from "@isocan/core";
+import { commentReferencedItemIds, isSystemActor, laneFor, mainThread, parseSlashCommand, workedFor } from "@isocan/core";
 import { sendOp } from "../lib/api.ts";
 import { postToMain } from "../lib/mainthread.ts";
 import { useCanvasStore } from "../stores/canvasStore.ts";
@@ -529,7 +529,8 @@ function Panel({
                   </Markdown>
                 </div>
                 {!onOpenItem && canvas && thread && <LaneChips canvas={canvas} thread={thread} comment={comment} />}
-                {comment.context ? <ContextManifestView manifest={comment.context} comment={{ threadId: thread.id, commentId: comment.id }} /> : (comment.items ?? [])
+                {comment.context && <ContextManifestView manifest={comment.context} comment={{ threadId: thread.id, commentId: comment.id }} />}
+                {onOpenItem && canvas ? <MessageReferenceCards canvas={canvas} canvasId={canvasId} comment={comment} onOpenItem={onOpenItem} /> : !comment.context && (comment.items ?? [])
                   .filter((id, i, all) => all.indexOf(id) === i)
                   .map((itemId) => (
                     <ItemCard key={itemId} canvasId={canvasId} itemId={itemId} onOpenItem={onOpenItem} />
@@ -600,6 +601,19 @@ function Panel({
   );
 }
 
+/** The phone can enter only recorded references; the frozen disclosure stays separate. */
+function MessageReferenceCards({ canvas, canvasId, comment, onOpenItem }: {
+  canvas: CanvasContents; canvasId: string; comment: Comment; onOpenItem: (id: string) => void;
+}) {
+  const ids = commentReferencedItemIds(canvas, comment);
+  if (!ids.length) return null;
+  const label = comment.context ? "Request context" : "Linked in this message";
+  return <section className="message-reference-cards" aria-label={label}>
+    <small>{label} · current preview</small>
+    {ids.map((id) => <ItemCard key={id} canvasId={canvasId} itemId={id} onOpenItem={onOpenItem} />)}
+  </section>;
+}
+
 /**
  * A #-referenced item rendered as a card (the Claude-Artifact idiom the issue
  * asks for): what it looks like, its name, what it is — clicking flies you to
@@ -623,7 +637,7 @@ function ItemCard({ canvasId, itemId, onOpenItem }: { canvasId: string; itemId: 
       <button
         className="mt-card"
         onClick={() => (onOpenItem ?? catapultBesidePanel)(itemId)}
-        aria-label={`Fly to ${item.title}`}
+        aria-label={`${onOpenItem ? "Open" : "Fly to"} ${item.title}`}
         onPointerEnter={(e) => {
           if (onOpenItem) return;
           const rect = e.currentTarget.getBoundingClientRect();
