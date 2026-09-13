@@ -1,0 +1,47 @@
+1. after the page's migration wrote them: {
+ "panel": {
+  "summary": "2 memories",
+  "note": "Stored in this browser for this session only — this browser would not grant persistent storage, so it may be cleared.",
+  "rows": [
+   "2026-09-12 21:00:00the daemon port is 4441 [daemon, legacy]VoiceForget",
+   "2026-09-12 21:05:00Paul prefers short answers [style]VoiceForget"
+  ]
+ },
+ "opfs": {
+  "entries": 2,
+  "first": "the daemon port is 4441"
+ },
+ "persisted": false
+}
+2. after a page reload: {
+ "panel": {
+  "summary": "2 memories",
+  "note": "Stored in this browser for this session only — this browser would not grant persistent storage, so it may be cleared.",
+  "rows": [
+   "2026-09-12 21:00:00the daemon port is 4441 [daemon, legacy]VoiceForget",
+   "2026-09-12 21:05:00Paul prefers short answers [style]VoiceForget"
+  ]
+ },
+ "opfs": {
+  "entries": 2,
+  "first": "the daemon port is 4441"
+ },
+ "persisted": false
+}
+3. after closing the browser and reopening: {
+ "panel": {
+  "summary": "2 memories",
+  "note": "Stored in this browser for this session only — this browser would not grant persistent storage, so it may be cleared.",
+  "rows": [
+   "2026-09-12 21:00:00the daemon port is 4441 [daemon, legacy]VoiceForget",
+   "2026-09-12 21:05:00Paul prefers short answers [style]VoiceForget"
+  ]
+ },
+ "opfs": {
+  "entries": 2,
+  "first": "the daemon port is 4441"
+ },
+ "persisted": false
+}
+4. after the person forgets one: 1 memory
+ACCEPTANCE: PASS
