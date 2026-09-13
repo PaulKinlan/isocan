@@ -626,8 +626,11 @@ writes only after capability/version negotiation can refuse an old client
 cleanly. Keep old log reduction unchanged, including old geometric-area ops.
 Capability negotiation must cover already-connected browsers and replicas,
 snapshot adoption and log-tail resumption, not just new HTTP writes. A client
-which cannot reduce groups must stop before group state/ops reach it and
-show an upgrade requirement. Reconcile/reject queued legacy writes explicitly
+which cannot reduce groups must receive no unsupported group state/ops.
+The current client shows a terminal upgrade requirement and retains queued
+work. A literal earlier binary may keep retrying because it did not implement
+that close-code UI; every retry remains refused, without pretending this is
+an access revocation or canvas deletion. Reconcile/reject queued legacy writes explicitly
 at cutover; do not let a new meaning silently attach to an old queued request.
 
 Phase 5 requires **canvas-groups-v4**. Literal v3 reducers cannot apply the
@@ -690,7 +693,10 @@ available and unchanged. Undoing the migration itself is allowed only when
 its exact structural preconditions hold and no later group-dependent state
 would be stranded; otherwise explain which later work must be undone first.
 In particular, post-boundary group-dependent **live, trash and redo state**
-must all be absent: creating a group and undoing that creation still leaves
+must all be absent. Saved post-boundary undo candidates that require group
+reduction count as history dependencies too, even when their visible item is
+an ordinary root: rollback must not strand another actor's next Undo.
+Creating a group and undoing that creation still leaves
 a group in trash and a redo candidate. Refuse migration undo in that case
 and name the remaining dependencies; undoing visible changes alone is not
 necessarily enough. Never purge trash or discard history merely to make

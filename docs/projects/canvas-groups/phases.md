@@ -214,3 +214,5 @@ The conductor updates project/release/changelog records after verification.
 **Trajectory:**
 
 - **2026-09-13** — Migration needs a v4 replay boundary and queued-write origin. Literal v3 cannot apply mode/boundary or legacy-trash effects, and a v4 client can still hold a legacy request. The contract now names both gates before implementation.
+
+- **2026-09-13** — Literal v3 browser code retries an unrecognized upgrade close code; a new release cannot remotely add its terminal UI. The writer must withhold unsupported state on every retry, and current clients show upgrade guidance. Rollback also counts saved group-dependent undo candidates as history debt.
