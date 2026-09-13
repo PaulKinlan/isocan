@@ -23,12 +23,12 @@ const docPath = path.join(root, "docs/projects/voice-harness/capability-sweep.md
 
 /** Every engine operation, in the order `ops.ts` declares them. */
 const OPERATIONS = [
-  ["actor.claim", "—", "missing", "planned `actor_claim`; an agent re-identifying itself by voice needs the operator's name, not the model's"],
+  ["actor.claim", "`actor_claim`", "tooled", "only through the person: the model proposes a name, the person answers the question on the page"],
   ["actor.setColor", "`actor_set_color`", "tooled", ""],
   ["actor.setMark", "`actor_set_mark`", "tooled", ""],
   ["actor.join", "`actor_join`", "tooled", "only when the person names the other actor"],
-  ["project.create", "—", "missing", "planned `project_create`"],
-  ["project.update", "—", "missing", "planned `project_update`"],
+  ["project.create", "`project_create`", "tooled", "created, not entered: the session stays where it is until something switches"],
+  ["project.update", "`project_update`", "tooled", "this session's canvas by default; another one by id or unique title prefix"],
   ["project.delete", "—", "excluded", "confirmation-gated; a canvas is not deleted unattended"],
   ["item.add", "`add_item` (`url` → text/uri-list)", "tooled", ""],
   ["item.react", "`item_react`", "tooled", ""],
@@ -95,8 +95,8 @@ const CLI = [
   ["undo / redo", "history", "—", "excluded — history belongs to the operator; the agent issues a new operation instead"],
   ["open / pass / embed", "entry and one-use passes", "—", "excluded — credentials and entry are the operator's"],
   ["share / space / group / badges", "permissions and identity surfaces", "—", "excluded — access control is operator-only"],
-  ["canvas create / edit", "project metadata", "—", "missing"],
-  ["canvas list / show", "project reads", "`read_canvas` for the bound canvas", "tooled"],
+  ["canvas create / edit", "project metadata", "`project_create`, `project_update`", "tooled"],
+  ["canvas list / show", "project reads", "`project_list`, `read_canvas`", "tooled"],
   ["canvas background / archive / delete", "project presentation and lifecycle", "—", "excluded — archival and deletion are operator acts"],
   ["area", "section sheets", "—", "missing"],
   ["align / fit / distribute / tidy / merge", "layout", "—", "missing"],
@@ -139,7 +139,7 @@ const AGENT = [
 ];
 
 const MCP = [
-  ["list_canvases", "—", "missing"],
+  ["list_canvases", "`project_list`", "tooled"],
   ["read_canvas", "`read_canvas`", "tooled"],
   ["read_item", "`read_item`", "tooled"],
   ["read_threads", "`read_threads`", "tooled"],
@@ -268,9 +268,10 @@ Every row marked \`tooled\` must have one driven call that mints the expected op
 | Versions: add / remove / restore | — | missing |
 | Threads: anchor / main / delete / restore | — | missing |
 | Comments: update / remove / restore | — | missing |
-| Identity: colour / mark / join / claim | — | missing |
+| Identity: claim | \`renames in place when the person names it…\`, \`changes nothing when the person refuses…\` | passing |
+| Identity: colour / mark / join | — | missing |
 | Agents: enrol / withdraw | — | missing |
-| Projects: create / update | — | missing |
+| Projects: create / list / update / switch | the four tests in \`the projects this session can work on\` | passing |
 | Presence commands | — | missing |
 `;
 

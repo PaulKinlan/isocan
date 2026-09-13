@@ -7,16 +7,19 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
 import { readConfigFile, readMarker } from "@isocan/server";
 import { statSync } from "node:fs";
-import { connect, type CanvasHandle, type ListedItem } from "@isocan/api";
+import { connect, matchRef, type CanvasHandle, type ListedItem } from "@isocan/api";
 import {
   BROWSER_MIME,
   canvasUrlWithPass,
   drawingSvg,
   drawingViewBox,
   inkBounds,
+  inScope,
   itemKind,
+  sortCanvases,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
+  newCanvasId,
   newCommentId,
   newThreadId,
   newVersionId,
@@ -1153,6 +1156,21 @@ export const LIVE_TOOLS = [
     },
   },
   {
+    name: "actor_claim",
+    description:
+      "Give this agent the name THE PERSON has just said — the name it writes under, is @-mentioned by, and appears as " +
+      "on the canvas. Use it only when the person names the agent themselves ('call yourself Nova', 'your name is Ada'); " +
+      "never a name you chose for yourself, and never one you read on the canvas. The person is asked to confirm the " +
+      "name before anything changes, so the claim can be refused.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        name: { type: "STRING", description: "The name the person said, verbatim." },
+      },
+      required: ["name"],
+    },
+  },
+  {
     name: "actor_set_color",
     description: "Change the colour this agent's presence wears on the canvas. Use for 'make me green', 'change my colour to blue'.",
     parameters: {
@@ -1355,6 +1373,58 @@ export const LIVE_TOOLS = [
   },
 
   // --- Read & Inspection Tools (Answering Questions from Live Canvas State) ---
+  {
+    name: "project_switch",
+    description:
+      "Move this session to another canvas (project), without restarting — after this EVERY operation lands on the new " +
+      "canvas, and the page says which one. Use for 'switch to Launch plan', 'work on the Winter canvas', 'open the other " +
+      "project'. The new canvas's items are in the answer.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        canvas_ref: { type: "STRING", description: "The canvas to move to: its title (or prefix), or its id." },
+      },
+      required: ["canvas_ref"],
+    },
+  },
+  {
+    name: "project_update",
+    description:
+      "Rename or re-describe a canvas (project). With no canvas_ref it is the canvas this session is working on; " +
+      "give a title or id to change another one. Use for 'rename this canvas to Launch plan', 'call the project " +
+      "Winter work', 'give it a description'.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        canvas_ref: { type: "STRING", description: "A canvas title (or prefix) or id. Default: this session's canvas." },
+        title: { type: "STRING", description: "The new title." },
+        description: { type: "STRING", description: "The new one-line description." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "project_create",
+    description:
+      "Create a new canvas (project), with the title THE PERSON gave it. Use for 'make a new canvas called Launch plan', " +
+      "'start a project for the redesign'. It is created, not entered: this session stays where it is until someone " +
+      "switches to it.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        title: { type: "STRING", description: "The canvas's title, in the person's words." },
+        description: { type: "STRING", description: "Optional one-line description." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "project_list",
+    description:
+      "List the canvases (projects) this home has, each with its id, and mark the one this session is working on. " +
+      "Use for 'what projects are there', 'list my canvases', 'where am I'.",
+    parameters: { type: "OBJECT", properties: {} },
+  },
   {
     name: "read_canvas",
     description: "Inspect the canvas: list all active items, their titles, kinds, positions, and current versions.",
@@ -2193,12 +2263,37 @@ export async function checkKey(
  * canvas, or a set of them. Keyed on the OPERATION, not the tool name, so a
  * second tool that deletes something is gated by existing and the typed path
  * is gated by the same rule as the spoken one.
+ * Rescued from the harness lane that died (3cebbfe2) — the gate is the piece
+ * `actor_claim` needs, because a name is also the person's to give.
  */
 export const DESTRUCTIVE_OPS = new Set(["item.delete", "items.delete"]);
 
 /** How long the person has to answer before the gate closes itself. */
 export const CONFIRM_TIMEOUT_MS = 60_000;
 
+/**
+ * **The question, in the person's words rather than the log's.**
+ *
+ * `said` is an action label written for a record that is already past —
+ * "deleted the Greeting" — and a question built from it reads like a thing
+ * that already happened. Composed from the OPERATION (and the reference the
+ * person spoke), so the page asks about the act and the log still records the
+ * label.
+ *
+ * `items` is how a typed delete gets named: the grammar hands over an
+ * `itemId` it has already resolved, and "delete “that item”" is not a
+ * question anybody can answer.
+ */
+export function theQuestion(plans: readonly PlannedOp[], items: readonly ListedItem[] = []): string {
+  return plans
+    .map((one) => {
+      const op = one.op as { type: string; ref?: string; itemId?: string };
+      if (op.type !== "item.delete" && op.type !== "items.delete") return one.said;
+      const ref = op.ref ?? items.find((item) => item.id === op.itemId)?.title;
+      return `delete “${ref ?? "that item"}”`;
+    })
+    .join("; ");
+}
 export interface VoiceServerOptions {
   home: string;
   port?: number;
@@ -2215,8 +2310,8 @@ export interface VoiceServerOptions {
   model?: string;
   /** The socket address, for a test that needs a local stand-in. */
   liveUrl?: (key: string) => string;
-  /** How long the person has to answer a destructive operation's question.
-   * A test shortens it; a person gets a minute. */
+  /** How long the person has to answer a gated operation's question. A test
+   * shortens it; a person gets a minute. */
   confirmTimeoutMs?: number;
   /** How long a page has to answer a file question, for a test. */
   fsTimeoutMs?: number;
@@ -2311,6 +2406,21 @@ async function handleFor(options: VoiceServerOptions): Promise<{
     daemon,
     mainThreadId: main?.id ?? null,
   };
+}
+
+/**
+ * **The session key this harness speaks under — read off the daemon's own
+ * row, never rebuilt from the name.**
+ *
+ * `isocan voice` claims `agent:<name>`, and the name is the one thing a claim
+ * CHANGES: a key recomputed from the new name would be a second conversation
+ * for the same actor, and the daemon refuses to re-key a live actor (one
+ * actor, two faces — the refusal that stops a second session unseating a
+ * working agent). So the row that already binds this actor is the answer.
+ */
+async function theKeyWeHold(canvas: CanvasHandle, actorId: string): Promise<string | null> {
+  const rows = await canvas.ctx.client.actorBindings().catch(() => null);
+  return rows?.find((row) => row.actor.id === actorId)?.key ?? null;
 }
 
 /** Send one planned operation through the API handle, so a spoken change is
@@ -2544,7 +2654,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   close: () => Promise<void>;
 }> {
   const home = options.home;
-  const target = await handleFor(options);
+  /**
+   * **Which canvas this session is working on — and the one thing that moves
+   * while it runs.** `project_switch` re-resolves this handle against another
+   * canvas: every tool call, the page's facts, the presence heartbeat, the
+   * "open canvas" pass and the state file read it at the moment they act, so
+   * what moves is the session, not a copy of it.
+   */
+  let target = await handleFor(options);
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;
@@ -2647,11 +2764,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   /**
    * **The gate the model cannot open.**
    *
-   * A destructive operation is held here until the PERSON answers: the page is
-   * told what is about to happen and posts `/confirm` with a yes or a no. No
-   * answer within the window is a no — an unattended microphone is not
-   * consent — and a second question replaces the first, because a person can
-   * only answer one thing at a time.
+   * An operation a person has to agree to is held here until the PERSON
+   * answers: the page is told what is about to happen and posts `/confirm`
+   * with a yes or a no. No answer within the window is a no — an unattended
+   * microphone is not consent — and a second question replaces the first,
+   * because a person can only answer one thing at a time.
    *
    * A model-supplied `force` or `confirmed` argument is not consulted: it never
    * reaches this function, which is the point.
@@ -2710,7 +2827,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       pending = {
         id,
         what,
-        resolve: (allow) => {
+        resolve: (allow: boolean) => {
           clearTimeout(timer);
           if (pending?.id === id) pending = null;
           resolve(allow);
@@ -2718,7 +2835,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       };
       // Recorded as well as asked: the log is the only place that can answer
       // "did it ask before it deleted that?" a week later.
-      recordToolLog({ type: "session_event", event: `waiting for the person: ${what}`, details: { kind: "confirm_requested", id, what } });
+      recordToolLog({
+        type: "session_event",
+        event: `waiting for the person: ${what}`,
+        details: { kind: "confirm_requested", id, what },
+      });
       narrate(`confirmation requested: ${what}`);
       announce?.({ confirm: { id, what } });
     });
@@ -2733,7 +2854,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     const stored = await readVoiceKey(home).catch(() => null);
     const config = await readConfigFile<{ home?: string }>(home).catch(() => ({}) as { home?: string });
     const enrolled = (await readRcAgents(home).catch(() => [])).some(
-      (row) => row.canvasId === target.canvasId && row.name === target.name && row.harness === VOICE_HARNESS,
+      // Matched by ACTOR, not by name: an enrolment row is this agent's
+      // standing on this canvas, and a rename must not make the page say
+      // nothing can summon it while the row stands. The row's own name is the
+      // roster's to change.
+      (row) => row.canvasId === target.canvasId && row.actorId === target.actorId && row.harness === VOICE_HARNESS,
     );
     return {
       name: target.name,
@@ -3072,18 +3197,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
            "delete the Greeting" is the same act as a spoken one, so it is the
            same question. */
         const destroying = plans.filter((one) => DESTRUCTIVE_OPS.has(one.op.type));
-        if (destroying.length > 0) {
-          const askWhat = destroying.map((one) => one.said).join("; ");
-          if (!(await askThePerson(askWhat))) {
-            respond(200, {
-              reply: `not done — the person did not confirm: ${askWhat}`,
-              sent: [],
-              failed: [],
-              state: "refused",
-              source,
-            });
-            return;
-          }
+        const asked = theQuestion(destroying, items);
+        if (destroying.length > 0 && !(await askThePerson(asked))) {
+          const refused = `not done — the person did not confirm: ${asked}`;
+          respond(200, { reply: refused, sent: [], failed: [], state: "refused", source });
+          return;
         }
         const sent: string[] = [];
         const failed: string[] = [];
@@ -3186,7 +3304,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (pending) {
         const what = pending.what;
         pending.resolve(false);
-        recordToolLog({ type: "session_event", event: `the page closed with a question unanswered: ${what}`, reason: "page closed" });
+        recordToolLog({
+          type: "session_event",
+          event: `the page closed with a question unanswered: ${what}`,
+          reason: "page closed",
+        });
       }
       if (announce === say) announce = null;
       // A question owed by the page that closed is refused, not left hanging.
@@ -3336,7 +3458,340 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               return outcome.answer;
             }
 
+            /* **Who this agent IS — the one act here that changes no canvas.**
+               It goes through the person for the reason the tool is not
+               `actor.rename`: a model that can name itself is a model that can
+               be talked into naming itself by anything it reads, and the name
+               is what @-mentions, presence and every comment it wrote are
+               filed under. So the name is proposed by the model, ANSWERED by
+               the person, and only then claimed — in place, under the session
+               key this harness already holds, so the actor keeps its id and
+               its history. */
+            if (name === "actor_claim") {
+              const wanted = String(args.name ?? "").trim();
+              const refused = (err: string) => {
+                say({ text: err, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              };
+              if (!wanted) return refused("a claim needs the name the person said — ask them what to be called");
+              if (wanted.length > 60) {
+                return refused(`“${wanted.slice(0, 30)}…” is too long for a name — a name is what people call you`);
+              }
+              if (wanted.toLowerCase() === target.name.toLowerCase()) {
+                const already = `this agent is already called “${target.name}” — nothing to change`;
+                say({ text: already });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: true, answer: already },
+                });
+                return { ok: true, name: target.name, answer: already };
+              }
+
+              const what = `rename this agent to “${wanted}” (it is “${target.name}” now)`;
+              if (!(await askThePerson(what))) return refused(`not done — the person did not confirm: ${what}`);
+
+              const key = await theKeyWeHold(target.canvas, target.actorId);
+              if (!key) {
+                return refused("this harness has no session key on this daemon, so there is nothing to rename");
+              }
+              try {
+                const claimed = await target.canvas.ctx.client.claimActor({
+                  type: "actor.claim",
+                  sessionKey: key,
+                  name: wanted,
+                  canvasId: target.canvasId,
+                });
+                const actor = claimed.envelope.actor;
+                const was = target.name;
+                target.name = actor.name;
+                /* The face follows the name. A presence session is created
+                   with a label, so the old one keeps wearing the old name
+                   until it ends — and a face with the wrong name on it is
+                   the exact confusion the registry exists to stop. */
+                if (presenceSessionId) {
+                  await target.canvas.ctx.client.endSession(target.canvasId, presenceSessionId).catch(() => {});
+                  presenceSessionId = null;
+                }
+                await announcePresence("enrolled — nobody is listening right now");
+                await rememberWhatIAm();
+                // The page's own headings name the agent; told, so a listening
+                // tab does not keep saying the old name back to the person.
+                announce?.({ agent: { name: actor.name } });
+
+                const answer = `this agent now answers to “${actor.name}” (it was “${was}”)`;
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: "actor.claim", said: `renamed to “${actor.name}”`, target: actor.id },
+                  result: { ok: true, answer, seq: claimed.seq },
+                });
+                recentActions.push({ tool: name, op: "actor.claim", id: actor.id, ack: answer });
+                if (recentActions.length > 20) recentActions.shift();
+                return { ok: true, actor: { id: actor.id, name: actor.name }, answer };
+              } catch (err) {
+                // The daemon's own words: a name somebody already answers to
+                // is a refusal with a reason, and the reason names the way back.
+                return refused(`not renamed — ${(err as Error).message}`);
+              }
+            }
             // 1. Read & Inspection tools:
+            if (name === "project_switch") {
+              const ref = String(args.canvas_ref ?? "").trim();
+              const refuseSwitch = (message: string) => {
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              };
+              if (!ref) return refuseSwitch("a switch needs the canvas to move to — ask the person which one");
+              let next: { id: string; title: string };
+              try {
+                next = matchRef(await target.canvas.ctx.client.listCanvases(), ref);
+              } catch (err) {
+                return refuseSwitch((err as Error).message);
+              }
+              if (next.id === target.canvasId) {
+                const here = `this session is already on “${target.canvasLabel}” — nothing to move`;
+                say({ text: here });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: true, answer: here },
+                });
+                return { ok: true, canvas: { id: target.canvasId, title: target.canvasLabel }, answer: here };
+              }
+
+              const was = { id: target.canvasId, title: target.canvasLabel };
+              try {
+                /* The room changes with the work: the presence session on the
+                   old canvas is ended, not left to look like somebody still
+                   standing in a room this agent has left. */
+                if (presenceSessionId) {
+                  await target.canvas.ctx.client.endSession(was.id, presenceSessionId).catch(() => {});
+                  presenceSessionId = null;
+                }
+                target = await handleFor({ ...options, canvas: next.id });
+                /* The model's referents move too. "that one" pointed at an
+                   item on the canvas it just left, and an id from the other
+                   canvas does not resolve here — so the short-list of recent
+                   actions is emptied rather than left to be a trap. */
+                recentActions.splice(0, recentActions.length);
+                const here = await target.canvas.items().catch(() => []);
+                const answer =
+                  `moved to the canvas “${target.canvasLabel}” [${target.canvasId}] — ` +
+                  `${here.length} item${here.length === 1 ? "" : "s"}: ${here.map((i) => `${i.title} [${i.id}]`).join("; ") || "none"}. ` +
+                  `Every operation from here lands on it.`;
+                await announcePresence(sessionState === "live" ? "listening" : "enrolled — nobody is listening right now");
+                await rememberWhatIAm();
+                // The page's header and facts panel name the canvas: told, so
+                // a tab that is listening does not sit there naming the room
+                // the session just left.
+                announce?.({ canvas: { title: target.canvasLabel, id: target.canvasId } });
+                narrate(`switched canvas: “${was.title}” → “${target.canvasLabel}”`);
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: {
+                    ok: true,
+                    answer,
+                    canvasId: target.canvasId,
+                    from: was.id,
+                  },
+                });
+                return {
+                  ok: true,
+                  canvas: { id: target.canvasId, title: target.canvasLabel },
+                  previous: was,
+                  items: here.map((i) => ({ id: i.id, title: i.title })),
+                  answer,
+                };
+              } catch (err) {
+                return refuseSwitch(`could not move to “${next.title}” — ${(err as Error).message}`);
+              }
+            }
+            if (name === "project_update") {
+              const hasTitle = typeof args.title === "string" && args.title.trim() !== "";
+              const hasDescription = typeof args.description === "string" && args.description.trim() !== "";
+              if (!hasTitle && !hasDescription) {
+                const err = "nothing to change — a canvas edit needs a new title or a description";
+                say({ text: err, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              }
+              const ref = typeof args.canvas_ref === "string" ? args.canvas_ref.trim() : "";
+              let canvas: { id: string; title: string };
+              try {
+                /* `matchRef` is the one spelling of "which canvas did they
+                   mean" — id exact, then a unique title prefix — shared with
+                   `--canvas` everywhere else, so a spoken reference and a
+                   typed one cannot disagree. */
+                canvas = ref
+                  ? matchRef(await target.canvas.ctx.client.listCanvases(), ref)
+                  : { id: target.canvasId, title: target.canvasLabel };
+              } catch (err) {
+                const message = (err as Error).message;
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+              const patch: { title?: string; description?: string } = {
+                ...(hasTitle ? { title: String(args.title).trim() } : {}),
+                ...(hasDescription ? { description: String(args.description).trim() } : {}),
+              };
+              try {
+                const ack = await target.canvas.ctx.client.sendOp(canvas.id, target.canvas.ctx.actor, {
+                  type: "project.update",
+                  patch,
+                });
+                if (canvas.id === target.canvasId && patch.title !== undefined) target.canvasLabel = patch.title;
+                const answer = `updated “${canvas.title}” [${canvas.id}]${patch.title ? ` — now “${patch.title}”` : ""}`;
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: "project.update", said: `renamed the canvas “${canvas.title}”`, target: canvas.id },
+                  result: { ok: true, answer, seq: ack.seq },
+                });
+                recentActions.push({ tool: name, op: "project.update", id: canvas.id, ack: answer });
+                if (recentActions.length > 20) recentActions.shift();
+                return { ok: true, canvas: { id: canvas.id, title: patch.title ?? canvas.title }, answer };
+              } catch (err) {
+                const message = `the canvas was not changed — ${(err as Error).message}`;
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+            }
+            if (name === "project_create") {
+              const title = String(args.title ?? "").trim();
+              if (!title) {
+                const err = "a new canvas needs a title — ask the person what to call it";
+                say({ text: err, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: err },
+                });
+                return { ok: false, error: err };
+              }
+              const canvasId = newCanvasId();
+              const description = typeof args.description === "string" ? args.description.trim() : "";
+              try {
+                /* Home-scoped, exactly as `isocan canvas create` sends it:
+                   the envelope names no canvas, because the canvas does not
+                   exist until this op makes it. */
+                const ack = await target.canvas.ctx.client.sendOp(null, target.canvas.ctx.actor, {
+                  type: "project.create",
+                  canvasId,
+                  title,
+                  ...(description ? { description } : {}),
+                });
+                const answer =
+                  `created the canvas “${title}” [${canvasId}] — this session is still on “${target.canvasLabel}”; ` +
+                  `switch to it when the person wants to work there`;
+                say({ text: answer });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  op: { type: "project.create", said: `made the canvas “${title}”`, target: canvasId },
+                  result: { ok: true, answer, seq: ack.seq, canvasId },
+                });
+                recentActions.push({ tool: name, op: "project.create", id: canvasId, ack: answer });
+                if (recentActions.length > 20) recentActions.shift();
+                return { ok: true, canvas: { id: canvasId, title }, answer };
+              } catch (err) {
+                const message = `the canvas was not made — ${(err as Error).message}`;
+                say({ text: message, bad: true });
+                recordToolLog({
+                  type: "tool_call",
+                  source: "live",
+                  name,
+                  args: args as Record<string, unknown>,
+                  result: { ok: false, error: message },
+                });
+                return { ok: false, error: message };
+              }
+            }
+            if (name === "project_list") {
+              /* **The shelf is out of the way unless it is asked for** (#194),
+                 and the rule is `inScope` — the same one the app's home list
+                 and `isocan canvas list` use, so "my projects" means one thing
+                 on every surface. The session's own canvas is listed whatever
+                 it is: a person asked where they are. */
+              const canvases = await target.canvas.ctx.client.listCanvases();
+              const shown = sortCanvases(
+                canvases.filter((c) => inScope(c, "live") || c.id === target.canvasId),
+                "recent",
+              );
+              const answer =
+                shown.length === 0
+                  ? "this home has no canvases yet"
+                  : shown
+                      .map((c) => `${c.title}${c.id === target.canvasId ? " (this session is here)" : ""} [${c.id}]`)
+                      .join("; ");
+              say({ text: answer });
+              recordToolLog({
+                type: "tool_call",
+                source: "live",
+                name,
+                args: args as Record<string, unknown>,
+                result: { ok: true, count: shown.length, answer },
+              });
+              return {
+                ok: true,
+                count: shown.length,
+                current: target.canvasId,
+                canvases: shown.map((c) => ({ id: c.id, title: c.title })),
+                answer,
+              };
+            }
             if (name === "read_canvas") {
               const summary = items.map((i) => ({
                 id: i.id,
@@ -3550,7 +4005,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             // promise a door that does not exist.
             if (name === "trash_empty" || name === "project_delete") {
               const err =
-                `${name} is not wired to this harness — there is no operation behind it, so nothing was changed. ` +
+                `${name} is not wired to this harness — there is no confirmation it can ask for it, and nothing was changed. ` +
                 "A person does that in the app, where the canvas can be seen while it happens.";
               say({ text: err });
               recordToolLog({
@@ -3578,14 +4033,16 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               return { ok: false, error: err };
             }
 
-            /* A destructive plan stops here until the person says yes, and
-               the model is told what they said. Nothing is minted before the
-               answer: the gate is above the apply, not beside it. */
-            const destroying = plan.plans.filter((one) => DESTRUCTIVE_OPS.has(one.op.type));
+            const { ready, refused } = resolveLivePlans(plan.plans, items, trashItems);
+
+            /* A gated plan stops here until the person says yes, and the
+               model is told what they said. Nothing is minted before the
+               answer: the gate is above the apply, not beside it. Resolved
+               first, so the question names the item that was actually found. */
+            const destroying = ready.filter((one) => DESTRUCTIVE_OPS.has(one.op.type));
             if (destroying.length > 0) {
-              const what = destroying.map((one) => one.said).join("; ");
-              const allowed = await askThePerson(what);
-              if (!allowed) {
+              const what = theQuestion(destroying, items);
+              if (!(await askThePerson(what))) {
                 const err = `not done — the person did not confirm: ${what}`;
                 say({ text: err });
                 recordToolLog({
@@ -3600,7 +4057,6 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
               }
             }
 
-            const { ready, refused } = resolveLivePlans(plan.plans, items, trashItems);
             const sent: string[] = [];
             const failed: string[] = [];
             for (const one of ready) {
@@ -3719,12 +4175,20 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     toolLog,
     confirm: pendingQuestion(),
   };
-  await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
-  await fs.writeFile(
-    voiceServerFile(home),
-    `${JSON.stringify({ pid: process.pid, port: listening, url, name: state.name, canvas: state.canvas, at: new Date().toISOString() }, null, 2)}\n`,
-    { mode: 0o600 },
-  );
+  /** What this harness says it is, for anything reading from outside — the
+   * standing-server probe, and whoever looks at the file a week later. Written
+   * again whenever it stops being true. */
+  const rememberWhatIAm = async (): Promise<void> => {
+    state.name = target.name;
+    state.canvas = target.canvasLabel;
+    await fs.mkdir(voiceDir(home), { recursive: true, mode: 0o700 });
+    await fs.writeFile(
+      voiceServerFile(home),
+      `${JSON.stringify({ pid: process.pid, port: listening, url, name: state.name, canvas: state.canvas, at: new Date().toISOString() }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+  };
+  await rememberWhatIAm();
 
   // Announce presence on the canvas so `isocan who` and the canvas facepile
   // show the voice agent in the room:

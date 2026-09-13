@@ -48,6 +48,9 @@ export interface VoicePageFacts {
    * front of you was the old one or the new one. */
   version: string;
   updated: string;
+  /** The question waiting for the person, if any — announced on the live
+   * socket and kept in `/state`, so a tab that opens later still sees it. */
+  confirm?: { id: string; what: string } | null;
 }
 
 /**
@@ -82,6 +85,14 @@ const els = {
   testKey: document.getElementById("test-key"),
   provider: document.getElementById("provider"),
   version: document.getElementById("version"),
+  canvasTitle: document.getElementById("canvas-title"),
+  canvasFact: document.getElementById("canvas-fact"),
+  canvasFactId: document.getElementById("canvas-fact-id"),
+  agentName: document.getElementById("agent-name"),
+  confirm: document.getElementById("confirm"),
+  confirmWhat: document.getElementById("confirm-what"),
+  confirmYes: document.getElementById("confirm-yes"),
+  confirmNo: document.getElementById("confirm-no"),
 };
 
 const BARS = 28;
@@ -121,6 +132,55 @@ async function post(path, body) {
   if (!r.ok) throw new Error(j.error || (r.status + " from the harness"));
   return j;
 }
+
+/* ---- the question only a person can answer ----
+ *
+ * A delete, and anything else the harness holds for consent, waits here. The
+ * model cannot press these buttons and neither can a transcript: the answer
+ * arrives as a click, and no answer inside a minute is a no. The harness
+ * announces the question on the live socket AND keeps it in /state, so a
+ * question asked while this tab was closed still appears.
+ */
+/* ---- which canvas, and who is speaking ----
+ *
+ * Both move while the session runs: a switch re-points every operation, and a
+ * claim renames the agent. Neither is worth a page reload — a reload would
+ * throw away the transcript, which is the record of what was said — so both
+ * are patched in place, and the poll catches up a tab that was not listening
+ * when it happened.
+ */
+function showCanvas(canvas) {
+  if (!canvas) return;
+  els.canvasTitle.textContent = canvas.title;
+  els.canvasFact.textContent = canvas.title;
+  els.canvasFactId.textContent = canvas.id;
+}
+function showAgent(name) {
+  if (name) els.agentName.textContent = name;
+}
+
+let asking = null;
+function showConfirm(ask) {
+  asking = ask && ask.id ? ask : null;
+  els.confirm.hidden = !asking;
+  if (asking) {
+    els.confirmWhat.textContent = asking.what;
+    els.confirmYes.focus();
+  }
+}
+async function answer(allow) {
+  const ask = asking;
+  if (!ask) return;
+  showConfirm(null);
+  try {
+    await post("/confirm", { id: ask.id, allow });
+    say(els.log, (allow ? "you allowed: " : "you declined: ") + ask.what, "note");
+  } catch (err) {
+    say(els.log, String(err.message || err), "bad");
+  }
+}
+els.confirmYes.onclick = () => void answer(true);
+els.confirmNo.onclick = () => void answer(false);
 
 async function send(utterance, source) {
   if (!utterance.trim()) return;
@@ -376,6 +436,9 @@ async function start() {
     try { message = JSON.parse(event.data); } catch { return; }
     if (message.text) say(els.transcript, message.text, "agent");
     if (message.heard) say(els.transcript, message.heard, "you spoken");
+    if (message.confirm !== undefined) showConfirm(message.confirm);
+    if (message.canvas) showCanvas(message.canvas);
+    if (message.agent) showAgent(message.agent.name);
     for (const line of message.sent || []) say(els.log, line, "op");
     for (const line of message.failed || []) say(els.log, line, "bad");
     if (message.state) status(message.state, message.bad ? "warn" : "");
@@ -474,6 +537,18 @@ setInterval(async () => {
     if (s.updated && facts.updated && s.updated !== facts.updated) {
       location.reload();
     }
+    // The typed path asks without a live socket, so the question is only ever
+    // seen here — and a question answered in another tab disappears here.
+    const askId = s.confirm ? s.confirm.id : null;
+    if ((asking && asking.id) !== askId) showConfirm(s.confirm || null);
+    if (s.canvas && s.canvas.id !== facts.canvas.id) {
+      facts.canvas = s.canvas;
+      showCanvas(s.canvas);
+    }
+    if (s.name && s.name !== facts.name) {
+      facts.name = s.name;
+      showAgent(s.name);
+    }
   } catch {}
 }, 2500);
 
@@ -543,7 +618,7 @@ export function voicePage(facts: VoicePageFacts): string {
     aside { display: block; }
     aside > .panel { margin-bottom: 14px; }
     main { display: block; }
-    main > .panel, main > .composer, main > .dock { margin-bottom: 14px; }
+    main > .panel, main > .composer, main > .dock, main > #confirm { margin-bottom: 14px; }
     .dock { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; }
     #mic-slot { min-width: 96px; }
     #meter { flex: 1 1 100%; }
@@ -626,6 +701,17 @@ export function voicePage(facts: VoicePageFacts): string {
     background: var(--live); border-color: var(--live); color: #241018; font-weight: 600;
   }
   #meter { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+  /* The question bar. Above the composer because it is the one thing on this
+     page that is waiting for a person, and set apart from the panels because
+     it is not a log: it is a decision. */
+  #confirm {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 14px; border: 1px solid var(--accent-lit); border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  #confirm .q { font-size: 14px; }
+  #confirm .q span { font-weight: 600; }
+  #confirm .row { display: flex; gap: 8px; }
   #bars { display: flex; align-items: flex-end; gap: 3px; height: 34px; }
   #bars i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); transition: height .05s linear, background .05s linear; }
   #bars i.on { height: 30px; background: linear-gradient(180deg, var(--accent-lit), var(--accent)); }
@@ -640,7 +726,7 @@ export function voicePage(facts: VoicePageFacts): string {
 <body>
 <header>
   <h1>isocan voice</h1>
-  <span class="canvas">${escapeHtml(facts.canvas.title)}</span>
+  <span class="canvas" id="canvas-title">${escapeHtml(facts.canvas.title)}</span>
   <span class="spacer"></span>
   <span id="state" class="state">ready</span>
 </header>
@@ -651,13 +737,22 @@ export function voicePage(facts: VoicePageFacts): string {
     <div id="transcript"></div>
   </section>
   <section class="panel" style="flex: 1">
-    <h2>Operations sent, as ${escapeHtml(facts.name)}</h2>
+    <h2>Operations sent, as <span id="agent-name">${escapeHtml(facts.name)}</span></h2>
     <div id="log"></div>
   </section>
   <form class="composer" onsubmit="return false">
     <input id="typed" type="text" placeholder="Type a command — same path as speech: “retitle the second screen to Checkout”" autocomplete="off">
     <button id="send" class="primary">Send</button>
   </form>
+
+  <div id="confirm" hidden role="alertdialog" aria-labelledby="confirm-what">
+    <div class="q">Needs your answer — <span id="confirm-what"></span></div>
+    <div class="row">
+      <button id="confirm-yes" class="primary">Yes, do it</button>
+      <button id="confirm-no">No</button>
+    </div>
+    <div class="hint">Nobody else can answer this: the microphone cannot press a button, and no answer within a minute is a no.</div>
+  </div>
 
   <div class="dock">
     <div id="mic-slot"></div>
@@ -674,7 +769,7 @@ export function voicePage(facts: VoicePageFacts): string {
   <section class="panel">
     <h2>Connected to</h2>
     <dl class="facts">
-      <dt>Canvas</dt><dd>${escapeHtml(facts.canvas.title)} <span class="id">${escapeHtml(facts.canvas.id)}</span></dd>
+      <dt>Canvas</dt><dd><span id="canvas-fact">${escapeHtml(facts.canvas.title)}</span> <span class="id" id="canvas-fact-id">${escapeHtml(facts.canvas.id)}</span></dd>
       <dt>Daemon</dt><dd>${escapeHtml(facts.daemon)}</dd>
       <dt>Home</dt><dd>${escapeHtml(facts.home)}</dd>
       <dt>Agent</dt><dd>${escapeHtml(facts.agent.name)} <span class="id">${escapeHtml(facts.agent.id)}</span>${facts.agent.enrolled ? "" : " <span class=\"warn\">not enrolled — nothing can summon it</span>"}</dd>

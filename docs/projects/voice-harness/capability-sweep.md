@@ -6,14 +6,14 @@
 
 ## Count line
 
-**145 capabilities across five sources — 82 tooled, 34 missing, 29 excluded with a reason.**
+**145 capabilities across five sources — 87 tooled, 29 missing, 29 excluded with a reason.**
 
 | Source | Rows | tooled | missing | excluded |
 |---|---|---|---|---|
-| Reducer (`packages/core/src/ops.ts`) | 33 | 23 | 3 | 7 |
-| CLI (`isocan --help`) | 52 | 22 | 16 | 14 |
+| Reducer (`packages/core/src/ops.ts`) | 33 | 26 | 0 | 7 |
+| CLI (`isocan --help`) | 52 | 23 | 15 | 14 |
 | Agent guide (`isocan --agent-help`) | 21 | 14 | 4 | 3 |
-| MCP (`packages/mcp/src/server.ts`) | 6 | 4 | 2 | 0 |
+| MCP (`packages/mcp/src/server.ts`) | 6 | 5 | 1 | 0 |
 | Web UI (`packages/web`) | 33 | 19 | 9 | 5 |
 
 ---
@@ -24,12 +24,12 @@
 
 | Operation | Tool | Status | Notes |
 |---|---|---|---|
-| `actor.claim` | — | **missing** | planned `actor_claim`; an agent re-identifying itself by voice needs the operator's name, not the model's |
+| `actor.claim` | `actor_claim` | **tooled** | only through the person: the model proposes a name, the person answers the question on the page |
 | `actor.setColor` | `actor_set_color` | **tooled** |  |
 | `actor.setMark` | `actor_set_mark` | **tooled** |  |
 | `actor.join` | `actor_join` | **tooled** | only when the person names the other actor |
-| `project.create` | — | **missing** | planned `project_create` |
-| `project.update` | — | **missing** | planned `project_update` |
+| `project.create` | `project_create` | **tooled** | created, not entered: the session stays where it is until something switches |
+| `project.update` | `project_update` | **tooled** | this session's canvas by default; another one by id or unique title prefix |
 | `project.delete` | — | **excluded** | confirmation-gated; a canvas is not deleted unattended |
 | `item.add` | `add_item` (`url` → text/uri-list) | **tooled** |  |
 | `item.react` | `item_react` | **tooled** |  |
@@ -100,8 +100,8 @@
 | undo / redo | — | **excluded** | history belongs to the operator; the agent issues a new operation instead |
 | open / pass / embed | — | **excluded** | credentials and entry are the operator's |
 | share / space / group / badges | — | **excluded** | access control is operator-only |
-| canvas create / edit | — | **missing** |  |
-| canvas list / show | `read_canvas` for the bound canvas | **tooled** |  |
+| canvas create / edit | `project_create`, `project_update` | **tooled** |  |
+| canvas list / show | `project_list`, `read_canvas` | **tooled** |  |
 | canvas background / archive / delete | — | **excluded** | archival and deletion are operator acts |
 | area | — | **missing** |  |
 | align / fit / distribute / tidy / merge | — | **missing** |  |
@@ -156,7 +156,7 @@ MCP exposes reads only; the voice harness is the write surface.
 
 | Capability | Tool | Status | Reason |
 |---|---|---|---|
-| list_canvases | — | **missing** |  |
+| list_canvases | `project_list` | **tooled** |  |
 | read_canvas | `read_canvas` | **tooled** |  |
 | read_item | `read_item` | **tooled** |  |
 | read_threads | `read_threads` | **tooled** |  |
@@ -221,7 +221,8 @@ Every row marked `tooled` must have one driven call that mints the expected oper
 | Versions: add / remove / restore | — | missing |
 | Threads: anchor / main / delete / restore | — | missing |
 | Comments: update / remove / restore | — | missing |
-| Identity: colour / mark / join / claim | — | missing |
+| Identity: claim | `renames in place when the person names it…`, `changes nothing when the person refuses…` | passing |
+| Identity: colour / mark / join | — | missing |
 | Agents: enrol / withdraw | — | missing |
-| Projects: create / update | — | missing |
+| Projects: create / list / update / switch | the four tests in `the projects this session can work on` | passing |
 | Presence commands | — | missing |

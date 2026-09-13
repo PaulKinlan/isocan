@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
+import { shelvePatch } from "@isocan/core";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 import {
   DEFAULT_VOICE_PORT,
@@ -138,11 +139,15 @@ async function post(url: string, body: unknown): Promise<any> {
 
 /** Every op the canvas has, oldest first, with who sent it — the watched log
  * replayed from zero, which is what `isocan tail --since 0` walks. */
-async function log(): Promise<{ type: string; actor: string }[]> {
+async function log(ids: string[] = ["prj_1"]): Promise<{ type: string; actor: string }[]> {
   const res = await fetch(`${base}/api/oplog/watch`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...badge.headers },
-    body: JSON.stringify({ cursors: { prj_1: 0 }, only: ["prj_1"], waitMs: 0 }),
+    body: JSON.stringify({
+      cursors: Object.fromEntries(ids.map((id) => [id, 0])),
+      only: ids,
+      waitMs: 0,
+    }),
   });
   const body = (await res.json()) as {
     entries?: { envelope: { actor: { id: string }; op: { type: string } } }[];
@@ -166,6 +171,125 @@ async function namesOnCanvas(): Promise<Record<string, string>> {
 
 const item = (title: string, id = title, x = 100, y = 100): ListedItem =>
   ({ id, title, x, y, kind: "text", createdAt: new Date(2026, 0, 1).toISOString() }) as ListedItem;
+
+/** The question the harness is holding, read the way the page reads it — off
+ * `/state`, which is the only route a tab that missed the socket has. */
+async function theQuestion(baseUrl: string): Promise<{ id: string; what: string }> {
+  const deadline = Date.now() + 5000;
+  let last = "";
+  while (Date.now() < deadline) {
+    const s = (await (await fetch(`${baseUrl}state`)).json()) as { confirm?: { id: string; what: string } | null };
+    if (s.confirm) return s.confirm;
+    last = JSON.stringify(s).slice(0, 400);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`the harness never asked the person; last state: ${last}`);
+}
+
+/** The person's click, in HTTP form: what the page posts, and the only thing
+ * that opens the gate. */
+async function answering(baseUrl: string, id: string, allow: boolean): Promise<{ ok: boolean; allowed?: boolean }> {
+  const r = await fetch(`${baseUrl}confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, allow }),
+  });
+  return (await r.json()) as { ok: boolean; allowed?: boolean };
+}
+
+async function utterance(baseUrl: string, text: string): Promise<{ sent: string[]; failed: string[]; reply: string; state: string }> {
+  const r = await fetch(`${baseUrl}utterance`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, source: "typed" }),
+  });
+  return (await r.json()) as { sent: string[]; failed: string[]; reply: string; state: string };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * **A live session on a fake provider socket** — the shape every tool call in
+ * this file arrives through — plus the two handles a person has: the page and
+ * the canvas.
+ */
+async function liveServer() {
+  await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+  let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
+  class FakeLiveSocket {
+    readyState = 1;
+    sent: string[] = [];
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    constructor(readonly url: string) {
+      providerSocket = this;
+      queueMicrotask(() => this.onopen?.());
+    }
+    send(data: string) {
+      this.sent.push(data);
+    }
+    close() {}
+    emit(message: unknown) {
+      this.onmessage?.({ data: JSON.stringify(message) });
+    }
+  }
+
+  const server = await startVoiceServer({
+    home,
+    port: 0,
+    identity: { session: "Voice", harness: "agent" },
+    canvas: "prj_1",
+    daemonPort: Number(new URL(base).port),
+    // A gate nobody answers must not hold a test for a minute.
+    confirmTimeoutMs: 2000,
+    WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+  });
+  const { WebSocket: WsClient } = await import("ws");
+  const clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+  await new Promise<void>((resolve) => clientWs.on("open", () => resolve()));
+  /** Everything the page is told on its live socket, in order. */
+  const toPage: any[] = [];
+  clientWs.on("message", (data: unknown) => {
+    try {
+      toPage.push(JSON.parse(String(data)));
+    } catch {
+      // binary audio
+    }
+  });
+  while (!providerSocket) await sleep(10);
+  providerSocket.emit({ setupComplete: {} });
+  await sleep(50);
+  return {
+    server,
+    providerSocket,
+    toPage,
+    close: async () => {
+      clientWs.close();
+      await server.close();
+    },
+  };
+}
+
+/**
+ * The model's call, answered. Started without awaiting when the person has to
+ * answer first, and then awaited — the tool response only arrives after the
+ * gate opens.
+ */
+async function callTool(
+  socket: { emit: (message: unknown) => void; sent: string[] },
+  id: string,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<{ id: string; response: any }> {
+  const before = socket.sent.length;
+  socket.emit({ toolCall: { functionCalls: [{ id, name, args }] } });
+  const deadline = Date.now() + 8000;
+  while (socket.sent.length <= before && Date.now() < deadline) await sleep(10);
+  const reply = JSON.parse(socket.sent.at(-1) ?? "{}");
+  return reply.toolResponse?.functionResponses?.[0];
+}
 
 /** The CLI, with this test's temp home and daemon — the same launcher the acp
  * suite uses, so the machine badge and the identity resolution are the real
@@ -775,6 +899,506 @@ describe("the page", () => {
   });
 });
 
+describe("the person's gate", () => {
+  let close: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    await close?.();
+    close = null;
+  });
+
+  /** The same server, with the window short: a test cannot wait a minute for
+   * a question nobody is going to answer. */
+  async function serve() {
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: { session: "Voice", harness: "agent" },
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      confirmTimeoutMs: 700,
+    });
+    close = server.close;
+    return server;
+  }
+
+  it("holds a typed delete until the person answers: a yes sends it, a no does not", async () => {
+    const server = await serve();
+
+    // The no. The question is asked, and asking is not doing: the item is
+    // still on the canvas while it stands.
+    const deniedRun = utterance(server.state.url, "delete the Checkout screen");
+    const deniedAsk = await theQuestion(server.state.url);
+    expect(deniedAsk.what).toContain("Checkout screen");
+    expect((await items()).map((i) => i.title)).toContain("Checkout screen");
+    expect(await answering(server.state.url, deniedAsk.id, false)).toEqual({ ok: true, allowed: false });
+
+    const denied = await deniedRun;
+    expect(denied.state).toBe("refused");
+    expect(denied.sent).toEqual([]);
+    expect((await items()).map((i) => i.title)).toContain("Checkout screen");
+    expect((await log()).some((e) => e.type === "item.delete")).toBe(false);
+
+    // The yes, on the same sentence — the person is the difference.
+    const allowedRun = utterance(server.state.url, "delete the Checkout screen");
+    const allowedAsk = await theQuestion(server.state.url);
+    expect(allowedAsk.id).not.toBe(deniedAsk.id);
+    expect(await answering(server.state.url, allowedAsk.id, true)).toEqual({ ok: true, allowed: true });
+
+    const allowed = await allowedRun;
+    expect(allowed.failed).toEqual([]);
+    expect((await items()).map((i) => i.title)).not.toContain("Checkout screen");
+    expect((await log()).at(-1)!.type).toBe("item.delete");
+
+    // Both answers are in the record, with the question they answered — which
+    // is the only thing that can say, a week later, whether it asked first.
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as { entries: any[] }).entries;
+    expect(entries.some((e) => e.details?.kind === "confirm_requested")).toBe(true);
+    expect(entries.some((e) => e.details?.kind === "confirm_declined")).toBe(true);
+    expect(entries.some((e) => e.details?.kind === "confirm_allowed")).toBe(true);
+  });
+
+  it("reads no answer as a no, and says so rather than pretending it happened", async () => {
+    const server = await serve();
+    const run = utterance(server.state.url, "delete the Checkout screen");
+    await theQuestion(server.state.url);
+
+    const out = await run;
+    expect(out.state).toBe("refused");
+    expect(out.reply).toContain("did not confirm");
+    expect((await items()).map((i) => i.title)).toContain("Checkout screen");
+
+    const entries = ((await (await fetch(`${server.state.url}log`)).json()) as { entries: any[] }).entries;
+    const expired = entries.find((e) => e.reason === "no answer");
+    expect(expired, "the expiry is in the log, with its reason").toBeDefined();
+    // And the question is gone: a stale question on the page is a person
+    // answering something that already happened.
+    const state = (await (await fetch(`${server.state.url}state`)).json()) as { confirm: unknown };
+    expect(state.confirm).toBeNull();
+  });
+
+  it("answers an answer that is not the question being asked", async () => {
+    const server = await serve();
+    const run = utterance(server.state.url, "delete the Checkout screen");
+    const ask = await theQuestion(server.state.url);
+
+    const stale = await answering(server.state.url, "cfm_not_the_one", true);
+    expect(stale.ok).toBe(false);
+    expect(await answering(server.state.url, ask.id, false)).toEqual({ ok: true, allowed: false });
+    await run;
+  });
+
+  it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
+    const server = await serve();
+    const page = await (await fetch(server.state.url)).text();
+    expect(page).toContain('id="confirm"');
+    expect(page).toContain('id="confirm-what"');
+    expect(page).toContain("Yes, do it");
+    expect(page).toContain('post("/confirm"');
+    // A question asked while the tab was closed still finds it: the poll reads
+    // it off /state, which the socket-less typed path never announces on.
+    expect(page).toContain("showConfirm(s.confirm || null)");
+  });
+});
+
+describe("what an agent is called", () => {
+
+
+  async function canvasNames(): Promise<Record<string, string>> {
+    const res = await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers });
+    return ((await res.json()) as { names?: Record<string, string> }).names ?? {};
+  }
+
+  /** The identity ledger on disk — the home's own record of who a name
+   * belongs to, which is the half a canvas view cannot show. */
+  async function nameRows(): Promise<Record<string, { name: string }>> {
+    const raw = JSON.parse(await fs.readFile(path.join(home, "actors.json"), "utf8")) as {
+      names?: Record<string, { name: string }>;
+    };
+    return raw.names ?? {};
+  }
+
+  it("renames in place when the person names it, and the canvas, the ledger and the face follow", async () => {
+    const live = await liveServer();
+    try {
+      const before = ((await (await fetch(`${live.server.state.url}state`)).json()) as any).agent as {
+        id: string;
+        name: string;
+      };
+      expect(before.name).toBe("Voice");
+      expect((await canvasNames())[before.id]).toBe("Voice");
+
+      // The model proposes; the person answers. Nothing has moved yet.
+      const call = callTool(live.providerSocket, "call-name", "actor_claim", { name: "Nova" });
+      const ask = await theQuestion(live.server.state.url);
+      expect(ask.what).toContain("Nova");
+      expect(ask.what).toContain("Voice");
+      expect((await canvasNames())[before.id], "the name is the person's to give").toBe("Voice");
+
+      expect(await answering(live.server.state.url, ask.id, true)).toEqual({ ok: true, allowed: true });
+      const answered = await call;
+      expect(answered.response.ok).toBe(true);
+
+      // In place: the same actor, so every op it ever wrote is still its own.
+      expect(answered.response.actor.id).toBe(before.id);
+      expect(answered.response.actor.name).toBe("Nova");
+      expect((await canvasNames())[before.id]).toBe("Nova");
+
+      // The home's ledger, and the harness's own account of itself.
+      expect((await nameRows())[before.id]!.name).toBe("Nova");
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.name).toBe("Nova");
+      expect(state.agent.id).toBe(before.id);
+
+      // The face the canvas shows is re-worn, not left with the old name on it.
+      const sessions = (await (
+        await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })
+      ).json()) as { actor: { id: string }; label?: string; name?: string }[];
+      expect(sessions.some((s) => s.actor.id === before.id && (s.label ?? s.name) === "Nova")).toBe(true);
+      expect(sessions.some((s) => s.actor.id === before.id && (s.label ?? s.name) === "Voice")).toBe(false);
+
+      // And /log says a claim was made, named.
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const claim = entries.find((e) => e.op?.type === "actor.claim" && e.result?.ok === true);
+      expect(claim, "the claim is in the harness's own record").toBeDefined();
+      expect(claim.op.said).toContain("Nova");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("changes nothing when the person refuses, and says whose name it is when the daemon refuses", async () => {
+    const live = await liveServer();
+    try {
+      const before = ((await (await fetch(`${live.server.state.url}state`)).json()) as any).agent as {
+        id: string;
+        name: string;
+      };
+
+      // The person says no: the model does not get to name itself.
+      const declined = callTool(live.providerSocket, "call-declined", "actor_claim", { name: "Helper" });
+      const firstAsk = await theQuestion(live.server.state.url);
+      await answering(live.server.state.url, firstAsk.id, false);
+      const refused = await declined;
+      expect(refused.response.ok).toBe(false);
+      expect(refused.response.error).toContain("did not confirm");
+      expect((await nameRows())[before.id]!.name).toBe("Voice");
+
+      // The person says yes to a name somebody on this canvas already answers
+      // to: the daemon refuses, in its own words, and the refusal is shown.
+      const taken = callTool(live.providerSocket, "call-taken", "actor_claim", { name: "Seeder" });
+      const secondAsk = await theQuestion(live.server.state.url);
+      await answering(live.server.state.url, secondAsk.id, true);
+      const clash = await taken;
+      expect(clash.response.ok).toBe(false);
+      expect(clash.response.error).toContain("not renamed");
+      expect(clash.response.error).toContain("Seeder");
+      expect((await nameRows())[before.id]!.name).toBe("Voice");
+      expect((await canvasNames())[before.id]).toBe("Voice");
+    } finally {
+      await live.close();
+    }
+  });
+});
+
+describe("the projects this session can work on", () => {
+
+
+  it("makes a canvas the person asked for, and leaves the session where it was", async () => {
+    const live = await liveServer();
+    try {
+      const made = await callTool(live.providerSocket, "call-create", "project_create", {
+        title: "Launch plan",
+        description: "the redesign",
+      });
+      expect(made.response.ok).toBe(true);
+      const canvasId = made.response.canvas.id as string;
+      expect(canvasId).toMatch(/^prj_/);
+
+      // The home lists it, and its own log holds its birth — the same
+      // `project.create` `isocan canvas create` sends, sent as this agent.
+      const canvases = (await (await fetch(`${base}/api/projects`, { headers: badge.headers })).json()) as {
+        id: string;
+        title: string;
+      }[];
+      expect(canvases.find((c) => c.id === canvasId)?.title).toBe("Launch plan");
+      const born = (await log([canvasId])).find((e) => e.type === "project.create");
+      expect(born, "a new canvas's log starts with its own birth").toBeDefined();
+      expect(born!.actor).not.toBe(seeder.id);
+
+      // Created, not entered: the session is still on the canvas it was on,
+      // because nothing was switched and the answer says so.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.canvas.id).toBe("prj_1");
+      expect(made.response.answer).toContain("still on");
+
+      // A canvas with no name is refused rather than made blank.
+      const blank = await callTool(live.providerSocket, "call-blank", "project_create", { title: "   " });
+      expect(blank.response.ok).toBe(false);
+      expect(blank.response.error).toContain("title");
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_create" && e.result?.ok === true);
+      expect(row.op.type).toBe("project.create");
+      expect(row.result.canvasId).toBe(canvasId);
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("the whole walk in one sitting: create a canvas, list it, switch to it, speak a command", async () => {
+    const live = await liveServer();
+    try {
+      // 1. A canvas, from a sentence the person said.
+      const made = await callTool(live.providerSocket, "walk-create", "project_create", { title: "Winter work" });
+      expect(made.response.ok).toBe(true);
+      const winter = made.response.canvas.id as string;
+
+      // 2. Where the session is, and what else there is.
+      const listed = await callTool(live.providerSocket, "walk-list", "project_list");
+      expect(listed.response.current).toBe("prj_1");
+      expect((listed.response.canvases as { title: string }[]).map((c) => c.title)).toContain("Winter work");
+
+      // 3. Move there — and the harness's own account of itself moves.
+      const moved = await callTool(live.providerSocket, "walk-switch", "project_switch", { canvas_ref: "Winter work" });
+      expect(moved.response.canvas).toEqual({ id: winter, title: "Winter work" });
+      expect(((await (await fetch(`${live.server.state.url}state`)).json()) as any).canvas.id).toBe(winter);
+
+      // 4. A command, spoken after the move. The canvas and the log agree: the
+      // operation is in the NEW canvas's oplog, and the harness's /log reads
+      // create → switch → add, in that order.
+      const spoken = await callTool(live.providerSocket, "walk-say", "add_item", {
+        title: "Kick-off notes",
+        text: "what the plan says",
+      });
+      expect(spoken.response.ok).toBe(true);
+      expect((await log([winter])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      expect(((await (await fetch(`${live.server.state.url}state`)).json()) as any).canvas.id).toBe(winter);
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const walked = entries
+        .filter((e) => ["project_create", "project_switch", "add_item"].includes(e.name))
+        .map((e) => e.name);
+      expect(walked).toEqual(["project_create", "project_switch", "add_item"]);
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("switches the session to another canvas, and the log, the tool context and the page follow it", async () => {
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    await post("/api/ops", {
+      canvasId: "prj_2",
+      actor: seeder,
+      op: {
+        type: "item.add",
+        itemId: "itm_launch",
+        version: { id: "ver_l", blobHash: "h9", mimeType: "text/markdown", filename: "l.md", size: 3 },
+        width: 320,
+        height: 240,
+        placement: { x: 40, y: 40 },
+        title: "Launch checklist",
+      },
+    });
+
+    const live = await liveServer();
+    try {
+      const before = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(before.canvas.id).toBe("prj_1");
+
+      const moved = await callTool(live.providerSocket, "call-switch", "project_switch", {
+        canvas_ref: "Launch plan",
+      });
+      expect(moved.response.ok).toBe(true);
+      expect(moved.response.canvas).toEqual({ id: "prj_2", title: "Launch plan" });
+      expect(moved.response.previous).toEqual({ id: "prj_1", title: "Voice test" });
+      // The tool context followed: the answer carries the NEW canvas's items,
+      // which is what the model has to work with from here.
+      expect(moved.response.items.map((i: { title: string }) => i.title)).toEqual(["Launch checklist"]);
+      expect(moved.response.answer).toContain("Every operation from here lands on it");
+
+      // Nothing was minted by the move itself: switching is not a canvas edit.
+      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+
+      // The harness's own account of itself, and the page's, followed.
+      const after = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(after.canvas).toEqual({ title: "Launch plan", id: "prj_2" });
+      expect(live.toPage.some((m) => m.canvas?.id === "prj_2"), "the page is told, not left naming the old room").toBe(
+        true,
+      );
+      // ...and so did the machine-readable file this harness keeps for anyone
+      // looking from outside.
+      const recorded = JSON.parse(await fs.readFile(path.join(home, "voice", "server.json"), "utf8")) as {
+        canvas: string;
+      };
+      expect(recorded.canvas).toBe("Launch plan");
+
+      // Presence moved rooms: ended on the old canvas, standing on the new.
+      const onOld = (await (
+        await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })
+      ).json()) as { actor: { id: string } }[];
+      const onNew = (await (
+        await fetch(`${base}/api/projects/prj_2/sessions`, { headers: badge.headers })
+      ).json()) as { actor: { id: string } }[];
+      const me = after.agent.id as string;
+      expect(onOld.some((s) => s.actor.id === me), "not still standing in the room it left").toBe(false);
+      expect(onNew.some((s) => s.actor.id === me)).toBe(true);
+
+      // Now the point of the whole thing: a command SPOKEN after the switch
+      // lands on the new canvas — and shows up in that canvas's log, not the
+      // other one.
+      const spoken = await callTool(live.providerSocket, "call-add", "add_item", {
+        title: "Kick-off notes",
+        text: "what the plan says",
+      });
+      expect(spoken.response.ok).toBe(true);
+      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "item.add", "item.add"]);
+      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+
+      // The harness's /log says the move happened, and to where.
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_switch" && e.result?.ok === true);
+      expect(row.result.canvasId).toBe("prj_2");
+      expect(row.result.from).toBe("prj_1");
+      expect(row.op, "a move mints no operation").toBeUndefined();
+
+      // Asking for the canvas it is already on is not an error.
+      const again = await callTool(live.providerSocket, "call-again", "project_switch", {
+        canvas_ref: "prj_2",
+      });
+      expect(again.response.ok).toBe(true);
+      expect(again.response.answer).toContain("already on");
+
+      const nowhere = await callTool(live.providerSocket, "call-nowhere", "project_switch", {
+        canvas_ref: "no such project",
+      });
+      expect(nowhere.response.ok).toBe(false);
+      expect(nowhere.response.error).toContain("no canvas matches");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("renames the canvas this session is on, and the page's own account of itself with it", async () => {
+    const live = await liveServer();
+    try {
+      const renamed = await callTool(live.providerSocket, "call-rename-canvas", "project_update", {
+        title: "Winter work",
+      });
+      expect(renamed.response.ok).toBe(true);
+      expect(renamed.response.canvas).toEqual({ id: "prj_1", title: "Winter work" });
+
+      const canvases = (await (await fetch(`${base}/api/projects`, { headers: badge.headers })).json()) as {
+        id: string;
+        title: string;
+      }[];
+      expect(canvases.find((c) => c.id === "prj_1")?.title).toBe("Winter work");
+      expect((await log())[0]!.type).toBe("project.create");
+      const last = (await log()).at(-1)!;
+      expect(last.type).toBe("project.update");
+      expect(last.actor).not.toBe(seeder.id);
+
+      // The harness's own account of itself follows — the header, the facts
+      // panel and the tool context all read this one label.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.canvas).toEqual({ title: "Winter work", id: "prj_1" });
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_update" && e.result?.ok === true);
+      expect(row.op.type).toBe("project.update");
+      expect(row.op.said).toContain("Voice test");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("edits another canvas by name, and refuses a canvas nobody can find or an empty edit", async () => {
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    const live = await liveServer();
+    try {
+      const other = await callTool(live.providerSocket, "call-other", "project_update", {
+        canvas_ref: "Launch plan",
+        title: "Launch plan v2",
+        description: "the redesign",
+      });
+      expect(other.response.ok).toBe(true);
+      const canvases = (await (await fetch(`${base}/api/projects`, { headers: badge.headers })).json()) as {
+        id: string;
+        title: string;
+      }[];
+      expect(canvases.find((c) => c.id === "prj_2")?.title).toBe("Launch plan v2");
+      // ...and the session did not move to the canvas it edited.
+      const state = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
+      expect(state.canvas.id).toBe("prj_1");
+
+      const missing = await callTool(live.providerSocket, "call-missing", "project_update", {
+        canvas_ref: "nothing like this",
+        title: "Nope",
+      });
+      expect(missing.response.ok).toBe(false);
+      expect(missing.response.error).toContain("no canvas matches");
+
+      const empty = await callTool(live.providerSocket, "call-empty", "project_update", {});
+      expect(empty.response.ok).toBe(false);
+      expect(empty.response.error).toContain("nothing to change");
+    } finally {
+      await live.close();
+    }
+  });
+
+  it("lists the canvases a person can work on, marks where the session is, and leaves the shelf out", async () => {
+    // A second canvas, and a third put away. The shelf rule is core's
+    // (`inScope`), and this is the only place it is checked through the tool.
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_2", title: "Launch plan" },
+    });
+    await post("/api/ops", {
+      canvasId: null,
+      actor: seeder,
+      op: { type: "project.create", canvasId: "prj_old", title: "Put away" },
+    });
+    await post("/api/ops", {
+      canvasId: "prj_old",
+      actor: seeder,
+      op: { type: "project.update", patch: shelvePatch(new Date().toISOString()) },
+    });
+
+    const live = await liveServer();
+    try {
+      const listed = await callTool(live.providerSocket, "call-list", "project_list");
+      expect(listed.response.ok).toBe(true);
+      const titles = (listed.response.canvases as { id: string; title: string }[]).map((c) => c.title);
+      expect(titles).toContain("Voice test");
+      expect(titles).toContain("Launch plan");
+      expect(titles, "a shelved canvas is not in the way").not.toContain("Put away");
+      expect(listed.response.current).toBe("prj_1");
+      // The model has to be able to NAME one to switch to it, and the id is
+      // what every other tool takes.
+      expect(listed.response.answer).toContain("[prj_2]");
+      expect(listed.response.answer).toContain("(this session is here)");
+
+      const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
+      const row = entries.find((e) => e.name === "project_list");
+      expect(row, "a read is a read: nothing was minted").toBeDefined();
+      expect(row.op).toBeUndefined();
+      expect(row.result.ok).toBe(true);
+    } finally {
+      await live.close();
+    }
+  });
+});
+
 describe("the ACP face", () => {
   it("speaks the wire the rc speaks, and answers a turn with end_turn", async () => {
     const written: unknown[] = [];
@@ -937,7 +1561,7 @@ describe("the Live API path", () => {
     expect(setup.setup.systemInstruction.parts[0].text).toContain("=== PROJECT INSTRUCTIONS (AGENTS.md) ===");
     expect(setup.setup.systemInstruction.parts[0].text).toContain("Always be honest.");
 
-    await fs.rm(testDir, { recursive: true, force: true });
+    await fs.rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("verifies native writeMarker round-trip, rejects mismatched markers, and prefers valid over stale rows", async () => {
@@ -975,8 +1599,8 @@ describe("the Live API path", () => {
     const refused = await resolveProjectInstructions(home, "prj_1");
     expect(refused).toBeNull();
 
-    await fs.rm(validDir, { recursive: true, force: true });
-    await fs.rm(staleDir, { recursive: true, force: true });
+    await fs.rm(validDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await fs.rm(staleDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("surfaces the provider's own words when the session fails", async () => {
@@ -1074,6 +1698,9 @@ describe("the Live API path", () => {
       identity: { session: "Voice", harness: "agent" },
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
+      // A gate nobody answers must not hold a test for a minute: a short
+      // window, exactly as a person would get if they walked away.
+      confirmTimeoutMs: 2000,
       WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
     });
 
@@ -1263,6 +1890,9 @@ describe("the Live API path", () => {
       identity: { session: "Voice", harness: "agent" },
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
+      // A gate nobody answers must not hold a test for a minute: a short
+      // window, exactly as a person would get if they walked away.
+      confirmTimeoutMs: 2000,
       WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
     });
 
@@ -1328,7 +1958,9 @@ describe("the Live API path", () => {
       });
       while (providerSocket.sent.length < 4) await new Promise((r) => setTimeout(r, 10));
 
-      // 4. DELETE (delete_item)
+      // 4. DELETE (delete_item) — through the gate, because that is the whole
+      // point of it: the operation lands when the PERSON says yes, and the
+      // model's tool call is only the question.
       providerSocket.emit({
         toolCall: {
           functionCalls: [
@@ -1340,6 +1972,12 @@ describe("the Live API path", () => {
           ],
         },
       });
+      const asked = await theQuestion(server.state.url);
+      expect(asked.what).toContain("Handwritten Arrow");
+      // Asked, not done: the sketch is still on the canvas while the question
+      // stands, which is the difference between a gate and a log line.
+      expect((await items()).some((i) => i.title === "Handwritten Arrow"), "nothing is deleted while the question stands").toBe(true);
+      expect(await answering(server.state.url, asked.id, true)).toEqual({ ok: true, allowed: true });
       while (providerSocket.sent.length < 5) await new Promise((r) => setTimeout(r, 10));
 
       const afterDelete = await items();
@@ -1771,13 +2409,23 @@ describe("responsive layout and bounding-box isolation", () => {
         });
         await new Promise((r) => setTimeout(r, 300));
 
+        /* The question bar is hidden until something asks, and it is the one
+           element on the page whose whole job is to be seen while somebody is
+           mid-decision — so it is measured with a question standing, not in
+           the state a quiet canvas leaves it in. Unhidden by hand: what is
+           being measured is the layout, and the gate's own behaviour is
+           driven for real in `the person's gate` above. */
+        await b.ev(
+          `(() => { document.getElementById("confirm-what").textContent = "delete “Checkout screen”"; document.getElementById("confirm").hidden = false; })()`,
+        );
+
         // 1. Document width <= viewport width + 1
         const docWidth = Number(await b.ev(`document.documentElement.scrollWidth`));
         expect(docWidth).toBeLessThanOrEqual(width + 1);
 
         // 2. Zero pairwise bounding-box intersection between panels
         const overlaps = ((await b.ev(`(() => {
-          const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock")]
+          const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock, main > #confirm")]
             .map((el) => ({ el, r: el.getBoundingClientRect() }));
           const hits = [];
           for (let i = 0; i < boxes.length; i++) {
