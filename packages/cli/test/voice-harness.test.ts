@@ -28,7 +28,9 @@ import {
   writeVoiceKey,
   writeVoiceLog,
   // Memory: the harness's own file, beside the key.
+  createFileBroker,
   forgetMemory,
+  safeGrantPath,
   normalizeTags,
   readMemories,
   readMemory,
@@ -37,6 +39,9 @@ import {
   searchMemories,
   voiceDir,
   voiceMemoryFile,
+  runFileTool,
+  MAX_FILE_CHARS,
+  type FsAnswer,
   type Memory,
 } from "../src/voice-harness.ts";
 import type { ListedItem } from "@isocan/api";
@@ -341,6 +346,109 @@ describe("the key belongs to the harness", () => {
 });
 
 /**
+ * **Files: the folder is the person's, and the page is the only one who can
+ * ask for it.**
+ *
+ * The harness cannot read a disk by itself — a DirectoryHandle lives in a
+ * browser — so these pin the three joints that make that safe and honest: the
+ * path guard (nothing outside the grant, refused instantly and in words), the
+ * broker (no page / no grant / no answer / page closed are each a NAMED
+ * refusal, never a silent empty read), and the attribution in the answer
+ * (which folder, which file — the thing that makes a read citable).
+ */
+describe("files are read through the page, over the folder it was granted", () => {
+  it("refuses absolute and climbing paths, and normalises the rest", () => {
+    expect(safeGrantPath("notes/todo.md")).toEqual({ ok: true, path: "notes/todo.md" });
+    expect(safeGrantPath("./notes/todo.md")).toEqual({ ok: true, path: "notes/todo.md" });
+    expect(safeGrantPath("notes//deep/todo.md")).toEqual({ ok: true, path: "notes/deep/todo.md" });
+    expect(safeGrantPath("", { allowEmpty: true })).toEqual({ ok: true, path: "" });
+    expect(safeGrantPath("").ok).toBe(false); // read_file on the folder is not a file
+    expect(safeGrantPath("/etc/passwd").ok).toBe(false);
+    expect(safeGrantPath("C:\\Users\\paul").ok).toBe(false);
+    expect(safeGrantPath("~/notes").ok).toBe(false);
+    expect(safeGrantPath("../secrets.txt").ok).toBe(false);
+    expect(safeGrantPath("notes/../../secrets.txt").ok).toBe(false);
+  });
+
+  it("names every way a read can fail instead of returning nothing", async () => {
+    const sends: unknown[] = [];
+    const noPage = createFileBroker({ connected: () => false, send: (m) => sends.push(m) }, { timeoutMs: 20 });
+    const refused = await noPage.ask("read_file", "a.txt");
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toMatch(/no page is connected/);
+    expect(sends).toEqual([]); // nothing to send to
+
+    const connected = createFileBroker({ connected: () => true, send: (m) => sends.push(m) }, { timeoutMs: 20 });
+    const noGrant = await connected.ask("read_file", "a.txt");
+    expect(noGrant.ok).toBe(false);
+    expect(noGrant.error).toMatch(/no folder has been granted/);
+    expect(sends).toEqual([]); // and nothing is asked of the page either
+
+    // With a grant, the question goes out and the answer comes back by callId.
+    connected.grant("Notes");
+    const asked = connected.ask("read_file", "todo.md");
+    await new Promise((r) => setTimeout(r, 5));
+    const sent = sends[0] as { fs: { callId: string; op: string; path: string; folder: string } };
+    expect(sent.fs).toMatchObject({ op: "read_file", path: "todo.md", folder: "Notes" });
+    expect(connected.answer(sent.fs.callId, { ok: true, content: "buy milk" })).toBe(true);
+    expect(await asked).toEqual({ ok: true, content: "buy milk" });
+    // A second answer for the same question is refused, not obeyed.
+    expect(connected.answer(sent.fs.callId, { ok: true, content: "something else" })).toBe(false);
+  });
+
+  it("times out in words, and a closed page refuses what it owed", async () => {
+    const broker = createFileBroker({ connected: () => true, send: () => undefined }, { timeoutMs: 15 });
+    broker.grant("Notes");
+    const timingOut = await broker.ask("list_dir", "");
+    expect(timingOut.ok).toBe(false);
+    expect(timingOut.error).toMatch(/did not answer/);
+
+    const owed = broker.ask("read_file", "a.txt");
+    await new Promise((r) => setTimeout(r, 2));
+    expect(broker.waiting()).toBe(1);
+    broker.abandon();
+    expect(await owed).toEqual({ ok: false, error: "the page closed before it answered" });
+  });
+
+  it("attributes what it read, and says when it was cut short", async () => {
+    const grant = { folder: "Notes" };
+    const ask = async (op: "list_dir" | "read_file", path: string): Promise<FsAnswer> => {
+      if (op === "list_dir") return { ok: true, entries: [{ name: "todo.md", kind: "file", size: 8 }] };
+      if (path === "big.txt") return { ok: true, content: "x".repeat(MAX_FILE_CHARS + 500) };
+      return { ok: true, content: "buy milk" };
+    };
+
+    const listing = await runFileTool("list_dir", { path: "." }, ask, grant);
+    expect(listing.ok).toBe(true);
+    expect(listing.said).toContain("1 entry in Notes");
+    expect(listing.answer).toMatchObject({ folder: "Notes", path: "", count: 1, truncated: false });
+
+    const read = await runFileTool("read_file", { path: "todo.md" }, ask, grant);
+    expect(read.said).toBe("read Notes/todo.md (8 chars)");
+    expect(read.answer).toMatchObject({ source: "Notes/todo.md", content: "buy milk", truncated: false });
+
+    const big = await runFileTool("read_file", { path: "big.txt" }, ask, grant);
+    expect(big.answer.truncated).toBe(true);
+    expect(String(big.answer.content)).toHaveLength(MAX_FILE_CHARS);
+
+    // The path guard refuses BEFORE the page is asked at all.
+    let asked = 0;
+    const counted = async (): Promise<FsAnswer> => {
+      asked += 1;
+      return { ok: true, content: "nope" };
+    };
+    const escape = await runFileTool("read_file", { path: "../secrets.txt" }, counted, grant);
+    expect(escape.ok).toBe(false);
+    expect(asked).toBe(0);
+
+    // And a refusal from the page is passed through as words, not as empty.
+    const denied = await runFileTool("read_file", { path: "a.txt" }, async () => ({ ok: false, error: "no such file" }), grant);
+    expect(denied.ok).toBe(false);
+    expect(denied.said).toBe("no such file");
+  });
+});
+
+/**
  * **Memory: the agent's own file, beside the key, durable across restarts.**
  *
  * There is no permission prompt here and no page round-trip, deliberately —
@@ -565,6 +673,51 @@ describe("the page", () => {
    * surface. The only thing the two servers share is the filesystem — which is
    * exactly the claim ("it survives a restart") being made.
    */
+  it("reports the folder grant over HTTP, and shows it in /state", async () => {
+    const server = await serve();
+    const before = (await (await fetch(`${server.state.url}fs`)).json()) as { granted: boolean; folder: string | null };
+    expect(before).toMatchObject({ granted: false, folder: null });
+
+    const granted = (await (
+      await fetch(`${server.state.url}fs/grant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder: "Notes" }),
+      })
+    ).json()) as { ok: boolean; granted: boolean; folder: string | null };
+    expect(granted).toMatchObject({ ok: true, granted: true, folder: "Notes" });
+
+    const after = (await (await fetch(`${server.state.url}fs`)).json()) as { granted: boolean; folder: string };
+    expect(after).toMatchObject({ granted: true, folder: "Notes" });
+    const facts = (await (await fetch(`${server.state.url}state`)).json()) as {
+      files: { granted: boolean; folder: string; at: string | null };
+    };
+    expect(facts.files.granted).toBe(true);
+    expect(facts.files.folder).toBe("Notes");
+    expect(facts.files.at).toMatch(/^\d{4}-/);
+
+    // Revoking is the person's, and it takes effect where the model can see it.
+    const revoked = (await (
+      await fetch(`${server.state.url}fs/grant`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder: null, granted: false }),
+      })
+    ).json()) as { granted: boolean };
+    expect(revoked.granted).toBe(false);
+
+    // An answer for a question nobody asked is refused in words.
+    const stray = (await (
+      await fetch(`${server.state.url}fs/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId: "fs_nope", ok: true, content: "x" }),
+      })
+    ).json()) as { ok: boolean; error: string };
+    expect(stray.ok).toBe(false);
+    expect(stray.error).toMatch(/nothing is waiting/);
+  });
+
   describe("memory outlives the harness", () => {
     it("stores a memory, restarts the harness, and reads it back", async () => {
       const first = await serve();
