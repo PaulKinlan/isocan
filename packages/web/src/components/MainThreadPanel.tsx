@@ -393,7 +393,7 @@ function Panel({
     if (pendingChat === null) return;
     setDraft((current) => (current.trim() === "" ? pendingChat : current));
     useUiStore.getState().setPendingChat(null);
-  }, [pendingChat]);
+  }, [pendingChat, setDraft]);
   const { candidates, peers } = useMentionRoster(actor.id);
   const itemRoster = useItemRefRoster();
   const commands = useCommands();

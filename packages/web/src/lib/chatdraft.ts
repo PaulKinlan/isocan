@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { create } from "zustand";
 /** A layout change or closed panel must not discard an unsent conversation.
  * Memory only, partitioned by both canvas and actor; no desktop preference. */
@@ -9,5 +10,6 @@ const drafts = create<{ values: Record<string, string>; set: (key: string, value
 export function useChatDraft(canvasId: string, actorId: string) {
   const key = JSON.stringify([canvasId, actorId]);
   const value = drafts((s) => s.values[key] ?? "");
-  return [value, (next: string | ((old: string) => string)) => drafts.getState().set(key, next)] as const;
+  const setDraft = useCallback((next: string | ((old: string) => string)) => drafts.getState().set(key, next), [key]);
+  return [value, setDraft] as const;
 }

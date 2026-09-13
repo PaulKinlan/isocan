@@ -7,7 +7,7 @@ import path from "node:path";
 import { browser, throughTheDoor, until } from "./lib/browser.mjs";
 import { DaemonClient, connect } from "../index.mjs";
 const { startDaemon } = await import("@isocan/server");
-const { newCanvasId, BADGE_COOKIE } = await import("@isocan/core");
+const { newCanvasId, BADGE_COOKIE, THREAD_QUERY } = await import("@isocan/core");
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const home = await mkdtemp(path.join(tmpdir(), "isocan-mobile-"));
 const out = process.env.MOBILE_PROOF_DIR;
@@ -38,7 +38,7 @@ try {
   const first = await canvas.add({ title: "First", content: "# First\nA synthetic mobile example.", mime: "text/markdown", at: { x: 0, y: 0 }, size: { width: 300, height: 240 } });
   const priorSeq = (await client.snapshot(id)).lastSeq;
   const second = await canvas.add({ title: "Second", content: "# Second\nThe next node.", mime: "text/markdown", at: { x: 500, y: 0 }, size: { width: 300, height: 240 } });
-  await canvas.comment(first.id, "Discuss the first node here.");
+  const pinned = await canvas.comment(first.id, "Discuss the first node here.");
   const session = await client.createSession(id, h.actor, "Synthetic agent", "proof");
   await client.updateSession(id, session.sessionId, { status: "working", activity: { kind: "working", itemId: second.id } });
   await size(375);
@@ -142,6 +142,11 @@ try {
   await tap('.phone-tabs button:nth-child(2)'); await tap('.phone-thread-toggle');
   assert.equal(await b.ev('!!document.querySelector(".phone-sheet form, .phone-sheet .thread-actions")'), false, "reader thread has no writes");
   await shot("phone-read-only");
+  await b.send("Page.navigate", { url: `${origin}/p/${id}?${new URLSearchParams({ [THREAD_QUERY]: pinned.threadId })}` });
+  await until(b, 'document.querySelector(".phone-sheet")?.textContent.includes("Discuss the first")', "addressed conversation opens phone sheet");
+  const mainThread = Object.values((await client.snapshot(id)).canvas.threads).find(t => t.main);
+  await b.send("Page.navigate", { url: `${origin}/p/${id}?${new URLSearchParams({ [THREAD_QUERY]: mainThread.id })}` });
+  await until(b, 'document.activeElement === document.querySelector(".phone-face .main-scroll")', "addressed main conversation focuses Chat");
   console.log("PASS stages 0/1a: Chat, daemon comment, draft, node edges, thread, marked plan, agent stage, desktop restoration; rail, pan, pinch, cancellation, tablet, narrow mouse, preference");
 } finally {
   await b.close(); await daemon.close();

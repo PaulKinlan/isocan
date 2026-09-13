@@ -1,8 +1,8 @@
 import { VisitDigest } from "./VisitDigest.tsx";
 import type { PriorVisit } from "../lib/visitdigest.ts";
-import { Suspense, lazy, useState, type MutableRefObject } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { isDesignSystem, isTextItem, itemPath, roster, visualFaceOf, type Actor } from "@isocan/core";
+import { Suspense, lazy, useEffect, useState, type MutableRefObject } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { isDesignSystem, isTextItem, itemPath, THREAD_QUERY, roster, visualFaceOf, type Actor } from "@isocan/core";
 import { useCanvasStore } from "../stores/canvasStore.ts";
 import { findNextItem, type Direction } from "../lib/spatialnav.ts";
 import { useTouchNavigation } from "../lib/touchnavigation.ts";
@@ -16,6 +16,7 @@ import { ComposePopover, ThreadPopover, itemThread } from "./CommentLayer.tsx";
 import { ZoomControls } from "./ZoomControls.tsx";
 import { Minimap } from "./Minimap.tsx";
 import "./phone.css";
+import "./mobile-navigation.css";
 const CanvasTools = lazy(() => import("./CanvasTools.tsx").then((m) => ({ default: m.CanvasTools })));
 /** Retain this visit’s chosen tab and node across width changes, without saving a desktop preference. */
 export type PhoneVisit = { tab: "Chat" | "Canvas" | "Agents"; itemId: string | null; plan: boolean };
@@ -32,6 +33,9 @@ export function PhoneFace({ canvasId, actor, visit, prior }: { prior: PriorVisit
   const [state, setState] = useState(visit.current);
   const [digestThread, setDigestThread] = useState<string | null>(null);
   const [threadOpen, setThreadOpen] = useState(false);
+  const { search } = useLocation();
+  const requestedThread = new URLSearchParams(search).get(THREAD_QUERY);
+  const [mainFocus, setMainFocus] = useState(0);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const update = (next: Partial<PhoneVisit>) => { const value = { ...state, ...next }; visit.current = value; setState(value); };
   const items = Object.values(canvas?.items ?? {});
@@ -42,16 +46,29 @@ export function PhoneFace({ canvasId, actor, visit, prior }: { prior: PriorVisit
   const current = item?.versions.find((v) => v.id === item.currentVersionId) ?? item?.versions[0];
   const visual = current && visualFaceOf(current);
   const thread = (digestThread && canvas?.threads[digestThread]) || (canvas && item ? itemThread(canvas, item.id) : null);
+  const openThread = (id: string) => {
+    const target = canvas?.threads[id];
+    if (!target) return;
+    if (target.main) { update({ tab: "Chat" }); setThreadOpen(false); setMainFocus((n) => n+1); return; }
+    setDigestThread(id); setThreadOpen(true);
+  };
+  const requestedReady = Boolean(requestedThread && canvas?.threads[requestedThread]);
+  useEffect(() => {
+    if (requestedThread && requestedReady) openThread(requestedThread);
+    // A link arrival, once; later canvas traffic must not reopen a closed sheet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedThread, requestedReady, canvasId]);
+  useEffect(() => {
+    if (!mainFocus || state.tab !== "Chat") return;
+    const conversation = document.querySelector<HTMLElement>(".phone-face .main-scroll");
+    if (conversation) { conversation.scrollTop = conversation.scrollHeight; conversation.tabIndex = -1; conversation.focus({ preventScroll: true }); }
+  }, [mainFocus, state.tab]);
   const rows = roster(sessions, canvas, Date.now(), answerable).filter((r) => !(r.state === "away" && r.actorId === actor.id));
   return <section className={`phone-face${state.plan && state.tab === "Canvas" ? " phone-plan" : ""}`} aria-label="Phone canvas">
     <header className="phone-header"><Link to="/" aria-label="All canvases">‹</Link><strong>{title}</strong><span>{canEdit ? actor.name : "Read only"}</span></header>
     <div className="phone-body">
       {state.tab === "Chat" && <div className="phone-chat">
-        <VisitDigest prior={prior} onItem={open} onThread={(id) => {
-          const target = canvas?.threads[id];
-          if (target?.main) return;
-          setDigestThread(id); setThreadOpen(true);
-        }} />
+        <VisitDigest prior={prior} onItem={open} onThread={openThread} />
         <MainThreadBody canvasId={canvasId} actor={actor} docked={false} onOpenItem={open} />
       </div>}
       {state.tab === "Agents" && <div className="phone-agents" aria-label="Agents on this canvas">

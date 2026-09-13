@@ -265,10 +265,10 @@ function CanvasSurface({
   const { search } = useLocation();
   const requestedThread = new URLSearchParams(search).get(THREAD_QUERY);
   useEffect(() => {
-    if (canvasId && arrived && requestedThread) {
+    if (canvasId && arrived && requestedThread && !phone) {
       void import("../lib/conversation.ts").then((m) => m.openConversation(canvasId, requestedThread));
     }
-  }, [canvasId, arrived, requestedThread]);
+  }, [canvasId, arrived, requestedThread, phone]);
   useEffect(() => {
     if (!canvasId || !arrived) return;
     // One call: `noteVisit` reads before it writes, deliberately — see
