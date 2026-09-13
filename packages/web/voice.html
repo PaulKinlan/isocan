@@ -278,6 +278,13 @@
                 </dd>
               </div>
               <div>
+                <!-- The model the voice WILL use, and the one a running session
+                     IS using when they differ: never inferred from the picker,
+                     and never left to a person to remember. -->
+                <dt>Model</dt>
+                <dd id="model-fact">unknown</dd>
+              </div>
+              <div>
                 <dt>Audio <button class="voice-help" type="button" commandfor="help-audio" command="toggle-popover" aria-label="About the audio" aria-describedby="help-audio"><span class="voice-help-glyph" aria-hidden="true">?</span></button></dt>
                 <dd id="audio">no provider · no model · no key stored</dd>
                 <div class="voice-help-card" popover="hint" id="help-audio">
@@ -324,6 +331,41 @@
             </dl>
 
           </section>
+        </section>
+
+        <section class="voice-dialog-part" id="model-panel" aria-labelledby="model-title">
+          <div class="voice-dialog-part-title">
+            <h3 id="model-title">
+              Model
+              <span class="voice-summary" id="model-summary">unknown</span>
+            </h3>
+          </div>
+          <p class="voice-hint">
+            The conversation <b>is</b> Gemini Live, so the model has to take audio in and send audio
+            back. A text-only model looks like a plausible name in this field and cannot work here —
+            the provider refuses it, and the refusal says so. The list is the provider's own, fetched
+            live; a beta model you have access to is often missing from it, which is why the field
+            takes any exact name.
+          </p>
+          <div class="voice-keyrow">
+            <label class="voice-only" for="model-list">the provider's model list</label>
+            <select id="model-list" aria-label="model"></select>
+            <button id="model-refresh" type="button">Refresh list</button>
+          </div>
+          <div class="voice-keyrow">
+            <input
+              id="model-field"
+              type="text"
+              aria-label="model name"
+              placeholder="models/gemini-…-live-preview"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="model-use" type="button">Use this model</button>
+            <button id="model-check" type="button">Test model</button>
+            <button id="model-reset" type="button" hidden>Reset</button>
+          </div>
+          <p class="voice-hint" id="model-note" role="status" hidden></p>
         </section>
 
         <section class="voice-dialog-part" id="key-panel" aria-labelledby="key-title">

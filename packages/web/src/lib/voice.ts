@@ -61,6 +61,49 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const state = () => json<State>("/state");
+
+/**
+ * **The provider's model list, and what a name has to say for itself.**
+ *
+ * `live` is read off `supportedGenerationMethods` containing
+ * `bidiGenerateContent` — the Live API's own method name, measured on 13 Sep
+ * 2026 (55 models listed, 7 of them Live) — so the page is repeating the
+ * provider rather than holding a list of its own. The list cannot be the
+ * validation: a beta name is exactly what it will not carry.
+ */
+export interface ProviderModel {
+  name: string;
+  displayName: string;
+  description: string;
+  methods: string[];
+  live: boolean;
+}
+
+interface ModelList {
+  ok: boolean;
+  models: ProviderModel[];
+  /** The provider's own words, or why there is no list. */
+  answer: string;
+}
+
+/** The provider's list, through the harness — which is the one holding the key. */
+export const models = () => json<ModelList>("/models");
+
+/** Choose: the harness stores it, and the next session talks through it. */
+export const useModel = (model: string) =>
+  json<{ ok?: boolean; model?: string; source?: string; appliesTo?: string; error?: string }>("/model", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+
+/** Ask the provider about a name — the only validation a beta model can pass. */
+export const testModel = (model: string) =>
+  json<{ ok?: boolean; model?: string; answer?: string; why?: string }>("/model/test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
 export const log = () => json<LogReply>("/log");
 export const startSession = () => json<{ ok?: boolean; error?: string }>("/session/start", { method: "POST" });
 export const muteSession = () => json<{ ok?: boolean; error?: string }>("/session/mute", { method: "POST" });
