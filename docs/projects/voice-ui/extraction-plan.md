@@ -109,10 +109,11 @@ The root config's include glob is `packages/*/test/**/*.test.ts`, so a new
 root `setupFiles` (`test/setup.ts`: daemon guard, replica home) and
 `globalSetup` (`test/emulator.ts`: Firestore tiers). For four pure tests that
 want a DOM and a stub, that is a heavy inheritance and a new way for the app's
-infrastructure to break the page's tests. Recommendation: give the package its
-own `vitest.config.ts` (jsdom environment, no setup files) **and** keep the root
-include glob working; the root run then exercises the package through the same
-command, while `-w @isocan/voice-agent test` runs it alone and fast.
+infrastructure to break the page's tests. Recommendation — **confirmed by
+coord, 2026-09-13** — give the package its own `vitest.config.ts` (jsdom
+environment, no setup files) **and** keep the root include glob working; the
+root run then exercises the package through the same command, while
+`-w @isocan/voice-agent test` runs it alone and fast.
 
 The blockers to name:
   - `voicepage.test.ts:21` resolves `packages/web/voice.html` through
@@ -148,6 +149,11 @@ machinery for a cosmetic URL.
 and it is the option that best matches "a web-app failure cannot become a
 voice-page failure": the app's server can be down and `:5200/voice` still
 serves.
+
+> **Confirmed by coord, 2026-09-13: option A.** Same-origin is not a
+> convenience here — it is what keeps the audio socket alive through HMR, and
+> option B's silent-404 failure mode is the shape of bug this project keeps
+excavating.
 
 Either way, `/harness` must exist **on the origin that serves the page**, or
 the page loses its harness and its audio socket at once.
@@ -204,9 +210,11 @@ a `typecheck` script.
    nothing set, `--ground` stays `#fbfbf9`; setting `data-theme="dark"` by hand
    flips it to `#0e0f12`. **The dark screenshots in this branch's evidence were
    only possible because the harness of the screenshot set the attribute by
-   hand** — the page as served is light-only. The move should carry a ~10-line
-   resolver (read `isocan.theme` + `prefers-color-scheme`, set `data-theme`,
-   listen for changes) so the page's theme claim is true.
+   hand** — the page as served is light-only, and **the dark half of that
+   visual review is therefore not evidence**: a pass on a rigged input proves
+   nothing. This is a live bug, independent of the move, and it is **astra's to
+   fix, not the extraction's** — coord routed it on 2026-09-13. The extraction
+   only has to make sure the page it inherits sets its own theme (§5).
 2. **Inter is not loaded by this page.** The only `@font-face` for it is
    inline in `packages/web/index.html:66–71` (serving `/fonts/inter-latin.woff2`
    from `packages/web/public/`). The voice page gets the *family name* from the
@@ -264,8 +272,9 @@ should contain, in full:
   - the five base element rules it silently relies on — `body`'s margin, font,
     colour, ground; `button`'s `font: inherit; cursor: pointer`; `input`'s
     `font: inherit; color: var(--ink)`;
-  - and **a theme resolver** (risk 1) so `data-theme` is set by the page rather
-    than by a screenshot harness.
+  - and **a theme resolver** so `data-theme` is set by the page rather than by
+    a screenshot harness (astra fixes the live bug first — §4 risk 1; what this
+    file must carry is the same small resolver, or the receipt of it).
 
 What must *not* come along: the other ~6,400 lines (the app's components,
 canvas chrome, front page), the `/api` proxy, the React plugin, the app's
@@ -276,17 +285,27 @@ move that copies the coupling into a new folder would miss it.
 
 ## 6. The sequence, and what acceptance means
 
-1. astra lands the cog/mobile work; an independent review confirms the files
-   are quiet.
+**Gated**: execution starts only when astra's cog/mobile work has landed **and**
+an independent review confirms those files are quiet. Nothing here starts early
+— moving files across a live edit is what produced tonight's duplicate symbols.
+
+1. astra lands the cog/mobile work **and the dark-mode fix** — routed to astra
+   on 2026-09-13; an independent review then confirms the files are quiet.
 2. **The extraction, in one run**, as separate commits rather than one big one:
    files → package config (vite/tsconfig/vitest/package.json) → the CSS split →
-   test path fixes → the serve path (option A) → optionally the theme resolver
-   and the `@font-face` decision.
-3. **Acceptance, checked rather than asserted:** `http://127.0.0.1:5199/voice`
-   loads the page (`#hero` present; `/voice` on the app server still lands
-   there); a real session starts against the harness on 7654 and the state model
-   reaches `listening`; `npm test` and `npm run typecheck` green for **both**
-   `@isocan/web` and `@isocan/voice-agent`; the build-info tag tells the truth
-   from the new home.
+   test path fixes → the serve path (option A, confirmed) → the `@font-face`
+   decision.
+3. **Acceptance, checked rather than asserted:**
+   - `http://127.0.0.1:5199/voice` loads the page (`#hero` present; `/voice` on
+     the app server still lands there);
+   - a real session starts against the harness on 7654 and the state model
+     reaches `listening`;
+   - `npm test` and `npm run typecheck` green for **both** `@isocan/web` and
+     `@isocan/voice-agent`;
+   - the build-info tag tells the truth from the new home;
+   - **the dark screenshots are re-shot from the real page with nothing set by
+     hand** (coord, 2026-09-13): emulated `prefers-color-scheme: dark`, no
+     `data-theme` written by the harness, and the page is dark because it *is*
+     dark — the resolution of the evidence-integrity failure recorded in §4.
 4. Then, and only then, delete what `packages/web` gave up, in the same run that
    proves nothing imports it.
