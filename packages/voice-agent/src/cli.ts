@@ -30,7 +30,9 @@ import {
   DEFAULT_VOICE_PORT,
   VOICE_HARNESS,
   claimVoiceIdentity,
+  enrolmentForVoice,
   isocanHome,
+  readVoiceIdentity,
   runVoiceAdapter,
   startVoiceServer,
 } from "./voice-harness.ts";
@@ -96,6 +98,47 @@ export function parseVoiceArgs(argv: readonly string[]): VoiceArgs {
 }
 
 /**
+ * **What this harness is called when nobody said.**
+ *
+ * The order matters, and `ISOCAN_SESSION_ID` is deliberately not in it. It used
+ * to be the name — `agent:<name>` was the key, so the session the rc injected
+ * WAS the agent's name. It is not any more: the rc injects the machine key
+ * (`agent:<mac>`, `agent-key.ts`), whose session half is a MAC and not a word
+ * anybody answers to, and a harness that read it as a name would ask the desk
+ * for an actor called `hfLOA8VWETJXrYl3xCqLqu1rlUyvRHxF`.
+ *
+ * So: the record first (it survives a rename, which is the whole reason the
+ * record exists), then the enrolment record — the row `isocan rc add` wrote,
+ * which names the canvas and the actor the rc will summon — and only then the
+ * default, which is what a first run on a fresh machine gets. `--as` wins over
+ * all of it, because a person typing a name is asking for it.
+ */
+async function voiceName(home: string, canvas?: string): Promise<string> {
+  const remembered = await readVoiceIdentity(home).catch(() => null);
+  if (remembered?.name) return remembered.name;
+  const rows = await readRcAgents(home).catch(() => []);
+  // No name hint: the row decides — the single voice row standing on this
+  // canvas (or on any canvas, when the environment names none).
+  const row = enrolmentForVoice(rows, { name: "", ...(canvas ? { canvas } : {}) });
+  return row?.name ?? "Voice";
+}
+
+/**
+ * **The conversation a summons injected, spelled the way a key is.**
+ *
+ * The rc hands a turn `ISOCAN_HARNESS=agent` and `ISOCAN_SESSION_ID=<mac>` —
+ * the halves of `agent:<mac>`, this machine's key (`agent-key.ts`) — plus
+ * `ISOCAN_CANVAS`. Read as a key rather than as a name, because that is what
+ * it is; nothing here knows what the agent is called, and the daemon does.
+ */
+function injectedKey(): string | null {
+  const session = process.env.ISOCAN_SESSION_ID;
+  if (!session) return null;
+  const harness = process.env.ISOCAN_HARNESS ?? "isocan";
+  return `${harness}:${session}`;
+}
+
+/**
  * **The standing server, started here rather than through the CLI.**
  *
  * Everything it needs it resolves itself, the way the harness already resolves
@@ -111,9 +154,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
   const home = isocanHome();
-  const name = args.name ?? process.env.ISOCAN_SESSION_ID ?? "Voice";
   const canvas = args.canvas ?? process.env.ISOCAN_CANVAS;
   const say = (line: string) => console.log(`voice: ${line}`);
+  const name = args.name ?? (await voiceName(home, canvas));
 
   if (args.acp) {
     await runVoiceAdapter({ home, name, ...(canvas ? { canvas } : {}) });
@@ -126,6 +169,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     home,
     client: hub.ctx.client,
     name,
+    injected: injectedKey(),
     canvasId: target.id,
     onLine: say,
   });

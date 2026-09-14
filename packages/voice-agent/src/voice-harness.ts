@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
 import { readConfigFile, readMarker } from "@isocan/server";
+import { agentSessionOf, machineAgentKey } from "./agent-key.ts";
 import { readRcAgents, upsertRcAgent } from "./rc-rows.ts";
 import { statSync } from "node:fs";
 import { connect, matchRef, type CanvasHandle, type ListedItem } from "@isocan/api";
@@ -281,22 +282,22 @@ export async function forgetVoiceKey(home: string): Promise<void> {
 }
 
 /**
- * **The enrolment key, and its inverse — the two halves of one decision.**
+ * **The key this harness claims under, and its inverse — the two halves of one
+ * decision.**
  *
- * They lived in the CLI's `acp.ts` while the harness lived in the CLI. The
- * format is this harness's own now, because this harness is the only thing that
- * claims under it: `agent:<name>` on the first run, which is the enrolment in
- * miniature, where the name IS the key.
+ * The key is `machineAgentKey(home, name)` — this machine's own key for the
+ * agent, derived in `agent-key.ts` with the CLI's rule, and the very key the rc
+ * injects into a summoned turn. It used to be `agent:<name>`, which is what the
+ * CLI used before room phase 3.5, and leaving it there made the harness's first
+ * claim and the CLI's enrolment claim two different sessions on one actor: the
+ * second was refused as "somebody else here" for the half hour the desk
+ * remembers a claim. One key, three moments (start by hand, enrol, summon).
  *
  * The inverse exists because of a rename: the KEY is the conversation a badge
  * bound the actor to and the NAME is a label the person can change, so a
  * restart that rebuilds the key from the name presents a key nobody holds.
  * `<harness>:<session>`, first colon only — a session id may contain one.
  */
-export function enrolmentKey(agentName: string): string {
-  return `agent:${agentName}`;
-}
-
 export function identityOfKey(sessionKey: string): { harness: string; session: string } {
   const at = sessionKey.indexOf(":");
   return at < 0
@@ -312,12 +313,13 @@ export function voiceIdentityFile(home: string): string {
  * **Which actor this microphone speaks as, and the key it holds it under.**
  *
  * The two are not the same thing, and treating them as one is what made a
- * rename half-happen. An agent is FIRST claimed under `agent:<name>`
- * (`enrolmentKey`), and that is fine at birth — but the key then lives on the
- * badge for the life of the actor, while the NAME is a label the registry owns
- * and the person can change at the microphone. A start that rebuilds the key
- * from the name presents a key nobody holds (refused: "Nova is taken here") or,
- * worse, the key that IS held under the old name and renames the actor back.
+ * rename half-happen. An agent is FIRST claimed under this machine's key for
+ * the name it was born with (`machineAgentKey`), and that is fine at birth —
+ * but the key then lives on the badge for the life of the actor, while the NAME
+ * is a label the registry owns and the person can change at the microphone. A
+ * start that rebuilds the key from the name presents a key nobody holds
+ * (refused: "Nova is taken here") or, worse, the key that IS held under the old
+ * name and renames the actor back.
  *
  * So the identity is recorded: the actor id and the key, with the name as a
  * copy of the label for saying what this harness is without a round trip.
@@ -362,8 +364,9 @@ export async function forgetVoiceIdentity(home: string): Promise<void> {
  * resumes the actor under the key it was bound with and is told the new name,
  * instead of asserting the stale one from the environment.
  *
- * Without one (first run on this machine) the name is the key, exactly as
- * before: `agent:<name>` is claimed with the name, which mints or resumes.
+ * The first run's claim asserts the name, because the name IS the key at
+ * birth: `machineAgentKey(home, name)` is this machine's key for that agent,
+ * and it is the key the rc injects when it summons the agent later.
  *
  * A remembered key the daemon refuses — the badge lost its claims, or the
  * actor was withdrawn — is forgotten and the first-run path takes over, said
@@ -376,29 +379,37 @@ export async function claimVoiceIdentity(options: {
     claimActor: (op: { type: "actor.claim"; sessionKey: string; name?: string; canvasId?: string }) => Promise<{
       envelope: { actor: { id: string; name: string } };
     }>;
-    actorBindings: () => Promise<{ key: string; actor: { id: string } }[]>;
+    actorBindings: () => Promise<{ key: string; actor: { id: string; name: string } }[]>;
   };
-  /** The name asked for: `--as`, the injected session, or the default. */
+  /** The name asked for: `--as`, the record, the enrolment row, or the default.
+   * A name that is not the actor's is refused rather than obeyed, said out
+   * loud — never silently rename the agent back. */
   name: string;
+  /** The key the environment injected, when it did: `ISOCAN_HARNESS:ISOCAN_SESSION_ID`
+   * from a summoned turn. It is a conversation, not a name, and it is the
+   * strongest thing this harness can know about who it is — richer than the
+   * record, because it survives both a rename and a lost record. */
+  injected?: string | null;
   canvasId?: string;
   onLine?: (line: string) => void;
 }): Promise<{ actor: { id: string; name: string }; harness: string; session: string }> {
   const say = options.onLine ?? (() => {});
   const remembered = await readVoiceIdentity(options.home).catch(() => null);
-  const wanted = enrolmentKey(options.name);
+  const wanted = await machineAgentKey(options.home, options.name);
   const rows = await options.client.actorBindings().catch(() => null);
 
   /**
    * **A key this badge already holds is a conversation, and a claim under it
    * is a resumption.**
    *
-   * Two ways to know the key: the record this harness keeps (it remembers the
-   * key even when the name has moved away from it), and the daemon's own row —
-   * which is what a machine that holds the binding but not the record has: a
-   * second machine's enrolment, or a home whose `voice/` directory was cleared.
-   * Either way the name is NOT asserted, and that is the rule that matters: a
-   * claim that names an actor already bound is a rename, so a machine would
-   * rename the agent back without meaning to.
+   * Three ways to know the key, strongest first: the one the environment
+   * injected (the daemon's own row says whose it is), the record this harness
+   * keeps (it remembers the key even when the name has moved away from it),
+   * and the machine key the name derives — which is what a first run claims.
+   * The first two cover a second machine's enrolment and a home whose `voice/`
+   * directory was cleared. In every one of them the name is NOT asserted, and
+   * that is the rule that matters: a claim that names an actor already bound is
+   * a rename, so a machine would rename the agent back without meaning to.
    *
    * The name's key is only asserted on the first claim — the enrolment in
    * miniature, where the name IS the key.
@@ -406,9 +417,8 @@ export async function claimVoiceIdentity(options: {
   const resume =
     remembered && (rows === null || rows.some((row) => row.key === remembered.sessionKey))
       ? remembered.sessionKey
-      : rows?.some((row) => row.key === wanted)
-        ? wanted
-        : null;
+      : rows?.find((row) => row.key === options.injected)?.key ??
+        (rows?.some((row) => row.key === wanted) ? wanted : null);
 
   if (resume) {
     try {
@@ -4560,6 +4570,18 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         const who = String(summons.name ?? "an agent");
         const prompt = String(summons.prompt ?? "");
         narrate(`summoned by ${who}: ${prompt.slice(0, 300)}`);
+        // The whole prompt, in the harness's own log. The narration ring is
+        // bounded to 300 characters of it, and a summons is the one thing a
+        // person who was not looking at the page still has to be able to read
+        // afterwards — it is somebody's word, and it is what the microphone
+        // was asked to do.
+        recordToolLog({
+          type: "session_event",
+          source: "system",
+          name: "summons",
+          event: `summoned by ${who}`,
+          details: { kind: "summons", by: who, prompt },
+        });
         respond(200, { lines });
         return;
       }
@@ -5732,12 +5754,18 @@ async function startDetachedServer(options: { home: string; name: string; canvas
   const port = DEFAULT_VOICE_PORT;
   const args = [voiceEntry(), "--port", String(port)];
   if (options.canvas) args.push("--canvas", options.canvas);
+  // The identity is a KEY, not a name: the one the rc injected when there is
+  // one, else this machine's key for the name the enrolment record gives — the
+  // same key `isocan rc add` claimed and the same one a later summons injects.
+  // Passing the name as a session id is what made the detached server resume
+  // nothing and mint an actor called after a MAC.
+  const session = process.env.ISOCAN_SESSION_ID ?? agentSessionOf(await machineAgentKey(options.home, options.name));
   const child = spawn(process.execPath, args, {
     detached: true,
     stdio: "ignore",
     env: {
       ...process.env,
-      ISOCAN_SESSION_ID: process.env.ISOCAN_SESSION_ID ?? options.name,
+      ISOCAN_SESSION_ID: session,
       ISOCAN_HARNESS: process.env.ISOCAN_HARNESS ?? "agent",
     },
   });

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
+import { agentSessionOf, machineAgentKey } from "../src/agent-key.ts";
 import { readRcAgents } from "../src/rc-rows.ts";
 import { harnessVars } from "@isocan/api";
 import { shelvePatch } from "@isocan/core";
@@ -84,6 +85,27 @@ const seeder = { id: "usr_seeder", name: "Seeder" };
 const person = { id: "usr_person", name: "Person" };
 const voice = { id: "usr_voice", name: "Voice" };
 
+/**
+ * **The session this machine presents for an agent name.**
+ *
+ * It is the key `agent-key.ts` derives — the one `isocan rc add` mints an actor
+ * under and the one the rc injects into a summoned turn — and not `agent:Voice`,
+ * the key the CLI used before room phase 3.5. Presenting the old key is what
+ * made the harness's own claim and the CLI's enrolment two sessions on one
+ * actor: the second was refused as "somebody else here" while the desk
+ * remembered the first, which is why every test here that enrols through the
+ * CLI used to fail.
+ */
+async function sessionFor(name: string): Promise<string> {
+  return agentSessionOf(await machineAgentKey(home, name));
+}
+
+/** The identity a harness started for an agent name speaks under — what the rc
+ * would hand it, spelled as `connect()` takes it. */
+async function identityFor(name = "Voice"): Promise<{ session: string; harness: string }> {
+  return { session: await sessionFor(name), harness: "agent" };
+}
+
 let home: string;
 let daemon: Daemon;
 let base: string;
@@ -105,14 +127,14 @@ beforeEach(async () => {
     actor: seeder,
     op: { type: "project.create", canvasId: "prj_1", title: "Voice test" },
   });
-  // The enrolment, exercised the way a person does it: the CLI claims
-  // `agent:Voice` on THIS machine's badge, which is the claim the rc makes
-  // before it spawns an adapter. Done through the CLI rather than by posting
-  // an op, because the badge a claim belongs to is the whole question —
+  // The enrolment, exercised the way a person does it: the CLI claims this
+  // machine's key for `agent:Voice` on THIS badge, which is the claim the rc
+  // makes before it spawns an adapter. Done through the CLI rather than by
+  // posting an op, because the badge a claim belongs to is the whole question —
   // `startVoiceServer` resolves with the machine's own, exactly as the
   // rc-spawned adapter does.
   const claimed = await isocan(["identity", "--name", "Voice", "--session"], {
-    ISOCAN_SESSION_ID: "Voice",
+    ISOCAN_SESSION_ID: await sessionFor("Voice"),
     ISOCAN_HARNESS: "agent",
   });
   expect(claimed.code, claimed.stderr).toBe(0);
@@ -216,6 +238,18 @@ async function utterance(baseUrl: string, text: string): Promise<{ sent: string[
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Wait for a condition the test can only observe by reading, with the reason
+ * in the failure so a timeout says what never happened. */
+async function until<T>(read: () => T, ready: (value: T) => boolean, what: string, ms = 20_000): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = read();
+    if (ready(value)) return value;
+    if (Date.now() >= deadline) throw new Error(`waited ${ms}ms for ${what}`);
+    await sleep(50);
+  }
+}
+
 /**
  * **A live session on a fake provider socket** — the shape every tool call in
  * this file arrives through — plus the two handles a person has: the page and
@@ -247,7 +281,7 @@ async function liveServer() {
   const server = await startVoiceServer({
     home,
     port: 0,
-    identity: { session: "Voice", harness: "agent" },
+    identity: await identityFor(),
     canvas: "prj_1",
     daemonPort: Number(new URL(base).port),
     // A gate nobody answers must not hold a test for a minute.
@@ -289,15 +323,20 @@ async function liveServer() {
  * The subject is the NAME it claims, not the audio: a restart is where a
  * rename either survives or is quietly undone.
  */
-async function startFreshVoice(env: Record<string, string>): Promise<{
+async function startFreshVoice(env: Record<string, string>, args: string[] = []): Promise<{
   started: boolean;
   state: { name: string; agent: { id: string; name: string }; canvas: { id: string; title: string } } | null;
   said: string;
 }> {
   const port = 9000 + Math.floor(Math.random() * 900);
-  const childEnv: NodeJS.ProcessEnv = { ...process.env, ISOCAN_HARNESS: "agent" };
+  // The scrub first, then the harness: `harnessVars` includes ISOCAN_HARNESS
+  // itself, so setting it before the delete loop would leave the child with no
+  // harness at all — and a session key is only a conversation once the harness
+  // half names which family of them it belongs to.
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
   for (const name of harnessVars) delete childEnv[name];
-  const child = spawn(process.execPath, [voiceBin, "--port", String(port)], {
+  childEnv.ISOCAN_HARNESS = "agent";
+  const child = spawn(process.execPath, [voiceBin, "--port", String(port), ...args], {
     env: { ...childEnv, ISOCAN_HOME: home, ISOCAN_PORT: new URL(base).port, ...env },
     cwd: home,
     stdio: ["ignore", "pipe", "pipe"],
@@ -768,7 +807,7 @@ describe("the page", () => {
     const server = await startVoiceServer({
       home,
       port,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
     });
@@ -804,7 +843,7 @@ describe("the page", () => {
     await writeVoiceKey(home, { provider: "gemini", key: "inert-local-fixture" });
     let starts = 0;
     const server = await startVoiceServer({
-      home, port: 0, identity: { session: "Voice", harness: "agent" }, canvas: "prj_1",
+      home, port: 0, identity: await identityFor(), canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
       WebSocketImpl: class { constructor() { starts++; throw new Error("provider forbidden"); } },
     });
@@ -838,7 +877,7 @@ describe("the page", () => {
     await writeVoiceKey(home, { provider: "gemini", key: "inert-local-fixture" });
     let starts = 0;
     const server = await startVoiceServer({
-      home, port: 0, identity: { session: "Voice", harness: "agent" }, canvas: "prj_1",
+      home, port: 0, identity: await identityFor(), canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
       WebSocketImpl: class { constructor() { starts++; throw new Error("provider forbidden"); } },
     });
@@ -1174,7 +1213,7 @@ describe("the person's gate", () => {
     const server = await startVoiceServer({
       home,
       port: 0,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
       confirmTimeoutMs: 700,
@@ -1798,13 +1837,21 @@ describe("the projects this session can work on", () => {
       // 4. A command, spoken after the move. The canvas and the log agree: the
       // operation is in the NEW canvas's oplog, and the harness's /log reads
       // create → switch → add, in that order.
+      //
+      // `group.change` and not `item.add`, deliberately: a canvas born on this
+      // desk is a GROUP canvas (`groupMode: "groups"`, a new canvas's default
+      // in `packages/server/src/engine.ts`), and on one of those an add is
+      // recorded as the group write it becomes (`canvas-groups.ts`,
+      // `resolveCanvasGroupRequest`). Two entries, and the second is the add —
+      // which is what this test is about. The harness's own log still calls the
+      // tool `add_item`; the oplog is the desk's spelling of what it did.
       const spoken = await callTool(live.providerSocket, "walk-say", "add_item", {
         title: "Kick-off notes",
         text: "what the plan says",
       });
       expect(spoken.response.ok).toBe(true);
-      expect((await log([winter])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
-      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      expect((await log([winter])).map((e) => e.type)).toEqual(["project.create", "group.change"]);
+      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "group.change"]);
       expect(((await (await fetch(`${live.server.state.url}state`)).json()) as any).canvas.id).toBe(winter);
 
       const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
@@ -1854,7 +1901,9 @@ describe("the projects this session can work on", () => {
       expect(moved.response.answer).toContain("Every operation from here lands on it");
 
       // Nothing was minted by the move itself: switching is not a canvas edit.
-      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      // (The add is logged as a `group.change` because the fixture's canvas is
+      // a group canvas, like every canvas born on this desk.)
+      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "group.change"]);
 
       // The harness's own account of itself, and the page's, followed.
       const after = (await (await fetch(`${live.server.state.url}state`)).json()) as any;
@@ -1888,8 +1937,11 @@ describe("the projects this session can work on", () => {
         text: "what the plan says",
       });
       expect(spoken.response.ok).toBe(true);
-      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "item.add", "item.add"]);
-      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "item.add"]);
+      // Two on prj_2 — the fixture's item and the spoken one, each recorded as
+      // the group write an add becomes on a group canvas (see above) — and the
+      // spoken one is the only new entry on prj_2. prj_1 does not move.
+      expect((await log(["prj_2"])).map((e) => e.type)).toEqual(["project.create", "group.change", "group.change"]);
+      expect((await log(["prj_1"])).map((e) => e.type)).toEqual(["project.create", "group.change"]);
 
       // The harness's /log says the move happened, and to where.
       const entries = ((await (await fetch(`${live.server.state.url}log`)).json()) as any).entries as any[];
@@ -2046,7 +2098,22 @@ describe("the name the enrolment summons", () => {
     // `--canvas prj_1`: the point-anywhere form, so the enrolment lands in the
     // room the harness stands in rather than in the one a bare temp cwd would
     // have made for itself.
-    const enrolled = await isocan(["rc", "add", "Voice", "--harness", "voice", "--dir", home, "--canvas", "prj_1"]);
+    const enrolled = await isocan([
+      "rc",
+      "add",
+      "Voice",
+      "--harness",
+      "voice",
+      "--dir",
+      home,
+      "--canvas",
+      "prj_1",
+      // Whose word wakes it is not this test's subject, and a parked rc has to
+      // take a mention from the fixture's badge rather than from the machine's
+      // person, who has no client of its own here.
+      "--listen",
+      "everyone",
+    ]);
     expect(enrolled.code, enrolled.stderr).toBe(0);
 
     const before = await readRcAgents(home);
@@ -2082,7 +2149,7 @@ describe("the name the enrolment summons", () => {
     const server = await startVoiceServer({
       home,
       port: 0,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
       confirmTimeoutMs: 2000,
@@ -2146,36 +2213,93 @@ describe("the name the enrolment summons", () => {
       ) as { actorId: string; sessionKey: string; name: string };
       expect(identity.actorId).toBe(row.actorId);
       expect(identity.name).toBe("Nova");
-      expect(identity.sessionKey, "the key is the conversation: a rename does not move it").toBe("agent:Voice");
+      expect(identity.sessionKey, "the key is the conversation: a rename does not move it").toBe(
+        await machineAgentKey(home, "Voice"),
+      );
     } finally {
       await live.close();
     }
   });
 
   /**
-   * **The summons is where a stale name costs the most**: `rc turn <name>` is
-   * how anything reaches an agent, and it resolves the name against canvas
-   * state, then binds the adapter's session — which used to be the NAME, so a
-   * rename made the summon fail with "X is somebody else here".
+   * **The summons is where a stale name costs the most**: it resolves the name
+   * against canvas state and then hands the turn to the adapter — which used to
+   * be told what the agent was called rather than which conversation it holds,
+   * so a rename made the summon fail with "X is somebody else here".
+   *
+   * **ONE TURN THROUGH THE REAL ADAPTER**, spawned the way the rc spawns it,
+   * with the environment a summons carries. What is asserted here is the
+   * harness's half of the handshake: the adapter finds the standing microphone
+   * by the enrolment record and the injected canvas, presents the key the
+   * record holds, and delivers the person's words — after a rename that moved
+   * the name and not the key.
+   *
+   * The rc's OWN binding step (the claim it makes before spawning, from the
+   * name the agent has now) is a CLI-side concern, deliberately not driven
+   * here: `packages/rc/src/room.ts` derives that key from `record.actor.name`,
+   * and for an agent that has been RENAMED while standing the desk refuses the
+   * derived key ("live on a canvas"), so a parked rc cannot complete the turn.
+   * `is summoned for real` above is the test that drives the whole rc path, for
+   * an agent whose name has not moved.
    */
+  async function adapterTurn(prompt: string): Promise<{ said: string }> {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of harnessVars) delete env[name];
+    const child = spawn(process.execPath, [voiceBin, "--acp"], {
+      env: {
+        ...env,
+        ISOCAN_HOME: home,
+        ISOCAN_PORT: new URL(base).port,
+        ISOCAN_HARNESS: "agent",
+        ISOCAN_SESSION_ID: await sessionFor("Nova"),
+        ISOCAN_CANVAS: "prj_1",
+      },
+      cwd: home,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let said = "";
+    let replies = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk) => (said += chunk));
+    child.stdout!.setEncoding("utf8");
+    child.stdout!.on("data", (chunk) => (replies += chunk));
+    const ask = (message: unknown) => child.stdin!.write(`${JSON.stringify(message)}\n`);
+    ask({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    ask({ jsonrpc: "2.0", id: 2, method: "session/new", params: {} });
+    await until(() => replies, (r) => r.includes('"id":2'), "the adapter to open a session");
+    const sessionId = (JSON.parse(replies.split("\n").find((line) => line.includes('"id":2')) ?? "{}") as {
+      result?: { sessionId?: string };
+    }).result?.sessionId;
+    ask({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "session/prompt",
+      params: { sessionId, prompt: [{ type: "text", text: prompt }] },
+    });
+    await until(() => replies, (r) => r.includes('"id":3'), "the adapter to answer the turn");
+    child.stdin!.end();
+    child.kill("SIGTERM");
+    return { said };
+  }
+
   it("summons by the new name, presenting the key the agent already holds", async () => {
     const live = await enrolledAndRenamed();
     try {
-      const summoned = await isocan([
-        "rc",
-        "turn",
-        "Nova",
-        "--canvas",
-        "prj_1",
-        "look",
-        "at",
-        "the",
-        "checkout",
-        "screen",
-      ]);
-      expect(summoned.code, summoned.stderr).toBe(0);
-      const lines = ((await (await fetch(`${live.server.state.url}state`)).json()) as { lines: string[] }).lines.join("\n");
-      expect(lines).toContain("summoned by Nova");
+      const turn = await adapterTurn("look at the checkout screen");
+      // WHICH PATH RAN, said in the adapter's own words: the microphone was
+      // already standing, so the summons was handed to it rather than a second
+      // one opened.
+      expect(turn.said).toContain("attached to the voice harness already standing on port");
+
+      // The page heard the summons, and the person's words arrived whole: the
+      // narration ring keeps 300 characters of a summons and the adapter's
+      // preamble is longer than that, so the log is where they actually are.
+      const log = (await (await fetch(`${live.server.state.url}log`)).json()) as {
+        entries: { name?: string; details?: { by?: string; prompt?: string } }[];
+      };
+      const landed = log.entries.find((e) => e.name === "summons");
+      expect(landed?.details?.by).toBe("Nova");
+      expect(landed?.details?.prompt).toContain("look at the checkout screen");
 
       // The old name is a name nothing answers to any more — said plainly,
       // rather than waking a second agent wearing it.
@@ -2218,12 +2342,12 @@ describe("the name the enrolment summons", () => {
 
       // 4. A harness that did not exist when the rename happened — started by
       // the new name, and then by the old one, which must not re-assert it.
-      const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: "Nova" });
+      const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: await sessionFor("Nova") });
       expect(asNew.started, `a fresh voice-agent should start:\n${asNew.said.slice(-400)}`).toBe(true);
       expect(asNew.state!.name).toBe("Nova");
       expect(asNew.state!.agent.id).toBe(actorId);
 
-      const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+      const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: await sessionFor("Voice") });
       expect(asOld.started, `a fresh voice-agent should start:\n${asOld.said.slice(-400)}`).toBe(true);
       expect(asOld.state!.name, "the old name is not asserted back").toBe("Nova");
       expect(asOld.state!.agent.id).toBe(actorId);
@@ -2241,9 +2365,13 @@ describe("the name the enrolment summons", () => {
    * **The record is a convenience; the badge's row is the truth.** A machine
    * that holds the binding but not `voice/identity.json` — a second machine
    * enrolled in the same actor, or a home whose `voice/` directory was cleared
-   * — would rebuild the key from the name it was started with and rename the
-   * actor back. So the first-run path resumes too, whenever the key it would
-   * claim is a key this badge already holds.
+   * — must resume the actor it already is rather than claim the name afresh,
+   * which would ask the desk to hand out a second actor wearing the same name.
+   *
+   * The binding it resumes under comes from the environment: the rc injects a
+   * KEY (`agent:<mac>`), the daemon's own row says whose it is, and that is
+   * true across a rename and across a lost record — the two things the name
+   * cannot survive.
    */
   it("resumes on a machine that holds the row but not the harness's own record", async () => {
     const live = await enrolledAndRenamed();
@@ -2252,17 +2380,16 @@ describe("the name the enrolment summons", () => {
       await live.close();
       await fs.rm(path.join(home, "voice", "identity.json"), { force: true });
 
-      const noRecord = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+      const noRecord = await startFreshVoice({ ISOCAN_SESSION_ID: await sessionFor("Voice") });
       expect(noRecord.started, `a fresh voice-agent should start:\n${noRecord.said.slice(-400)}`).toBe(true);
       expect(noRecord.state!.name, "the binding is enough to resume: no rename back").toBe("Nova");
       expect(noRecord.state!.agent.id).toBe(actorId);
-      expect(noRecord.said).toContain("stale");
 
       // And the record it just wrote is the same identity it resumed.
       const identity = JSON.parse(
         await fs.readFile(path.join(home, "voice", "identity.json"), "utf8"),
       ) as { actorId: string; sessionKey: string; name: string };
-      expect(identity).toEqual({ actorId, sessionKey: "agent:Voice", name: "Nova" });
+      expect(identity).toEqual({ actorId, sessionKey: await machineAgentKey(home, "Voice"), name: "Nova" });
     } finally {
       await live.close();
     }
@@ -2272,7 +2399,7 @@ describe("the name the enrolment summons", () => {
 describe("the harness's name across a restart", () => {
   const enrollVoice = async () => {
     const enrolled = await isocan(["rc", "add", "Voice", "--harness", "voice", "--dir", home], {
-      ISOCAN_SESSION_ID: "Voice",
+      ISOCAN_SESSION_ID: await sessionFor("Voice"),
       ISOCAN_HARNESS: "agent",
     });
     expect(enrolled.code, enrolled.stderr).toBe(0);
@@ -2299,14 +2426,16 @@ describe("the harness's name across a restart", () => {
     // 1. A fresh start under the NEW name — what a person types, and what a
     // renamed enrolment injects. This was a hard refusal before: the harness
     // rebuilt the key from the name, and `agent:Nova` is a key it never held.
-    const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: "Nova" });
+    const asNew = await startFreshVoice({ ISOCAN_SESSION_ID: await sessionFor("Nova") });
     expect(asNew.started, `a fresh voice-agent should start:\n${asNew.said.slice(-600)}`).toBe(true);
     expect(asNew.state!.name).toBe("Nova");
     expect(asNew.state!.agent.id, "the same actor, not a second one wearing the name").toBe(renamedActor);
 
-    // 2. A fresh start under the OLD name — a stale enrolment, or a shell with
-    // the old export. It must resume, not rename back.
-    const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: "Voice" });
+    // 2. A fresh start under the OLD name — a stale shell export, or a person
+    // who typed the name it used to have. The session is a key and carries no
+    // name any more, so the name arrives the way a person gives it: `--as`.
+    // It must resume, not rename back, and it must say whose name is stale.
+    const asOld = await startFreshVoice({ ISOCAN_SESSION_ID: await sessionFor("Voice") }, ["--as", "Voice"]);
     expect(asOld.started, `a fresh voice-agent should start:\n${asOld.said.slice(-600)}`).toBe(true);
     expect(asOld.state!.name, "the old name is not asserted back over the new one").toBe("Nova");
     expect(asOld.state!.agent.id).toBe(renamedActor);
@@ -2614,7 +2743,7 @@ describe("the Live API path", () => {
     const server = await startVoiceServer({
       home,
       port: 0,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
       // A gate nobody answers must not hold a test for a minute: a short
@@ -2806,7 +2935,7 @@ describe("the Live API path", () => {
     const server = await startVoiceServer({
       home,
       port: 0,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
       // A gate nobody answers must not hold a test for a minute: a short
@@ -3040,7 +3169,7 @@ describe("the harness as the rc's adapter", () => {
     const server = await startVoiceServer({
       home,
       port: 0,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
     });
@@ -3079,7 +3208,7 @@ describe("the harness session & tool-call log API", () => {
     const server = await startVoiceServer({
       home,
       port: 0,
-      identity: { session: "Voice", harness: "agent" },
+      identity: await identityFor(),
       canvas: "prj_1",
       daemonPort: Number(new URL(base).port),
     });
@@ -3286,7 +3415,7 @@ describe("responsive layout and bounding-box isolation", () => {
       const server = await startVoiceServer({
         home,
         port: 0,
-        identity: { session: "Voice", harness: "agent" },
+        identity: await identityFor(),
         canvas: "prj_1",
         daemonPort: Number(new URL(base).port),
       });
