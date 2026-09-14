@@ -397,9 +397,13 @@ function Panel({
   const { candidates, peers } = useMentionRoster(actor.id);
   const itemRoster = useItemRefRoster();
   const commands = useCommands();
+  /* The verbs this canvas actually has, for the chips. A command is chipped
+     only where the palette could offer it — a chip that opens nothing is
+     worse than plain text. */
+  const commandNames = useMemo(() => commands.map((one) => one.name), [commands]);
   const chips = useMemo(
-    () => [rehypeChips(candidates, actor.id, itemRoster.candidates)],
-    [candidates, actor.id, itemRoster.candidates],
+    () => [rehypeChips(candidates, actor.id, itemRoster.candidates, commandNames)],
+    [candidates, actor.id, itemRoster.candidates, commandNames],
   );
 
   // Open is read — including messages landing while you are looking at it.
@@ -481,7 +485,16 @@ function Panel({
         ref={scrollRef}
         onClick={(e) => {
           const itemId = chipTarget(e);
-          if (itemId) (onOpenItem ?? catapultBesidePanel)(itemId);
+          if (itemId) {
+            (onOpenItem ?? catapultBesidePanel)(itemId);
+            return;
+          }
+          /* A command chip opens the palette at that verb. The reader who
+             clicks one usually wants to do the same thing, not read about it
+             — a definition you cannot act on is the worse half of the answer,
+             and the palette shows the description anyway. */
+          const command = (e.target as HTMLElement).closest("[data-command]")?.getAttribute("data-command");
+          if (command) useUiStore.getState().setPaletteOpen("commands");
         }}
       >
         <div className="main-msgs">
