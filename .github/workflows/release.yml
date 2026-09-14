@@ -68,23 +68,17 @@ jobs:
       # A release nobody tested is a release that installs a broken canvas. If
       # these fail, main keeps its last good release until the next green commit.
       #
-      # ISOCAN_REQUIRE_EMULATOR is the anti-skip switch. Locally the cloud
-      # suites skip loudly and say what they did not check; here a skip is a
-      # FAILURE, because a green run that did not test Firestore launders an
-      # unknown into a checkmark — and this is the run that decides what gets
-      # released.
-      - run: npm test
-        env:
-          ISOCAN_REQUIRE_EMULATOR: "1"
-          # The deep lane — the CLI walks and the board, a third of the CPU —
-          # is left out of `npm test` on a laptop and must never be left out
-          # HERE. Same argument as the emulator switch above: a green run that
-          # skipped the walks launders an unknown into a checkmark.
-          ISOCAN_REQUIRE_DEEP: "1"
-          # The bundle budget measures packages/web/dist, which `npm ci`
-          # built through `prepare`. If it is missing here, that did not
-          # happen — and a silent skip would let the entry chunk drift again.
-          ISOCAN_REQUIRE_BUNDLE: "1"
+      # `test:ci` is `vitest run` with every anti-skip switch on. Three suites
+      # here can decide at runtime that they cannot run — the cloud suites
+      # without an emulator, the bundle budget without a built dist, the deep
+      # lane on a laptop — and each skips loudly by design, so a contributor
+      # gets a useful run that says what it did not check. On THIS run a skip
+      # is a failure: it is the run that decides what gets released, and a
+      # green one that left a third of the gate out launders an unknown into a
+      # checkmark. Which switches, and why each, is `scripts/switches.mjs`;
+      # this file deliberately keeps no copy of that list, because the copy in
+      # `pr.yml` and the copy here are exactly what drifts.
+      - run: npm run test:ci
       - run: npm run typecheck
 
       # The graders grade themselves. `--selftest` runs every check in
