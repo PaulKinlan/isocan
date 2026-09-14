@@ -49,6 +49,8 @@ import { matchRef, resolveCanvas, resolveCanvasRef, resolveCtx, readHomeRecord, 
 import { DaemonClient } from "./client.ts";
 import { claimSessionIdentity, noIdentityHere, type ExplicitIdentity } from "./identity.ts";
 import { readContextSummary, type ContextSummaryOptions } from "./context-summary.ts";
+import { readDesignAudit } from "./design-audit.ts";
+import type { CanvasDesignAudit, DesignAuditOptions } from "./design-audit-reader.ts";
 import { waitForFeedback, type FeedbackOptions, type FeedbackResult } from "./feedback.ts";
 import type { ContextExtras, ContextLayer } from "@isocan/core";
 import { ApiError, type DaemonRoutes } from "./routes.ts";
@@ -411,6 +413,11 @@ export class CanvasHandle {
   /** Live ambient layers, distinct from a current item manifest or saved request. */
   contextSummary(extras: ContextExtras = {}, options: ContextSummaryOptions = {}): Promise<ContextLayer[]> {
     return this.reach(() => readContextSummary(this.ctx, this.id, extras, options));
+  }
+
+  /** Parsed HTML diagnostics with per-screen governing provenance and explicit coverage. */
+  designAudit(options: DesignAuditOptions = {}): Promise<CanvasDesignAudit> {
+    return this.reach(() => readDesignAudit(this.ctx, this.id, options));
   }
 
   /** Bounded addressed feedback with a caller-owned cursor; never marks work seen. */

@@ -2023,12 +2023,20 @@ isocan fit <items...>                  # grow items to the size their content wa
   its ancestors, then the canvas and a linked canvas's. Legacy canvases retain
   their geometric area scope.
 
-  `isocan design audit` says whether the SCREENS hold up: which values each one
-  uses that the system never named, worst screen first. It is the arithmetic
-  half of `/design-audit` and nothing more — a colour is in the palette or it is
-  not — so a clean score means coherent, never good. You do not have to run it
-  after adding a screen; adding one runs it for you and prints what that screen
-  invented.
+  `isocan design audit` parses screen styling and reports departures from each
+  screen's governing system: colours, type sizes, radii and declared spacing.
+  Findings include original source locations, missing references and candidate
+  token repairs. External styles, dynamic expressions and ambiguous CSS remain
+  visibly unexamined; matching literals are allowed. `--json` includes screen
+  item/version/blob identity, governing item/version/source canvas, rule version,
+  diagnostics and coverage, alongside the existing `system`, `screens`,
+  `offSystem`, `items` and per-screen `onSystem`/`offSystem` fields. An unavailable
+  item has a reason instead of a fabricated clean score. Ordinary auditing is
+  advisory and does not change content. Adding an HTML screen also prints a
+  brief best-effort token warning; run the full audit for coverage and provenance.
+  A DESIGN.md names expected values; it does not inject CSS into a screen.
+  Token-reference repairs may require including the exported declarations in
+  the artifact. Read each candidate's prerequisites before applying it.
 
   **Past six screens with no design system, `isocan add` refuses an HTML file.**
   Two screens gets you a note, because the second screen is where a choice

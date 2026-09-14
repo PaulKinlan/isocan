@@ -61,7 +61,7 @@ export * from "./onit.ts";
 export * from "./slop.ts";
 export * from "./skillsource.ts";
 export * from "./designsystem.ts";
-export * from "./designaudit.ts";
+export type { ScreenAudit, AuditDiagnostic, AuditUnexamined, AuditRepair, AuditRange, AuditPosition, DesignValueKind } from "./designaudit.ts";
 export * from "./preference.ts";
 export * from "./extensions.ts";
 export * from "./media.ts";

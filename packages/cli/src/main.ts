@@ -1,4 +1,5 @@
 import { classifyAutomaticSource } from "@isocan/api/context";
+import { auditScreen } from "@isocan/core/design-audit";
 import { registerPersonalContext } from "./personal-context.ts";
 import { makeTextAnchor, resolveTextAnchor, quoteRange, SOURCE_PATH_PROP } from "@isocan/core";
 import { CanvasGroups, insertedItemBox, resolveCanvasGroupRef } from "@isocan/api";
@@ -145,9 +146,6 @@ import {
   extractItemRefs,
   ALIGN_EDGES,
   itemKinds,
-  auditScreen,
-  offSystemTotal,
-  type ScreenAudit,
   designStanding,
   DESIGN_SYSTEM_LIMIT,
   designSkipPatch,
@@ -468,6 +466,7 @@ import {
   readIdentity,
   claimSessionIdentity,
   linkedCanvasesOf,
+  readDesignAudit,
   HOME_CLAIM_KEY,
   noIdentityHere,
   reclaimIdentity,
@@ -10271,73 +10270,39 @@ style
       const ctx = await ctxOf(cmd);
       const { canvas: p, snapshot } = await canvasAndSnapshot(ctx);
       const scope = designScope(snapshot, opts.in);
-      const system = designSystem(snapshot.canvas, scope);
-      if (!system) {
-        throw new Error(
-          `${p.title} has no design system, so there is nothing to audit against — ` +
-            "ask for /design-system, or `isocan design skip` if this canvas does not want one",
-        );
-      }
-      // Each screen against the system that governs WHERE IT SITS (scoped
-      // design systems, 11 Sep): a lane's screen against the lane's, the
-      // rest against the canvas's. One parse per system, not per screen.
-      const docs = new Map<string, ReturnType<typeof parseDesign>>();
-      const docOf = async (item: Item) => {
-        const hit = docs.get(item.id);
-        if (hit) return hit;
-        const v = item.versions.find((x) => x.id === item.currentVersionId) ?? item.versions[0];
-        if (!v) return null;
-        const parsed = parseDesign((await ctx.client.downloadBlob(p.id, v.blobHash)).toString("utf8"));
-        docs.set(item.id, parsed);
-        return parsed;
-      };
-      const doc = await docOf(system);
-      if (!doc) throw new Error(`${system.title} has no current version`);
-
       const within = scope.at && "id" in scope.at ? scope.at : null;
-      const screens = Object.values(snapshot.canvas.items).filter(
-        (item) => itemKind(item) === "screen" && (!within || inCanvasScope(snapshot.canvas, within, item)),
-      );
-      const rows: { id: string; title: string; audit: ScreenAudit }[] = [];
-      for (const screen of screens) {
-        const version =
-          screen.versions.find((v) => v.id === screen.currentVersionId) ?? screen.versions[0];
-        if (!version) continue;
-        const governing = designSystem(snapshot.canvas, { at: screen });
-        const tokens = governing ? (await docOf(governing))?.tokens : undefined;
-        if (!tokens) continue;
-        const html = (await ctx.client.downloadBlob(p.id, version.blobHash)).toString("utf8");
-        rows.push({ id: screen.id, title: screen.title, audit: auditScreen(html, tokens) });
-      }
-
-      const total = offSystemTotal(rows.map((r) => r.audit));
-      if (ctx.json) {
-        return printJson({
-          system: doc.tokens.name ?? system.title,
-          screens: rows.length,
-          offSystem: total,
-          items: rows.map((r) => ({ itemId: r.id, title: r.title, ...r.audit })),
-        });
-      }
-
-      if (rows.length === 0) return console.log(`no screens on ${p.title} yet`);
+      const report = await readDesignAudit(ctx, p.id, within ? { scopeId: within.id } : {}, snapshot);
+      if (ctx.json) return printJson(report);
+      if (report.screens === 0) return console.log(`no screens on ${p.title} yet`);
       console.log(
-        `${total} off-system value${total === 1 ? "" : "s"} across ${rows.length} screen${rows.length === 1 ? "" : "s"}, ` +
-          `against ${doc.tokens.name ?? system.title}`,
+        `${report.offSystem} off-system value${report.offSystem === 1 ? "" : "s"} across ${report.screens} screen${report.screens === 1 ? "" : "s"}, ` +
+          `${report.audited} audited${report.system ? ` against ${report.system}` : ""}`,
       );
-      for (const row of [...rows].sort((a, b) => b.audit.offSystem.length - a.audit.offSystem.length)) {
-        if (row.audit.offSystem.length === 0) {
-          console.log(`\n  ${row.title} — clean (${row.audit.onSystem} on-system values)`);
+      for (const row of [...report.items].sort((a, b) =>
+        (b.status === "audited" ? b.diagnostics.length : 0) - (a.status === "audited" ? a.diagnostics.length : 0))) {
+        if (row.status === "unavailable") {
+          console.log(`\n  ${row.title} — not audited: ${row.reason}`);
           continue;
         }
-        console.log(`\n  ${row.title} — ${row.audit.offSystem.length}`);
-        for (const off of row.audit.offSystem.slice(0, 8)) {
-          console.log(`    ${off.value}  (${off.kind}, ${off.count}x, line ${off.line})`);
+        const warnings = row.diagnostics.filter(one => one.severity === "warning");
+        console.log(`\n  ${row.title} — ${warnings.length} finding${warnings.length === 1 ? "" : "s"}, ${row.onSystem} on-system values`);
+        console.log(`    ${row.governing.name}${row.governing.inherited ? `, inherited from ${row.governing.canvasId}` : ""} (${row.governing.itemId}, ${row.governing.versionId})`);
+        for (const finding of row.diagnostics.slice(0, 8)) {
+          console.log(`    ${finding.code}  line ${finding.range.start.line}:${finding.range.start.column}: ${finding.explanation}`);
+          for (const candidate of finding.candidates.slice(0, 3)) {
+            console.log(`      consider ${candidate.value} — ${candidate.explanation}`);
+            for (const prerequisite of candidate.prerequisites) console.log(`        ${prerequisite}`);
+          }
         }
-        if (row.audit.offSystem.length > 8) {
-          console.log(`    …and ${row.audit.offSystem.length - 8} more`);
+        if (row.diagnostics.length > 8) console.log(`    …and ${row.diagnostics.length - 8} more`);
+        if (!row.coverage.complete) {
+          console.log(`    Coverage incomplete: ${row.coverage.unexamined.length} unexamined region${row.coverage.unexamined.length === 1 ? "" : "s"}`);
+          for (const region of row.coverage.unexamined.slice(0, 4)) console.log(`      ${region.code}  line ${region.range.start.line}:${region.range.start.column}: ${region.explanation}`);
+          if (row.coverage.unexamined.length > 4) console.log(`      …and ${row.coverage.unexamined.length - 4} more unexamined regions`);
         }
+        if (row.coverage.omittedCategories.length) console.log(`    Not governed: no tokens for ${row.coverage.omittedCategories.join(", ")}`);
       }
+      for (const source of report.refusedSources) console.log(`\n  Inheritance unavailable (${source.canvasId}): ${source.reason}`);
     }),
   );
 

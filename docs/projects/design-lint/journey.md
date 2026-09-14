@@ -1,9 +1,9 @@
 ---
-status: designed
+status: partial
 since: 2026-09-14
 issue: 299
 see: design-competition, evals
-note: execution begins with parsed native HTML diagnostics, followed by repair on both surfaces, scoped contracts, optional repository checks and a separately approved paid evaluation.
+note: phase 1 delivers parsed native HTML diagnostics and governing provenance through shared CLI/API/browser readers. Next is visible findings and conditional repair; contracts, optional repository checks and approved paid evaluation follow.
 ---
 # A design check that gives the next edit
 

@@ -65,6 +65,15 @@ mechanism. Report the before/after readings and remaining findings. Bounded
 agent correction is at most two rounds by default. There is no automatic model
 call, no implicit policy edit and no new operation type.
 
+Draft and file reports identify their actual input; they must not reuse the
+stored screen's blob identity for different bytes. Source selection is valid
+only while the editor still holds the checked text. Refresh governing context
+before accepting a repair, retain the captured screen-version precondition,
+and recheck after save. A design change on another canvas cannot be locked by
+the screen's edit operation; provenance records what was checked and a changed
+governing version invalidates the result. Ordinary editor saves keep their
+existing version-stack behavior; the explicit repair action carries the fence.
+
 ## Contract schema, version 1
 
 DESIGN.md stores a namespaced `isocan` extension with a versioned `lint` object.

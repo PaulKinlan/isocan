@@ -729,6 +729,9 @@ isocan activity [who] [-n N]           # what has been happening here, newest fi
 isocan design [--css|--tokens] · design set <file> · design check
 #   the canvas's own design system: a DESIGN.md whose front matter is
 #   typed design tokens (W3C-compatible) and whose sections are the reasoning
+isocan design audit [--in <group>] [--json]
+#   parsed HTML styling, source locations, token repair candidates and explicit
+#   coverage; each screen names its governing system and captured versions
 isocan command list|show|add|rm        # slash commands: work a message can ask for
 #   built-in: /help /format /variation /grill-me /accessibility-audit
 #             /app-store-assets /web-assets /marketing-kit

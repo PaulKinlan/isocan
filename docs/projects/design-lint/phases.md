@@ -1,9 +1,9 @@
 # Design lint: the implementation walk
 
 **Where we are — 14 September 2026:** Research and issues #299–303 are published.
-All implementation phases are NOT STARTED. Next is design-lint phase 1 on
-current `origin/main`. Paid evaluation and human ratings wait on a person;
-native diagnostics, repair, contracts and repository compatibility do not.
+Design-lint phase 1 is CLOSED on current `origin/main`; phase 2 is next.
+Paid evaluation and human ratings wait on a person; native repair, contracts
+and repository compatibility do not.
 
 The [journeys](journey.md) are acceptance and [design](design.md) names the
 mechanisms. Each phase closes only on its named proof, with a full suite,
@@ -14,7 +14,7 @@ these records and independently verifies the builder's output.
 
 ## Phase 1 — Parsed diagnostics and governing provenance (#300)
 
-**Status: NOT STARTED.** 2026-09-14 — The old regex audit remains in production.
+**Status: CLOSED.** 2026-09-14 — Parsed diagnostics, actual CSS declaration resolution, governing provenance and both reader adapters passed the full suite and a fresh-daemon CLI walk.
 
 **Work:** Measure and choose HTML/CSS parsers; implement shared diagnostics,
 coverage and compatibility aggregates; resolve each item's governing system
@@ -31,7 +31,31 @@ Exercise `design audit` against a fresh local daemon and synthetic canvas.
 
 **Trajectory:**
 
-*nothing — implementation has not begun.*
+- **2026-09-14** — The plugin loader retains the entire core namespace. A
+  static analyzer export added 72,119 gzip bytes to the initial app chunk;
+  a dedicated lazy `@isocan/core/design-audit` entry reduced that delta to
+  three bytes without raising the bundle ceiling.
+- **2026-09-14** — DESIGN.md declares intended tokens but injects no CSS into
+  an artifact. The analyzer now starts from actual CSS declarations and
+  candidates name missing declaration prerequisites; crediting a token's
+  name alone would preserve a browser-visible failure.
+
+**Proof record:** `npm test -- --maxWorkers=6`: 4,974 passed, 109 skipped;
+`npm run typecheck` and `npm run build`: exit 0. Deep suite: Test Files  548 passed | 11 skipped (559); Tests  5334 passed | 111 skipped (5445).
+The seven original probes and thirteen independent source cases passed.
+A fresh synthetic daemon's JSON `design audit` report exactly matched the API,
+and the scoped human report included missing variables, repair prerequisites
+and external-style coverage. Adapter tests exercised nested and inherited
+systems and policy refusal. The local deep suite leaves emulator-dependent
+checks skipped; this machine has no JRE for the stricter emulator CI wrapper.
+[Measurements and source evidence](../../research/shadcn-lint/results-2026-09-14-phase1.json).
+After rebasing onto `e56e7acc`, including upstream drawer, Inbox and Voice Agent
+changes, the complete four-worker suite passed 5,190 tests (108 skipped).
+The production build and typecheck passed again. An earlier six-worker run hit
+two archived-history timeouts; those four tests passed in isolation and both
+complete four-worker reruns, with unchanged test limits. The deep run above
+preceded those upstream additions; the audit implementation stayed unchanged.
+
 
 ## Phase 2 — Findings and conditional repair on both surfaces (#302)
 

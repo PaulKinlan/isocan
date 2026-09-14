@@ -21,6 +21,14 @@ notice. A what's-new with an entry every day is one nobody believes by the
 second week.
 
 
+## 14 September 2026
+
+- `isocan design audit` points to the styling that needs attention: missing
+  CSS variables, off-scale spacing and type, and the existing tokens that may
+  repair them. Reports follow each screen's scoped or inherited design system
+  and say which styling could not be checked. Color strings in prose no longer
+  count as styling.
+
 ## 13 September 2026
 
 - Write your own host for the rc. `import { runRoom } from "isocan/rc"`
