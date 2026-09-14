@@ -27,10 +27,34 @@ export function presentedItem(item: Item, frame: PresentationFrame | null): Item
     y: view.y + item.y - origin.y, width: view.width, height: view.height } : item;
 }
 
-/** Give geometry consumers a disposable view of the same canvas. */
+/**
+ * Give geometry consumers a disposable view of the same canvas.
+ *
+ * **A view that drops a group must not leave a member pointing at it.** Core
+ * holds one invariant about membership — a `containerId` names an item that is
+ * here — and every group helper relies on it: `groupAncestors` walks the chain
+ * through `itemIn`, which THROWS on a name it cannot find. `isolate` is a
+ * module saying "show these and nothing else", and a module has no reason to
+ * know that one of them sits in a canvas group, so the honest reading is that
+ * inside this view the member stands on its own. Clearing the pointer keeps
+ * core's invariant true rather than asking every helper to tolerate a hole.
+ *
+ * Found by `presentation-groups.test.ts` on the day anatomy was rebased onto
+ * canvas groups: isolating a member without its group threw
+ * `unknown item: grp` out of a sort comparator. Latent rather than live —
+ * anatomy isolates its own concepts, and nothing puts one in a group yet —
+ * which is exactly the kind of thing that stops being latent quietly.
+ */
 export function presentedCanvas(canvas: CanvasContents, frame: PresentationFrame | null): CanvasContents {
   if (!frame) return canvas;
-  return { ...canvas, items: Object.fromEntries(Object.values(canvas.items).filter(item => !frame.isolate || frame.items[item.id]).map(item => [item.id, presentedItem(item, frame)])) };
+  const shown = Object.values(canvas.items).filter(item => !frame.isolate || frame.items[item.id]);
+  const here = new Set(shown.map(item => item.id));
+  return { ...canvas, items: Object.fromEntries(shown.map((item): [string, Item] => {
+    const view = presentedItem(item, frame);
+    if (!view.containerId || here.has(view.containerId)) return [item.id, view];
+    const { containerId: _gone, ...alone } = view;
+    return [item.id, alone];
+  })) };
 }
 
 /** Comment offsets belong to saved geometry; convert only their display. */
