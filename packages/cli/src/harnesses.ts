@@ -3,6 +3,7 @@ import { createWriteStream, promises as fs } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { builtinHarnesses } from "@isocan/api";
 import { readConfigFile, updateConfigFile } from "@isocan/server";
@@ -104,6 +105,48 @@ export const REGISTRY_IDS: Record<string, string> = {
 const BUILTIN_ENV: Record<string, Record<string, string>> = {
   codex: { INITIAL_AGENT_MODE: "agent-full-access", NO_BROWSER: "1" },
 };
+
+/**
+ * **The voice harness, a builtin that ships with isocan** (14 Sep 2026).
+ *
+ * It is not in `REGISTRY_IDS` because it is not an ACP-registry agent: it is
+ * this repo's own, in `packages/voice-agent`, and its entry point is the file a
+ * person starts by hand (`npm start -w @isocan/voice-agent`, or
+ * `npx voice-agent`). That one file, and not a copy of it, is what the rc
+ * spawns when a summons arrives — two entry points would be two things that had
+ * to agree about the port, the home and the page.
+ *
+ * Before this it was a config declaration a person had to write
+ * (`{"acpAdapters": {"voice": [...]}}`), which meant an enrolment could
+ * succeed on a canvas and leave nothing able to start the agent. Listing it
+ * here is the whole integration: `adapterFor` resolves it, `isocan harness`
+ * shows it, and `isocan rc` attaches, starts or summons through the same path
+ * it uses for pi and Claude Code.
+ *
+ * `node` is the running interpreter rather than whatever `node` is on the
+ * PATH, and the bin is found relative to this file, so the adapter is this
+ * build — the same reason `bin/workspace-loader.mjs` resolves its siblings by
+ * path. Voice is spoken audio in and out, so its bridge takes no env of its
+ * own; the rc's injected identity is all it needs.
+ *
+ * **It is deliberately NOT one of `scanHarnesses`'s rows**, and that is not an
+ * oversight. The scan answers two questions: what can run here, and which one
+ * runs an agent that named none. Voice ships with isocan, so it would be the
+ * second answer on every machine that has nothing else — a microphone as the
+ * default for an agent added from the web — and on a machine that has pi it
+ * would turn "one harness, so no question" into "two, so pick". Both are
+ * changes to every existing install, made by a package that only wanted to be
+ * reachable. It is named explicitly (`--harness voice`, or by name in the
+ * registry-resolution below), which is how a person reaches it anyway.
+ */
+export const VOICE_HARNESS = "voice";
+
+/** Where the voice agent's own entry point is, from here. */
+export const voiceEntryFile = () => fileURLToPath(new URL("../../voice-agent/bin/voice-agent.js", import.meta.url));
+
+function voiceAdapter(): Omit<AdapterSpec, "harness"> {
+  return { command: process.execPath, args: [voiceEntryFile(), "--acp"] };
+}
 
 export interface RegistryBinary {
   archive: string;
@@ -323,6 +366,7 @@ export async function ensureBinary(
  * refreshed if stale, the spec re-read from the fresh entry, a binary
  * fetched if missing — so a spawn runs what the registry says now. */
 async function builtinAdapter(home: string, name: string): Promise<Omit<AdapterSpec, "harness"> | null> {
+  if (name === VOICE_HARNESS) return voiceAdapter();
   const id = REGISTRY_IDS[name];
   if (!id) return null;
   const entry = await registryEntry(home, id);
