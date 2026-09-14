@@ -3,7 +3,7 @@ status: partial
 since: 2026-09-14
 issue: 299
 see: design-competition, evals, context
-note: measured @shadcn/lint 0.1.0 against JSX and isocan's HTML auditor against seven synthetic cases. Adopt actionable, scoped diagnostics in the existing HTML path; reserve the Tailwind plugin for an optional repository adapter. Phase 1 now corrects missing-variable credit, spacing/font shorthand gaps and prose false positives, with parsed ranges, coverage and governing provenance. Phase 2 adds browser findings, local-file audits and conditional repair with honest write receipts. Phase 3 adds scoped recipe contracts, effective policy views and native/DTCG preservation. Phase 4 adds a measured advisory Tailwind repository runner and isolated CSS/HTML/accessibility probes. Phase 5 now supplies a verified 36-run dry harness; model-usage approval and actual human ratings remain pending.
+note: measured @shadcn/lint 0.1.0 against JSX and isocan's HTML auditor against seven synthetic cases. Adopt actionable, scoped diagnostics in the existing HTML path; reserve the Tailwind plugin for an optional repository adapter. Phase 1 now corrects missing-variable credit, spacing/font shorthand gaps and prose false positives, with parsed ranges, coverage and governing provenance. Phase 2 adds browser findings, local-file audits and conditional repair with honest write receipts. Phase 3 adds scoped recipe contracts, effective policy views and native/DTCG preservation. Phase 4 adds a measured advisory Tailwind repository runner and isolated CSS/HTML/accessibility probes. Phase 5 now supplies a verified 36-run dry harness; model usage is approved and recovering from a zero-cost login refusal; actual human ratings remain pending.
 ---
 # Design lint that explains the repair
 

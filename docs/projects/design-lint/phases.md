@@ -3,8 +3,9 @@
 **Where we are — 14 September 2026:** Research and issues #299–303 are published.
 Design-lint phases 1–4 are CLOSED; phase 5 is PART-DONE. Its complete dry-run
 harness and independent local proofs pass. The next step is design-lint phase 5
-model-usage approval, followed by human ratings on actual model outputs. No
-implementation dependency remains before that approval.
+the approved model comparison, followed by human ratings on actual outputs.
+The first invocation hit a zero-cost login-discovery refusal; the bounded
+authentication/continuation correction is underway.
 
 The [journeys](journey.md) are acceptance and [design](design.md) names the
 mechanisms. Each phase closes only on its named proof, with a full suite,
@@ -247,7 +248,7 @@ with other technology checks explicitly recommendations.
 
 ## Phase 5 — Controlled repair evaluation (#302)
 
-**Status: PART-DONE.** 2026-09-14 — The complete local evaluation instrument passes; model-usage approval and actual human intent ratings remain open.
+**Status: PART-DONE.** 2026-09-14 — The dry-run instrument passes; approved model execution is recovering from a login-discovery refusal, and actual human intent ratings remain open.
 
 **Work:** Prepare equal-budget rules-only versus diagnostics tasks and a dry-run
 harness, declare go/no-go thresholds, and render fixtures at intended sizes.
@@ -271,10 +272,10 @@ the harness is reviewable. Human intent ratings wait on a person's review.
 - **2026-09-14** — A zero-byte candidate is refused by storage before it can
   become a render. The empty-page control uses valid HTML with an empty body;
   invalid output consumes an attempt and retains the actual stored screen for review.
-- **2026-09-14** — Open: approve the proposed $10 CLI-reported estimated
-  API-equivalent evaluation budget, at most 72 `claude-sonnet-5` invocations
-  through the current Claude Max session. Waits on the user; billing and actual
-  provider cap enforcement are not established by the dry run.
+- **2026-09-14** — The user approved the proposed $10 / 72-invocation pilot.
+  Its first invocation reported no login, no model tokens and $0 cost. An
+  isolated environment had omitted the OS `USER` field; continuation must keep
+  that invocation and the original budget rather than reset either.
 - **2026-09-14** — Open: collect blind intent and preference ratings for the
   18 actual model-output pairs after the approved pilot. Waits on a person;
   automated checks and canned outputs supply no human study ratings.

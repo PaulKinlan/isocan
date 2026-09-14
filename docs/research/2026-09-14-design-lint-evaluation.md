@@ -3,7 +3,7 @@ status: partial
 since: 2026-09-14
 issue: 302
 see: design-lint, evals, design-competition
-note: A frozen six-task harness measures actual conditional repairs, stored-byte browser behavior and separate cost/coverage outcomes. Canned runs prove instrumentation only; the approved model comparison and human intent ratings remain pending.
+note: A frozen six-task harness measures actual conditional repairs, stored-byte browser behavior and separate cost/coverage outcomes. Canned runs prove instrumentation only; model usage is approved and recovering from a zero-cost login refusal; actual comparison results and human intent ratings remain pending.
 ---
 # A repair experiment needs a trustworthy instrument first
 
@@ -159,7 +159,8 @@ billing evidence for a subscription. Actual billed spend remains unavailable;
 no credits or account settings were changed. [Provider cost semantics](https://code.claude.com/docs/en/costs)
 and [CLI controls](https://code.claude.com/docs/en/cli-reference).
 
-The remaining person-dependent work is approval for that evaluation usage,
-then blind human intent/preference ratings on the actual model outputs. Until
-both happen, the repair implementation is usable but its measured model benefit
-remains unestablished.
+The user approved that evaluation usage after reviewing this instrument. The
+first invocation failed before reaching a model: its isolated environment lacked
+the OS `USER` field needed for login discovery. The [continuation mechanism](../projects/design-lint/evaluation.md#recover-a-pre-model-login-refusal-without-renewing-the-budget)
+retains that invocation and the original budget. Actual model results and blind
+human ratings remain pending; no model benefit has been established.
