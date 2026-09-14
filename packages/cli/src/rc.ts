@@ -1,7 +1,6 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "@isocan/api";
+import { rcAgentsFile, readRcAgents, replaceRow, updateRcAgents, upsertRcAgent } from "@isocan/server";
 import type { RcAgentRow, RoomRows, SheepPlace } from "@isocan/rc";
 
 /**
@@ -26,58 +25,12 @@ import type { RcAgentRow, RoomRows, SheepPlace } from "@isocan/rc";
  * `rows`); this file keeps the file-backed implementation of its verbs. */
 export type { RcAgentRow } from "@isocan/rc";
 
-export const rcAgentsFile = (home: string) => path.join(home, "rc-agents.json");
-
-export async function readRcAgents(home: string): Promise<RcAgentRow[]> {
-  try {
-    return JSON.parse(await fs.readFile(rcAgentsFile(home), "utf8")) as RcAgentRow[];
-  } catch {
-    return [];
-  }
-}
-
-/** Serialize every local read/modify/write across CLI and parked rc processes.
- * Atomic replacement also keeps readers from observing a half-written JSON file.
- * A crashed writer leaves a visible lock rather than silently risking lost rows. */
-async function updateRcAgents<T>(home: string, change: (rows: RcAgentRow[]) => T): Promise<T> {
-  await fs.mkdir(home, { recursive: true });
-  const lock = `${rcAgentsFile(home)}.lock`;
-  const until = Date.now() + 5000;
-  for (;;) {
-    try { await fs.symlink(String(process.pid), lock); break; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() >= until) throw new Error(`rc agent records are busy: ${lock}. If its writer has exited, remove that lock and retry.`);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-  const temporary = `${rcAgentsFile(home)}.${randomUUID()}.tmp`;
-  try {
-    const rows = await readRcAgents(home);
-    const result = change(rows);
-    await fs.writeFile(temporary, `${JSON.stringify(rows, null, 2)}\n`);
-    await fs.rename(temporary, rcAgentsFile(home));
-    return result;
-  } finally {
-    await fs.rm(temporary, { force: true });
-    await fs.unlink(lock);
-  }
-}
-
-function replaceRow(rows: RcAgentRow[], row: RcAgentRow): void {
-  const index = rows.findIndex((r) => r.canvasId === row.canvasId && r.actorId === row.actorId);
-  if (index < 0) rows.push(row);
-  else rows[index] = row;
-}
-
-/** Add or update the row for (canvasId, actorId) — re-enrolment updates. */
-export async function upsertRcAgent(home: string, row: RcAgentRow): Promise<void> {
-  await updateRcAgents(home, (rows) => {
-    const next = { ...row };
-    delete next.preparationId;
-    replaceRow(rows, next);
-  });
-}
+/** The primitives that read and write this file live in `@isocan/server`
+ * beside the other machine-local facts, because the voice agent is a second
+ * writer and a second implementation of the lock would be two rules
+ * (`packages/server/src/rc-rows.ts`). Re-exported here so every importer of
+ * this file keeps its path. */
+export { rcAgentsFile, readRcAgents, replaceRow, updateRcAgents, upsertRcAgent } from "@isocan/server";
 
 /** Prepare the machine half before publishing enrolment can wake the rc.
  * A definitive daemon refusal restores the previous row only while our token still
