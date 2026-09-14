@@ -44,6 +44,7 @@ passes over the moved `gateTurn`. A test over the manifest
 
 - **2026-09-13** — The boundary walk follows `@isocan/*` through each workspace's `exports`, and `@isocan/api`'s root re-exports `client.ts` and `connect.ts`, which reach `node:` and `@isocan/server`. Phase 1's `routes` dep comes through an api subpath that reaches `routes.ts` alone; added to its Outcome.
 - **2026-09-13** — The walk and the bundle read imports only, so a bare `process` or `Buffer` under `packages/rc/src` passes both: the workspace's tsconfig carries Node's types for its tests. Phase 1's Proof gains a typecheck of `src` without them.
+- **2026-09-13** — Moving `askTheDoor` and `bearerHeader` to `@isocan/api` for `@isocan/server` to import back is a cycle, since `api` depends on `server`. They move to `@isocan/core`; phase 1's "api no longer imports server" narrows to `routes.ts`'s closure.
 
 ## Phase 1 — The room over its deps
 
@@ -54,8 +55,9 @@ passes over the moved `gateTurn`. A test over the manifest
 `routes`, `canvas`, `owner`, `rows`, `adapterFor`, `endSession`,
 `narrate`, `state`, `limits`, `clock`, `sleep`. `DaemonRoutes` takes its
 badge store as a constructor parameter, `askTheDoor` and `bearerHeader`
-move to `@isocan/api` with `@isocan/server` importing them from there,
-and `@isocan/api` no longer imports `@isocan/server` at all. The room
+move to `@isocan/core` with `@isocan/server` re-exporting them, and
+`routes.ts`, with everything it reaches, no longer imports
+`@isocan/server`. The room
 imports `DaemonRoutes` from an `@isocan/api` subpath whose closure is
 `routes.ts` and what it needs, since the api root reaches `client.ts`
 (phase 0's trajectory). `main.ts`'s
