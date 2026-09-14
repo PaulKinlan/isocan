@@ -292,6 +292,12 @@ incident, what it actually cost, and the guard — a test if one is possible, a
 habit if it genuinely is not. "Be careful about X" with no guard is not a
 lesson, it is a wish.
 
+`node scripts/lessons.mjs --next` prints the number to use, and `--check`
+says whether two rows have ended up sharing one and which files now cite the
+ambiguity. Worth running rather than counting: the last row's number plus one
+is the wrong answer whenever somebody else allocated while you were working,
+which is how three branches once all claimed 55.
+
 And it needs a number no other lesson has, because the number is how the rest
 of the tree cites it — `see lessons.md #38` has to name one row. Take the next
 FREE number, not the one after the last row: concurrent work makes those two
