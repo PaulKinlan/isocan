@@ -171,7 +171,9 @@ unknown cascade. It does not infer a component
 implementation or simulate the browser cascade. Any selector or competing
 rule it cannot safely assign and order is reported as incomplete contract
 coverage. The report and UI must label this boundary rather than suggesting
-that a matching inline value proves external styling safe.
+that a matching inline value proves external styling safe. CSS identifier
+escapes retained by the parser are unexamined in this version; quoted attribute
+strings already decoded by the parser remain supported.
 
 `require-references` applies to governed color, spacing, radius and type-size
 uses, and to governed owned values when a named token is available. Actual
