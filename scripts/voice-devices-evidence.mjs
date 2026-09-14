@@ -181,7 +181,7 @@ const harnessPort = harness.address().port;
 /* A throwaway vite, pointed at THIS harness rather than the one on 7654 that
    somebody may be using. */
 const webPort = 5173;
-const vite = spawn("npm", ["run", "dev", "-w", "@isocan/web", "--", "--port", String(webPort), "--strictPort"], {
+const vite = spawn("npm", ["run", "dev", "-w", "@isocan/voice-agent", "--", "--port", String(webPort), "--strictPort"], {
   cwd: repo,
   env: { ...process.env, ISOCAN_VOICE_HARNESS: `http://127.0.0.1:${harnessPort}` },
   stdio: ["ignore", "pipe", "pipe"],

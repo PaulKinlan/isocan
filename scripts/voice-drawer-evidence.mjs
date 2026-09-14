@@ -12,9 +12,9 @@
  * capability existed for the model and not for the person.
  *
  * What is real here: the shipped `isocan voice` verb, the real page from
- * `packages/web` served by that repo's own Vite config (wrapped, not copied —
- * see the temp config below), a real Chrome, a real click, the real settings
- * drawer, and a real daemon underneath. What is synthetic: nothing, except
+ * `packages/voice-agent` served by that package's own Vite config (wrapped, not
+ * copied — see the temp config below), a real Chrome, a real click, the real
+ * settings drawer, and a real daemon underneath. What is synthetic: nothing, except
  * that the home is a throwaway directory so a run cannot touch anybody's work.
  *
  *   node scripts/voice-drawer-evidence.mjs [--out <dir>]
@@ -119,10 +119,10 @@ const pagePort = 5399 + Math.floor(Math.random() * 400);
 const cfgPath = path.join(os.tmpdir(), `isocan-voice-drawer-${process.pid}.vite.config.ts`);
 writeFileSync(
   cfgPath,
-  `import base from ${JSON.stringify(path.join(repo, "packages/web/vite.config.ts"))};\n` +
+  `import base from ${JSON.stringify(path.join(repo, "packages/voice-agent/vite.config.ts"))};\n` +
     `const wrap = async (env) => {\n` +
     `  const resolved = typeof base === "function" ? await base(env) : { ...base };\n` +
-    `  resolved.root = ${JSON.stringify(path.join(repo, "packages/web"))};\n` +
+    `  resolved.root = ${JSON.stringify(path.join(repo, "packages/voice-agent"))};\n` +
     `  resolved.server = {\n` +
     `    ...(resolved.server ?? {}),\n` +
     `    port: ${pagePort},\n` +
@@ -160,7 +160,7 @@ const pageUrl = `http://127.0.0.1:${pagePort}/voice`;
   }
   if (!up) throw new Error(`the page never came up on ${pageUrl}:\n${viteSaid.slice(-1500)}`);
 }
-step(`page: ${pageUrl} (Vite serving packages/web, /harness → this run's harness)`);
+step(`page: ${pageUrl} (Vite serving packages/voice-agent, /harness → this run's harness)`);
 
 const b = await browser({ flags: ["--window-size=1440,1000"] });
 const shot = async (name) => {

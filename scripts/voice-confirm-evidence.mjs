@@ -85,7 +85,7 @@ audio.on("connection", (socket, request) => {
 await new Promise((r) => harness.listen(0, "127.0.0.1", r));
 const harnessPort = harness.address().port;
 
-const vite = spawn("npm", ["run", "dev", "-w", "@isocan/web", "--", "--port", "5173", "--strictPort"], {
+const vite = spawn("npm", ["run", "dev", "-w", "@isocan/voice-agent", "--", "--port", "5173", "--strictPort"], {
   cwd: repo,
   env: { ...process.env, ISOCAN_VOICE_HARNESS: `http://127.0.0.1:${harnessPort}` },
   stdio: "ignore",

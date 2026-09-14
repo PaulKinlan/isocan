@@ -261,7 +261,7 @@ try {
 
   /* 5. The page: the model fact, and a reload. */
   const webPort = 5173;
-  const vite = spawn("npm", ["run", "dev", "-w", "@isocan/web", "--", "--port", String(webPort), "--strictPort"], {
+  const vite = spawn("npm", ["run", "dev", "-w", "@isocan/voice-agent", "--", "--port", String(webPort), "--strictPort"], {
     cwd: repo,
     env: { ...process.env, ISOCAN_VOICE_HARNESS: url.replace(/\/$/, "") },
     stdio: "ignore",

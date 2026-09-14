@@ -342,8 +342,8 @@ async function main() {
        run's harness port. */
     const { createServer } = await import(path.join(ui, "node_modules", "vite", "dist", "node", "index.js"));
     vite = await createServer({
-      root: path.join(ui, "packages", "web"),
-      configFile: path.join(ui, "packages", "web", "vite.config.ts"),
+      root: path.join(ui, "packages", "voice-agent"),
+      configFile: path.join(ui, "packages", "voice-agent", "vite.config.ts"),
       server: {
         host: "127.0.0.1",
         port: 5200 + Math.floor(Math.random() * 200),
