@@ -490,7 +490,8 @@ import type { CliHost, EnrolTemplate } from "./modulehost.ts";
 import { harnessSessions } from "@isocan/api";
 import { adoptRcAgent, gateTurn, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, withPreparedRcAgent, type GuardState, type RcAgentRow } from "./rc.ts";
 import { AcpAgentProcess, adapterEnv, enrolmentKey } from "./acp.ts";
-import { openInBrowser, proveInBrowser, summonedRefusal } from "./operator.ts";
+import { openInBrowser } from "./browser.ts";
+import { proveInBrowser, summonedRefusal } from "./operator.ts";
 import { SHEEP_HARNESS, SheepAgent, describePlace, endSheep, homeAddressForCell, loopbackFromCell, noSheepLine, placeLine, sheepPlaceFor } from "./sheep.ts";
 import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
 import {
@@ -2708,11 +2709,7 @@ program
       // its canvas-shaped caller. The browser strips the fragment on arrival
       // (`lib/arrival.ts`), so the route it is left standing on is the one
       // that was asked for.
-      spawn(
-        process.platform === "darwin" ? "open" : "xdg-open",
-        [token ? urlWithPass(url, token) : url],
-        { stdio: "ignore", detached: true },
-      ).unref();
+      openInBrowser(token ? urlWithPass(url, token) : url);
       console.log(url);
     }),
   );
@@ -5558,10 +5555,7 @@ program
         // in a line setup printed is one that ends up in a transcript.
         const open = opts.open ?? Boolean(process.stdout.isTTY);
         if (open && daemonUp) {
-          spawn(process.platform === "darwin" ? "open" : "xdg-open", [where], {
-            stdio: "ignore",
-            detached: true,
-          }).unref();
+          openInBrowser(where);
         }
 
         if (globals.json) return printJson(report);
