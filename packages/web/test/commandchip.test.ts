@@ -73,8 +73,20 @@ describe("the chip is wired to the surfaces that render bodies", () => {
   });
 
   it("is quieter than a mention, because a verb has no colour of its own", () => {
-    const css = read("packages/web/src/styles.css");
+    /* In its own stylesheet, not `styles.css`. That file is one of the three
+       doors every feature goes through (`measure.mjs registry-lines`), and
+       adding to it is how the number goes up — this chip's first version did,
+       the ratchet said so, and moving it here is what paying that down looks
+       like. Five other components already keep their own. */
+    const css = read("packages/web/src/components/command-chip.css");
     expect(css).toContain(".command-chip");
     expect(css, "tokens, not literals").toMatch(/\.command-chip \{[^}]*var\(--chip\)/);
+    expect(
+      read("packages/web/src/components/MainThreadPanel.tsx"),
+      "a stylesheet nothing imports is a stylesheet that does nothing",
+    ).toContain('import "./command-chip.css"');
+    expect(read("packages/web/src/styles.css"), "and not in the crowded file too").not.toContain(
+      ".command-chip",
+    );
   });
 });

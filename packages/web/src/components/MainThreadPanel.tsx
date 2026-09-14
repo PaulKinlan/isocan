@@ -1,4 +1,5 @@
 import { useChatDraft } from "../lib/chatdraft.ts";
+import "./command-chip.css";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Markdown } from "../lib/markdown.tsx";
 import type { Actor, CanvasContents, Comment, CommentThread, Item } from "@isocan/core";
