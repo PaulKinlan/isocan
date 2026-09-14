@@ -79,6 +79,7 @@ beforeEach(() => {
   fakeDialog("settings");
   fakeDialog("logs");
   localStorage.clear();
+  FakeSocket.autoReady = true;
   stateReply = {};
   logReply = { entries: [] };
   openReply = { url: "https://isocan.io/p/prj_cr7#pss_fresh" };
@@ -100,7 +101,7 @@ beforeEach(() => {
       }
       // The session and setup verbs: `{ ok: true }` is what a harness that
       // has them answers, and a test that wants a refusal stubs its own.
-      if (/\/(session\/(start|mute|unmute|end)|key|key\/test|daemon|canvas|actor|enrol|confirm|open_url\/result)$/.test(url)) {
+      if (/\/(session\/(start|mute|unmute|end)|key|key\/test|daemon|canvas|actor|enrol|confirm|open_url\/result|fs\/grant)$/.test(url)) {
         return answer({ ok: true });
       }
       throw new Error(`unexpected fetch ${url}`);
@@ -182,6 +183,7 @@ const element = <T extends HTMLElement>(id: string): T => {
 class FakeSocket {
   static readonly OPEN = 1;
   static latest: FakeSocket | null = null;
+  static autoReady = true;
   readyState = 1;
   binaryType = "";
   sent: unknown[] = [];
@@ -189,11 +191,19 @@ class FakeSocket {
   onmessage: ((message: { data: unknown }) => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor() {
+  readonly url: string;
+  constructor(url: string | URL) {
+    this.url = String(url);
     FakeSocket.latest = this;
+    queueMicrotask(() => {
+      this.onopen?.();
+      if (FakeSocket.autoReady) this.event({ broker: "ready" });
+    });
   }
   send(data: unknown): void {
-    this.sent.push(data);
+    if (data === "broker:ping") {
+      if (FakeSocket.autoReady) this.event({ broker: "ready" });
+    } else this.sent.push(data); // Audio assertions count PCM, not broker pings.
   }
   close(): void {
     this.readyState = 3;
@@ -462,6 +472,114 @@ async function goLive(): Promise<FakeSocket> {
   return socket;
 }
 
+describe("reconnecting the page broker is not starting the microphone", () => {
+  it.each(["toggle", "push-to-talk"])("reconnects first in %s mode, then requires a separate mic act", async (mode) => {
+    fakeCapture();
+    const capture = vi.spyOn(navigator.mediaDevices, "getUserMedia");
+    localStorage.setItem("isocan.voice.inputMode", mode);
+    stateReply = LIVE;
+    await wire();
+    expect(capture).not.toHaveBeenCalled();
+    const press = () => mode === "toggle" ? element("listen").click() : element("listen").dispatchEvent(
+      Object.assign(new Event("pointerdown", { bubbles: true, cancelable: true }), { pointerId: 1, isPrimary: true, button: 0 }),
+    );
+    press(); await flush();
+    expect(FakeSocket.latest!.url).toMatch(/\/broker$/);
+    expect(element("hero").dataset.activity).toBe("connected");
+    expect(capture).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => /session\/(start|unmute|mute)$/.test(String(url)))).toBe(false);
+    // Releasing a reconnect press (and its compatibility click) cannot turn
+    // it into a microphone hold after the asynchronous connection succeeds.
+    if (mode === "push-to-talk") {
+      document.dispatchEvent(Object.assign(new Event("pointerup"), { pointerId: 1 }));
+      element("listen").click(); await flush();
+      expect(capture).not.toHaveBeenCalled();
+    }
+    press(); await flush();
+    expect(FakeSocket.latest!.url).toMatch(/\/audio$/);
+    expect(capture).toHaveBeenCalledOnce();
+    expect(element("hero").dataset.activity).toBe("listening");
+  });
+
+  it("waits for a broker reply, times out a failed reconnect, and ignores late replies", async () => {
+    fakeCapture();
+    const capture = vi.spyOn(navigator.mediaDevices, "getUserMedia");
+    stateReply = LIVE; FakeSocket.autoReady = false;
+    await wire(); element("listen").click(); await flush();
+    const old = FakeSocket.latest!;
+    expect(element("hero").dataset.activity).toBe("connecting");
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(element("hero").dataset.activity).toBe("disconnected");
+    expect(element("listen").getAttribute("aria-busy")).toBe("false");
+    expect(element("broker-note").textContent).toContain("Press Listen");
+    old.event({ broker: "ready" }); await flush();
+    expect(element("hero").dataset.activity).toBe("disconnected");
+    expect(capture).not.toHaveBeenCalled();
+    FakeSocket.autoReady = true;
+    element("listen").click(); await flush();
+    expect(element("hero").dataset.activity).toBe("connected");
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it.each([{ ok: false, error: "synthetic grant refusal" }, {}])("requires a positive folder-report acknowledgement: %j", async (reply) => {
+    fakeCapture(); stateReply = LIVE;
+    const normal = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith("/fs/grant")
+      ? Promise.resolve(answer(reply)) : normal(input, init));
+    await wire(); element("listen").click(); await flush();
+    expect(element("hero").dataset.activity).toBe("disconnected");
+    expect(element("broker-note").textContent).toContain("could not reconnect");
+  });
+
+  it("rechecks actual folder permission before re-reporting a grant", async () => {
+    fakeCapture(); stateReply = LIVE;
+    let permission = "granted";
+    vi.stubGlobal("showDirectoryPicker", async () => ({ name: "Synthetic notes", kind: "directory", queryPermission: async () => permission }));
+    await wire(); element("folder-pick").click(); await flush();
+    permission = "prompt";
+    element("listen").click(); await flush();
+    const grant = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/fs/grant")).at(-1)!;
+    expect(JSON.parse(String(grant[1]?.body))).toEqual({ folder: null, granted: false });
+    expect(element("folder-reconnect").hidden).toBe(false);
+    expect(element("hero").dataset.activity).toBe("connected");
+  });
+
+  it.each(["offline", "freeze", "close", "error", "missing heartbeat"])("stops capture on %s and does not revive it on a live poll", async (kind) => {
+    fakeCapture();
+    const capture = vi.spyOn(navigator.mediaDevices, "getUserMedia");
+    await wire(); const socket = await goLive();
+    stateReply = LIVE;
+    if (kind === "offline") window.dispatchEvent(new Event("offline"));
+    else if (kind === "freeze") document.dispatchEvent(new Event("freeze"));
+    else if (kind === "close") socket.onclose?.({ code: 1006, reason: "lost" });
+    else if (kind === "error") socket.onerror?.();
+    else { FakeSocket.autoReady = false; await vi.advanceTimersByTimeAsync(8000); }
+    expect(socket.readyState).toBe(3);
+    expect(element("hero").dataset.activity).toBe("disconnected");
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(element("hero").dataset.activity).toBe("disconnected");
+    expect(capture).toHaveBeenCalledOnce();
+    FakeSocket.autoReady = true;
+    element("listen").click(); await flush();
+    expect(FakeSocket.latest!.url).toMatch(/\/broker$/);
+    expect(capture).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a confirmation a person's question on the broker-only channel", async () => {
+    fakeCapture(); stateReply = LIVE;
+    const capture = vi.spyOn(navigator.mediaDevices, "getUserMedia");
+    await wire(); element("listen").click(); await flush();
+    element("settings-open").click();
+    FakeSocket.latest!.event({ confirm: { id: "cfm_broker", what: "delete the synthetic note" } });
+    expect(element("confirm").hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("confirm-what");
+    element("confirm-deny").click(); await flush();
+    const request = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith("/confirm"))!;
+    expect(JSON.parse(String(request[1]?.body))).toEqual({ id: "cfm_broker", allow: false });
+    expect(capture).not.toHaveBeenCalled();
+  });
+});
+
 describe("what the harness says, in the shape the page reads", () => {
   it("unwraps the session state, and also takes it bare", () => {
     expect(sessionFrom({ session: { state: "live" } })).toBe("live");
@@ -535,7 +653,7 @@ describe("the standalone page keeps the controls a person has to press", () => {
 });
 
 describe("state wiring, without a component tree", () => {
-  it("unwraps the session and enables the controls that follow from it", async () => {
+  it("does not mistake a live harness after reload for a connected page or microphone", async () => {
     stateReply = LIVE;
     // A device this browser remembers is the one the state line names; the
     // picker beside the microphone is where that choice gets changed.
@@ -543,21 +661,20 @@ describe("state wiring, without a component tree", () => {
     await wire();
     expect(element<HTMLElement>("hero").dataset.state).toBe("live");
     expect(element<HTMLButtonElement>("listen").disabled).toBe(false);
-    expect(element<HTMLButtonElement>("listen").getAttribute("aria-label")).toBe("Mute microphone");
-    expect(element<HTMLButtonElement>("mute").disabled).toBe(false);
+    expect(element<HTMLButtonElement>("listen").getAttribute("aria-label")).toBe("Listen — reconnect page broker");
+    expect(element<HTMLButtonElement>("mute").disabled).toBe(true);
     expect(element<HTMLButtonElement>("end").disabled).toBe(false);
-    expect(element<HTMLElement>("state").textContent).toBe("listening — Desk microphone");
-    // The page's own word for what the microphone is doing, next to the
-    // session's own word for whether there is a session.
-    expect(element<HTMLElement>("hero").dataset.activity).toBe("listening");
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("disconnected");
+    expect(element("broker-note").textContent).toMatch(/memory, files and confirmation prompts/);
+    expect(element("broker-note").textContent).toContain("Press Listen");
   });
 
   it("takes a bare session string too", async () => {
     stateReply = { session: "muted" };
     await wire();
     expect(element<HTMLElement>("hero").dataset.state).toBe("muted");
-    expect(element<HTMLElement>("hero").dataset.activity).toBe("muted");
-    expect(element<HTMLElement>("state").textContent).toContain("muted");
+    expect(element<HTMLElement>("hero").dataset.activity).toBe("disconnected");
+    expect(element<HTMLElement>("state").textContent).toContain("microphone stopped");
   });
 
   it("says which canvas, actor, model and version it is connected to", async () => {
