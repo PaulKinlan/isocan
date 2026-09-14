@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-02
 see: context, inception, standing-agents
-note: phases 0–5 and all five memory journeys are verified on CLI, desktop/phone and real MCP transport, 13 Sep. Bounded inherited Recent work is built; phase 6 pin-from-source is the next engineering contract
+note: phases 0–5 are verified, 13 Sep. Phase 6 next copies an ordinary inherited piece into a local pin under Journey 6 and pin-from-source.md
 ---
 # Memory, in layers you can see
 
@@ -123,8 +123,9 @@ one, so every canvas has a corner where its inheritance sits and a newcomer
 reads it first.
 
 **For the agent**, `isocan context` prints the same three headings with the
-same provenance. The separate proposed `isocan context pin --from <canvas>`
-remains unbuilt; it is not implied by the personal-memory continuation. An agent that
+same provenance. `isocan context pin <item> --from <canvas>` is the next build,
+memory phase 6: a deliberate current-piece copy governed by
+[pin-from-source.md](pin-from-source.md), with the same choice in Context. An agent that
 starts work reads one list and knows where every piece came from, which is
 the whole point of the context project restated with more sources.
 
@@ -197,6 +198,10 @@ home. [phases.md](phases.md) records the build and independently verified proof.
 5. **Inherited recap head:** bounded recent-work metadata from a coherent
    authoritative record, on existing Context surfaces. The mechanism and
    refusal boundary are in inherited-recap.md; Journey 5 is its acceptance.
+6. **Pin from a source:** explicitly copy an ordinary inherited current piece
+   into a local pinned item, with durable provenance and one undo. The shared
+   copy mechanism and limits are in pin-from-source.md; Journey 6 proves both
+   clients, refusal boundaries and independence from later source changes.
 
 **Zero new op types** again: visible links use the existing canvas operation
 vocabulary. Personal birth, consent and delegation use the private Desk and

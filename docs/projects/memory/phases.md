@@ -1,10 +1,10 @@
 # Memory — the walk
 
 **Where we are:** phases 0–5 are closed. CLI, web and MCP share bounded
-inherited Recent work; Public and all five memory journeys are verified.
-Memory phase 6, pin-from-source, is the next engineering contract: define the
-explicit copy act and both surfaces before building. No credential, resource
-or person blocks that work.
+inherited Recent work; Public and memory Journeys 1–5 are verified.
+Memory phase 6 is next: pin-from-source under [pin-from-source.md](pin-from-source.md).
+It copies a selected ordinary inherited piece into a local pin in one undoable
+act. No credential, resource or person blocks that work.
 
 ## Phase 0 — Context with headings
 
@@ -167,6 +167,24 @@ and formatter; the guide and README describe it. Pure logic, both backings,
 real HTTP/stdio and browser interaction each prove their own boundary.
 Personal current-piece reading and frozen-request semantics stay unchanged.
 
+## Phase 6 — Copy a source piece into a local pin
+
+**Status: NOT STARTED.**
+
+**Proof:** actual CLI and desktop/390px browser select and copy ordinary
+inherited pins and a nested group with its current source/visual faces.
+Local Context, CLI and MCP summaries show durable source provenance. One
+accepted operation makes the copy and pin; one undo/redo removes/restores it.
+Source edits, removal and unlink do not alter the independent copy. Copying a
+design piece preserves the governing local design. Actual byte/hash failures,
+excluded and personal sources, foreign/absent links, read-only/legacy targets,
+revocation, held-transfer link removal and browser identity change refuse
+without a visible partial copy; private refusals open no source data.
+Authoritative forwarding retains exclusion and cancellation. Existing group
+copy and memory behavior pass. Run full required-deep/emulator/bundle tests,
+typecheck, build and actual browser acceptance with the unchanged entry
+ceiling. Journey 6 and pin-from-source.md define the exact scope.
+
 ## Trajectory
 
 - **2026-09-13** — A core namespace loaded by runtime modules made an eager
@@ -187,9 +205,11 @@ Personal current-piece reading and frozen-request semantics stay unchanged.
 - **2026-09-13** — A shared card is disclosure, not authority. Desk consent
   binds its concrete destination and identity; copied properties cannot
   authorize a source read, and undo restores the same edge.
-- **2026-09-13** — Open: context pin --from remains an unfinished original
-  promise. Its explicit copy-versus-live act and both surfaces are the next
-  engineering contract after memory phase 5, with no external service selected.
+- **2026-09-13** — The unfinished pin-from-source promise is an explicit
+  current-piece copy from an ordinary inherited source at the same home.
+  It reuses native group copy in one undo, strips governing design roles and
+  records provenance. Personal publication and implicit legacy migration are
+  outside this act; phase 6 proves their refusals.
 - **2026-09-13** — FileDesk’s queue is per instance and FileStore has no
   cross-process fencing. Personal birth preserves the existing single-local-
   writer boundary; only CloudDesk claims cross-instance reservation safety.
