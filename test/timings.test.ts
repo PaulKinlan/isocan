@@ -30,9 +30,29 @@ describe("runs record how long they took", () => {
   });
 
   it("never throws, whatever the file is doing", () => {
-    // A read-only checkout, a sandbox, a directory where a file should be.
-    expect(() => record(run(), "/proc/definitely/not/writable/t.jsonl")).not.toThrow();
-    expect(read("/nope/not/here.jsonl")).toEqual([]);
+    /**
+     * **A file standing where a directory has to be** — ENOTDIR, which every
+     * platform gives quickly and identically.
+     *
+     * This asked for `/proc/definitely/not/writable/t.jsonl` and hung CI for
+     * three runs. On macOS `/proc` does not exist, so `mkdirSync` fails in
+     * microseconds and the case passed in 2ms on the machine it was written
+     * on. On Linux `/proc` is a live procfs mount, and recursive mkdir into
+     * it does not fail fast — the file never finished, vitest never exited,
+     * and the job was killed at its 20-minute timeout with no output to say
+     * why. `green` stopped advancing at the commit that added it.
+     *
+     * The lesson is not about `/proc`. It is that a test which reaches for a
+     * "surely impossible" path is naming a platform it did not think it was
+     * naming — and the CI platform is the one it will be wrong about, because
+     * it is the one nobody runs while writing.
+     */
+    const dir = mkdtempSync(path.join(os.tmpdir(), "timings-"));
+    const blocked = path.join(dir, "not-a-directory");
+    writeFileSync(blocked, "");
+    expect(() => record(run(), path.join(blocked, "t.jsonl"))).not.toThrow();
+    expect(read(path.join(blocked, "t.jsonl"))).toEqual([]);
+    expect(read(path.join(dir, "never-written.jsonl"))).toEqual([]);
   });
 
   it("skips a half-written line rather than losing the file to it", () => {
