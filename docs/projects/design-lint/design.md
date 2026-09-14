@@ -18,6 +18,24 @@ value, explanation and candidate repairs. Candidates come from `toCss`'s naming
 rules. Nearest choices require a person's or agent's decision; the checker
 never adds tokens or grants exceptions.
 
+**14 September implementation correction:** The runtime plugin loader retains
+the entire core namespace. Keeping the new analyzer on that barrel raised the
+measured initial app chunk by 72,119 gzip bytes. Move its runtime exports to
+`@isocan/core/design-audit` and migrate callers; keep type exports on core.
+The dedicated import is deliberate compatibility migration for these private
+workspace helpers, keeping parsers out of ordinary initial app loading.
+
+The governing document supplies the expected palette and token names; it does
+not inject CSS into a self-contained artifact. A `var(--color-ink)` reference
+therefore needs an actual declaration in the artifact's statically knowable
+scope to earn resolved-value credit. When only DESIGN.md knows that name,
+report the missing CSS declaration and explain how to include its exported
+CSS. Do not seed the artifact's runtime variable environment with hypothetical
+exported declarations. Local declarations, including shadows of exported names,
+are checked by their resolved values. Candidate token replacements must say
+when their CSS declaration must be included; literals are still allowed by the
+default policy. Unknown external or dynamic scope remains unexamined.
+
 Inspect style elements, attributes and SVG presentation attributes. Parse CSS
 values, resolve known token references and local aliases, check relevant color,
 font-size, radius and declared spacing properties, and explicitly classify
