@@ -24,7 +24,7 @@
  * point at it. `isocan rc` points at it, through the harness registry, exactly
  * as it points at pi or Claude Code.
  */
-import { connect } from "@isocan/api";
+import { resolveCanvas, resolveCanvasRef, resolveCtx } from "@isocan/api";
 import { readRcAgents } from "./rc-rows.ts";
 import {
   DEFAULT_VOICE_PORT,
@@ -43,6 +43,8 @@ export interface VoiceArgs {
   /** The agent the microphone speaks as, else the injected session, else Voice. */
   name?: string;
   port?: number;
+  /** The daemon port to connect to, when not the default. */
+  daemonPort?: number;
   /** The Live model for this run; wins over the choice stored by the page. */
   model?: string;
   /** The canvas to send to; else `ISOCAN_CANVAS`, else this directory's. */
@@ -61,6 +63,7 @@ export const USAGE = [
   "  --as <name>                     the agent the microphone speaks as (default:",
   "                                  the injected session, else Voice)",
   `  --port <n>                      the loopback port the page is served on (default ${DEFAULT_VOICE_PORT})`,
+  "  --daemon-port <n>               the daemon port to connect to",
   "  --model <name>                  the Gemini Live model this run talks through",
   "  --canvas <ref>                  the canvas to send to (default: this directory's)",
   "",
@@ -88,6 +91,14 @@ export function parseVoiceArgs(argv: readonly string[]): VoiceArgs {
       const port = Number(raw);
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`${flag} needs a port number, got "${raw}"`);
       args.port = port;
+      i++;
+      continue;
+    }
+    if (flag === "--daemon-port") {
+      const raw = need(i, flag);
+      const port = Number(raw);
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`${flag} needs a port number, got "${raw}"`);
+      args.daemonPort = port;
       i++;
       continue;
     }
@@ -175,21 +186,25 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
 
-  const hub = await connect({});
-  const target = await hub.canvas(canvas);
+  const ctx = await resolveCtx({
+    interactive: false,
+    ...(args.daemonPort !== undefined ? { port: args.daemonPort } : {}),
+  });
+  const targetCanvas = canvas ? await resolveCanvasRef(ctx.client, canvas) : await resolveCanvas(ctx);
   const who = await claimVoiceIdentity({
     home,
-    client: hub.ctx.client,
+    client: ctx.client,
     name,
     injected: injectedKey(),
-    canvasId: target.id,
+    canvasId: targetCanvas.id,
     onLine: say,
   });
   const server = await startVoiceServer({
     home,
     port: args.port ?? DEFAULT_VOICE_PORT,
     identity: { session: who.session, harness: who.harness },
-    canvas: target.id,
+    canvas: targetCanvas.id,
+    ...(args.daemonPort !== undefined ? { daemonPort: args.daemonPort } : {}),
     ...(args.model ? { model: args.model } : {}),
     onLine: say,
   });
@@ -199,7 +214,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   // actor the rc has no row for is one nobody can invite. Said once, at start,
   // with the command that fixes it.
   const roster = await readRcAgents(home).catch(() => []);
-  if (!roster.some((row) => row.canvasId === target.id && row.actorId === who.actor.id)) {
+  if (!roster.some((row) => row.canvasId === targetCanvas.id && row.actorId === who.actor.id)) {
     console.log(
       `  not enrolled as a harness yet — the microphone speaks as ${who.actor.name} either way, but nothing can summon it.\n` +
         `  to invite it:  isocan rc add ${who.actor.name} --harness ${VOICE_HARNESS}\n`,

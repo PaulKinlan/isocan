@@ -470,41 +470,9 @@ body:has(> .voice) { overflow: auto; }
   text-wrap: pretty;
 }
 
-/*
- * **Beside the microphone where there is room to be beside it.**
- *
- * Paul: "these need to vertical center … I would expect both speaker and mic to
- * be side by side". A row under the ring is below the microphone; the literal
- * reading is the ring's own line, with the pair centred on the ring's centre
- * line. The side columns are equal, so the microphone stays exactly where it
- * was on the page — only the pair moves.
- *
- * 1240px, not 900: that is the width at which the WORST-CASE pair — two
- * names at the 24ch cap, which is how long a real device name gets — fits in a
- * side column beside the ring. Narrower than that the pair stays under the
- * ring, where there is a definite width to shrink into.
- */
-@media (min-width: 1240px) {
-  /* The ring and the pair share one grid cell: the ring centred in it, the row
-     placed just past the ring's right edge and centred on its centre line.
-     Everything else is auto-placed into the rows below, because the first row
-     is taken — which is why this needs no `:not()` list naming every other
-     child (and a chained `:not(.a):not(.b)` reads, to the stylesheet's own
-     guard, as a state class with a stray rule of its own). */
-  .voice-mic { grid-area: 1 / 1; }
-  .voice-devices {
-    grid-area: 1 / 1;
-    justify-self: start;
-    align-self: center;
-    margin-inline-start: calc(50% + 120px + var(--s4));
-  }
-  /* A pill knows its own width here: the row's box is a definite one. */
-  .voice-device { flex: 0 0 auto; }
-}
-
-/* Under the narrowest phone the row gives rather than scrolling sideways: here
-   the hero is one column with a definite width, so shrinking truncates the
-   names instead of collapsing the pill. */
+/* The microphone and speaker selectors stay beneath the microphone button
+   across all screen widths: centered, side by side, and directly under the
+   listening circle. */
 @media (max-width: 360px) {
   .voice-device { flex: 0 1 auto; }
 }
@@ -751,13 +719,25 @@ body:has(> .voice) { overflow: auto; }
 
 .voice-facts-strip { display: grid; gap: var(--s2); padding-bottom: var(--s3); }
 .voice-facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, max-content));
-  gap: var(--s2) var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
   margin: 0;
   font-size: var(--t-sm);
 }
-.voice-facts div:not(.voice-help-card) { min-width: 0; display: grid; gap: var(--s1); }
+.voice-facts div:not(.voice-help-card) {
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s3);
+  padding-block: var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.voice-facts div:not(.voice-help-card):last-child {
+  border-bottom: 0;
+}
 .voice-facts dt {
   color: var(--ink-muted);
   font-size: var(--t-xs);
@@ -769,8 +749,33 @@ body:has(> .voice) { overflow: auto; }
   display: flex;
   align-items: center;
   gap: var(--s1);
+  min-width: 110px;
+  flex: 0 0 auto;
 }
-.voice-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.voice-facts dd {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  overflow-wrap: anywhere;
+}
+.voice-facts dd .voice-keyrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0;
+  margin: 0;
+}
+@media (max-width: 540px) {
+  .voice-facts div:not(.voice-help-card) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s1);
+  }
+}
 
 /* **The "?" beside a setting, and the card it opens.**
    Small glyph, 44px target, and nothing in the row moves when a card opens:
@@ -932,7 +937,7 @@ body:has(> .voice) { overflow: auto; }
 
 .voice-keyrow { display: flex; flex-wrap: wrap; gap: var(--s2); padding-bottom: var(--s2); }
 .voice-keyrow:last-child { padding-bottom: var(--s3); }
-.voice-keyrow input {
+.voice-keyrow :is(input, select) {
   flex: 1 1 200px;
   min-width: 0;
   font: inherit;
@@ -940,6 +945,8 @@ body:has(> .voice) { overflow: auto; }
   padding: var(--s2) var(--s3);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
 }
 /* The key panel's buttons all wear the same outline: nothing there is the
    page's main action, and Save is only pressable once there is a key to
@@ -1132,7 +1139,6 @@ body:has(.voice-dialog[open]) { overflow: hidden; }
      rows — with the drawn pill a little taller under a thumb. The 44px hit
      area is unchanged: it belongs to the select, not to the picture. */
   .voice-device::before { block-size: 34px; }
-  .voice-facts { grid-template-columns: minmax(0, 1fr); }
   .voice-caption-slot { block-size: min(160px, 22svh); }
   .voice-caption-choice { min-block-size: 44px; }
   .voice :is(button, select, summary) { min-block-size: 44px; min-inline-size: 44px; }

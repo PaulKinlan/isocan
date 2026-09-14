@@ -3201,7 +3201,12 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (socket || opening) disconnected("The page was hidden or suspended.");
     else releaseHold();
   }
-  function hide(): void { if (doc.hidden) pauseConnection(); }
+  function hide(): void {
+    // When the page is backgrounded, release any active push-to-talk hold,
+    // but keep the connection alive — a voice agent should continue to work
+    // when the tab is in the background.
+    if (doc.hidden) releaseHold();
+  }
   function offline(): void { if (socket || opening) disconnected("The browser went offline."); }
   function pressListen(): void {
     if (opening || disposed) return;
@@ -3325,8 +3330,14 @@ export function wireVoice(doc: Document = document): VoicePage {
       const now = Date.now();
       // A readyState of OPEN can outlive a dead/suspended transport. The
       // broker answers these pings without touching the provider or capture.
-      if (socket.readyState > WebSocket.OPEN || now < lastBrokerReply || now - lastBrokerReply > 6000 || (!brokerReady && now - brokerStarted > 8000))
-        disconnected("The page connection stopped responding or was suspended.");
+      // When the tab is in the background, browsers throttle timers (up to 60s),
+      // so only check the tight 6s timeout when the document is visible.
+      const dead =
+        socket.readyState > WebSocket.OPEN ||
+        now < lastBrokerReply ||
+        (!doc.hidden && (now - lastBrokerReply > 6000 || (!brokerReady && now - brokerStarted > 8000))) ||
+        (doc.hidden && now - lastBrokerReply > 60_000);
+      if (dead) disconnected("The page connection stopped responding or was suspended.");
       else if (socket.readyState === WebSocket.OPEN) socket.send("broker:ping");
     }
     void refresh();
