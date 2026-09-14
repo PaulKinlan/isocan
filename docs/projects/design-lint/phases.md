@@ -11,6 +11,10 @@ typecheck and the deep suite before push. Shared computation belongs in core;
 reads need no operation, and a repair uses conditional `item.edit`. Fixtures are
 synthetic. A passing lint report is not visual approval. The conductor owns
 these records and independently verifies the builder's output.
+When a local JRE, Firestore emulator and production build are available,
+`npm run test:ci -- --maxWorkers=6` may supply the deep proof: it runs the same
+deep lane and additionally refuses emulator or bundle skips. Record the actual
+command and skips; this substitution strengthens the gate.
 
 ## Phase 1 — Parsed diagnostics and governing provenance (#300)
 
