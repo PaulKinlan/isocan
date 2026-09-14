@@ -23,11 +23,17 @@ import { spawn } from "node:child_process";
  * or on a machine where the browser is not where the work is, `ISOCAN_BROWSER=none`
  * makes every verb hand you the address instead of throwing a window at a
  * display you are not looking at.
+ *
+ * **Any other value is the command to run**, which is how a test watches the
+ * opening happen without a window: `pass.test.ts` points it at a shell script
+ * that records the address it was handed, and then asserts the tab would have
+ * arrived holding a pass. A switch with only two positions would have made that
+ * test unwritable, and it is the one test that proves `isocan open` escalates
+ * the browser and prints a line with no credential in it.
  */
 export function openInBrowser(url: string): void {
-  if (process.env["ISOCAN_BROWSER"] === "none") return;
-  spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], {
-    stdio: "ignore",
-    detached: true,
-  }).unref();
+  const chosen = process.env["ISOCAN_BROWSER"]?.trim();
+  if (chosen === "none") return;
+  const opener = chosen || (process.platform === "darwin" ? "open" : "xdg-open");
+  spawn(opener, [url], { stdio: "ignore", detached: true }).unref();
 }
