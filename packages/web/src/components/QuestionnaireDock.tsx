@@ -112,9 +112,25 @@ export function QuestionnaireDock({ payload, onAnswer, onDismiss }: Questionnair
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const questions = payload.questions;
-  const q = questions[currentIdx];
-
-  if (!q) return null;
+  /**
+   * **The narrowing has to survive into the handlers below.**
+   *
+   * `questions[currentIdx]` is `Question | undefined` under
+   * `noUncheckedIndexedAccess`, and the early return narrows it here — but not
+   * inside `handleSelectOption`, `handleAddUrl`, `handleFiles` or
+   * `handleNext`, which are hoisted `function` declarations: TypeScript cannot
+   * know one of them will not be called before the guard has run, so it
+   * refuses the narrowing at every `q.id` in all four. Eight errors, and they
+   * turned `main` red on the commit that added this file.
+   *
+   * Binding the checked value to its own const is the whole fix: `q` is a
+   * `Question` by construction, so every use — JSX and closure alike — is
+   * reading a value that cannot be undefined, rather than one the compiler has
+   * been persuaded about.
+   */
+  const current = questions[currentIdx];
+  if (!current) return null;
+  const q = current;
 
   const currentSelection: string[] = answers[q.id] || [];
 
