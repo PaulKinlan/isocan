@@ -3,6 +3,8 @@ import { createGroupNudger } from "../lib/groupgestures.ts";
 import { groupAncestors, groupScopeRoots, isGroupItem } from "@isocan/core";
 import { enterCanvasGroup, leaveCanvasGroup, openGroupCreation, changeCanvasGroup, groupsEnabled, groupTask } from "../lib/canvasgroups.ts";
 import { CanvasGroupScope } from "../components/CanvasGroupScope.tsx";
+import { presentedCanvas, presentedLocus } from "../lib/presentation.ts";
+import { currentPresentation } from "../lib/canvasPresentation.ts";
 import { type CSSProperties, Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useMatch, useNavigate, useParams } from "react-router-dom";
 import type { Actor } from "@isocan/core";
@@ -32,7 +34,6 @@ import { deleteItems, downloadItem } from "../lib/itemactions.ts";
 import { applyLocalEcho, flashNotice, sendEchoed } from "../stores/canvasStore.ts";
 import { centerOn, fitInto, itemsBounds } from "../lib/viewport.ts";
 import { stageRect } from "../lib/stage.ts";
-import { sessionLocus } from "../lib/presence.ts";
 import { checkForUpdate } from "../lib/appversion.ts";
 import { placeSketch } from "../lib/sketch.ts";
 import { CanvasViewport } from "../components/CanvasViewport.tsx";
@@ -401,7 +402,7 @@ function CanvasSurface({
       const { sessions, canvas: current } = useCanvasStore.getState();
       const ui = useUiStore.getState();
       const session = sessions.find((s) => s.sessionId === followSessionId);
-      const locus = session && current ? sessionLocus(session, current) : null;
+      const locus = session && current ? presentedLocus(session, current, currentPresentation()) : null;
       if (!locus) {
         ui.setFollow(null); // they left, or lost their place — nothing to watch
         return;
@@ -517,7 +518,8 @@ function CanvasSurface({
       const ui = useUiStore.getState();
       const canvas = useCanvasStore.getState().canvas;
       if (!canvas) return;
-      const all = groupsEnabled() ? groupScopeRoots(canvas, ui.activeGroupId) : Object.values(canvas.items);
+      const view = presentedCanvas(canvas, currentPresentation());
+      const all = groupsEnabled() ? groupScopeRoots(view, ui.activeGroupId) : Object.values(view.items);
       if (all.length === 0) return;
       const selected = ui.selectedItemIds;
 
@@ -538,7 +540,7 @@ function CanvasSurface({
 
       // A multi-item selection travels as its bounding box, and the items it
       // is standing on are not candidates — they are not "over there".
-      const held = selected.map((id) => canvas.items[id]).filter((item) => item !== undefined);
+      const held = selected.map((id) => view.items[id]).filter((item) => item !== undefined);
       if (held.length === 0) return;
       const box = held.length === 1
         ? held[0]!
