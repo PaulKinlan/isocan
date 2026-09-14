@@ -210,6 +210,7 @@ start advisory, baseline measured violations, and tighten deliberate rules.
 
 ## Roadmap and proofs
 
+The implementation walk is [design-lint/phases.md](../projects/design-lint/phases.md).
 The execution queue is [#299](https://github.com/dglazkov/isocan/issues/299).
 The research is **designed**;
 the product changes and the paid agent experiment have not been performed.
