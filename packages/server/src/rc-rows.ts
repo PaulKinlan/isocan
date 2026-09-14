@@ -30,8 +30,15 @@ import type { RcAgentRow } from "@isocan/rc";
  * no others.
  */
 
+/** The file the whole machine's rows live in, one per (canvas, actor). Named
+ * rather than inlined because the lock and the temporary file are its
+ * neighbours and have to agree with it. */
 export const rcAgentsFile = (home: string) => path.join(home, "rc-agents.json");
 
+/** Every row this machine keeps: which agents answer on which canvas, how to
+ * start each one, and where it runs. An absent or unreadable file is "no rows"
+ * rather than an error — a machine that has never enrolled an agent is a
+ * normal machine, and a reader is never the wrong party here. */
 export async function readRcAgents(home: string): Promise<RcAgentRow[]> {
   try {
     return JSON.parse(await fs.readFile(rcAgentsFile(home), "utf8")) as RcAgentRow[];
