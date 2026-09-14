@@ -1,5 +1,6 @@
+import { selectCreatedItems } from "./groupplacement.ts";
 import type { Actor, CanvasCursor, CanvasTheme, Item, ThemeAnchor } from "@isocan/core";
-import { CURSORS, cursorLabel, contextMark, isNote, isSlide, itemKind, itemPath, markPatch, newGroupId, noteFor, THEMES, themeLabel, ALIGN_EDGES, alignLabel, slideIntent, slidePatch, workbenchItemPath, keyFor, SLIDE_EMOJI, sprintState } from "@isocan/core";
+import { CURSORS, cursorLabel, contextMark, isGroupItem, isNote, isSlide, itemKind, itemPath, markPatch, newGroupId, noteFor, THEMES, themeLabel, ALIGN_EDGES, alignLabel, slideIntent, slidePatch, workbenchItemPath, keyFor, SLIDE_EMOJI, sprintState } from "@isocan/core";
 import type { ReactNode } from "react";
 import type { MenuEntry } from "../components/ContextMenu.tsx";
 import {
@@ -15,7 +16,8 @@ import {
   WorkbenchGlyph,
 } from "../components/Glyphs.tsx";
 import { cutItems, deleteItems, downloadItem, itemAddress, pasteInto } from "./itemactions.ts";
-import { alignItems, tidyItems } from "./actions.ts";
+import { captureClipboard } from "./clipboard.ts";
+import { alignItems, distributeGroupItems, tidyItems } from "./actions.ts";
 import { browserClipboard, copyToClipboard, type CopyState } from "./copy.ts";
 import { flashNotice, sendEchoed, setNotice, useCanvasStore } from "../stores/canvasStore.ts";
 import { useUiStore } from "../stores/uiStore.ts";
@@ -24,6 +26,8 @@ import { glideToBox, revealItem } from "./zoomactions.ts";
 import { addSpeakerNote, noteStarter } from "./notes.ts";
 import { handIn, handable } from "./sprint.ts";
 import { canEditNow } from "./capability.ts";
+import { canvasGroupEntries, groupDeleteLabel } from "./canvasgroupmenus.ts";
+import { openGroupCreation, groupTask, groupsEnabled } from "./canvasgroups.ts";
 
 /**
  * **What the right-click menu offers, and why each thing is on it.**
@@ -73,12 +77,14 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
   const version = one?.versions.find((v) => v.id === one.currentVersionId) ?? null;
 
   return offered([
+    ...canvasGroupEntries(items, ctx),
     {
       label: many ? `Copy ${items.length} items` : "Copy",
       shortcutFor: "Copy the selection",
       run: () => {
-        useUiStore.getState().setClipboard({ canvasId: ctx.canvasId, items });
-        flashNotice(`Copied ${items.length} item${items.length === 1 ? "" : "s"}`);
+        const copied = captureClipboard(ctx.canvasId, ids);
+        useUiStore.getState().setClipboard(copied);
+        flashNotice(`Copied ${copied.items.length} item${copied.items.length === 1 ? "" : "s"}`);
       },
     },
     {
@@ -92,7 +98,9 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
       run: () => {
         // The clipboard is not disturbed: duplicating something should not
         // cost you what you had copied a minute ago.
-        void pasteInto({ canvasId: ctx.canvasId, items }, ctx.canvasId, ctx.actor);
+        void pasteInto(captureClipboard(ctx.canvasId, ids), ctx.canvasId, ctx.actor).then((made) => {
+          if (made.length) selectCreatedItems(ctx.canvasId, made);
+        });
       },
     },
     /**
@@ -126,13 +134,13 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
       label: many ? `Tidy ${items.length} items` : "Tidy",
       writes: true,
       disabled: !many,
-      run: () => void tidyItems(ctx.canvasId, ctx.actor, ids, "grid"),
+      run: () => groupTask(() => tidyItems(ctx.canvasId, ctx.actor, ids, "grid")),
     },
     {
       label: "Tidy — smart",
       writes: true,
       disabled: !many,
-      run: () => void tidyItems(ctx.canvasId, ctx.actor, ids, "smart"),
+      run: () => groupTask(() => tidyItems(ctx.canvasId, ctx.actor, ids, "smart")),
     },
     {
       /**
@@ -155,16 +163,20 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
       submenu: ALIGN_EDGES.map((edge) => ({
         label: alignLabel(edge),
         writes: true,
-        run: () => void alignItems(ctx.canvasId, ctx.actor, ids, edge),
+        run: () => groupTask(() => alignItems(ctx.canvasId, ctx.actor, ids, edge)),
       })),
     },
+    ...(groupsEnabled() ? [
+      { label: "Distribute horizontally", writes: true, disabled: ids.length < 3, run: () => groupTask(() => distributeGroupItems(ctx.canvasId, ctx.actor, ids, "h")) },
+      { label: "Distribute vertically", writes: true, disabled: ids.length < 3, run: () => groupTask(() => distributeGroupItems(ctx.canvasId, ctx.actor, ids, "v")) },
+    ] : []),
     { separator: "" },
-    {
+    ...(!one || !isGroupItem(one) ? [{
       label: "Open full screen",
       shortcutFor: "Open the selection full screen",
       disabled: !one,
       run: () => one && ctx.navigate(itemPath(ctx.canvasId, one.id)),
-    },
+    }] : []),
     {
       label: "Open in the workbench",
       disabled: !one,
@@ -347,7 +359,7 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
                   writes: true,
                   run: async () => {
                     const id = await addSpeakerNote(ctx.canvasId, ctx.actor, slide, noteStarter(slide));
-                    useUiStore.getState().select(id);
+                    if (!selectCreatedItems(ctx.canvasId, [id])) return;
                     revealItem(id);
                     flashNotice(`Notes for "${slide.title}" — under the slide; N shows them in full screen`);
                   },
@@ -362,7 +374,7 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
     ...sprintHandIn(items, ctx),
     { separator: "" },
     {
-      label: many ? `Delete ${items.length} items` : "Delete",
+      label: groupDeleteLabel(items) ?? (many ? `Delete ${items.length} items` : "Delete"),
       shortcutFor: "Move the selection to the trash",
       danger: true,
       writes: true,
@@ -419,6 +431,7 @@ function sprintHandIn(items: readonly Item[], ctx: MenuContext): MenuEntry[] {
 export function canvasMenu(ctx: MenuContext): MenuEntry[] {
   const held = useUiStore.getState().clipboard;
   return offered([
+    { label: "New group", writes: true, disabled: !groupsEnabled(), ...(!groupsEnabled() ? { value: "Not enabled on this canvas" } : {}), run: () => openGroupCreation([], ctx.world) },
     {
       label: held ? `Paste ${held.items.length} item${held.items.length === 1 ? "" : "s"}` : "Paste",
       shortcutFor: "Paste",
@@ -427,7 +440,7 @@ export function canvasMenu(ctx: MenuContext): MenuEntry[] {
       run: () => {
         if (!held) return;
         void pasteInto(held, ctx.canvasId, ctx.actor, ctx.world).then((made) => {
-          if (made.length > 0) useUiStore.getState().setSelection(made);
+          if (made.length > 0) selectCreatedItems(ctx.canvasId, made);
         });
       },
     },
@@ -515,7 +528,6 @@ export function chromeMenu(ctx: {
   /** Days of release notes this reader has not seen — 0 hides the count. */
   unreadNews: number;
   minimapOpen: boolean;
-  cursorGlow: boolean;
   /** What ground this canvas is wearing, or null for the dot grid. */
   theme: CanvasTheme | null;
   /**
@@ -547,6 +559,19 @@ export function chromeMenu(ctx: {
   /** Navigation belongs to the caller: this module builds entries and has no
    *  business holding a router. */
   toWorkbench: () => void;
+  /**
+   * The Groups rows, built by the caller because they need the current
+   * selection and a `navigate`. A submenu rather than a flattened block:
+   * selecting items and right-clicking is how grouping actually gets done
+   * (the same `canvasGroupEntries` are already in the item menu above), so
+   * this is the findable way in rather than the fast one, and a fast way in
+   * that costs five rows of a menu everybody opens is the wrong trade.
+   */
+  groups?: MenuEntry[];
+  /** What the parent row says to the right of "Groups" — how many items the
+   *  submenu would act on, so the count is legible without opening it. */
+  groupsValue?: string;
+  projectViews?: Array<{ label: string; icon?: ReactNode; run: () => void }>;
 }): MenuEntry[] {
   const ui = () => useUiStore.getState();
   /* The same mark the surface itself wears, so the row and the thing it opens
@@ -584,6 +609,15 @@ export function chromeMenu(ctx: {
       shortcutFor: "Workbench — the agent room",
       run: () => ctx.toWorkbench(),
     },
+    /* **Groups left the bar on 13 Sep.** It was a top-level button beside the
+       title, which put a feature most people reach by right-clicking a
+       selection in the one place that is always on screen. The rows are
+       unchanged and the item menu still carries them; this is where you look
+       when nothing is selected, or when you do not yet know the gesture. */
+    ...(ctx.groups?.length
+      ? [{ label: "Groups", value: ctx.groupsValue ?? "", run: () => {}, submenu: ctx.groups }]
+      : []),
+    ...(ctx.projectViews ?? []),
     { separator: "" },
     {
       /**
@@ -754,19 +788,13 @@ export function chromeMenu(ctx: {
         },
       ],
     },
-    {
-      /**
-       * **The cursor glow, off if you want it off** (#195).
-       *
-       * Beside the minimap because it is the same kind of choice: what this
-       * browser draws, for this person, on every canvas. It is not a property
-       * of anybody's canvas, so turning it off must not change what a
-       * collaborator sees. `prefers-reduced-motion` already hides it; this is
-       * for people who simply find it busy.
-       */
-      label: ctx.cursorGlow ? "Turn off cursor glow" : "Turn on cursor glow",
-      run: () => ui().setCursorGlow(!ctx.cursorGlow),
-    },
+    /* **The cursor glow left this menu on 13 Sep** (#195 put it here). Its
+       own note said it belonged "beside the minimap because it is the same
+       kind of choice: what this browser draws, for this person, on every
+       canvas" — which is the description of the Controls list in Settings,
+       where every other switch of that kind already was. One category, two
+       homes, and neither naming the other. It is a row in `DISPLAY_SWITCHES`
+       now, reading and writing the same store key. */
     { separator: "" },
     {
       /* Release notes belong beside the shortcut list: both are things you

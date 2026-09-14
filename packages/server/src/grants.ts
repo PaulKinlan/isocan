@@ -208,6 +208,9 @@ export async function admittingGrant(
   badge: BadgeRecord,
   creator: string | null = null,
   via: DoorLookup = desk,
+  /** Discovery has no presented address, so a link cannot answer it. Bars,
+   * named grants and creator floors are still judged by the same door. */
+  scope: "entry" | "discovery" = "entry",
 ): Promise<DoorAnswer | null> {
   /**
    * **Both scopes** (roles design, "Who holds what"): the canvas's rows and
@@ -246,7 +249,7 @@ export async function admittingGrant(
   if (!barred) {
     const rung = (grant: Grant) => RUNGS.indexOf(capabilityOf(grant));
     const rows = live
-      .filter((grant) => !isBar(grant))
+      .filter((grant) => !isBar(grant) && (scope === "entry" || grant.subject !== LINK))
       .sort((a, b) => rung(b) - rung(a) || a.at.localeCompare(b.at));
     for (const grant of rows) {
       if (await subjectAdmits(grant.subject, attestations, groupOf)) {
@@ -352,6 +355,14 @@ export function liveAdmission(admission: Admission, nowMs: number = Date.now()):
   // field is the only thing that ends this admission, so a broken one must
   // fail closed.
   return Number.isFinite(until) && nowMs < until;
+}
+
+/** Ordinary arrival keeps a live admission. A redeemed pass may replace a
+ * weaker one, under the backing's mutation lock; equal/stronger standing and
+ * an active operator look keep their provenance and capability. */
+export function keepsAdmission(existing: Admission | undefined, provenance: Provenance, capability?: Capability): boolean {
+  return existing !== undefined && liveAdmission(existing) &&
+    (provenance.root !== "pass" || existing.provenance.root === "operator" || atLeast(rungOfAdmission(existing), capability ?? "edit"));
 }
 
 /** The admission this badge holds here and may still use, or undefined. One
@@ -544,6 +555,8 @@ export async function heldCapability(
 ): Promise<Capability | null> {
   const held = capabilityIn(badge, canvasId);
   if (held === null || atLeast(held, "edit")) return held;
+  // A look is a ceiling until expiry, even when a pass later adds a claim.
+  if (admissionIn(badge, canvasId)?.provenance.root === "operator") return held;
   const answer = await admittingGrant(desk, canvasId, badge, creator);
   if (!answer || answer.capability === held) return held;
   await desk.reroot(badge.badgeId, canvasId, answer.provenance, answer.capability);
@@ -577,6 +590,7 @@ export async function ensureLinkGrant(
   canvasId: string,
   grantedBy: string,
 ): Promise<Grant | null> {
+  if (await desk.personalSource(canvasId) || await desk.personalReplica(canvasId)) return null;
   const existing = await desk.grantsFor(canvasId);
   if (existing.length > 0) return null;
   const grant: Grant = {

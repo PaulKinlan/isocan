@@ -1,6 +1,8 @@
+import type { CanvasLifecycle } from "@isocan/server";
 import { createHash, randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import type { CollectionReference, DocumentData, Firestore } from "@google-cloud/firestore";
+import { FieldValue } from "@google-cloud/firestore";
 import type {
   ActorRegistry,
   LogEntry,
@@ -96,6 +98,7 @@ interface PendingSnapshot {
 }
 
 interface SnapshotObject {
+  groupCohorts?: CanvasState["canvas"]["groupCohorts"];
   lastSeq: number;
   items: CanvasState["canvas"]["items"];
   threads: CanvasState["canvas"]["threads"];
@@ -194,6 +197,28 @@ export class CloudStore implements Store {
     }
     canvases.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     return canvases;
+  }
+
+  async canvasRecord(id: string): Promise<Canvas | null> {
+    const doc = await this.db.doc(canvasDoc(id)).get();
+    const data = doc.data();
+    if (!data || data["deleted"] === true || typeof data["takenDownAt"] === "string" || typeof data["purgedAt"] === "string") return null;
+    return (data["project"] as Canvas | undefined) ?? null;
+  }
+
+  async canvasLifecycle(id: string): Promise<CanvasLifecycle> {
+    const doc = await this.db.doc(canvasDoc(id)).get();
+    const data = doc.data();
+    if (typeof data?.["purgedAt"] === "string") return "purged";
+    if (typeof data?.["takenDownAt"] === "string") return "taken-down";
+    if (data?.["deleted"] === true) return "deleted";
+    if (data?.["project"]) return "live";
+    if (doc.exists || !(await this.db.collection(opsCollection(id)).limit(1).get()).empty) return "incomplete";
+    return "absent";
+  }
+
+  async readBirthLog(id: string): Promise<LogEntry[]> {
+    return this.readOps(id, 0);
   }
 
   /** A bucket has no directories and Firestore has no schema, so there is
@@ -349,6 +374,7 @@ export class CloudStore implements Store {
             threads: snapshot.threads,
             trash: snapshot.trash,
             agents: snapshot.agents ?? {},
+            ...(snapshot.groupCohorts ? { groupCohorts: snapshot.groupCohorts } : {}),
           }
         : { ...emptyCanvas(), trash: [] },
     };
@@ -818,7 +844,10 @@ export class CloudStore implements Store {
     if (this.writtenCanvas.get(canvas.id) === encoded) return;
     await this.db.doc(canvasDoc(canvas.id)).set(
       // `project` is the stored field name — a deliberate holdout (phase 13.5).
-      { project: jsonSafe(canvas), deleted: false },
+      // Merge preserves operator fields beside the project. Absence of a
+      // migration boundary or legacy mode field is meaningful, however:
+      // Firestore must remove it instead of retaining the previous map key.
+      { project: { ...jsonSafe(canvas), ...(canvas.groupMode === undefined ? { groupMode: FieldValue.delete() } : {}), ...(canvas.groupMigration === undefined ? { groupMigration: FieldValue.delete() } : {}) }, deleted: false },
       { merge: true },
     );
     this.writtenCanvas.set(canvas.id, encoded);
@@ -832,6 +861,7 @@ export class CloudStore implements Store {
 
   private async writeSnapshot(id: string, state: CanvasState, lastSeq: number): Promise<void> {
     const snapshot: SnapshotObject = {
+      ...(state.canvas.groupCohorts ? { groupCohorts: state.canvas.groupCohorts } : {}),
       lastSeq,
       items: state.canvas.items,
       threads: state.canvas.threads,

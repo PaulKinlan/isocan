@@ -16,19 +16,16 @@ after, because a takedown answers every one of those reports on its own,
 more bluntly. The words on `/terms` come first of all, because they are
 untrue today and fixing them costs nothing.
 
-**Where we are:** phases 1, 2 and 3 are PART-DONE (12 Sep 2026): the
-operator is proved per act and refused in words; a look admits for an hour
-and is not in presence; a takedown stops the home serving a canvas and lifts;
-a purge erases the bytes on both backings, keeps the record as the tombstone,
-refuses unless the canvas was taken down first, and says what survives and for
-how long; every act writes its ledger row before it answers. All of it green
-here — the cloud halves against the Firestore emulator — and walked by hand
-against local daemons; none of it walked on dev. Phase 0 still waits on
-Dion's call on the wording. The dev walks for 1–3 wait on a person:
-`ISOCAN_OPERATORS` on dev.isocan.io, a sign-in, a second account, a third
-browser, and a decision about journey 1 step 3, which says Google where this
-app has only an emailed link. Phase 4 (end a surface) is next, and its
-owner's-path half is a bug fix that needs nothing.
+**Where we are:** operator phases 1–6 remain PART-DONE. All six acts are
+implemented, with prior local and emulator proof; the 13 September readiness
+pass independently reran 202 focused tests successfully. Hosted walks remain
+open. [acceptance.md](acceptance.md) is the runbook and
+[terms-proposal.md](terms-proposal.md) is the unpublished final wording.
+Dion approved the existing emailed-link flow; the dev operator address,
+real sign-in, second account and device/network proofs remain to be supplied.
+Operator phase 0 is the next unstarted phase, an obsolete interim proposal
+awaiting replacement by phase 7's approved words. Phase 8 remains deferred
+until a self-hosted home asks. No live operator configuration or terms changed.
 
 **Sizes.** S is a day's work with its tests. M is two or three. L would be a
 week; nothing here is one.
@@ -106,9 +103,9 @@ in `log`. A local daemon with no attester says why it has no operator.
   phase-2 verb needs the branch.
 - **2026-09-12** — Open: the walk — `ISOCAN_OPERATORS` on dev.isocan.io, a
   sign-in, a second account. Waits on Dion; the list is Dimitri's.
-- **2026-09-12** — Open: journey 1 says *signs in with Google*; `signin.ts`
-  offers only an emailed link. Either the walk is that link, or the button
-  comes first.
+- **2026-09-13** — Dion approved the existing emailed-link sign-in for the
+  acceptance walk. Journey 1 now names that flow; no Google OAuth work is
+  needed to prove the implemented operator path.
 - **2026-09-12** — Open: `show` on a soft-deleted canvas is a 404 and
   `OperatorReach` has no `deleted`. Takedown is where it comes from.
 - **2026-09-12** — Open: the reach says *N relaying now*, never *linked* — no
@@ -219,7 +216,14 @@ so the day a horizon changes the sentence fails rather than lies.
 
 ## Phase 4 — End a surface, and mean it (M)
 
-**Status: NOT STARTED.**
+**Status: PART-DONE (2026-09-12).** Both halves built and proved here. The
+owner's-path fix first and alone, for everyone: a killed badge's sockets close
+`ended`, its parked wait is woken and refused with the sentence, its
+outstanding passes are refused unspent, and the 401 says who ended it and why.
+Then `isocan operator end` by badge, actor or address, the reach previewed
+before the act, the ledger row before the answer, the CLI refusing to knock
+for a new badge under that name. The walk — a laptop tab and a phone, journey
+7 on dev — waits on a person.
 
 Closes journey 7. **The half that fixes the owner's path ships first and
 alone**, because it is a bug fix nobody needs a decision for.
@@ -238,9 +242,41 @@ while the laptop has a tab open and a wait parked: the tab closes, the wait
 exits, the laptop's outstanding pass is refused. Then journey 7 on dev,
 steps 1 to 5.
 
+**Trajectory:**
+
+- **2026-09-12** — A parked wait is refused with 403 `ended`, not the 401 every
+  other request from a dead badge meets: the client's one recovery per request
+  would otherwise replay the park as a stranger into silence, the failure the
+  watch's refusals exist to prevent.
+- **2026-09-12** — The 401 branches on who ended the badge, and only the CLI's
+  re-badge branches with it: `holder` keeps lost-badge recovery quiet,
+  `operator` prints the sentence and stops. The stop is the client's courtesy;
+  `Engine.vouch` does not enforce it.
+- **2026-09-12** — A tab reads the ended sentence off the 401 itself, with a
+  raw fetch before `request()` can knock: a dead badge gets exactly one answer
+  from its home, and the door replaces the cookie on the next.
+- **2026-09-12** — The reach lists enrolments and passes; registrations are
+  absent because Scene 7's are not built, and a field that is always empty is
+  a seam somebody fills in by accident.
+- **2026-09-12** — Open: the walk on dev — journey 7 steps 1 to 5, a real tab,
+  a phone, `ISOCAN_OPERATORS`. Waits on Dion.
+- **2026-09-12** — Open: whether `Engine.vouch` should refuse `actor.claim {as}`
+  for a name whose last holder the operator ended. Today a modified client
+  could reclaim it; operator phase 6's refuse-by-actor is where enforcement
+  naturally lands.
+- **2026-09-12** — Open: `RcHolds` are per canvas, not per badge, so an end
+  does not end a dead badge's rc holds; its sockets close, which is what a
+  summoned session reads. Named rather than wired.
+
 ## Phase 5 — Turn off a grant (S)
 
-**Status: NOT STARTED.**
+**Status: PART-DONE (2026-09-12).** Built and proved here: `revoke` on a canvas
+or a space, any subject, `--bar`; the row carrying `revokedVia: "operator"` and
+the reason; the Share dialog and `isocan share` reading it and saying how to
+turn it back on; the socket inside closed `withdrawn`; the owner's re-grant
+needing no proof and leaving no ledger row. Walked in a real browser against a
+local daemon. Journey 8 on dev — a real sign-in, strangers in real tabs, a
+space on a hosted home — waits on a person.
 
 Closes journey 8.
 
@@ -251,9 +287,37 @@ Closes journey 8.
 on, and the ledger holding the operator's row but not the owner's — the
 owner's act is the owner's.
 
+**Trajectory:**
+
+- **2026-09-12** — The owner never sees a revoked row: `GET …/grants` answers
+  live rows only, so the operator's tombstone crosses the wire as `turnedOff`,
+  chosen at the home by whose tombstone is newest. The owner's own revokes
+  never leave the desk, which is what keeps her act hers.
+- **2026-09-12** — A revoke's close reason stays `withdrawn`, not a third word:
+  the person inside lost access exactly as under an owner's revoke, and the
+  account of why lives in the owner's Share. `taken-down` remains the canvas's.
+- **2026-09-12** — A bar is refused as a revoke target: revoking one lets
+  somebody in, which is a grant and the owner's to make. This phase only turns
+  access off.
+- **2026-09-12** — Open: the walk on dev — a real sign-in, `ISOCAN_OPERATORS`,
+  strangers in real tabs shown out `withdrawn`, a space on a hosted home, the
+  space-target replica 409. Waits on Dion.
+- **2026-09-12** — Open: the operator's `--bar` is written as the owner's would
+  be, `grantedBy` a badge id, so the Kept-out row names a badge and not the
+  home. Whether a bar carries provenance is a later call.
+- **2026-09-12** — Found by walking, outside this project: vite dev mode on
+  main has been broken since canvas-groups phase 2 — a `lazy()` above its
+  import, which the production bundle hoists and the dev transform does not.
+  Flagged, not fixed here.
+
 ## Phase 6 — Refuse at the door (M)
 
-**Status: NOT STARTED.**
+**Status: PART-DONE (2026-09-13).** Built and proved here: refusals on both
+desks, loaded at boot and re-read on write, in the one registry phase 2 made;
+read at the door, at `/api/attest`, at `actor.claim` and at the mint meter;
+`refuse`, `--for`, `--lift`; refusing an address ends every badge that proved
+it, with the sentence; a `--for` that expires on a clock a test moves. Journey
+9 on dev from two real networks waits on a person.
 
 Closes journey 9.
 
@@ -266,6 +330,29 @@ Closes journey 9.
 
 **Acceptance:** journey 9 on dev, from two networks — a refused `/24` and
 one that is not — with the refusal gone on its own at `--for 10m`.
+
+**Trajectory:**
+
+- **2026-09-13** — One door registry, not two: refusals were folded into phase
+  2's `Takedowns`, now `Refusals`, so `daemon.ts` still wires exactly one and
+  three readers of one list cannot become three answers.
+- **2026-09-13** — The desk keeps no clock; the registry does. A refusal's
+  `expiresAt` is judged in memory against an injectable `now`, never by
+  deleting rows on a timer, so *gone on its own at `--for 10m`* is a clock a
+  test moves, and `desk.refusals()` hands back expired rows for the registry
+  to filter.
+- **2026-09-13** — Refuse-by-actor closes operator phase 4's reclaim gap:
+  `Engine.claim` consults an injected refusal predicate, so `actor.claim {as}`
+  for a refused name is turned away at the one writer, where the CLI's
+  courtesy could not reach.
+- **2026-09-13** — A refused mint is 403 with the home's sentence, not 429:
+  waiting does not fix a refused network, so the door answers it before the
+  meter, and the client throws the sentence rather than *a badge is required*.
+- **2026-09-13** — Open: the walk on dev — journey 9 from two real networks, a
+  refused `/24` and one that is not, the sign-in half of the verb, and the
+  three sentences rendered in a real browser. Waits on Dion.
+- **2026-09-13** — Open: `repo:` refusals are enforceable but unprovable end
+  to end until a home has a repo attester (multiuser Scene 6).
 
 ## Phase 7 — The page says what is built (S)
 
@@ -313,3 +400,23 @@ bet; `operator` in everyone's `--help`.
 **#77's questions** are answered in [design.md](design.md#dimitris-questions-answered),
 each against the phase that builds the answer: the proof in 1, the path in
 1, the record in 1 and the words in 2, the refusal in 6, the terms in 0.
+
+## Acceptance preparation, 13 September 2026
+
+The conductor independently reran 202 focused tests across 19 files, all
+passing. The existing implementation required no operator code change.
+Hosted acceptance remains open; [acceptance.md](acceptance.md) is the concrete
+runbook, and [terms-proposal.md](terms-proposal.md) is the unpublished wording
+for review. Neither document claims deployment or a real sign-in.
+
+Dev has no separate content domain by design. Its walk proves app-origin
+behavior; the split-origin `isocan.store` checks require a separately prepared
+production canvas after promotion. Every CLI invocation signs in afresh, so a
+second invocation after eleven minutes does not by itself prove server token
+expiry. The runbook distinguishes those proofs and uses the existing `spam`
+reason for the synthetic flood case.
+
+Phase 0's interim proposal is obsolete against the implemented source. Keep it
+as the historical proposal until phase 7's reviewed wording replaces it; do
+not publish an assertion that refusal is unbuilt. The live terms, operator
+configuration and storage settings have not been changed by this preparation.

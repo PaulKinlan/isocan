@@ -1,10 +1,18 @@
+import { selectCreatedItems } from "../lib/groupplacement.ts";
+import { createGroupNudger } from "../lib/groupgestures.ts";
+import { groupAncestors, groupScopeRoots, isGroupItem } from "@isocan/core";
+import { enterCanvasGroup, leaveCanvasGroup, openGroupCreation, changeCanvasGroup, groupsEnabled, groupTask } from "../lib/canvasgroups.ts";
+import { CanvasGroupScope } from "../components/CanvasGroupScope.tsx";
+import { presentedCanvas, presentedLocus } from "../lib/presentation.ts";
+import { currentPresentation } from "../lib/canvasPresentation.ts";
 import { type CSSProperties, Suspense, lazy, useEffect, useRef, useState } from "react";
-import { Link, useMatch, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useMatch, useNavigate, useParams } from "react-router-dom";
 import type { Actor } from "@isocan/core";
 import {
   DECK_ROUTE,
   MODULE_PAGE_ROUTE,
   WORKBENCH_ROUTE,
+  THREAD_QUERY,
   anchorOffset,
   itemPath,
   workbenchItemPath,
@@ -20,13 +28,12 @@ import {
   useCanvasStore,
 } from "../stores/canvasStore.ts";
 import { useUiStore } from "../stores/uiStore.ts";
-import { pasteInto } from "../lib/clipboard.ts";
+import { captureClipboard, pasteInto } from "../lib/clipboard.ts";
 import { redo, sendOp, undo } from "../lib/api.ts";
 import { deleteItems, downloadItem } from "../lib/itemactions.ts";
 import { applyLocalEcho, flashNotice, sendEchoed } from "../stores/canvasStore.ts";
 import { centerOn, fitInto, itemsBounds } from "../lib/viewport.ts";
 import { stageRect } from "../lib/stage.ts";
-import { sessionLocus } from "../lib/presence.ts";
 import { checkForUpdate } from "../lib/appversion.ts";
 import { placeSketch } from "../lib/sketch.ts";
 import { CanvasViewport } from "../components/CanvasViewport.tsx";
@@ -49,30 +56,30 @@ const Workbench = lazy(() =>
  * visit for a gesture that needs a deliberate keystroke or a URL.
  */
 const FullScreen = lazy(() => import("../components/FullScreen.tsx").then((m) => ({ default: m.FullScreen })));
-import { DeckPrint } from "../components/DeckPrint.tsx";
-import { ModulePage } from "../components/ModulePage.tsx";
-import { ModuleOverlays } from "../components/ModuleOverlays.tsx";
+/** Printing is a deliberate route, so its HTML exporter is absent from first paint. */
+const DeckPrint = lazy(() => import("../components/DeckPrint.tsx").then((m) => ({ default: m.DeckPrint })));
+const ModulePage = lazy(() => import("../components/ModulePage.tsx").then((m) => ({ default: m.ModulePage })));
+const ModuleOverlays = lazy(() => import("../components/ModuleOverlays.tsx").then((m) => ({ default: m.ModuleOverlays })));
+/** Workspace composition is paid for only when someone opens a workspace. */
+const ModuleWorkspaceView = lazy(() =>
+  import("../components/ModuleWorkspace.tsx").then((m) => ({ default: m.ModuleWorkspaceView })),
+);
+import { modules, moduleWorkspace } from "../modules.ts";
+/** Module chrome loads when a module supplies it or a person opens its dialog. */
+const ModuleDialogs = lazy(() => import("../components/ModuleDialogs.tsx").then((m) => ({ default: m.ModuleDialogs })));
 import { useChromeHidden } from "../lib/hideable.ts";
 import { Viewer } from "../components/Viewer.tsx";
-import { CanvasTools } from "../components/CanvasTools.tsx";
+import { usePhone } from "../lib/phone.ts";
+import type { PriorVisit } from "../lib/visitdigest.ts";
+import type { PhoneVisit } from "../components/PhoneFace.tsx";
+const PhoneFace = lazy(() => import("../components/PhoneFace.tsx").then((m) => ({ default: m.PhoneFace })));
+const CanvasTools = lazy(() => import("../components/CanvasTools.tsx").then((m) => ({ default: m.CanvasTools })));
 /** Asked for by a keystroke and unmounted when closed, so it need not be in
  *  the bytes a first visit downloads. */
 const Scrubber = lazy(() => import("../components/Scrubber.tsx").then((m) => ({ default: m.Scrubber })));
 import { WhatsNew } from "../components/WhatsNew.tsx";
 /**
- * **Loaded when it is opened, not when the canvas is.**
- *
- * The launcher is a modal most sessions never open, and it carried the whole
- * action registry with it — `bundle-bytes` went over its bound the moment it
- * landed, which is exactly the question that ratchet exists to ask. Splitting
- * it is the answer the bound was asking for; raising the bound would have been
- * the answer it was trying to prevent.
- */
-const CommandPalette = lazy(() =>
-  import("../components/CommandPalette.tsx").then((m) => ({ default: m.CommandPalette })),
-);
-/**
- * **The same argument, and the bytes #267 named to reclaim first.** Help is
+ * **Loaded only when it is opened, reclaiming the bytes #267 named.** Help is
  * opened with `?` by somebody who wants it and by nobody else, and it pulled
  * the shortcut tables and the command registry into the first paint to sit
  * there closed. Split here because the ceiling commit says to look for a cheap
@@ -85,14 +92,14 @@ import { Minimap } from "../components/Minimap.tsx";
 import { revealItem, zoomBy, zoomTo100, zoomToFit, zoomToSelection } from "../lib/zoomactions.ts";
 import { findNextItem, nearestToPoint, type Direction } from "../lib/spatialnav.ts";
 import { screenToWorld } from "../lib/viewport.ts";
-import { TrashPanel } from "../components/TrashPanel.tsx";
+import { TrashPanel } from "../components/LazyTrashPanel.tsx";
 import { MainThreadPanel } from "../components/MainThreadPanel.tsx";
 import { RailStrip } from "../components/RailStrip.tsx";
 import { openPanel } from "../lib/panels.ts";
 import { FilesPanel } from "../components/FilesPanel.tsx";
 import { AgentTray } from "../components/AgentTray.tsx";
-import { ContextPanel } from "../components/ContextPanel.tsx";
-import { PersonasPanel } from "../components/PersonasPanel.tsx";
+import { ContextPanel } from "../components/LazyContextPanel.tsx";
+import { PersonasPanel } from "../components/LazyPersonasPanel.tsx";
 import { ReactionBar, restoreReactionBar } from "../components/ReactionBar.tsx";
 import { CommentToasts } from "../components/CommentToasts.tsx";
 import { OfflineBar } from "../components/OfflineBar.tsx";
@@ -102,10 +109,18 @@ import { crossesCover, hasTextSelection, isTyping } from "../lib/keys.ts";
 import { recordVisit } from "../lib/recents.ts";
 import { noteVisit } from "../lib/seen.ts";
 import { OwnCursor } from "../components/OwnCursor.tsx";
-import { fitToContent } from "../lib/fititem.ts";
 import { useCanvasHome } from "../lib/homes.ts";
 import { canEditNow, useCanEdit } from "../lib/capability.ts";
 import { ElsewherePage } from "./ElsewherePage.tsx";
+
+/* Below the imports, and it has to stay there: vite's dev transform rewrites
+ * `import { lazy } from "react"` into a binding at the import's own position,
+ * so a `lazy()` call above it is a temporal dead zone and the page throws
+ * "Cannot access 'lazy' before initialization". Rollup hoists, so the built
+ * bundle and CI never saw it — only `npm run dev` did. */
+const CanvasGroupPanel = lazy(() =>
+  import("../components/CanvasGroupPanel.tsx").then((m) => ({ default: m.CanvasGroupPanel })),
+);
 
 /** Arrow keys → a world-space direction. */
 const NUDGES: Record<string, [number, number]> = {
@@ -128,7 +143,7 @@ const NUDGE_BIG = 10;
 function writesByKey(e: KeyboardEvent): boolean {
   const meta = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
-  if (meta) return key === "v" || key === "z";
+  if (meta) return key === "v" || key === "z" || key === "g";
   if (e.key === "Delete" || e.key === "Backspace" || e.key === "F2") return true;
   if (NUDGES[e.key]) return true;
   if (e.shiftKey) return key === "c" || key === "f";
@@ -202,6 +217,8 @@ function CanvasSurface({
   const onDeck = useMatch(DECK_ROUTE) !== null;
   // A module's page (ModulePage.tsx): the segment names which.
   const pageSegment = useMatch(MODULE_PAGE_ROUTE)?.params.segment ?? null;
+  useUiStore((s) => s.modulesGeneration);
+  const workspace = pageSegment ? moduleWorkspace(pageSegment) : null;
   const topFadeHidden = useChromeHidden("canvas.topfade");
   /* The token the canvas's own ground paints with, so the wash under the
      top controls is the colour of what it is washing. Null on a canvas with
@@ -213,10 +230,13 @@ function CanvasSurface({
   /* Read here rather than inside the panel, because the panel is no longer
      mounted while it is shut — the flag has to be the thing that mounts it. */
   const helpOpen = useUiStore((s) => s.helpOpen);
-  const paletteOpen = useUiStore((s) => s.paletteOpen);
-  const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
   const setHistoryOpen = useUiStore((s) => s.setHistoryOpen);
   const canvas = useCanvasStore((s) => s.past?.canvas ?? s.canvas);
+  const moduleDialogOpen = useUiStore((s) => s.moduleDialog !== null);
+  useUiStore((s) => s.modulesGeneration);
+  useUiStore((s) => s.experiments);
+  const moduleOverlaysVisible = modules().some((module) => module.overlays?.length);
+  const groupDialogOpen = useUiStore((s) => s.groupDialog !== null);
   // The canvas's own title, for the tab. Subscribed separately from the
   // contents so a rename repaints the tab and an item move does not.
   const canvasTitle = useCanvasStore((s) => s.project?.title ?? null);
@@ -239,20 +259,41 @@ function CanvasSurface({
    * it. A write per op would be exactly the per-thread mistake the design
    * refused: a glance costs at most one write.
    */
+  const narrow = usePhone();
+  const phone = narrow && !itemId && !onDeck && !pageSegment;
+  const phoneVisit = useRef<PhoneVisit>({ tab: "Chat", itemId: null, plan: false });
+  const phoneVisitKey = useRef("");
+  if (phoneVisitKey.current !== `${canvasId}:${actor.id}`) {
+    phoneVisitKey.current = `${canvasId}:${actor.id}`;
+    phoneVisit.current = { tab: wbItemId ? "Canvas" : "Chat", itemId: wbItemId ?? null, plan: false };
+  }
+  const [priorVisit, setPriorVisit] = useState<PriorVisit | null>(null);
   const arrived = canvasTitle !== null;
+  const { search } = useLocation();
+  const requestedThread = new URLSearchParams(search).get(THREAD_QUERY);
+  useEffect(() => {
+    if (canvasId && arrived && requestedThread && !phone) {
+      void import("../lib/conversation.ts").then((m) => m.openConversation(canvasId, requestedThread));
+    }
+  }, [canvasId, arrived, requestedThread, phone]);
   useEffect(() => {
     if (!canvasId || !arrived) return;
     // One call: `noteVisit` reads before it writes, deliberately — see
     // `lib/seen.ts`, where the reason is a bug a browser found.
-    noteVisit(canvasId, useCanvasStore.getState().lastSeq, actor.id);
+    let live = true;
+    setPriorVisit(null);
+    void noteVisit(canvasId, useCanvasStore.getState().lastSeq, actor.id).then((prior) => { if (live) setPriorVisit(prior); });
     // `arrived` rather than the title itself: the head is only worth
     // recording once the snapshot has landed, and a RENAME while you stand
     // here is not a second visit.
+    return () => { live = false; };
   }, [canvasId, actor.id, arrived]);
   const switching = useUiStore((s) => s.switching);
   const connection = useCanvasStore((s) => s.connection);
   // The home's own sentence about a canvas it took down (operator phase 2).
   const takenDown = useCanvasStore((s) => s.takenDown);
+  const ended = useCanvasStore((s) => s.ended);
+  const refusedHere = useCanvasStore((s) => s.refusedHere);
   const capability = useCanvasStore((s) => s.capability);
   const canEdit = useCanEdit();
   const joined = useCanvasStore((s) => s.actorJoins);
@@ -275,6 +316,8 @@ function CanvasSurface({
   useEffect(() => {
     if (!canvasId) return;
     didFit.current = false;
+    useUiStore.getState().setActiveGroup(null);
+    useUiStore.getState().setGroupDialog(null);
     restoreReactionBar(canvasId);
     connectToCanvas(canvasId, actorRef.current);
     // What this machine's disk says about the canvas's backed items. Asked
@@ -282,6 +325,23 @@ function CanvasSurface({
     void loadBacking(canvasId);
     return disconnect;
   }, [canvasId]);
+
+  // Repair a remotely removed scope using its previously known ancestry.
+  const scopeAncestry = useRef<string[]>([]);
+  useEffect(() => useCanvasStore.subscribe((next, previous) => {
+    const ui = useUiStore.getState();
+    const active = ui.activeGroupId;
+    if (!active || !next.canvas) return;
+    if (next.canvas.items[active] && isGroupItem(next.canvas.items[active]!)) return;
+    const old = previous.canvas;
+    const parents = old?.items[active] ? groupAncestors(old, active).map((item) => item.id) : scopeAncestry.current;
+    const parent = parents.find((id) => next.canvas?.items[id] && isGroupItem(next.canvas.items[id]!)) ?? null;
+    useUiStore.setState({ activeGroupId: parent, selectedItemIds: ui.selectedItemIds.filter((id) => !!next.canvas?.items[id]), enteredItemId: null });
+  }), []);
+  useEffect(() => useUiStore.subscribe((ui, prev) => {
+    const current = useCanvasStore.getState().canvas;
+    if (ui.activeGroupId !== prev.activeGroupId && current && ui.activeGroupId) scopeAncestry.current = groupAncestors(current, ui.activeGroupId).map((item) => item.id);
+  }), []);
 
   // Becoming someone else does NOT drop the socket. The tab keeps its session
   // and simply asserts the new actor on the next presence beat, which the
@@ -342,7 +402,7 @@ function CanvasSurface({
       const { sessions, canvas: current } = useCanvasStore.getState();
       const ui = useUiStore.getState();
       const session = sessions.find((s) => s.sessionId === followSessionId);
-      const locus = session && current ? sessionLocus(session, current) : null;
+      const locus = session && current ? presentedLocus(session, current, currentPresentation()) : null;
       if (!locus) {
         ui.setFollow(null); // they left, or lost their place — nothing to watch
         return;
@@ -424,11 +484,16 @@ function CanvasSurface({
   useEffect(() => {
     if (!canvasId) return;
 
+    const groupNudger = createGroupNudger(canvasId, actor, NUDGE_FLUSH_MS);
     /** Move the selection by whole world units: 1 per press, 10 with shift. */
     function nudge(dx: number, dy: number): void {
       const ids = useUiStore.getState().selectedItemIds;
       const canvas = useCanvasStore.getState().canvas;
       if (ids.length === 0 || !canvas) return;
+      if (groupsEnabled()) {
+        groupNudger.nudge(ids, dx, dy);
+        return;
+      }
       const moves = ids
         .map((id) => canvas.items[id])
         .filter((item) => item !== undefined)
@@ -453,7 +518,8 @@ function CanvasSurface({
       const ui = useUiStore.getState();
       const canvas = useCanvasStore.getState().canvas;
       if (!canvas) return;
-      const all = Object.values(canvas.items);
+      const view = presentedCanvas(canvas, currentPresentation());
+      const all = groupsEnabled() ? groupScopeRoots(view, ui.activeGroupId) : Object.values(view.items);
       if (all.length === 0) return;
       const selected = ui.selectedItemIds;
 
@@ -474,7 +540,7 @@ function CanvasSurface({
 
       // A multi-item selection travels as its bounding box, and the items it
       // is standing on are not candidates — they are not "over there".
-      const held = selected.map((id) => canvas.items[id]).filter((item) => item !== undefined);
+      const held = selected.map((id) => view.items[id]).filter((item) => item !== undefined);
       if (held.length === 0) return;
       const box = held.length === 1
         ? held[0]!
@@ -495,6 +561,7 @@ function CanvasSurface({
     /** Write where the nudged items actually ended up. Items deleted mid-nudge
      * are gone from the replica, so they simply drop out of the op. */
     function flushNudge(): void {
+      if (groupsEnabled()) { void groupNudger.flush(); return; }
       const ids = useUiStore.getState().selectedItemIds;
       const canvas = useCanvasStore.getState().canvas;
       if (ids.length === 0 || !canvas) return;
@@ -505,14 +572,15 @@ function CanvasSurface({
       if (moves.length > 0) void sendEchoed(canvasId!, actor, moveOp(moves));
     }
     function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
+      if (phone) return; // the visible phone face owns navigation; no hidden canvas writes
       // A cover route hides the canvas but keeps its selection — Enter
       // arrives full screen with the viewed item still selected, so any
       // shortcut that fired under here would act on the exact thing being
       // looked at (Delete deleted it). Only what crossesCover says may pass;
       // Esc is the cover's own, bound in capture phase.
-      if ((itemId || onWorkbench) && !crossesCover(e)) return;
-      // ⌘K is global — the lane to your emissary opens from anywhere, even
-      // mid-typing in another field.
+      if ((itemId || onWorkbench || (pageSegment && (!workspace || !document.querySelector("[data-module-stage]")))) && !crossesCover(e)) return;
+      if (useUiStore.getState().contextMenu || useUiStore.getState().groupDialog) return;
       /**
        * ⌘C / ⌘V — and the paste works on a DIFFERENT canvas, which is the
        * point. The clipboard is the app's own (`lib/clipboard.ts`), so it
@@ -548,8 +616,9 @@ function CanvasSurface({
           .filter((item): item is NonNullable<typeof item> => Boolean(item));
         if (picked.length === 0) return; // nothing selected: leave ⌘C alone
         e.preventDefault();
-        ui.setClipboard({ canvasId: canvasId!, items: picked });
-        flashNotice(`Copied ${picked.length} item${picked.length === 1 ? "" : "s"}`);
+        const copied = captureClipboard(canvasId!, picked.map((item) => item.id));
+        ui.setClipboard(copied);
+        flashNotice(`Copied ${copied.items.length} item${copied.items.length === 1 ? "" : "s"}`);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v" && !isTyping(e.target)) {
@@ -560,41 +629,8 @@ function CanvasSurface({
         void pasteInto(held, canvasId!, actor).then((made) => {
           // Select what just arrived: a paste you cannot see the result of is
           // a paste you have to go looking for.
-          if (made.length > 0) useUiStore.getState().setSelection(made);
+          if (made.length > 0) selectCreatedItems(canvasId!, made);
         });
-        return;
-      }
-      /**
-       * **⌘K is the launcher now, not a third composer.**
-       *
-       * It opened a bar for messaging your emissary — which the Chat panel and
-       * every comment pin already do, so the keystroke was spent on the third
-       * way to do one thing. It reaches everything instead: fit the screen,
-       * arm a tool, open a panel, run a format, or pick a slash command and
-       * have it typed into the Chat for you.
-       *
-       * Messaging is not lost; it is one row in the list (`Open Chat`), which
-       * is the right weight for something two other surfaces already offer.
-       */
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        const ui = useUiStore.getState();
-        ui.setPaletteOpen(ui.paletteOpen ? null : "commands");
-        return;
-      }
-      /**
-       * **⌘O is the launcher's other face: the switcher.** The same window
-       * ⌘K opens, on the list of canvases — yours lately first — because
-       * "go to the canvas I was just on" is the one trip that deserves a
-       * key of its own rather than a row to find. Pressed on the switcher it
-       * closes it, like ⌘K on the commands; pressed on the commands it flips
-       * them, so the two keys are two doors to one place rather than two
-       * places.
-       */
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
-        e.preventDefault();
-        const ui = useUiStore.getState();
-        ui.setPaletteOpen(ui.paletteOpen === "canvases" ? null : "canvases");
         return;
       }
       /**
@@ -654,7 +690,23 @@ function CanvasSurface({
       // whatever a missed key reaches.
       if (!canEditNow() && writesByKey(e)) return;
       const ui = useUiStore.getState();
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        e.preventDefault();
+        const canvas = useCanvasStore.getState().canvas;
+        if (!canvas) return;
+        const items = ui.selectedItemIds.map((id) => canvas.items[id]).filter((item) => !!item);
+        const at = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        const world = screenToWorld(ui.viewport, at.x, at.y);
+        void import("../lib/menuentries.tsx").then(({ itemMenu, canvasMenu }) => ui.setContextMenu({ at, entries: items.length ? itemMenu(items, { canvasId: canvasId!, actor, world, navigate }) : canvasMenu({ canvasId: canvasId!, actor, world, navigate }) }));
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const groups = ui.selectedItemIds.filter((id) => { const item = useCanvasStore.getState().canvas?.items[id]; return item && isGroupItem(item); });
+          if (groups.length) groupTask(() => changeCanvasGroup(canvasId!, actor, { kind: "ungroup", itemIds: groups }));
+          else setNotice("Select a group to ungroup.");
+        } else if (ui.selectedItemIds.length) openGroupCreation(ui.selectedItemIds);
+        else setNotice("Select items to group first.");
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         // Ink that has not settled yet undoes locally, one stroke at a time:
         // it is not in the oplog, so the daemon has nothing to reverse. A
@@ -717,7 +769,9 @@ function CanvasSurface({
         // mode flag: the address bar ends up holding the screen you are
         // looking at, so Back leaves it and the link is sendable.
         e.preventDefault();
-        navigate(itemPath(canvasId!, ui.selectedItemIds[0]!));
+        const chosen = useCanvasStore.getState().canvas?.items[ui.selectedItemIds[0]!];
+        if (chosen && isGroupItem(chosen)) enterCanvasGroup(chosen.id);
+        else navigate(itemPath(canvasId!, ui.selectedItemIds[0]!));
       } else if (e.key.toLowerCase() === "w" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
         // W flips to the workbench — the agent room. A navigation for Enter's
         // reason, and it carries a single selection along as the stage's
@@ -730,7 +784,8 @@ function CanvasSurface({
         // Watching is the outermost mode: Esc hands the camera back first.
         // A mark being placed is the innermost: it is the thing under the
         // pointer right now.
-        if (ui.stamp) ui.setStamp(null);
+        if (ui.drag || ui.resize || ui.groupPreview) { ui.setDrag(null); ui.setResize(null); ui.setGroupPreview(null); ui.setGroupDropTarget(null); ui.setGuides([]); }
+        else if (ui.stamp) ui.setStamp(null);
         else if (ui.renamingItemId) ui.setRenaming(null);
         else if (ui.followSessionId) ui.setFollow(null);
         else if (ui.pendingText) ui.setPendingText(null);
@@ -740,6 +795,7 @@ function CanvasSurface({
         else if (ui.activeTool !== "select") ui.setActiveTool("select");
         else if (ui.fannedItemId) ui.setFanned(null);
         else if (ui.enteredItemId) ui.setEntered(null);
+        else if (ui.activeGroupId) leaveCanvasGroup();
         else ui.select(null);
       } else if (e.shiftKey && e.code === "Digit0") {
         e.preventDefault();
@@ -755,7 +811,7 @@ function CanvasSurface({
         // the ⇧0/⇧1/⇧2 family despite ⇧3 being free there: those move the
         // camera and undo nothing, and this writes ops.
         e.preventDefault();
-        void fitToContent(canvasId!, actor, ui.selectedItemIds);
+        void import("../lib/fititem.ts").then(({ fitToContent }) => fitToContent(canvasId!, actor, ui.selectedItemIds)).catch((error: Error) => setNotice(error.message));
       } else if (e.key === "0") {
         zoomToFit();
       } else if (e.code === "KeyV" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
@@ -857,6 +913,7 @@ function CanvasSurface({
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+      void groupNudger.flush();
       if (nudgeTimer.current !== null) {
         clearTimeout(nudgeTimer.current);
         nudgeTimer.current = null;
@@ -871,7 +928,7 @@ function CanvasSurface({
     // location does, and this effect's cleanup flushes a pending nudge — so
     // depending on it would flush mid-gesture every time the URL moved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasId, actor, itemId, onWorkbench]);
+  }, [canvasId, actor, itemId, phone, onWorkbench, pageSegment, workspace]);
 
   if (!canvasId) return null;
 
@@ -881,6 +938,7 @@ function CanvasSurface({
   // recovery is a social one, which is why the note says who to ask instead of
   // offering a retry that would be refused identically.
   const dead: Record<string, { note: string; hint?: string }> = {
+    "upgrade-required": { note: "This canvas needs an updated isocan app.", hint: "Reload to get the current app. Any queued changes remain saved in this browser for review." },
     gone: { note: "This canvas was deleted." },
     refused: {
       note: "This canvas will not have you.",
@@ -917,6 +975,34 @@ function CanvasSurface({
         "Nothing has been erased. If you run a daemon that replicates it, your copy is still " +
         "on your machine, and it can be brought back.",
     },
+    /**
+     * **This badge was ended** (operator phase 4; journey 7 step 3). The note
+     * is the HOME's tombstone sentence, read off the 401 — the date, and for
+     * an end by the operator the reason category and the address to write
+     * to. It is not `withdrawn`: nobody removed this person from this canvas,
+     * the surface itself was ended, everywhere at once. The hint says the one
+     * thing that is true of both kinds of end: ending is not refusing.
+     */
+    ended: {
+      note: ended?.sentence ?? "This surface was ended.",
+      hint:
+        ended?.by === "operator"
+          ? "This browser's badge is no longer recognised here. Nothing you made is undone. " +
+            "You can still open this home as a stranger; write to the address above about the rest."
+          : "This browser's badge was ended from another of your surfaces — a sign-out, or a " +
+            "lost machine. Nothing you made is undone; reload to start again.",
+    },
+    /**
+     * **The operator refuses the address this badge proved** (operator phase
+     * 6; journey 9 step 2). The note is the HOME's sentence, off the 403 — the
+     * address, the date, the category and who to write to. Not `refused` (a
+     * link that is off): this badge is fine and was never inside, and the home
+     * will not admit the address it proved, which the sentence names.
+     */
+    "refused-here": {
+      note: refusedHere?.sentence ?? "This home will not admit the address this browser proved.",
+      hint: "Nothing you made is undone. Write to the address above; this home's operator decided it.",
+    },
   };
   const end = dead[connection];
   if (end) {
@@ -925,6 +1011,7 @@ function CanvasSurface({
         <div className="page-note page-note-stack">
           <div>{end.note}</div>
           {end.hint && <div className="page-note-hint">{end.hint}</div>}
+          {connection === "upgrade-required" && <button className="btn" onClick={() => window.location.reload()}>Reload app</button>}
           <Link to="/">All canvases</Link>
         </div>
       </div>
@@ -953,7 +1040,7 @@ function CanvasSurface({
     // `resizing-panel` while the panel's edge is being dragged: chrome that
     // steps aside for the panel eases to its new place, which is right for the
     // one step of opening and wrong for a width changing every frame.
-    <div className={`canvas-page${panelResizing ? " resizing-panel" : ""}${canEdit ? "" : " read-only"}`}>
+    <div className={`canvas-page${phone ? " phone-layout" : ""}${panelResizing ? " resizing-panel" : ""}${canEdit ? "" : " read-only"}`}>
       {/* Covered, the canvas keeps its state and stops its paint:
           `visibility` preserves layout and the stores keep replaying, so Esc
           lands at the zoom you left without the covered surface spending
@@ -962,12 +1049,12 @@ function CanvasSurface({
           surface recedes and the next canvas arrives in its place, and the
           chrome around it stays put because it is the same chrome
           (`lib/canvasswitch.ts`). */}
-      <div
+      {workspace && pageSegment ? <Suspense fallback={null}><ModuleWorkspaceView canvasId={canvasId} segment={pageSegment} actor={actor} canvasView={<CanvasViewport canvasId={canvasId} actor={actor} />} /></Suspense> : <div
         className={`canvas-surface${switching ? ` switching-${switching}` : ""}`}
-        style={{ visibility: itemId || onWorkbench ? "hidden" : "visible" }}
+        style={{ visibility: itemId || onWorkbench || pageSegment ? "hidden" : "visible" }}
       >
-        <CanvasViewport canvasId={canvasId} actor={actor} />
-      </div>
+        {!phone && <CanvasViewport canvasId={canvasId} actor={actor} />}
+      </div>}
       {/* A wash of the ground under the top controls, so they read over a
           busy canvas (lib/hideable.ts, "canvas.topfade"). Over the items,
           under every piece of chrome, and no pointer target at all.
@@ -976,6 +1063,7 @@ function CanvasSurface({
           app's page ground: a starfield is dark in either app theme, and the
           fade was washing it white from the top edge. `groundTone` names the
           same token the ground itself paints with, so the two cannot drift. */}
+      {!workspace && <>
       {!topFadeHidden && (
         <div
           className="top-fade"
@@ -986,8 +1074,13 @@ function CanvasSurface({
       {/* Module overlays: screen-space trays against an edge (#156). Above the
           canvas and below the app's own chrome, so a module can add to the
           screen without covering the controls the app promises. */}
-      <ModuleOverlays canvasId={canvasId!} actor={actor} />
+      {moduleOverlaysVisible && <Suspense fallback={null}><ModuleOverlays canvasId={canvasId!} actor={actor} /></Suspense>}
+      {/* A module's popup, opened by a command or a palette entry and
+          never by itself (proposed: `dialogs`). */}
+      {moduleDialogOpen && <Suspense fallback={null}><ModuleDialogs canvasId={canvasId!} actor={actor} /></Suspense>}
       <Toolbar actor={actor} onIdentity={onIdentity} />
+      <CanvasGroupScope />
+      {groupDialogOpen && <Suspense fallback={null}><CanvasGroupPanel canvasId={canvasId} actor={actor} /></Suspense>}
       {/* The sprint's clock, when the Chat says one is running — derived,
           like `isocan sprint`; sits under the banners when one is up. */}
       <SprintChip lowered={Boolean(outdated) || Boolean(followedLabel)} canvasId={canvasId!} actor={actor} />
@@ -1001,35 +1094,24 @@ function CanvasSurface({
           Watching {followedLabel} — Esc to stop
         </button>
       )}
-      {canEdit && <CanvasTools canvasId={canvasId} actor={actor} />}
+      <Suspense>{canEdit && <CanvasTools canvasId={canvasId} actor={actor} />}</Suspense>
       <ZoomControls canvasId={canvasId} actor={actor} />
       <Minimap />
-      {canEdit && <TrashPanel canvasId={canvasId} actor={actor} />}
+      {canEdit && <TrashPanel key={canvasId} canvasId={canvasId} actor={actor} />}
       <RailStrip canvasId={canvasId} actor={actor} />
-      <MainThreadPanel canvasId={canvasId} actor={actor} />
+      <ReactionBar canvasId={canvasId} />
+      </>}
+      {/* Native collaboration and files remain reachable from the launcher
+          while a module owns the canvas chrome. */}
+      {!phone && <MainThreadPanel canvasId={canvasId} actor={actor} />}
       <FilesPanel canvasId={canvasId} actor={actor} />
       <AgentTray canvasId={canvasId} actor={actor} />
       <ContextPanel canvasId={canvasId} actor={actor} />
       <PersonasPanel canvasId={canvasId} actor={actor} />
-      <ReactionBar canvasId={canvasId} />
       <CommentToasts />
       {/* Offline, refusals, and anything that could not be done at all
           (phase 10). Above the panels for the reason `ArrivalNotice` is:
           it is about the connection, not about what is on the canvas. */}
-      {/* No fallback: the chunk arrives in a few milliseconds from the same
-          origin, and a spinner that flashes for one frame is worse than the
-          palette simply appearing. */}
-      {paletteOpen && (
-        <Suspense fallback={null}>
-          <CommandPalette
-            canvasId={canvasId}
-            actor={actor}
-            mode={paletteOpen}
-            onMode={setPaletteOpen}
-            onClose={() => setPaletteOpen(null)}
-          />
-        </Suspense>
-      )}
       <OfflineBar />
       {/* The history, when somebody asked for it. Mounted here rather than
           inside the viewport because it is chrome ABOUT the canvas, and
@@ -1051,6 +1133,7 @@ function CanvasSurface({
         </Suspense>
       )}
       <OwnCursor actor={actor} />
+      {phone && <Suspense><PhoneFace key={`${canvasId}:${actor.id}`} canvasId={canvasId} actor={actor} visit={phoneVisit} prior={priorVisit?.canvasId === canvasId && priorVisit.actorId === actor.id ? priorVisit : null} /></Suspense>}
       {/* Last, so it covers the panels and the toolbar: full screen means the
           screen. Driven by the route rather than by state — see
           FullScreen.tsx for why that distinction is the whole design. */}
@@ -1061,12 +1144,14 @@ function CanvasSurface({
       )}
       {/* The deck on paper: every slide stacked, printed one to a sheet. A
           route like full screen, mounted here so it reads the open replica. */}
-      {onDeck && <DeckPrint canvasId={canvasId} />}
-      {pageSegment && <ModulePage canvasId={canvasId} segment={pageSegment} actor={actor} />}
+      {onDeck && <Suspense fallback={null}><DeckPrint canvasId={canvasId} /></Suspense>}
+      {pageSegment && !workspace && (
+        <Suspense fallback={null}><ModulePage canvasId={canvasId} segment={pageSegment} actor={actor} /></Suspense>
+      )}
       {/* The other cover: same architecture, different room. Lazy, so the
           canvas path never pays for it; Suspense falls back to nothing for
           the frame the chunk takes. */}
-      {onWorkbench && (
+      {onWorkbench && !phone && (
         <Suspense fallback={null}>
           <Workbench
             canvasId={canvasId}

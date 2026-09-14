@@ -1,3 +1,4 @@
+import type { PersonalDesk } from "./personal-desk.ts";
 import type {
   ActorClaim,
   Attestation,
@@ -7,7 +8,10 @@ import type {
   Grant,
   GrantSubject,
   Group,
+  HomeRefusal,
   OperatorAct,
+  OperatorEnd,
+  OperatorRevocation,
   Pass,
   PurgeCounts,
   SeenMark,
@@ -253,6 +257,14 @@ export interface BadgeRecord {
   killedAt?: string;
   /** Which badge ended it. The holder itself, for a plain sign-out. */
   killedBy?: string;
+  /**
+   * **The operator's half of the tombstone** (operator phase 4), present
+   * only when the operator ended it: the reason category the person is
+   * shown, the address that acted, and the ledger row that did it. Absent
+   * on every end by the holder, and absent means exactly that — the sentence
+   * the 401 carries branches on it, and so does the CLI's re-badge.
+   */
+  end?: OperatorEnd;
 }
 
 /**
@@ -269,7 +281,7 @@ export interface PassRecord extends Pass {
   secretHash: string;
 }
 
-export interface Desk {
+export interface Desk extends PersonalDesk {
   init(): Promise<void>;
 
   /** Release whatever the backing holds open — the twin of `Store.close`, and
@@ -359,7 +371,8 @@ export interface Desk {
    * from phase 7 the door decides whether this is called at all, and the
    * provenance it passes is what phase 9's sweep grips. `capability` is
    * stored whenever it is not edit (`narrowed`, #88 widened by the roles
-   * ladder); omitted means edit. */
+   * ladder); omitted means edit. A stronger pass replaces a weaker ordinary
+   * admission atomically, preserving equal/stronger standing and active looks. */
   admit(
     badgeId: string,
     canvasId: string,
@@ -422,8 +435,30 @@ export interface Desk {
    *
    * Idempotent for the same reason `revokeGrant` is: the first stamp stands,
    * so two people ending one stolen laptop do not argue about when it went.
+   *
+   * `end` is the operator's half (operator phase 4), written onto the
+   * tombstone beside the stamp when the operator is the hand; absent for
+   * the holder's own end, and read back by `endedBadge`.
    */
-  killBadge(badgeId: string, at: string, by: string): Promise<BadgeRecord | null>;
+  killBadge(badgeId: string, at: string, by: string, end?: OperatorEnd): Promise<BadgeRecord | null>;
+
+  /**
+   * **The tombstone behind an id, or null** (operator phase 4) — the one read
+   * that answers about a badge nobody holds.
+   *
+   * `badge()` refuses a killed badge on purpose, and every query drops it, so
+   * until this method the tombstone was written and never read back: the 401
+   * a dead badge met said *this home does not know that badge*, which is what
+   * a wiped home says too, and a pass the dead badge had minted was judged
+   * without asking whether its minter lived. Both questions are this one:
+   * *was this ended, when, and by whom* — with the operator's reason beside
+   * it when there is one.
+   *
+   * Null for a badge that is alive, and null for one this home never had.
+   * Those two answer alike because the caller has already asked `badge()`,
+   * which told them apart; this is asked only after that came back empty.
+   */
+  endedBadge(badgeId: string): Promise<BadgeRecord | null>;
 
   // ---- attestations: what a holder has proved (mechanism 3) ----
 
@@ -489,6 +524,13 @@ export interface Desk {
    */
   grantsFor(canvasId: string): Promise<Grant[]>;
 
+  /** Indexed publication candidates, validated again at the authoritative home. */
+  listedGrants(): Promise<Grant[]>;
+
+  /** Change the latest decision only if this concrete grant still belongs to
+   * the canvas and is a live read/view link. Null refuses without a write. */
+  setPublicListing(canvasId: string, grantId: string, listed: boolean, at: string, by: string): Promise<Grant | null>;
+
   /** Write one. Used at birth (the standing link grant), by the migration, and
    * by the grant API. A grant id is minted by the caller, so this is a plain
    * document write. */
@@ -501,8 +543,14 @@ export interface Desk {
    * gesture is idempotent because a Share dialog and a CLI verb can both be
    * pointed at the same row by two people at once, and "the link is off" is
    * the same answer either way.
+   *
+   * `via` is the operator's half (operator phase 5): when present the
+   * tombstone gains `revokedVia: "operator"` and carries it, so the row says
+   * the home turned it off rather than an owner. Absent on every owner's
+   * revoke, which is the owner's. Idempotence stands: a row already revoked
+   * keeps its first stamp, the operator's included.
    */
-  revokeGrant(grantId: string, at: string, by: string): Promise<Grant | null>;
+  revokeGrant(grantId: string, at: string, by: string, via?: OperatorRevocation): Promise<Grant | null>;
 
   /**
    * Every grant on one SPACE, revoked rows included — `grantsFor`'s twin over
@@ -612,6 +660,17 @@ export interface Desk {
    * The desk seam's no-fallback rule in its plainest form: an unknown pass
    * answers nothing, and the route turns that into `unknown-pass`. */
   pass(passId: string): Promise<PassRecord | null>;
+
+  /**
+   * **Every pass one badge minted** (operator phase 4), spent and unspent —
+   * the caller judges expiry and redemption, for `redeemPass`'s reason. The
+   * one question asked of a pass by anything but its id, and it is asked by
+   * the operator's `end` alone: *what did this badge leave outstanding* is
+   * the count the verb prints beside the enrolments. Firestore:
+   * `where("mintedBy", "==", badgeId)`, a single-field query the automatic
+   * index serves.
+   */
+  passesMintedBy(badgeId: string): Promise<PassRecord[]>;
 
   /**
    * **Spend a pass, at most once, ever.**
@@ -841,4 +900,39 @@ export interface Desk {
    * acted, and a home with a hundred of them has a different problem.
    */
   takedowns(): Promise<CanvasTakedown[]>;
+
+  // ---- refusals (operator phase 6) ----
+  //
+  // **One row per subject, on the desk, beside the takedowns** — the roles
+  // bar moved to home scope (design, "Refuse at the door"). The same
+  // reasoning keeps it a row and keeps it here: standing state rather than
+  // an act, rewritten by a lift rather than added to, loaded into the one
+  // registry at boot and re-read on write. The refuse act and the lift act
+  // are both in the ledger, each with its proof; this is what they leave
+  // behind, and what every affected person's sentence is rendered from.
+  //
+  // The desk keeps no clock. A row with `expiresAt` in the past is still
+  // answered by `refusals()`; the REGISTRY judges expiry, because it is the
+  // one reader with a clock it can be handed, and two readers judging it
+  // would be two answers.
+
+  /** Write the row. A lift is {@link liftRefusal}, never a second row here.
+   * Refusing a subject again after a lift REWRITES the row — the lifted
+   * history lives in the ledger, where both acts are. */
+  recordRefusal(row: HomeRefusal): Promise<void>;
+
+  /**
+   * Mark the row lifted, keeping it. Silent when there is no row, for
+   * `liftTakedown`'s reason: the route has already refused a lift of nothing,
+   * and a throw here would turn a settled act into a failure.
+   */
+  liftRefusal(subject: string, lifted: { at: string; by: string; actId: string }): Promise<void>;
+
+  /** The row for one subject, lifted or not — null when there has never
+   * been one. */
+  refusalFor(subject: string): Promise<HomeRefusal | null>;
+
+  /** Every row not lifted — expired ones included, for the reason above.
+   * What the registry is loaded from at boot. */
+  refusals(): Promise<HomeRefusal[]>;
 }

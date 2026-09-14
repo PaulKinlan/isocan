@@ -1,4 +1,4 @@
-import type { TextAnchor } from "@isocan/core";
+import type { GroupBox, TextAnchor } from "@isocan/core";
 import { create } from "zustand";
 import type { AddKind, InkPoint, InkStroke, TextFace, TextStyle, Paper } from "@isocan/core";
 import { TEXT_FACES, TEXT_STYLES, isPaper } from "@isocan/core";
@@ -43,6 +43,8 @@ export interface ResizeState {
 
 /** A text node being typed — before it exists, or while it is re-worded. */
 export interface PendingText {
+  /** The scope at composition start, retained through async upload and later navigation. */
+  containerId?: string | null;
   /** World coordinates of the node's top-left. */
   x: number;
   y: number;
@@ -97,6 +99,8 @@ interface UiStore {
   fannedItemId: string | null;
   drag: DragState | null;
   resize: ResizeState | null;
+  groupPreview: { id: string; boxes: ReadonlyMap<string, GroupBox> } | null;
+  groupDropTargetId: string | null;
   marquee: MarqueeState | null;
   /** Alignment guides for the drag in hand: the lines the dragged box has
    * settled onto. World coordinates; empty when nothing is aligned. */
@@ -106,6 +110,9 @@ interface UiStore {
   /** Item whose content owns the pointer (entered by double-click): an HTML
    * document or a projected browser item. */
   enteredItemId: string | null;
+  /** Membership scope; separate from an embedded document owning the pointer. */
+  activeGroupId: string | null;
+  groupDialog: { kind: "create" | "add" | "inspect" | "migrate"; itemIds: string[]; groupId?: string; at?: { x: number; y: number } } | null;
   /** Item whose name is being edited in place — double-clicking the label, or
    * F2 on the selection. */
   renamingItemId: string | null;
@@ -255,6 +262,12 @@ interface UiStore {
    *  3), so the slots that read the module list re-render. Never stored. */
   modulesGeneration: number;
   bumpModules: () => void;
+  /** The module dialog open over the canvas, if any (proposed: `dialogs`):
+   *  which one, and what followed the slash command that opened it. One at a
+   *  time, by construction. Never stored. */
+  moduleDialog: { id: string; args: string } | null;
+  openModuleDialog: (id: string, args?: string) => void;
+  closeModuleDialog: () => void;
   /** Google Doc items this browser shows LIVE — the `/preview` frame in
    *  place of the words (Google Docs stage 4). A mode you flip, remembered
    *  per person, never a second item. */
@@ -289,9 +302,13 @@ interface UiStore {
   setFanned: (itemId: string | null) => void;
   setDrag: (drag: DragState | null) => void;
   setResize: (resize: ResizeState | null) => void;
+  setGroupPreview: (preview: UiStore["groupPreview"]) => void;
+  setGroupDropTarget: (itemId: string | null) => void;
   setMarquee: (marquee: MarqueeState | null) => void;
   setGuides: (guides: Guide[], spacing?: SpacingGuide[]) => void;
   setEntered: (itemId: string | null) => void;
+  setActiveGroup: (itemId: string | null) => void;
+  setGroupDialog: (dialog: UiStore["groupDialog"]) => void;
   setRenaming: (itemId: string | null) => void;
   setOpenThread: (threadId: string | null) => void;
   setPendingComment: (pending: PendingComment | null) => void;
@@ -607,10 +624,14 @@ export const useUiStore = create<UiStore>((set, get) => {
     fannedItemId: null,
     drag: null,
     resize: null,
+    groupPreview: null,
+    groupDropTargetId: null,
     marquee: null,
     guides: [],
     spacing: [],
     enteredItemId: null,
+    activeGroupId: null,
+    groupDialog: null,
     renamingItemId: null,
     openThreadId: null,
     pendingComment: null,
@@ -653,6 +674,9 @@ export const useUiStore = create<UiStore>((set, get) => {
     collapsedComments: [],
     modulesGeneration: 0,
     bumpModules: () => set((s) => ({ modulesGeneration: s.modulesGeneration + 1 })),
+    moduleDialog: null,
+    openModuleDialog: (id, args = "") => set({ moduleDialog: { id, args } }),
+    closeModuleDialog: () => set({ moduleDialog: null }),
     liveDocs: readIdList(LIVE_DOCS_KEY),
     pendingChat: null,
     paletteOpen: null,
@@ -680,9 +704,13 @@ export const useUiStore = create<UiStore>((set, get) => {
     setFanned: (fannedItemId) => set({ fannedItemId }),
     setDrag: (drag) => set({ drag }),
     setResize: (resize) => set({ resize }),
+    setGroupPreview: (groupPreview) => set({ groupPreview }),
+    setGroupDropTarget: (groupDropTargetId) => set({ groupDropTargetId }),
     setMarquee: (marquee) => set({ marquee }),
     setGuides: (guides, spacing = []) => set({ guides, spacing }),
     setEntered: (enteredItemId) => set({ enteredItemId }),
+    setActiveGroup: (activeGroupId) => set({ activeGroupId, enteredItemId: null, selectedItemIds: [] }),
+    setGroupDialog: (groupDialog) => set({ groupDialog }),
     setRenaming: (renamingItemId) => set({ renamingItemId }),
     setOpenThread: (openThreadId) => set({ openThreadId }),
     setPendingComment: (pendingComment) => set({ pendingComment }),
@@ -702,7 +730,7 @@ export const useUiStore = create<UiStore>((set, get) => {
       set((s) =>
         pendingText === null && s.pendingText?.oneShot === true && s.activeTool === "text"
           ? { pendingText, activeTool: "select" as Tool }
-          : { pendingText },
+          : { pendingText: pendingText && pendingText.containerId === undefined ? { ...pendingText, containerId: s.activeGroupId } : pendingText },
       ),
     setClipboard: (clipboard) => set({ clipboard }),
     setContextMenu: (contextMenu) => set({ contextMenu }),

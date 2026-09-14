@@ -18,8 +18,8 @@ export { FileDesk } from "./file-desk.ts";
  * replaced, not kept" is one rule, and two backings that each had their own
  * copy of it would be two rules.
  */
-export { admissionIn, liveAdmission, rungOfAdmission } from "./grants.ts";
-export { Takedowns, TakenDownError } from "./takedowns.ts";
+export { admissionIn, liveAdmission, rungOfAdmission, keepsAdmission } from "./grants.ts";
+export { Refusals, TakenDownError, RefusedError } from "./takedowns.ts";
 export { readConfigFile, resolveHomeUrl, updateConfigFile } from "./config.ts";
 export {
   DocRefusal,
@@ -34,8 +34,8 @@ export {
   type GoogleToken,
 } from "./google.ts";
 export type { HomeConfig } from "./config.ts";
-export { askTheDoor, bearerHeader, knockOnDoor, readBadge, writeBadge } from "./badge-store.ts";
-export type { DoorAnswer, StoredBadge } from "./badge-store.ts";
+export { adoptIdentity, askTheDoor, bearerHeader, fileBadgeStore, knockOnDoor, readBadge, writeBadge } from "./badge-store.ts";
+export type { BadgeStore, DoorAnswer, StoredBadge } from "./badge-store.ts";
 export { MINT_PER_MINUTE, TOO_MANY_BADGES } from "./meter.ts";
 export { HomeLink, HomeRefusedError, HomeUnreachableError } from "./home-link.ts";
 export type {
@@ -71,3 +71,7 @@ export {
 } from "./binding.ts";
 export type { DirBinding, DirMarker } from "./binding.ts";
 export * from "./personas.ts";
+
+export * from "./personal-desk.ts";
+
+export type { CanvasLifecycle } from "./store.ts";

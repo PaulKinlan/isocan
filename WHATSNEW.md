@@ -21,7 +21,73 @@ notice. A what's-new with an entry every day is one nobody believes by the
 second week.
 
 
+## 13 September 2026
+
+- Write your own host for the rc. `import { runRoom } from "isocan/rc"`
+  is the loop `isocan rc` runs, with the machine handed in: routes, a
+  key-value store, a clock and a harness per agent. It bundles for the
+  browser platform from a `#release` install, with nothing from Node
+  inside, so a worker or an edge runtime can carry it.
+- Catch up on a shared source from Context. **Recent work** shows its latest
+  activity beside its design and pins, with the source and covered range.
+  Busy sources say what was left out; an unavailable history keeps the
+  readable pieces and explains why. `isocan context` and MCP summaries show
+  the same reading. Your personal history stays out of inherited Context.
+
+- Bring your own preferences into a project. Open **Your canvas** in Context
+  to create your private canvas at this home, pin what matters, then link it
+  here and allow the agents who may read it. Everyone sees the linked card;
+  permitted readers see your current pinned context. Unlinking and agent
+  revocation stop the next read. Phone users reach it through **More →
+  Context**; the terminal uses `isocan context personal`. MCP agents can call
+  `read_personal_context` with their claimed session and the linked card to
+  read the current permitted text with its source.
+
+- Make a canvas findable on its home. With a Canvas Viewer or Presentation
+  Viewer link, turn on **Public on this home** in Share. People can browse
+  **Public canvases** without signing in; opening one uses its existing
+  viewing access. Unlisting keeps the link working. Disabling or changing the
+  link requires an explicit publication again. From a terminal, use
+  `isocan share --public on|off` and `isocan canvas list --public --home <url>`.
+
+- Choose rival design approaches from Chat with `/design-competition`, or
+  from ⌘K. The picker lays their lanes together; your local rc runs the
+  fighters, people vote, and a winner can become the next version of your
+  screen. The default is an exhibition with named entries. Blind bouts are
+  not available yet.
+
+- An agent connected through MCP can now claim its own name, edit items,
+  discuss them and wait for replies addressed to it. It can also read the
+  same layered Context list as the CLI and attach the canvas as a resource.
+  Saved request content keeps the exact versions originally shared.
+
+- A phone opens in Chat, with Canvas and Agents beside it. Walk from one
+  item to its spatial neighbor, open its conversation, or pinch out to the
+  plan. A while-away list shows changes since your previous visit, and
+  switching tabs keeps your unsent draft. Touch menus open with a stationary
+  long press; moving or adding a second finger cancels the hold. The narrow
+  rail folds to Hand, Comment and More.
+
+- Present by touch in the viewer or fullscreen. Tap the outer thirds or
+  swipe left and right to step through the deck. Notes open as a sheet;
+  scrolling text and using controls inside a slide keep their own input.
+
+- Your Inbox is on the home screen and available while you look at another
+  canvas. It gathers addressed comments from their homes, links to the
+  conversation and says when a home cannot answer. Looking at the list
+  leaves your visit marks alone. The canvas switcher also works from home
+  and the activity lens, with Recent followed by your spaces.
+
+- New canvases use groups. Existing canvases can preview and convert areas through Groups → Preview group conversion, or `isocan canvas group migrate --dry-run`. The preview names members, overlapping-area choices, label repairs and the Undo boundary. Work prepared before conversion is preserved for review if it cannot be applied. The familiar `area` commands create and work with groups after conversion.
+
+- A message about a group keeps the exact items and versions you reviewed, with visible exclusions and a complete context list. Agents can read that saved context through the CLI and MCP. Copy/paste preserves nested membership; Trash shows what a group restore will return and which independently restored items it will leave alone.
+
+- Groups move and resize their contents together, including nested groups and attached ink. Fit frame preserves the arrangement; frame, grid and brief controls reserve space for labels. New text, files and canvas cards inherit the group you are working inside. Matching CLI commands support placement, sizing, layout and dry runs.
+
 ## 12 September 2026
+
+
+- On canvases with groups enabled, Group selection puts cards together without moving them. Enter works inside the group; Remove lets a card leave, and Ungroup keeps the cards while removing the frame. The Groups menu, keyboard shortcuts and `isocan canvas group` commands work on the same membership, with undo. Titles and briefs have space above the cards. Existing canvases keep areas until conversion is available.
 
 - An agent in a cell shows its work as it happens. With `--harness sheep`, the rc reads the turn from the one `sheep attach` it holds: each tool call reaches the agent's face on the thread as it lands, and nothing else runs beside it. While a fresh container sets up, the rc says *setup running* with the time, from the sheep home itself, instead of guessing from the clock. The agent's sign-in now lives in a home directory the sheep home keeps across containers; a sheep home deployed before this week keeps the old arrangement, and the rc knows which it has.
 
@@ -241,4 +307,3 @@ second week.
 - The canvas works from a browser or a terminal — the same board, live, either way.
 - Undo takes back what YOU did, not whatever happened most recently.
 - Leave comments on anything on the canvas.
-

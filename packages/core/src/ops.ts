@@ -1,4 +1,5 @@
 import type { TextAnchor } from "./text-anchor.ts";
+import type { GroupAction, GroupCell, GroupPlacementPolicy } from "./canvas-group-types.ts";
 import type { Actor, Comment, CommentThread, ItemVersion, VisualFace } from "./model.ts";
 
 /**
@@ -55,6 +56,10 @@ export interface NewComment {
   mentions?: string[];
   /** Resolved #item-references (item ids); see Comment.items. */
   items?: string[];
+  /** Public attachment intent; the home resolves it at one canvas revision. */
+  contextRequest?: import("./canvas-group-context.ts").ContextRequest;
+  /** Canonical writer output only; public callers cannot supply retained metadata. */
+  context?: import("./canvas-group-context.ts").ContextManifest;
 }
 
 export interface MetaPatch {
@@ -197,6 +202,7 @@ export type Operation =
   | {
       type: "project.create";
       canvasId: string;
+      groupMode?: "groups" | "legacy";
       title: string;
       description?: string;
       properties?: Record<string, string>;
@@ -204,8 +210,13 @@ export type Operation =
   | { type: "project.update"; patch: MetaPatch }
   | { type: "project.delete" } // soft: dir moved aside; NOT undoable
   // ---- items ----
+  | { type: "group.change"; action: GroupAction }
   | {
       type: "item.add";
+      /** Explicit destination on group canvases; attached ink inherits its target's parent. */
+      containerId?: string | null;
+      cell?: GroupCell;
+      groupPlacement?: GroupPlacementPolicy;
       itemId: string;
       version: NewVersion;
       width: number;
@@ -239,6 +250,13 @@ export type Operation =
   | { type: "item.resize"; itemId: string; width: number; height: number }
   | {
       type: "item.update";
+      /** Saved group brief reservation; omitted lets the home inspect the brief bytes. */
+      briefHeight?: number;
+      /** A group metadata edit and resize share one resolved content/geometry change. */
+      size?: { width: number; height: number };
+      containerId?: string | null;
+      cell?: GroupCell;
+      groupPlacement?: GroupPlacementPolicy;
       itemId: string;
       patch: MetaPatch;
       /** Rename the file under the CURRENT version too. Renaming an item and
@@ -247,14 +265,26 @@ export type Operation =
        * rather than in the patch (which canvases share). */
       filename?: string;
     }
-  | { type: "item.addVersion"; itemId: string; version: NewVersion }
-  | { type: "item.setCurrentVersion"; itemId: string; versionId: string }
+  | { type: "item.addVersion"; itemId: string; version: NewVersion; briefHeight?: number }
+  | {
+      /** Replace content and its metadata as one conditional, undoable act.
+       * A distinct type makes older daemons refuse instead of ignoring a
+       * precondition they do not implement. Geometry remains independent. */
+      type: "item.edit";
+      itemId: string;
+      version: NewVersion;
+      patch: MetaPatch;
+      expectedVersionId: string;
+      expectedMetadata?: { title: string; properties: Record<string, string> };
+    }
+  | { type: "item.setCurrentVersion"; itemId: string; versionId: string; briefHeight?: number }
   | {
       // internal: inverse of item.addVersion only
       type: "item.removeVersion";
       itemId: string;
       versionId: string;
       prevCurrentVersionId: string;
+      patch?: MetaPatch;
     }
   | {
       // internal: inverse of item.removeVersion (redo of addVersion) — carries
@@ -262,6 +292,7 @@ export type Operation =
       type: "item.restoreVersion";
       itemId: string;
       version: ItemVersion;
+      patch?: MetaPatch;
     }
   | { type: "item.delete"; itemId: string } // → trash, all versions travel with it
   | { type: "item.restore"; itemId: string } // ← trash
@@ -322,6 +353,9 @@ export type Operation =
       /** Re-resolved for the new body; see NewComment. */
       mentions?: string[];
       items?: string[];
+      contextRequest?: import("./canvas-group-context.ts").ContextRequest;
+      /** Null is an exact inverse restoring a comment with no prior context. */
+      context?: import("./canvas-group-context.ts").ContextManifest | null;
     }
   | {
       // internal: inverse of thread.reply

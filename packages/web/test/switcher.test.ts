@@ -19,12 +19,35 @@ import { rules, withoutComments } from "./cssrules.ts";
  * is the key the help panel prints, and that "lately" is one row per canvas.
  */
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
+/**
+ * **Comments out, and only comments.**
+ *
+ * This stripped `/* … *\/` wherever it appeared, which is fine until a source
+ * file contains those two characters inside a STRING. `Navigation.tsx` does:
+ * `useMatch(`${CANVAS_ROUTE}/*`)` — a route wildcard, not a comment. The
+ * regex read it as an opener and swallowed everything up to the next `*\/`,
+ * which meant the ⌘O handler this file asserts on simply was not in the text
+ * being searched.
+ *
+ * It passed anyway for months, because what got swallowed happened to end
+ * before the handler. Adding an ordinary comment further down the file moved
+ * the closer, the swallowed region grew past line 70, and a case that had
+ * never been about comments started failing. **The reverse is the frightening
+ * half**: the same shift can swallow the code an assertion is about and leave
+ * `toContain` passing on something else entirely, or make a `not.toMatch`
+ * pass because its subject vanished.
+ *
+ * So: lines, not spans. A line that STARTS a comment goes, a line inside one
+ * goes, and a `/*` in the middle of an expression is left exactly where it is
+ * — the same rule `test/deep.ts` uses for the same reason.
+ */
 const bare = (src: string) =>
   src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
-    .replace(/\/\/.*$/gm, "");
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(line))
+    .join("\n");
 const page = bare(read("../src/pages/CanvasPage.tsx"));
+const navigation = bare(read("../src/components/Navigation.tsx"));
 const palette = bare(read("../src/components/CommandPalette.tsx"));
 const crumb = bare(read("../src/components/CanvasCrumb.tsx"));
 const menuentries = bare(read("../src/lib/menuentries.tsx"));
@@ -92,7 +115,7 @@ describe("lately, shared across your machines", () => {
      * canvas opened after the first page load recorded nothing.
      */
     const seen = bare(read("../src/lib/seen.ts"));
-    expect(seen).toMatch(/loadSeen\(actorId\)\s*\.then\(\(\) => putSeen\(/);
+    expect(seen.indexOf("await loadSeen(actorId, { refresh: true })")).toBeLessThan(seen.indexOf("void putSeen("));
     expect(page, "and the page asks for one thing, not two in a row").not.toContain("loadSeen(");
   });
 
@@ -110,19 +133,33 @@ describe("lately, shared across your machines", () => {
 
 describe("the doors", () => {
   it("⌘O opens the switcher from the canvas, and crosses a cover like ⌘K", () => {
-    expect(page).toMatch(/e\.key\.toLowerCase\(\) === "o"/);
-    expect(page).toContain('setPaletteOpen(ui.paletteOpen === "canvases" ? null : "canvases")');
+    expect(navigation).toMatch(/e\.key\.toLowerCase\(\) === "o"/);
+    expect(navigation).toContain('setPaletteOpen(ui.paletteOpen === "canvases" ? null : "canvases")');
     expect(crossesCover({ key: "o", metaKey: true })).toBe(true);
     expect(crossesCover({ key: "O", ctrlKey: true })).toBe(true);
     // Not a bare o — that would be a letter somebody typed.
     expect(crossesCover({ key: "o" })).toBe(false);
   });
 
-  it("⌘K offers it as a row, on a canvas only", () => {
+  it("searches the code, not a version of it with the code removed", () => {
+    /* The guard on the guard. `Navigation.tsx` carries `/*` inside a template
+       literal — a route wildcard — and the previous `bare` read it as a
+       comment opener and deleted the rest of the file up to the next `*\/`.
+       A source-reading assertion whose subject has been stripped does not
+       fail; it passes on the wrong text, or passes a `not` because the thing
+       is gone. So: the trap itself, and the fact that the handler survives. */
+    expect(read("../src/components/Navigation.tsx")).toContain("${CANVAS_ROUTE}/*");
+    expect(navigation, "the wildcard must not eat the file").toMatch(/toLowerCase\(\) === "o"/);
+    expect(navigation, "and real prose must still be gone").not.toContain("A route al");
+    expect(bare('const a = 1; // note\n/* gone */\nconst b = `x/*y`;\nconst c = 2;')).toContain("`x/*y`");
+    expect(bare("/* gone */\nkept")).not.toContain("gone");
+  });
+
+  it("⌘K offers it as a row from every page", () => {
     const row = ACTIONS.find((a) => a.id === "switch-canvas");
     expect(row).toBeDefined();
     expect(row!.group).toBe("Open");
-    expect(availableActions(ctx({ canvasId: null })).some((a) => a.id === "switch-canvas")).toBe(false);
+    expect(availableActions(ctx({ canvasId: null })).some((a) => a.id === "switch-canvas")).toBe(true);
     expect(availableActions(ctx()).some((a) => a.id === "switch-canvas")).toBe(true);
   });
 

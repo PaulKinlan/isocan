@@ -254,11 +254,131 @@
  * the clock-free "has anything happened" comparison belongs to #147 step 3's
  * panel, and a function shipped ahead of its caller is bytes every first visit
  * downloads to reach nothing.
+ *
+ * **661,500 → 702,400 on 12 Sep, after measuring both canvas-group phases.**
+ * The jump stopped the suite and prompted a dependency investigation before
+ * this number moved. Same-machine Vite builds, kept in memory so the active
+ * browser walkthrough's dist stayed untouched, separated three costs:
+ *
+ *   6,192  already above the agreed ceiling before groups: the phase-1 parent
+ *          69211254 builds to 667,692 bytes, including intervening operator work
+ *  23,617  phase 1's shared group reducer, geometry, structural validation and
+ *          protocol: dec07903 builds to 691,309 bytes
+ *  10,712  phase 2's membership/navigation surfaces and helpers, after the
+ *          menu deferral below: the measured entry is 702,021 bytes
+ *
+ * No new third-party module entered the entry chunk. The large core step is
+ * shared synchronous behavior: queued public intents need the same resolver
+ * for optimistic rendering that the writer uses, and replay must validate the
+ * canonical effects. Removing that dependency would change offline recovery
+ * and optimism, not merely postpone an unused page. That measured cost was
+ * accepted explicitly after the investigation, rather than hidden by a test
+ * skip or a larger JUMP.
+ *
+ * **What was avoidable was deferred first.** Toolbar eagerly imported every
+ * group-menu row for a button whose handler runs only on click. It now loads
+ * those rows on that click, matching the existing lazy item-menu boundary.
+ * Building the same captured source tree with that import eager and lazy
+ * measured 703,746 → 702,021: **1,725 bytes removed from first paint**, with a
+ * 2,090-byte menu chunk fetched on demand. The group dialog was already lazy.
+ *
+ * The final keyboard walkthrough added 328 bytes to focus a submenu after
+ * React commits its contents; focusing before commit left keyboard navigation
+ * behind the visible menu. The conductor's fresh entry is 702,349 bytes.
+ * This final fix is separate from the captured 1,725-byte deferral comparison
+ * above, and makes phase 2's net contribution 11,040 bytes.
+ *
+ * Rounded to the next hundred, the margin is 51 bytes. GOAL remains 640,000;
+ * JUMP remains 20,000. The next change still has to account for its own bytes.
+ *
+ * **702,400 → 719,900 on 12 Sep, after measuring and trimming group phase 3.**
+ * Captured source initially added 24,374 bytes, chiefly the v2 bounded effects,
+ * shared placement/replay, and gesture previews. No new third-party eager
+ * dependency was added. The same-source comparison deferred AddPopover until
+ * Add opens and content fitting until Shift+F: together they removed 11,474
+ * entry bytes. Final nudge timer ownership and cross-canvas upload correctness
+ * add 683 bytes to the preceding 718,468-byte build. Final queue ownership,
+ * preview and idle-clock gates add 724 more. The conductor's fresh
+ * 719,875-byte entry is a net 17,526 over phase 2. This explicitly reviewed
+ * cost leaves 25 bytes of margin; GOAL 640,000 and JUMP 20,000 stay unchanged.
+ *
+ * **719,900 → 721,200 on 13 Sep, after measuring the upstream operator merge.**
+ * The original phase-3 entry was 719,875 bytes. Upstream refusal handling added
+ * 5,367 and preserving terminal decisions during delayed writes added 125.
+ * Moving the shared REFUSED constant to the eager errors leaf, while keeping
+ * its public re-export, deferred the operator's CIDR and refusal helpers and
+ * removed 4,195 entry bytes. The measured result is 721,172: a net 1,297 over
+ * the original build, with no new eager dependency. The approved ceiling has
+ * 28 bytes of margin; GOAL 640,000 and JUMP 20,000 remain unchanged.
+ *
+ * **721,200 → 734,200 on 13 Sep, for canvas groups phase 4 after deferral.**
+ * The fresh production entry is 734,159 bytes, a net 12,987 over 721,172.
+ * Lazy context and Trash panels, plus separating writer-only context
+ * resolution from shared validation, removed 11,339 bytes from the initial
+ * 745,498-byte entry. The remaining cost serves synchronous context validation
+ * and ambient membership, atomic copy resolution, and operation-owned form
+ * completion. No new eager dependency was added. The reviewed ceiling leaves
+ * 41 bytes of margin; GOAL 640,000 and JUMP 20,000 remain unchanged.
+ *
+ * **734,200 -> 743,700 on 13 Sep, for anatomy, after deferral.**
+ * The fresh production entry is 743,652 bytes, a net 9,493 over the 734,159
+ * canvas-groups build, and the number this was asked for was 748,100 before
+ * the deferral below. Measured in halves rather than asserted: taking the
+ * module out of the shell registry and rebuilding gives 741,024, so **2,628
+ * bytes are Anatomy's own** and **6,865 are the shared presentation change**
+ * in `lib/presentation.ts`, `lib/presentationStore.ts`, `CanvasViewport`,
+ * `ItemView` and `CanvasPage` — which every canvas renders through whether or
+ * not a project is on it, and which cannot be deferred because layout is
+ * synchronous.
+ *
+ * **Anatomy is for a subset of canvases and now costs like one.** It was a
+ * build-time entry in `LIST` at 7,039 bytes; it arrives through
+ * `deferredModule` instead, the path `design-competition` already uses, so the
+ * web half is fetched the first time something asks it to draw and never on a
+ * canvas with no Anatomy items. Two things had to be true for that to save
+ * anything. The underlay, which every canvas asks to draw, carries a predicate
+ * (`projectsOn`) rather than a `lazy()` — a lazy underlay downloads the module
+ * everywhere and defeats the deferral. And the light facts moved to their own
+ * module, `facts.ts`: while the mimes and the core record shared a file, the
+ * eager and lazy chunks both reached into it and rollup hoisted what they
+ * share into the entry, so the first attempt at this saved exactly 0 bytes.
+ * The 2,329-byte agent prompt is no longer in the entry at all.
+ *
+ * 9,493 is inside JUMP's 20,000.
+ *
+ * **Re-measured at landing: 743,799, and 671 of the move is not Anatomy's.**
+ * `room` phases 3 and 4 landed between the measurement above and this commit;
+ * rebuilt on that base with Anatomy's registration removed, the entry is
+ * 741,695, so the room work is inside this ceiling too and did not raise it
+ * when it landed. Said rather than absorbed: whoever owns room should see
+ * their own 671 bytes rather than find them inside a number labelled anatomy.
+ *
+ * The margin here is 101 bytes rather than the 25-48 the entries above chose.
+ * A margin thinner than one ordinary commit means the next unrelated change
+ * lands red, which is what just happened; on a main that takes a commit every
+ * twenty-five minutes, a tight ceiling is a tax on whoever pushes next rather
+ * than a discipline on whoever grew the bundle. GOAL 640,000 and JUMP 20,000
+ * remain unchanged, and they are what actually hold the line.
  */
 
 /** The last number somebody agreed to. Raised in the ANSWER to a finding, with
  *  the reason in that answer — not quietly in a diff. */
-export const CEILING = 661_500;
+export const CEILING = 743_900;
+
+/**
+ * **Run as a program it prints that number**, so the performance persona's
+ * `against:` can name it (`.agents/personas/performance.md`) and every nightly
+ * finding can say which ceiling it is 0-past.
+ *
+ * A command rather than a copy: the debt goal's bound is 0 by construction, so
+ * the only thing that distinguishes one night's overshoot from another's is
+ * the number it was measured against, and a second spelling of that number
+ * anywhere is the drift `docs/reviews/lessons.md` #5 is about. This file owns
+ * it; this is the file saying it out loud.
+ */
+if (process.argv[1] && process.argv[1].endsWith("bundle-ceiling.mjs")) {
+  console.log(CEILING);
+}
 
 /** The performance persona's declared goal (`.agents/personas/performance.md`)
  *  — restated here only so the failure message can say how far there is to go.

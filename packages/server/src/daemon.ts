@@ -1,13 +1,13 @@
 import { promises as fs } from "node:fs";
 import net from "node:net";
 import Fastify, { type FastifyInstance } from "fastify";
-import { DEFAULT_PORT, healthPath } from "@isocan/core";
+import { DEFAULT_PORT, healthPath, type Actor } from "@isocan/core";
 import { Engine } from "./engine.ts";
 import { registerRoutes } from "./http.ts";
 import { ParkCursors } from "./park.ts";
 import { RcHolds } from "./rc-holds.ts";
 import { attachWebSockets, SocketCensus } from "./ws.ts";
-import { Takedowns } from "./takedowns.ts";
+import { Refusals } from "./takedowns.ts";
 import { SweepHub } from "./sweep.ts";
 import { buildStamp } from "./build.ts";
 import { FileStore } from "./file-store.ts";
@@ -26,6 +26,7 @@ import { gcIntervalFromEnv, startGcSweeper } from "./gc.ts";
 import { HomeLinks } from "./home-links.ts";
 import { contentPorts, registerContentRoutes } from "./content.ts";
 import { contentTtl } from "./content-auth.ts";
+import { adoptIdentity } from "./badge-store.ts";
 
 export interface DaemonOptions {
   port?: number;
@@ -53,6 +54,18 @@ export interface DaemonOptions {
    * trust off by itself.
    */
   host?: string;
+  /**
+   * **A home that serves the world, said outright — tests only.** Production
+   * derives this from `host` just below, and that is the only thing that sets
+   * it in a running daemon.
+   *
+   * It exists because the behaviour it gates (`GET /api/projects` showing a
+   * local caller everything this machine holds) is the difference between a
+   * laptop and isocan.io, and a test cannot bind `0.0.0.0` to stand on the
+   * other side of it: binding wide from a test opens a port to the network,
+   * and `127.0.0.2` is not an address every machine has.
+   */
+  servesWorld?: boolean;
   /**
    * The content listener's port: a number pins it, `0` asks for an ephemeral
    * one, `"off"` disables it. Absent, `ISOCAN_CONTENT_PORT` is read, and
@@ -184,6 +197,14 @@ export interface DaemonOptions {
    * wrong for no decision anybody wants to make.
    */
   gcFirstSweepMs?: number;
+  /**
+   * **The clock the refusals registry judges expiry against** (operator phase
+   * 6). A `DaemonOptions` field for `gcIntervalMs`'s reason: the acceptance is
+   * a `net:` refusal *gone on its own* at `--for 10m`, and a proof of that
+   * cannot wait ten minutes — it hands the registry a clock and advances it.
+   * The daemon uses the wall when this is absent, which is every real home.
+   */
+  refusalsNow?: () => number;
 }
 
 export interface RunDaemonOptions extends DaemonOptions {
@@ -363,25 +384,22 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
    * same object. */
   const sockets = new SocketCensus();
   /**
-   * **What this home has taken down** (operator phase 2), in memory, shared by
-   * the routes and the socket layer — both ask it on every request, and two
-   * registries would be two answers.
-   *
-   * Loaded from the desk once, below, after `desk.init()`: the design's shape
-   * for a home-scope refusal is *loaded into memory at boot on a
-   * single-instance home and re-read on write, so the door's cost is a set
-   * lookup*. What keeps that honest is that this is not the truth — the store
-   * flag is, and `load` reads it from the backing every time — so a registry
-   * that lagged means a canvas correctly refused with the wrong words, never a
-   * canvas wrongly served.
+   * **What this home refuses at the door** — takedowns (operator phase 2) and
+   * home-scope refusals (operator phase 6), in ONE registry, shared by the
+   * routes, the socket layer and the mint meter. One object rather than two,
+   * because the design's shape for both is one shape — *loaded into memory at
+   * boot on a single-instance home and re-read on write, so the door's cost is
+   * a set lookup* — and three readers of one list must not become three
+   * answers. `refusalsNow` is injectable for the acceptance's movable clock (a
+   * `net:` refusal gone on its own at `--for 10m`); the daemon uses the wall.
    */
-  const takedowns = new Takedowns();
+  const refusals = new Refusals(options.refusalsNow ? { now: options.refusalsNow } : {});
 
   // The composition root, and the ONE place any backing is named.
   const { store, desk } = await openBacking(home);
   await store.init();
   await desk.init();
-  await takedowns.load(desk);
+  await refusals.load(desk);
   // The one-time migrations, composed across the two ledgers: the pre-badge
   // claims table, the pre-#57 `agents.json`, the link grants a pre-door world
   // has no rows for — and phase 10.3's, which writes down where the canvases
@@ -391,7 +409,14 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   await runMigrations(home, store, desk, birthHome);
   const presence = new PresenceHub();
   // Claims consult presence: a live face holds its name (see core/claims.ts).
-  const engine = new Engine(store, desk, { liveness: (canvasId) => presence.roster(canvasId) });
+  // And they consult the refusals: `actor.claim {as}` for a name the operator
+  // refused is turned away with the home's sentence — the refuse-by-actor the
+  // design puts here, which also closes operator phase 4's open finding that a
+  // modified client could reclaim a name whose last holder was ended.
+  const engine = new Engine(store, desk, {
+    liveness: (canvasId) => presence.roster(canvasId),
+    refusedActor: (actorId) => refusals.refusingActor(actorId),
+  });
 
   // Op piggyback: an op bound to a session (clientId === sessionId) moves
   // that session's cursor to the op's locus — presence traces real work.
@@ -495,7 +520,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     operators,
     sockets,
     sweeps,
-    takedowns,
+    refusals,
     contentBase: null as string | null,
     contentHost,
     contentSigning,
@@ -507,6 +532,11 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     park: new ParkCursors(home),
     // This machine's runtime modules, read per request (modules phase 3).
     modulesHome: home,
+    adoptIdentity: (actor: Actor) => adoptIdentity(home, actor),
+    // What the bind means, said once here rather than read off the socket at
+    // every listing: anything but the loopback address is a daemon other
+    // machines can reach, and the shelf is off there.
+    servesWorld: options.servesWorld ?? !(host === "127.0.0.1" || host === "::1" || host === "localhost"),
     rc,
     ...(options.signingKeys ? { signingKeys: options.signingKeys } : {}),
   };
@@ -597,9 +627,11 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     // The room map lets itself be counted, for `isocan operator show`, and
     // closed with a reason, for a takedown (operator phase 2).
     census: sockets,
-    // Asked on every upgrade: a socket on a canvas this home has stopped
-    // serving is refused with `taken-down` rather than opened.
-    takedowns,
+    // Asked on every upgrade (one registry, operator phases 2 and 6): a socket
+    // on a canvas this home has taken down is refused `taken-down`, and one
+    // from a badge that proved a refused address is refused `refused` — both
+    // before an admitted member short-circuits past the door.
+    refusals,
     // The content origin has no socket either — the upgrade is hijacked off
     // the raw server and never sees the door hook that refuses it everything
     // but blob bytes.

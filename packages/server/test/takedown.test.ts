@@ -16,6 +16,8 @@ import {
   grantRevokeRoute,
   grantsRoute,
   takedownSentence,
+  inboxRoute,
+  type InboxResponse,
   type GrantsResponse,
   type OperatorAct,
   type OperatorLogResponse,
@@ -29,7 +31,7 @@ import {
 } from "@isocan/core";
 import { startDaemon, type Daemon } from "../src/daemon.ts";
 import * as p from "../src/paths.ts";
-import { mintTestBadge, type TestBadge } from "./badge.ts";
+import { currentSocketUrl, mintTestBadge, type TestBadge } from "./badge.ts";
 
 /**
  * **Look, and take it down** — operator phase 2, walked against a real daemon
@@ -80,6 +82,7 @@ async function boot() {
     port: 0,
     home,
     birthHome: null,
+    servesWorld: true,
     auth,
     operators: [`email:${OLU}`],
     signingKeys: async () => keys,
@@ -393,6 +396,17 @@ describe("taking down is not deleting", () => {
     }
   });
 
+  it("reports the known canvas unavailable in its inbox, with no retained comments or marks", async () => {
+    await takedown();
+    const response = await fetch(`${base}${inboxRoute("usr_priya", { canvasId })}`, { headers: owner.headers });
+    expect(response.status).toBe(200);
+    const result = await response.json() as InboxResponse;
+    expect(result.entries).toEqual([]);
+    expect(result.marks).toEqual({});
+    expect(result.unavailable).toHaveLength(1);
+    expect(result.unavailable[0]!.error).toMatch(/taken down/);
+  });
+
   it("refuses the OWNER too — this is the home's act, not a change to her access", async () => {
     await takedown();
     const res = await fetch(`${base}/api/projects/${canvasId}/canvas`, { headers: owner.headers });
@@ -511,6 +525,15 @@ describe("taking down is not deleting", () => {
     expect(notices.takedowns[0]!.sentence).toBe(takedownSentence(row));
     // The note is the operator's and reaches no surface.
     expect(JSON.stringify(notices)).not.toContain("kai, 12 Sep");
+  });
+
+  it("does not list a hosted takedown through a live link, but repeats it for a known address", async () => {
+    const { takedown: row } = await takedown();
+    const stranger = await mintTestBadge(base);
+    const listing = await fetch(`${base}${TAKEDOWNS_ROUTE}`, { headers: stranger.headers });
+    expect(await listing.json()).toEqual({ takedowns: [] });
+    const named = await fetch(`${base}${TAKEDOWNS_ROUTE}?canvas=${canvasId}`, { headers: stranger.headers });
+    expect(((await named.json()) as TakedownsResponse).takedowns[0]!.sentence).toBe(takedownSentence(row));
   });
 
   it("answers one canvas to anybody, because the door already says it", async () => {
@@ -705,7 +728,7 @@ async function makeOtherCanvas(): Promise<string> {
 async function openSocket(
   badge: TestBadge,
 ): Promise<{ ws: WebSocket; heard: ServerMessage[]; closed: Promise<[number, string]> }> {
-  const ws = new WebSocket(`${base.replace("http:", "ws:")}/ws?canvasId=${canvasId}`, {
+  const ws = new WebSocket(currentSocketUrl(`${base.replace("http:", "ws:")}/ws?canvasId=${canvasId}`), {
     headers: badge.headers,
   });
   const heard: ServerMessage[] = [];

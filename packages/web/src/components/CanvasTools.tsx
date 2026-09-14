@@ -1,11 +1,14 @@
-import { useRef, useState, type ReactNode } from "react";
+import "./touch-controls.css";
+import { selectCreatedItems } from "../lib/groupplacement.ts";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Actor, Placement } from "@isocan/core";
 import { type Tool, useUiStore } from "../stores/uiStore.ts";
 import { addFailure, addFiles } from "../lib/upload.ts";
 import { placeableArea, revealIfOffscreen } from "../lib/spot.ts";
 import { glideToBox } from "../lib/zoomactions.ts";
 import { HistoryGlyph } from "./Glyphs.tsx";
-import { AddPopover } from "./AddPopover.tsx";
+// Address search and remote-document import are needed only after Add opens.
+const AddPopover = lazy(() => import("./AddPopover.tsx").then((module) => ({ default: module.AddPopover })));
 import { hideMenu, showMenu, useChromeHidden } from "../lib/chromemenu.tsx";
 import { openContextMenu } from "./ContextMenu.tsx";
 import { textToolMenu } from "../lib/textmenu.ts";
@@ -15,6 +18,9 @@ import { setNotice, useCanvasStore } from "../stores/canvasStore.ts";
 import { IDENTITY_COLORS, actorColorIn, useActorColors } from "../lib/colors.ts";
 import { ToolGlyph, toolHint, useCanvasTools } from "../lib/tools.tsx";
 import { postToMain } from "../lib/mainthread.ts";
+import { useNavigate } from "react-router-dom";
+import { modulePagePath } from "@isocan/core";
+import { moduleProjectViews } from "../modules.ts";
 
 /**
  * The tool rail (right edge): the pointer's mode, Figma-style. Select is the
@@ -149,8 +155,15 @@ const TOOLS: ToolDef[] = [
 ];
 
 export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Actor }) {
+  const [more, setMore] = useState(false);
+  const navigate = useNavigate();
+  const project = useCanvasStore((s) => s.project);
+  const contents = useCanvasStore((s) => s.canvas);
+  useUiStore((s) => s.modulesGeneration);
+  const projectViews = project && contents ? moduleProjectViews(project, contents) : [];
   const colors = useActorColors();
   const activeTool = useUiStore((s) => s.activeTool);
+  const adding = useUiStore((s) => s.adding);
   const setActiveTool = useUiStore((s) => s.setActiveTool);
   const inkColor = useUiStore((s) => s.inkColor);
   const marksOpen = useUiStore((s) => s.marksOpen);
@@ -165,6 +178,12 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
       : false;
   });
   const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Keep native file picking independent of the address popover's download.
+    if (adding !== "file") return;
+    fileInput.current?.click();
+    useUiStore.getState().setAdding(null);
+  }, [adding]);
   const mine = actorColorIn(colors, actor.id);
   const ink = inkColor ?? mine;
 
@@ -193,8 +212,7 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
       setNotice(notice);
       return landed;
     });
-    if (ids.length > 0) {
-      useUiStore.getState().setSelection(ids);
+    if (ids.length > 0 && selectCreatedItems(canvasId, ids)) {
       const canvas = useCanvasStore.getState().canvas;
       const landed = canvas ? ids.map((id) => canvas.items[id]).filter(Boolean) : [];
       revealIfOffscreen(
@@ -208,7 +226,7 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
 
   return (
     <div
-      className="tool-rail"
+      className={`tool-rail${more ? " tools-expanded" : ""}`}
       role="toolbar"
       aria-label="Canvas tools"
       aria-orientation="vertical"
@@ -217,7 +235,7 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
       onContextMenu={(e) => showMenu(e, "the rail")}
     >
       {TOOLS.map((t) => (
-        <div key={t.tool} className="tool-slot">
+        <div key={t.tool} className="tool-slot" data-tool={t.tool}>
           <button
             className={`tool-btn${activeTool === t.tool ? " active" : ""}`}
             /* Drawn beside the button (`.tool-btn[data-tip]` in styles.css)
@@ -275,6 +293,7 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
           )}
         </div>
       ))}
+      <button className="tool-btn tool-more" data-tip="More tools" aria-label="More tools" aria-expanded={more} onClick={() => setMore(!more)}>⋯</button>
       <div className="tool-sep" />
       <button
         className={`tool-btn${marksOpen ? " active" : ""}`}
@@ -302,6 +321,17 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
           <HistoryGlyph size={17} />
         </button>
       )}
+      {projectViews.map((view) => (
+        <button
+          key={view.segment}
+          className="tool-btn"
+          data-tip={view.label}
+          aria-label={view.label}
+          onClick={() => navigate(modulePagePath(canvasId, view.segment))}
+        >
+          <span aria-hidden>{view.glyph}</span>
+        </button>
+      ))}
       {/* The canvas's OWN tools, below everything the app ships, because that
           is the boundary: above the line is isocan, below it is what this
           canvas brought. A tool wears its own label and never the app's — the
@@ -336,7 +366,7 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
           here — files, a site, a Google Doc, a canvas. It was three buttons
           and a hidden fourth; the popover reads what it is given and says
           what it would do, so one field is enough. See AddPopover. */}
-      <AddPopover canvasId={canvasId} actor={actor} onFiles={() => fileInput.current?.click()} />
+      {adding && adding !== "file" && <Suspense fallback={null}><AddPopover canvasId={canvasId} actor={actor} onFiles={() => fileInput.current?.click()} /></Suspense>}
       <input
         ref={fileInput}
         type="file"
@@ -348,4 +378,3 @@ export function CanvasTools({ canvasId, actor }: { canvasId: string; actor: Acto
     </div>
   );
 }
-

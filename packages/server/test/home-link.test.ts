@@ -20,7 +20,6 @@ import {
   passesRoute,
   canvasesRoute,
   HOMES_ROUTE,
-  WS_NO_CANVAS,
 } from "@isocan/core";
 import { startDaemon, type Daemon } from "../src/daemon.ts";
 import { bearerHeader, readBadge } from "../src/badge-store.ts";
@@ -717,8 +716,9 @@ describe("presence, carried both ways and written nowhere", () => {
     // — journey rule, and the one thing presence must never do.
     expect((await oplog(H)).map((entry) => entry.envelope.op.type)).toEqual([
       "project.create",
-      "item.add",
+      "group.change",
     ]);
+    expect((await oplog(H))[1]!.envelope.op).toMatchObject({ action: { kind: "apply", change: { intent: "insert" } } });
     expect(await fs.readFile(p.oplogFile(homeDir, CANVAS), "utf8")).not.toContain(
       session.sessionId,
     );
@@ -841,6 +841,9 @@ describe("the rc's liveness and the web's ask, carried across the link", () => {
     const sian = { id: "agt_sian", name: "Sian" };
     await A.badge.speakAs(sian);
     await op(A, priya, { type: "agent.enroll", agent: sian });
+    // A hold names only actors its badge holds (room phase 3, the claim
+    // rule): A holds this one, and nobody enrolled it.
+    await A.badge.speakAs({ id: "agt_nobody", name: "Nobody" });
 
     const hold = holdAtA([sian.id, "agt_nobody"], 12_000);
     const at = await until(
@@ -1013,8 +1016,8 @@ describe("the link a canvas actually has to its home", () => {
 
   /**
    * A canvas this machine has a row for and the home has never heard of: the
-   * 4404 close. The link is dropped and the next sweep makes a new one, which
-   * is correct and was completely silent — a fresh `CanvasLink` counts from
+   * source classification now refuses before any socket can open. Repeated
+   * failures used to be completely silent — a fresh `CanvasLink` counted from
    * zero, so an endless two-second retry looked like a first attempt forever.
    * The count outlives the link precisely so this can be reported.
    */
@@ -1026,6 +1029,6 @@ describe("the link a canvas actually has to its home", () => {
       "A to report repeated failures",
     );
     expect(state).toMatchObject({ connected: false, opens: 0, relayedAt: null });
-    expect(state!.lastFailure).toContain(String(WS_NO_CANVAS));
+    expect(state!.lastFailure).toContain("source classification is unavailable");
   }, 20_000);
 });

@@ -1,3 +1,6 @@
+import { SOURCE_POLICY_HEADER, sourcePolicyHeader, parseSourcePolicyHeader, sourceClassificationRoute, SOURCE_ACCESS_ROUTE, personalRoute, personalCanvasRoute, personalDelegatesRoute, type SourceRequestContext, type SourceClassificationRequest, type SourceClassificationResponse, type SourceAccessRequest, type SourceAccessResponse, type PersonalStatusResponse, type PersonalEnsureResponse, type PersonalLinksResponse, type PersonalLinkRequest, type PersonalLinkResponse, type PersonalUnlinkRequest, type PersonalUnlinkResponse, type PersonalDelegatesResponse, type SetPersonalDelegateRequest, type PersonalDelegateResponse, type PersonalReadRequest, type PersonalReadResponse } from "@isocan/core";
+import { inboxRoute, type InboxResponse } from "@isocan/core";
+import { recapHeadRoute, type RecapHeadResponse } from "@isocan/core";
 import type {
   Actor,
   ActorBindingRecord,
@@ -6,11 +9,16 @@ import type {
   BlobUploadResponse,
   Capability,
   CanvasSnapshotResponse,
+  CanvasGroupMigrationPreview,
+  ContextManifest,
+  ContextRequest,
+  ContextContentPage,
   CreateSessionResponse,
   GcReport,
   GcRequest,
   HomeGcReport,
   GrantResponse,
+  PublicCanvasesResponse,
   GrantsResponse,
   GrantSubject,
   HomesResponse,
@@ -49,6 +57,7 @@ import type {
   SeenMarksResponse,
   SeenResponse,
   GroupResponse,
+  GroupAction,
   GroupsResponse,
   OperatorLogResponse,
   OperatorLookRequest,
@@ -58,9 +67,22 @@ import type {
   OperatorShowResponse,
   OperatorTakedownRequest,
   OperatorTakedownResponse,
+  OperatorEndRequest,
+  OperatorEndResponse,
+  OperatorRevokeRequest,
+  OperatorRevokeResponse,
+  OperatorRefuseRequest,
+  OperatorRefuseResponse,
   TakedownsResponse,
 } from "@isocan/core";
 import {
+  BADGE_ENDED,
+  PUBLIC_CANVASES_ROUTE,
+  publicListingRoute,
+  CANVAS_GROUPS_FEATURE,
+  CLIENT_FEATURES_HEADER,
+  canvasContextRoute,
+  commentContextRoute,
   encodeFilename,
   groupActingRoute,
   groupMemberRoute,
@@ -75,7 +97,7 @@ import {
   spaceGrantRevokeRoute,
   spaceGrantsRoute,
   spaceLinkRoute,
-  SEEN_ROUTE,
+  seenMarksRoute,
   seenRoute,
   spaceRoute,
   SPACES_ROUTE,
@@ -98,9 +120,9 @@ import {
   passRoute,
   SERVING_ROUTE,
 } from "@isocan/core";
-import type { UpgradeVerdict } from "@isocan/core";
-import type { BuildStamp, StoredBadge } from "@isocan/server";
-import { askTheDoor, bearerHeader, readBadge, writeBadge } from "@isocan/server";
+import type { BadgeStore, BuildStamp, StoredBadge, UpgradeVerdict } from "@isocan/core";
+import { ApiError, askTheDoor, bearerHeader } from "@isocan/core";
+import type { ContextPageOptions } from "./canvas-context.ts";
 
 /** The health route: who is holding the port, and which build they are. */
 export interface Health extends Partial<BuildStamp> {
@@ -139,19 +161,15 @@ export interface Health extends Partial<BuildStamp> {
   upgrade?: UpgradeVerdict;
 }
 
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly code?: string,
-    /** Why, when the code alone does not say — `withdrawn` on a
-     * `not-admitted` from a badge that had been inside. */
-    readonly reason?: string,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+/** A refusal the home answered — the class lives in `@isocan/core`, and is
+ * re-exported here so every import of it from this surface keeps working. */
+export { ApiError };
+
+/** The platform's own fetch, named so that the Node half can fall back to it
+ * by name — an instance field is not on the prototype, so `super.fetcher`
+ * would be `undefined`, and one exported constant is clearer than that
+ * lesson repeated in a comment. */
+export const platformFetch: typeof fetch = (input, init) => fetch(input, init);
 
 /**
  * **The typed route surface** — every request the daemon answers, typed, and
@@ -166,7 +184,7 @@ export class ApiError extends Error {
  * fact rather than an intention.
  */
 export class DaemonRoutes {
-  /** Loaded once per process, from `identity.json`'s `auth` block. */
+  /** Loaded once per instance, from the badge store it was handed. */
   private badge: StoredBadge | null | undefined;
 
   /**
@@ -186,11 +204,58 @@ export class DaemonRoutes {
    */
   private reclaim: (() => Promise<void>) | null = null;
   private reclaiming = false;
+  /** The last observed mode is captured into each request body before retries.
+   * Callers holding an older placement preview pass its mode explicitly. */
+  private observedGroupModes = new Map<string, "legacy" | "groups">();
+
+  private readonly sourceContext?: SourceRequestContext;
 
   constructor(
     readonly base: string,
-    readonly home: string,
-  ) {}
+    /**
+     * Where this holder keeps its badge for `base` — read once, kept after a
+     * knock at the door. A parameter rather than a file read
+     * (docs/projects/room/design.md, `routes`): this surface runs where there
+     * is no disk, and the Node holders hand `fileBadgeStore(home, base)` from
+     * `@isocan/server`, which is `identity.json`'s `auth` block as before.
+     */
+    protected readonly badgeStore: BadgeStore,
+    /** Optional lifetime of a per-call connection, including its identity setup. */
+    protected readonly lifetime?: AbortSignal,
+    /** A restriction captured before target resolution, shared by JSON and raw calls. */
+    sourceContext?: SourceRequestContext,
+  ) {
+    if (sourceContext) this.sourceContext = Object.freeze({
+      ...parseSourcePolicyHeader(sourcePolicyHeader(sourceContext)),
+      ...(sourceContext.signal ? { signal: sourceContext.signal } : {}),
+    });
+  }
+
+  private requestSignal(signal?: AbortSignal): AbortSignal | undefined {
+    const signals = [this.lifetime, this.sourceContext?.signal, signal].filter((value): value is AbortSignal => !!value);
+    return signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+  }
+
+  private policyHeaders(): Record<string, string> {
+    return this.sourceContext ? { [SOURCE_POLICY_HEADER]: sourcePolicyHeader(this.sourceContext) } : {};
+  }
+
+  /**
+   * **The fetch this surface makes its requests with**, so that the half of
+   * the client which is allowed to know about Node can bound them.
+   *
+   * It is a field rather than an import for the reason the whole class exists
+   * (`boundary.test.ts`): a connect deadline is `undici`, `undici` is Node,
+   * and the moment this file imports it the browser build of the transport
+   * kernel stops being possible. So the mechanism lives in `client.ts` —
+   * `DaemonClient` replaces this with a connect-bounded, bounded-retry fetch
+   * when the base is loopback — and what is written here is only that the
+   * requests go through something replaceable.
+   *
+   * The default is the platform's own fetch, which is what every surface
+   * without a Node half keeps: one attempt, no deadline, exactly today.
+   */
+  protected fetcher: typeof fetch = platformFetch;
 
   /**
    * Every request carries the badge, and a refused one heals itself and comes
@@ -216,10 +281,13 @@ export class DaemonRoutes {
      */
     extra?: Record<string, string>,
   ): Promise<T> {
+    signal = this.requestSignal(signal);
+    signal?.throwIfAborted();
     const send = async () => {
-      const headers: Record<string, string> = { ...(await this.authHeader()), ...extra };
+      const headers: Record<string, string> = { ...(await this.authHeader()), [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE, ...extra, ...this.policyHeaders() };
+      signal?.throwIfAborted();
       if (body !== undefined) headers["Content-Type"] = "application/json";
-      return fetch(`${this.base}${url}`, {
+      return this.fetcher(`${this.base}${url}`, {
         method,
         ...(signal !== undefined ? { signal } : {}),
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
@@ -228,14 +296,35 @@ export class DaemonRoutes {
     };
     let res = await send();
     let json = (await res.json().catch(() => null)) as any;
+    signal?.throwIfAborted();
+    /**
+     * **An end by the operator is not recovered from** (operator phase 4;
+     * journey 7 step 4: *Sam's CLI does not quietly knock for a new badge and
+     * speak as his old name. It prints the sentence and stops.*).
+     *
+     * The 401 carries the tombstone's reason. `holder` — a sign-out, a lost
+     * laptop ended from the phone — keeps the quiet re-badge below, which is
+     * what lost-badge recovery is: knock, re-claim, replay, nobody told. But a
+     * re-badge after the OPERATOR ended this surface would reclaim the same
+     * actor under a fresh badge a second later, and the engine's vouch would
+     * allow it, because no live badge holds the name any more. So the
+     * sentence is thrown as the answer, in the home's own words. The person
+     * can still knock as a stranger by choosing to — ending is not refusing,
+     * and the verb that ended them said so.
+     */
+    if (res.status === 401 && json?.code === BADGE_ENDED && json?.reason === "operator") {
+      throw new ApiError(401, json.error, BADGE_ENDED, "operator");
+    }
     const recovered =
       res.status === 401
-        ? await this.reBadge()
+        ? await this.reBadge(signal)
         : json?.code === "not-your-actor" && (await this.reclaimIdentity());
     if (recovered) {
+      signal?.throwIfAborted();
       res = await send();
       json = (await res.json().catch(() => null)) as any;
     }
+    signal?.throwIfAborted();
     if (!res.ok) {
       throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code, json?.reason);
     }
@@ -249,31 +338,32 @@ export class DaemonRoutes {
   }
 
   private async storedBadge(): Promise<StoredBadge | null> {
-    if (this.badge === undefined) this.badge = await readBadge(this.home, this.base);
+    if (this.badge === undefined) this.badge = await this.badgeStore.read();
     return this.badge;
   }
 
   /** Go to the door and keep what it hands over. Returns false if the door
    * itself refused, so a caller does not loop.
    *
-   * **One refusal is not silent: a metered door** (phase 13.7). The rest stay
-   * false and let the original refusal be the one reported — but a 429 must
-   * not, because the sentence the caller would otherwise print is the 401 this
-   * recovery was launched from: *"a badge is required — ask the door for
-   * one."* That is advice to repeat the thing that was just refused. Throwing
-   * the door's own words instead ends the command with what actually happened
-   * and how long to wait, in `{error, code}` an agent can read. */
-  private async reBadge(): Promise<boolean> {
-    const answer = await askTheDoor(this.base);
+   * **A definitive door refusal is reported**: a metered door's 429 (phase
+   * 13.7) or an operator's network refusal, 403. Printing the original 401 —
+   * "a badge is required — ask the door for one" — would advise repeating
+   * the act the door just refused. Carry its status, code and words instead;
+   * other recovery failures leave the original answer intact. */
+  private async reBadge(signal: AbortSignal | undefined = this.lifetime): Promise<boolean> {
+    signal?.throwIfAborted();
+    const answer = await askTheDoor(this.base, 10_000, signal);
+    signal?.throwIfAborted();
     if ("refused" in answer) {
-      if (answer.refused.status === 429) {
-        throw new ApiError(429, answer.refused.error, answer.refused.code);
+      if (answer.refused.status === 403 || answer.refused.status === 429) {
+        throw new ApiError(answer.refused.status, answer.refused.error, answer.refused.code);
       }
       return false;
     }
     const badge = answer.badge;
     this.badge = badge;
-    await writeBadge(this.home, this.base, badge);
+    await this.badgeStore.keep(badge);
+    signal?.throwIfAborted();
     // Re-claim, THEN replay. Without this the recovery path is a 401
     // followed by a `not-your-actor`: the door mints a badge whose claims
     // are empty while the client goes on asserting the actor it has held
@@ -357,11 +447,19 @@ export class DaemonRoutes {
    * dead. See `healthPath`. */
   async healthz(timeoutMs = 300): Promise<Health | null> {
     try {
+      this.lifetime?.throwIfAborted();
+      // Deliberately NOT `this.fetcher`: this is the probe, and it already
+      // carries the tighter bound. A connect deadline under a 300ms abort
+      // could never fire, and a retry under it would only make `isocan
+      // status` slower at answering the question it answers correctly now —
+      // "nothing is there yet". The deadline is for the calls whose failure
+      // reaches a person as an error.
       const res = await fetch(`${this.base}${healthPath(this.base)}`, {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(this.lifetime ? [this.lifetime] : [])]),
       });
       return res.ok ? ((await res.json()) as Health) : null;
     } catch {
+      this.lifetime?.throwIfAborted();
       return null;
     }
   }
@@ -409,18 +507,47 @@ export class DaemonRoutes {
      *  id are undone together, so `isocan copy` writing eight items is one
      *  ⌘Z on the screen watching it. */
     group?: string,
+    originGroupMode?: "legacy" | "groups",
+    /** A canvas's birth space at its home; only valid with project.create. */
+    spaceId?: string,
   ): Promise<PostOpResponse> {
+    const origin = originGroupMode ?? (canvasId ? this.observedGroupModes.get(canvasId) : undefined);
     return this.request("POST", "/api/ops", {
       canvasId,
       actor,
       op,
       ...(clientId !== undefined ? { clientId } : {}),
       ...(home !== undefined ? { home } : {}),
+      ...(spaceId !== undefined ? { spaceId } : {}),
       ...(group !== undefined ? { group } : {}),
+      ...(origin !== undefined ? { originGroupMode: origin } : {}),
     });
   }
 
   // ---- presence sessions ----
+
+  /** Semantic group request; canonical resolved patches belong to the
+   * authoritative writer. Pass a stable opId when retrying one intent. */
+  async changeGroup(
+    canvasId: string,
+    actor: Actor,
+    action: Exclude<GroupAction, { kind: "apply" }>,
+    opId?: string,
+    originGroupMode?: "legacy" | "groups",
+  ): Promise<PostOpResponse> {
+    const origin = originGroupMode ?? this.observedGroupModes.get(canvasId);
+    const response = await this.request<PostOpResponse>("POST", "/api/ops", { canvasId, actor, op: { type: "group.change", action }, ...(opId ? { opId } : {}), ...(origin !== undefined ? { originGroupMode: origin } : {}) });
+    const op = response.envelope?.op;
+    if (op?.type === "group.change" && op.action.kind === "apply" && op.action.change.migration) this.observedGroupModes.set(canvasId, op.action.change.migration.mode);
+    return response;
+  }
+
+  /** Authoritative, read-only legacy conversion plan, including the undo boundary. */
+  async groupMigrationPreview(canvasId: string): Promise<CanvasGroupMigrationPreview> {
+    const preview = await this.request<CanvasGroupMigrationPreview>("GET", `/api/projects/${encodeURIComponent(canvasId)}/groups/migration`);
+    this.observedGroupModes.set(canvasId, preview.fromMode);
+    return preview;
+  }
 
   createSession(
     canvasId: string,
@@ -462,6 +589,11 @@ export class DaemonRoutes {
     return this.request("DELETE", `/api/presence/actors/${actorId}${query}`);
   }
 
+  /** Authoritative inbox entries and seen marks across the canvases held here. */
+  inbox(actorId: string, options: { canvasId?: string; label?: string } = {}): Promise<InboxResponse> {
+    return this.request("GET", inboxRoute(actorId, options));
+  }
+
   listCanvases(): Promise<Canvas[]> {
     return this.request("GET", "/api/projects");
   }
@@ -472,11 +604,10 @@ export class DaemonRoutes {
   // local record: the point of the feature is that your other machine finds
   // what this one saw. `docs/research/2026-09-12-seen-marks.md`.
 
-  /** Your own marks, every canvas, one read. There is deliberately no way to
-   *  ask for anybody else's. */
-  seen(actorId?: string): Promise<SeenMarksResponse> {
-    const query = actorId ? `?actorId=${encodeURIComponent(actorId)}` : "";
-    return this.request("GET", `${SEEN_ROUTE}${query}`);
+  /** Your own marks, or one canvas's prior mark at its authoritative home.
+   *  There is deliberately no way to ask for anybody else's. */
+  seen(actorId?: string, canvasId?: string): Promise<SeenMarksResponse> {
+    return this.request("GET", seenMarksRoute(actorId, canvasId));
   }
 
   /** Move the mark for one canvas to the head you had in front of you. The
@@ -496,6 +627,68 @@ export class DaemonRoutes {
   // enough that neither surface spells a URL. On a replica the daemon forwards
   // all three to the home, because the row that decides who may enter lives
   // there; nothing here has to know that.
+
+  /** Classify before automatic previews or target resolution; unknown remains redacted. */
+  classifySource(request: SourceClassificationRequest, signal?: AbortSignal): Promise<SourceClassificationResponse> {
+    return this.request("GET", sourceClassificationRoute(request), undefined, signal);
+  }
+
+  /** Check an explicit tool source without borrowing a stored badge admission. */
+  sourceAccess(request: SourceAccessRequest, signal?: AbortSignal): Promise<SourceAccessResponse> {
+    return this.request("POST", SOURCE_ACCESS_ROUTE, request, signal);
+  }
+
+  /** Inspect the selected person's binding without creating a canvas. */
+  personalStatus(actorId: string, signal?: AbortSignal, destinationCanvasId?: string): Promise<PersonalStatusResponse> {
+    return this.request("GET", personalRoute(actorId, destinationCanvasId), undefined, signal);
+  }
+
+  /** Lazily reserve and create the person's private source at this home. */
+  ensurePersonal(actorId: string, signal?: AbortSignal, destinationCanvasId?: string): Promise<PersonalEnsureResponse> {
+    return this.request("POST", `${personalRoute()}/ensure`, { actorId, ...(destinationCanvasId ? { destinationCanvasId } : {}) }, signal);
+  }
+
+  /** Visible personal cards and this caller's current availability, without source bytes. */
+  personalLinks(canvasId: string, actorId: string, signal?: AbortSignal): Promise<PersonalLinksResponse> {
+    return this.request("GET", personalCanvasRoute(canvasId, undefined, actorId), undefined, signal);
+  }
+
+  /** One concrete consent and one undoable native operation per new link. */
+  linkPersonal(canvasId: string, request: PersonalLinkRequest, signal?: AbortSignal): Promise<PersonalLinkResponse> {
+    return this.request("POST", personalCanvasRoute(canvasId, "link"), request, signal);
+  }
+
+  /** Delete the concrete card while retaining its identity-bound consent for undo. */
+  unlinkPersonal(canvasId: string, request: PersonalUnlinkRequest, signal?: AbortSignal): Promise<PersonalUnlinkResponse> {
+    return this.request("POST", personalCanvasRoute(canvasId, "unlink"), request, signal);
+  }
+
+  /** The selected owner's source-specific agent access controls. */
+  personalDelegates(sourceCanvasId: string, actorId: string, signal?: AbortSignal): Promise<PersonalDelegatesResponse> {
+    return this.request("GET", personalDelegatesRoute(sourceCanvasId, undefined, actorId), undefined, signal);
+  }
+
+  /** Explicitly allow or revoke one agent on this exact dataset. */
+  setPersonalDelegate(sourceCanvasId: string, agentId: string, request: SetPersonalDelegateRequest, signal?: AbortSignal): Promise<PersonalDelegateResponse> {
+    return this.request("PUT", personalDelegatesRoute(sourceCanvasId, agentId), request, signal);
+  }
+
+  /** Authoritative owner/delegate reading, with a blob-free summary mode. */
+  readPersonal(canvasId: string, request: PersonalReadRequest, signal?: AbortSignal): Promise<PersonalReadResponse> {
+    return this.request("POST", personalCanvasRoute(canvasId, "read"), request, signal);
+  }
+
+  /** The connected home's catalogue, without canvas admission or identity claims. */
+  publicCanvases(): Promise<PublicCanvasesResponse> {
+    return this.request("GET", PUBLIC_CANVASES_ROUTE);
+  }
+
+  /** Publish or unlist the concrete link an owner inspected. */
+  setPublicListing(canvasId: string, grantId: string, listed: boolean, actorId?: string): Promise<GrantResponse> {
+    return this.request("PUT", publicListingRoute(canvasId, grantId), {
+      listed, ...(actorId ? { actorId } : {}),
+    });
+  }
 
   grants(canvasId: string): Promise<GrantsResponse> {
     return this.request("GET", grantsRoute(canvasId));
@@ -710,10 +903,11 @@ export class DaemonRoutes {
    * row carries no session key by design, and `GET /api/actors` is keyed by
    * session key — so a caller that throws this response away cannot ask for
    * it again, and the identity the pass endowed becomes unreachable from this
-   * machine even though the badge still holds it. `isocan setup` writes it
-   * into `identity.json` for exactly that reason.
+   * machine even though the badge still holds it. Replica setup opts into
+   * local adoption so the daemon saves it alongside its badge writes. Direct
+   * setup leaves the remote machine alone and saves it in the CLI process.
    */
-  redeemPass(token: string, home?: string): Promise<RedeemPassResponse> {
+  redeemPass(token: string, home?: string, adoptIdentity = false): Promise<RedeemPassResponse> {
     /**
      * `home` is the address the pass was pasted with, and it is sent only when
      * it is not this daemon's own base — a daemon told to redeem a pass minted
@@ -726,6 +920,7 @@ export class DaemonRoutes {
       home !== undefined && normalizeHomeUrl(home) !== normalizeHomeUrl(this.base);
     return this.request("POST", PASS_REDEEM_ROUTE, {
       token,
+      ...(adoptIdentity ? { adoptIdentity: true } : {}),
       ...(elsewhere ? { home: normalizeHomeUrl(home!) } : {}),
     });
   }
@@ -767,8 +962,44 @@ export class DaemonRoutes {
     return this.request("GET", HOMES_ROUTE);
   }
 
-  snapshot(canvasId: string): Promise<CanvasSnapshotResponse> {
-    return this.request("GET", `/api/projects/${canvasId}/canvas`);
+  /** Complete current scope; omitted roots read ambient pins. Reads never move presence. */
+  contextManifest(canvasId: string, request?: ContextRequest): Promise<ContextManifest> {
+    const query = new URLSearchParams();
+    if (request) {
+      query.set("roots", request.rootIds.join(","));
+      if (request.includeExcluded !== undefined) query.set("includeExcluded", String(request.includeExcluded));
+      if (request.expectedRevision !== undefined) query.set("expectedRevision", String(request.expectedRevision));
+    }
+    return this.request("GET", `${canvasContextRoute(canvasId)}${query.size ? `?${query}` : ""}`);
+  }
+
+  /** Frozen provenance belongs to the saved comment, not today's membership. */
+  commentContext(canvasId: string, threadId: string, commentId: string): Promise<ContextManifest> {
+    return this.request("GET", commentContextRoute(canvasId, threadId, commentId));
+  }
+
+  contextContentPage(canvasId: string, options: ContextPageOptions): Promise<ContextContentPage> {
+    if (!!options.threadId !== !!options.commentId) throw new Error("a saved context requires both thread and comment IDs");
+    if (options.threadId && (options.rootIds !== undefined || options.includeExcluded !== undefined || options.expectedRevision !== undefined)) throw new Error("saved context already fixes its roots, exclusion policy and revision");
+    if (!options.threadId && options.expectedRevision === undefined) throw new Error("live context paging requires expectedRevision from its manifest");
+    const query = new URLSearchParams();
+    if (options.rootIds !== undefined) query.set("roots", options.rootIds.join(","));
+    for (const field of ["offset", "limit", "face", "includeExcluded", "expectedRevision"] as const) {
+      if (options[field] !== undefined) query.set(field, String(options[field]));
+    }
+    const route = options.threadId ? commentContextRoute(canvasId, options.threadId, options.commentId!) : canvasContextRoute(canvasId);
+    return this.request("GET", `${route}/content${query.size ? `?${query}` : ""}`);
+  }
+
+  /** A bounded ordinary-source history head; the authority refuses personal sources before reads. */
+  recapHead(canvasId: string, signal?: AbortSignal): Promise<RecapHeadResponse> {
+    return this.request("GET", recapHeadRoute(canvasId), undefined, signal);
+  }
+
+  async snapshot(canvasId: string, signal?: AbortSignal): Promise<CanvasSnapshotResponse> {
+    const snapshot = await this.request<CanvasSnapshotResponse>("GET", `/api/projects/${canvasId}/canvas`, undefined, signal);
+    this.observedGroupModes.set(canvasId, snapshot.project.groupMode ?? "legacy");
+    return snapshot;
   }
 
   /** How this home serves — today, only whether a content origin exists. */
@@ -881,8 +1112,8 @@ export class DaemonRoutes {
    * the fact dies with the socket, which is the whole point. The response
    * carries any web asks that arrived while held (agent-custody) — the rc
    * enrolls each and keeps holding. */
-  rcHold(request: RcHoldRequest): Promise<RcHoldResponse> {
-    return this.request("POST", "/api/rc/hold", request);
+  rcHold(request: RcHoldRequest, signal?: AbortSignal): Promise<RcHoldResponse> {
+    return this.request("POST", "/api/rc/hold", request, signal);
   }
 
   /** Who a live rc answers for on this canvas — and whether any is parked at
@@ -1035,6 +1266,66 @@ export class DaemonRoutes {
   }
 
   /**
+   * **End a surface** (operator phase 4) — by badge id, actor id or
+   * `email:` address, which is the id a report names. Sent twice by the verb:
+   * once with `preview` to read the reach, once to act on it. Same header,
+   * same proof, same shape as the takedown.
+   */
+  async operatorEnd(
+    target: string,
+    proof: string,
+    request: OperatorEndRequest,
+  ): Promise<OperatorEndResponse> {
+    return this.request(
+      "POST",
+      `/api/operator/end/${encodeURIComponent(target)}`,
+      request,
+      undefined,
+      { [OPERATOR_PROOF_HEADER]: proof },
+    );
+  }
+
+  /**
+   * **Turn off a grant** (operator phase 5) — on a canvas or a space, by the
+   * subject a report names, with `bar` to keep them out as the owner's
+   * `?bar=1` does. Same header, same proof, same shape as the takedown.
+   */
+  async operatorRevoke(
+    target: string,
+    proof: string,
+    request: OperatorRevokeRequest,
+  ): Promise<OperatorRevokeResponse> {
+    return this.request(
+      "POST",
+      `/api/operator/revoke/${encodeURIComponent(target)}`,
+      request,
+      undefined,
+      { [OPERATOR_PROOF_HEADER]: proof },
+    );
+  }
+
+  /**
+   * **Refuse at the door** (operator phase 6) — a subject a report names:
+   * `email:…`, `repo:…`, `actor:…` or `net:<cidr>`, with `for` to expire it
+   * and `lift` to end it early. Same header, same proof, same shape as the
+   * takedown. The subject rides in the path, URL-encoded, because a `net:`
+   * carries a slash.
+   */
+  async operatorRefuse(
+    subject: string,
+    proof: string,
+    request: OperatorRefuseRequest,
+  ): Promise<OperatorRefuseResponse> {
+    return this.request(
+      "POST",
+      `/api/operator/refuse/${encodeURIComponent(subject)}`,
+      request,
+      undefined,
+      { [OPERATOR_PROOF_HEADER]: proof },
+    );
+  }
+
+  /**
    * **Erase the bytes** (operator phase 3) — the one operator act that cannot
    * be lifted, and the one whose body is a single word. The route refuses
    * without `force`, and refuses on a canvas that is not taken down whatever
@@ -1073,35 +1364,53 @@ export class DaemonRoutes {
     data: Buffer,
     mimeType: string,
     filename: string,
+    signal?: AbortSignal,
   ): Promise<BlobUploadResponse> {
+    signal = this.requestSignal(signal);
+    signal?.throwIfAborted();
     // Blobs bypass `request` (raw bytes, no JSON), so they need the badge and
     // the recovery retry spelled out — easy to miss, and a 401 on an upload
     // would read as a broken drop.
-    const send = async () =>
-      fetch(`${this.base}/api/projects/${canvasId}/blobs`, {
+    const send = async () => {
+      const auth = await this.authHeader();
+      signal?.throwIfAborted();
+      return this.fetcher(`${this.base}/api/projects/${canvasId}/blobs`, {
         method: "POST",
         headers: {
-          ...(await this.authHeader()),
+          ...auth,
+          ...this.policyHeaders(),
           "Content-Type": mimeType,
           [FILENAME_HEADER]: encodeFilename(filename),
         },
         body: new Uint8Array(data),
+        ...(signal ? { signal } : {}),
       });
+    };
     let res = await send();
-    if (res.status === 401 && (await this.reBadge())) res = await send();
+    if (res.status === 401 && (await this.reBadge(signal))) res = await send();
     const json = (await res.json().catch(() => null)) as any;
+    signal?.throwIfAborted();
     if (!res.ok) throw new ApiError(res.status, json?.error ?? `HTTP ${res.status}`, json?.code);
     return json as BlobUploadResponse;
   }
 
-  async downloadBlob(canvasId: string, blobHash: string): Promise<Buffer> {
-    const send = async () =>
-      fetch(`${this.base}/api/projects/${canvasId}/blobs/${blobHash}`, {
-        headers: await this.authHeader(),
+  async downloadBlob(canvasId: string, blobHash: string, signal?: AbortSignal): Promise<Buffer> {
+    signal = this.requestSignal(signal);
+    signal?.throwIfAborted();
+    const send = async () => {
+      const headers = { ...await this.authHeader(), ...this.policyHeaders() };
+      signal?.throwIfAborted();
+      return this.fetcher(`${this.base}/api/projects/${canvasId}/blobs/${blobHash}`, {
+        headers,
+        ...(signal ? { signal } : {}),
       });
+    };
     let res = await send();
-    if (res.status === 401 && (await this.reBadge())) res = await send();
-    if (!res.ok) throw new ApiError(res.status, `blob not found: ${blobHash}`);
+    if (res.status === 401 && (await this.reBadge(signal))) res = await send();
+    if (!res.ok) {
+      const json = await res.json().catch(() => null) as { error?: string; code?: string; reason?: string } | null;
+      throw new ApiError(res.status, json?.error ?? `blob not found: ${blobHash}`, json?.code, json?.reason);
+    }
     return Buffer.from(await res.arrayBuffer());
   }
 }

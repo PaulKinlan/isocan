@@ -11,7 +11,7 @@ import {
   newThreadId,
   workedFor, itemThread, atCorner, faceMark} from "@isocan/core";
 
-import { sendEchoed, useCanvasStore } from "../stores/canvasStore.ts";
+import { sendEchoed, sendEchoedResult, useCanvasStore } from "../stores/canvasStore.ts";
 import { type PendingComment, useUiStore } from "../stores/uiStore.ts";
 import { threadWorldPos, worldToScreen } from "../lib/viewport.ts";
 import { actorColorIn, useActorColors } from "../lib/colors.ts";
@@ -31,6 +31,8 @@ import { GateGrant } from "./LazyGate.tsx";
 import { liveActorIds } from "../lib/presence.ts";
 import { useActorMarks } from "../lib/marks.ts";
 import { CommentFold, CommentWhen } from "./CommentWhen.tsx";
+import { messageContextRoots, useMessageContext, useMessageSend, withMessageContext } from "../lib/messagecontext.ts";
+import { ContextManifestView, MessageContextPreview } from "./LazyGroupContext.tsx";
 
 /** Comment payload with @Name mentions and #Title item references resolved
  * against what's visible on the canvas — actors in the state plus the live
@@ -57,13 +59,17 @@ export function makeComment(body: string): NewComment {
  * positioned from world coordinates via the viewport transform. Anchored
  * threads store an offset from their item's origin, so pins follow drags.
  */
+import { usePresentation } from "../lib/canvasPresentation.ts";
+import { presentedOffset } from "../lib/presentation.ts";
+
 export function CommentLayer({ canvasId, actor }: { canvasId: string; actor: Actor }) {
-  const canvas = useCanvasStore((s) => s.canvas);
+  const canvas = useCanvasStore((s) => s.past?.canvas ?? s.canvas);
   const viewport = useUiStore((s) => s.viewport);
   const marks = useActorMarks();
   const drag = useUiStore((s) => s.drag);
   const openThreadId = useUiStore((s) => s.openThreadId);
   const pendingComment = useUiStore((s) => s.pendingComment);
+  const presentation = usePresentation();
   const textViews = useTextAnchorStore(s => s.views);
   const seen = useUnreadStore((s) => s.seen);
   const joined = useCanvasStore((s) => s.actorJoins);
@@ -76,7 +82,8 @@ export function CommentLayer({ canvasId, actor }: { canvasId: string; actor: Act
   function pinWorldPos(thread: CommentThread): { x: number; y: number } {
     const view = textViews[thread.id];
     const positioned = thread.textAnchor && view?.x !== undefined && view.y !== undefined ? { ...thread, x: view.x, y: view.y } : thread;
-    const world = threadWorldPos(canvas!, positioned);
+    const anchor = positioned.anchorItemId ? canvas!.items[positioned.anchorItemId] : undefined;
+    const world = anchor ? presentedOffset(anchor, presentation, positioned) : threadWorldPos(canvas!, positioned);
     // While a drag is live the item has not moved in the replica yet, so the
     // pin rides the gesture's delta to stay glued to it.
     const riding =
@@ -85,7 +92,7 @@ export function CommentLayer({ canvasId, actor }: { canvasId: string; actor: Act
   }
 
   // The main thread has no pin — it lives in the docked panel instead.
-  const threads = Object.values(canvas.threads).filter((thread) => !thread.main);
+  const threads = Object.values(canvas.threads).filter((thread) => !thread.main && (!presentation?.isolate || (thread.anchorItemId && presentation.items[thread.anchorItemId])));
   const screenOf = (thread: CommentThread) => {
     const world = pinWorldPos(thread);
     return worldToScreen(viewport, world.x, world.y);
@@ -115,6 +122,7 @@ export function CommentLayer({ canvasId, actor }: { canvasId: string; actor: Act
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: "var(--z-popover)" }}>
         {openThread && (
           <ThreadPopover
+            key={`${canvasId}:${openThread.id}`}
             thread={openThread}
             screen={screenOf(openThread)}
             canvasId={canvasId}
@@ -122,7 +130,7 @@ export function CommentLayer({ canvasId, actor }: { canvasId: string; actor: Act
           />
         )}
         {pendingComment && canEdit && (
-          <ComposePopover canvasId={canvasId} actor={actor} pending={pendingComment} />
+          <ComposePopover key={`${canvasId}:${pendingComment.anchorItemId}:${pendingComment.x}:${pendingComment.y}`} canvasId={canvasId} actor={actor} pending={pendingComment} />
         )}
       </div>
       , document.querySelector(".fullscreen") ?? document.body)}
@@ -326,18 +334,25 @@ function ThreadPin({
   );
 }
 
-function ThreadPopover({
+export function ThreadPopover({
   thread,
+  embedded = false,
+  onOpenItem,
   screen,
   canvasId,
   actor,
 }: {
   thread: CommentThread;
+  embedded?: boolean;
+  onOpenItem?: (id: string) => void;
   screen: { x: number; y: number };
   canvasId: string;
   actor: Actor;
 }) {
   const [reply, setReply] = useState("");
+  const canvas = useCanvasStore((state) => state.canvas);
+  const context = useMessageContext(canvasId, messageContextRoots(canvas, reply, thread.anchorItemId ? [thread.anchorItemId] : []));
+  const sending = useMessageSend(canvasId, context, reply);
   const textView = useTextAnchorStore(s => s.views[thread.id]);
   // The registry names people, not the comment: see lib/names.ts.
   const names = useActorNames();
@@ -360,18 +375,18 @@ function ThreadPopover({
     <div
       ref={ref}
       className="thread-popover"
-      style={style}
+      style={embedded ? undefined : style}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div
         className="thread-comments"
         onClick={(e) => {
           const itemId = chipTarget(e);
-          if (itemId) catapultToItem(itemId);
+          if (itemId) (onOpenItem ?? catapultToItem)(itemId);
         }}
         onKeyDown={(e) => {
           const itemId = e.key === "Enter" ? chipTarget(e) : null;
-          if (itemId) catapultToItem(itemId);
+          if (itemId) (onOpenItem ?? catapultToItem)(itemId);
         }}
       >
         {thread.textAnchor && <div className="thread-text-anchor">
@@ -394,6 +409,7 @@ function ThreadPopover({
                   {withoutCommand(comment.body)}
                 </Markdown>
               </div>
+              {comment.context && <ContextManifestView manifest={comment.context} comment={{ threadId: thread.id, commentId: comment.id }} />}
             </CommentFold>
             {/* The refusal is the control (#272): under the ask an agent's
                 gate turned away, the owner — and nobody else — gets the two
@@ -429,12 +445,11 @@ function ThreadPopover({
           e.preventDefault();
           const body = reply.trim();
           if (!body) return;
-          setReply("");
-          await sendEchoed(canvasId, actor, {
+          await sending.submit(() => sendEchoedResult(canvasId, actor, {
             type: "thread.reply",
             threadId: thread.id,
-            comment: makeComment(body),
-          });
+            comment: withMessageContext(makeComment(body), context.request),
+          }), () => setReply(""));
         }}
       >
         <MentionField
@@ -457,12 +472,14 @@ function ThreadPopover({
             go looked like the one that was not, and people stopped believing
             they could press it. The accent makes the two states different
             colours rather than two shades of the same one. */}
-        <button className="btn primary" type="submit" title="Reply (⌘⏎)" disabled={!reply.trim()}>
+        <MessageContextPreview context={context} />
+        {sending.error && <p role="alert">{sending.error}</p>}
+        <button className="btn primary" type="submit" title="Reply (⌘⏎)" disabled={!reply.trim() || sending.disabled}>
           ↑
         </button>
       </form>
       )}
-      <div className="thread-actions">
+      {canEdit && !embedded && <div className="thread-actions">
         <button
           className="promote"
           title="This conversation becomes the canvas's Chat: docked on the left, heard by every agent without an @-mention. A canvas has one Chat, so whichever conversation holds it now becomes a pin on the canvas instead — nothing is deleted."
@@ -482,7 +499,7 @@ function ThreadPopover({
         >
           Delete comment
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -495,29 +512,37 @@ function withAbout(comment: NewComment, aboutItemId?: string): NewComment {
   return { ...comment, items };
 }
 
-function ComposePopover({
+export function ComposePopover({
   canvasId,
   actor,
   pending,
+  embedded = false,
+  onSent,
 }: {
   canvasId: string;
   actor: Actor;
   pending: PendingComment;
+  embedded?: boolean;
+  onSent?: () => void;
 }) {
   const viewport = useUiStore((s) => s.viewport);
-  const canvas = useCanvasStore((s) => s.canvas);
+  const canvas = useCanvasStore((s) => s.past?.canvas ?? s.canvas);
   const marks = useActorMarks();
   const { candidates, peers } = useMentionRoster(actor.id);
   const itemRoster = useItemRefRoster();
   const [body, setBody] = useState("");
+  const context = useMessageContext(canvasId, messageContextRoots(canvas, body, [pending.aboutItemId, pending.anchorItemId].filter((id): id is string => Boolean(id))));
+  const sending = useMessageSend(canvasId, context, body);
+  const presentation = usePresentation();
 
   // Pending world position: anchored offsets resolve against the item.
   let wx = pending.x;
   let wy = pending.y;
   if (pending.anchorItemId && canvas?.items[pending.anchorItemId]) {
     const item = canvas.items[pending.anchorItemId]!;
-    wx = item.x + pending.x;
-    wy = item.y + pending.y;
+    const point = presentedOffset(item, presentation, pending);
+    wx = point.x;
+    wy = point.y;
   }
   const screen = worldToScreen(viewport, wx, wy);
   const { ref, style } = usePopoverPlacement(screen, 0, 0);
@@ -526,7 +551,7 @@ function ComposePopover({
     <div
       ref={ref}
       className="thread-popover compose-popover"
-      style={style}
+      style={embedded ? undefined : style}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <form
@@ -535,20 +560,21 @@ function ComposePopover({
           e.preventDefault();
           const trimmed = body.trim();
           if (!trimmed) return;
-          useUiStore.getState().setPendingComment(null);
-          await sendEchoed(canvasId, actor, {
+          await sending.submit(() => sendEchoedResult(canvasId, actor, {
             type: "thread.create",
             threadId: newThreadId(),
             x: pending.x,
             y: pending.y,
             anchorItemId: pending.anchorItemId,
             ...(pending.textAnchor ? { textAnchor: pending.textAnchor } : {}),
-            comment: withAbout(makeComment(trimmed), pending.aboutItemId),
-          });
+            comment: withMessageContext(withAbout(makeComment(trimmed), pending.aboutItemId), context.request),
+          }), () => { onSent?.(); if (useUiStore.getState().pendingComment === pending) useUiStore.getState().setPendingComment(null); });
         }}
         style={{ display: "block" }}
       >
         {pending.textAnchor && <blockquote className="thread-text-anchor">{pending.textAnchor.quote}</blockquote>}
+        <MessageContextPreview context={context} />
+        {sending.error && <p role="alert">{sending.error}</p>}
         <MentionField
           multiline
           autoFocus
@@ -574,7 +600,7 @@ function ComposePopover({
           >
             Cancel
           </button>
-          <button className="btn primary" type="submit" title="Comment (⌘⏎)" disabled={!body.trim()}>
+          <button className="btn primary" type="submit" title="Comment (⌘⏎)" disabled={!body.trim() || sending.disabled}>
             Comment
           </button>
         </div>

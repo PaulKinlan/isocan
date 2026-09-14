@@ -1,14 +1,20 @@
+import { CANVAS_GROUPS_FEATURE, CLIENT_FEATURES_HEADER, formatBadgeToken } from "@isocan/core";
+import { adoptRcAgent, type RcAgentRow } from "../src/rc.ts";
+import { agentSessionOf, machineAgentKey } from "../src/agent-key.ts";
 import { describe, expect, it, vi } from "vitest";
 import { promises as fs, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   answeringFor,
   badge,
   base,
   collect,
   dimitri,
+  daemon,
+  holdOnThisMachine,
   home,
   isocan,
   nico,
@@ -57,6 +63,51 @@ vi.setConfig({ testTimeout: 60_000 });
 useRcHome();
 
 describe("the enrolment record, in two halves", () => {
+  it("publishes enrolment only after the rc can read its working directory", async () => {
+    const submit = daemon.engine.submit.bind(daemon.engine);
+    let observed: RcAgentRow[] = [];
+    let adopted: boolean | undefined;
+    const gate = vi.spyOn(daemon.engine, "submit").mockImplementation(async (request) => {
+      if (request.op.type === "agent.enroll") {
+        // This intercepts the writer BEFORE it can publish an op or wake an
+        // actor. No timer decides whether the configuration was ready.
+        observed = await rcRows();
+        adopted = await adoptRcAgent(home, { canvasId: "prj_1", actorId: request.op.agent.id, name: request.op.agent.name, cwd: "/wrong-default", harness: null, sessionId: null });
+      }
+      return submit(request);
+    });
+    try {
+      const run = await isocan("agent", "add", "Acme builder");
+      expect(run.code, run.stderr).toBe(0);
+      expect(observed).toMatchObject([{ name: "Acme builder", cwd: await fs.realpath(home) }]);
+      expect(adopted).toBe(false);
+    } finally { gate.mockRestore(); }
+  });
+
+  it("a receipt dropped after acceptance leaves the prepared rc configuration intact", async () => {
+    let response: ServerResponse | undefined;
+    const capture = (request: IncomingMessage, reply: ServerResponse) => {
+      if (request.method === "POST" && request.url === "/api/ops") response = reply;
+    };
+    daemon.app.server.prependListener("request", capture);
+    const submit = daemon.engine.submit.bind(daemon.engine);
+    const gate = vi.spyOn(daemon.engine, "submit").mockImplementation(async (request) => {
+      const accepted = await submit(request);
+      if (request.op.type === "agent.enroll") response!.destroy();
+      return accepted;
+    });
+    try {
+      const run = await isocan("agent", "add", "Acme lost receipt");
+      expect(run.code).not.toBe(0);
+      const agent = Object.values(await snapshotAgents()).find((a) => a.actor.name === "Acme lost receipt");
+      expect(agent).toBeDefined();
+      expect(await rcRows()).toMatchObject([{ actorId: agent!.actor.id, cwd: await fs.realpath(home) }]);
+    } finally {
+      gate.mockRestore();
+      daemon.app.server.removeListener("request", capture);
+    }
+  });
+
   it("`isocan agent add` writes both halves — and the actor exists before any session", async () => {
     const run = await isocan("agent", "add", "Sian");
     expect(run.code).toBe(0);
@@ -324,7 +375,9 @@ describe("the web doors' mechanics (phase 2.5)", () => {
     await until(async () => out, (o) => o.includes("answering on"), "the rc to come up");
 
     // The dialog's exact record write: agent.enroll over HTTP. No CLI verb
-    // ran on this machine, so no rc half exists — the rc supplies it.
+    // ran on this machine, so no rc half exists — the rc supplies it. The
+    // actor is this machine's, as the ask makes it: an orphan is inert.
+    await holdOnThisMachine({ id: "usr_sian", name: "Sian" });
     await post("/api/ops", {
       canvasId: "prj_1",
       actor: dimitri,
@@ -353,9 +406,86 @@ describe("the web doors' mechanics (phase 2.5)", () => {
     await done;
   }, 30_000);
 
+  it("a web ask naming a template gets a working directory from a module on THIS machine (proposed: templates)", async () => {
+    const rc = spawnCli(["rc"]);
+    let out = "";
+    rc.stdout!.setEncoding("utf8");
+    rc.stdout!.on("data", (chunk) => (out += chunk));
+    const done = new Promise<void>((resolve) => rc.on("close", () => resolve()));
+    await until(async () => out, (o) => o.includes("answering on"), "the rc to come up");
+
+    const parked = () => until(async () => {
+      const response = await fetch(`${base}/api/projects/prj_1/rc`, { headers: badge.headers });
+      return response.json() as Promise<{ parked?: boolean }>;
+    }, (state) => state.parked === true, "the rc's live park");
+    await parked();
+
+    // What the design competition's Fight button sends: a name, a template
+    // id and strings — never code. The template is the module's, installed
+    // in this build; the rc runs it here, into a directory it chooses. Asked
+    // by the rc's owner: since owner-only summons (#269) a template ask meets
+    // the same gate as a plain one, and this machine is Nico's. Asked on the
+    // badge this machine already holds — a test badge may not become somebody
+    // live here, and the owner's own surface is what the Fight button is.
+    const { auth } = JSON.parse(await fs.readFile(path.join(home, "identity.json"), "utf8")) as {
+      auth: Record<string, { badgeId: string; secret: string }>;
+    };
+    const [mine] = Object.values(auth);
+    const asOwner = (body: unknown): Promise<any> =>
+      fetch(`${base}/api/projects/prj_1/agents/ask`, {
+        method: "POST",
+        headers: { [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE, "Content-Type": "application/json", Authorization: `Bearer ${formatBadgeToken(mine!.badgeId, mine!.secret)}` },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+    const asked = await asOwner({
+      name: "Less but Better",
+      from: nico,
+      template: "design-competition.fighter",
+      args: { pack: "rams", bout: "itm_bout", lane: "Less but Better", canvas: "prj_1" },
+    });
+    expect(asked.ok, JSON.stringify(asked)).toBe(true);
+    await until(async () => out, (o) => o.includes("from the template design-competition.fighter"), "the template ask narrated");
+    await until(rcRows, (r) => r.some((row) => row.name === "Less but Better"), "the enrolment");
+    const row = (await rcRows()).find((r) => r.name === "Less but Better")!;
+    expect(await fs.realpath(row.cwd)).toBe(await fs.realpath(path.join(home, "templates", "design-competition.fighter", "prj_1", "less-but-better")));
+    expect(await fs.readFile(path.join(row.cwd, "AGENTS.md"), "utf8")).toMatch(/You are Less but Better/);
+
+    // Somebody else's template ask is refused at the door like any ask would
+    // be — a template names what to write, never whose machine may be asked.
+    await parked();
+    const theirs = await post("/api/projects/prj_1/agents/ask", {
+      name: "Road Signs",
+      from: dimitri,
+      template: "design-competition.fighter",
+      args: { pack: "kare", bout: "itm_bout", lane: "Road Signs", canvas: "prj_1" },
+    });
+    expect(theirs).toMatchObject({ code: "not-your-rc" });
+    expect(theirs.error).toContain("Nico's");
+
+    // A template nobody installed here is refused by id, and enrols nobody.
+    await parked();
+    await asOwner({ name: "Stranger", from: nico, template: "nobody.here" });
+    await until(async () => out, (o) => o.includes("no module on this machine offers the template nobody.here"), "the refusal");
+    expect((await rcRows()).some((r) => r.name === "Stranger")).toBe(false);
+
+    rc.kill("SIGINT");
+    await done;
+  }, 30_000);
+
+  it("refuses at the door an ask whose template is not an id and strings", async () => {
+    const res = await fetch(`${base}/api/projects/prj_1/agents/ask`, {
+      method: "POST",
+      headers: { ...badge.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Sly", from: dimitri, template: "../../bin/sh" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("an rc that starts late reconciles the enrolments it missed", async () => {
     // Enrolled from the web while NO rc ran — the record works with nothing
-    // running; the rc supplies where and how at its next start.
+    // running; the rc supplies where and how at its next start. The actor is
+    // this machine's, as the ask makes it: an orphan is inert.
+    await holdOnThisMachine({ id: "usr_percy", name: "Percy" });
     await post("/api/ops", {
       canvasId: "prj_1",
       actor: dimitri,
@@ -414,8 +544,8 @@ describe("the vocabulary divide, enforced", () => {
  * phase 1). The enrolment key used to be `agent:<canvasId>:<name>`, so Percy
  * enrolled on a second canvas from the same machine was a second session key
  * on the same badge asking for a worn name — refused by the desk, the gate
- * #89 hit. The key is the name now: the same claim on any canvas resumes the
- * one Percy.
+ * #89 hit. The key is derived from the name now, by this machine's agent
+ * secret (room phase 3.5): the same claim on any canvas resumes the one Percy.
  */
 describe("one agent, one name, one machine, many canvases", () => {
   it("enrolling a name this machine answers for, on a second canvas, is the same actor", async () => {
@@ -447,12 +577,13 @@ describe("one agent, one name, one machine, many canvases", () => {
     // A CLI run the way a summons on prj_2 runs it — the injected environment,
     // nothing else, in an unbound directory — speaks as Percy AND acts on
     // prj_2: `ISOCAN_CANVAS` is read like `--canvas`.
+    const percySession = agentSessionOf(await machineAgentKey(home, "Percy"));
     const inside = await collect(
-      spawnCli(["--json", "whoami"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: "Percy", ISOCAN_CANVAS: "prj_2" }),
+      spawnCli(["--json", "whoami"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: percySession, ISOCAN_CANVAS: "prj_2" }),
     );
     expect(JSON.parse(inside.stdout).id).toBe(a.id);
     const typed = await collect(
-      spawnCli(["text", "standing", "here"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: "Percy", ISOCAN_CANVAS: "prj_2" }),
+      spawnCli(["text", "standing", "here"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: percySession, ISOCAN_CANVAS: "prj_2" }),
     );
     expect(typed.code).toBe(0);
     const itemsOf = async (canvasId: string) => {
@@ -466,12 +597,12 @@ describe("one agent, one name, one machine, many canvases", () => {
     // The containment still holds for the agent's spelling: an explicit
     // pointer is refused, but the environment a summons runs in is not one.
     const pointed = await collect(
-      spawnCli(["--canvas", "prj_1", "agent", "add", "Sian"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: "Percy", ISOCAN_CANVAS: "prj_2" }),
+      spawnCli(["--canvas", "prj_1", "agent", "add", "Sian"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: percySession, ISOCAN_CANVAS: "prj_2" }),
     );
     expect(pointed.code).toBe(1);
     expect(pointed.stderr).toContain("beside itself");
     const beside = await collect(
-      spawnCli(["--json", "agent", "add", "Sian"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: "Percy", ISOCAN_CANVAS: "prj_2" }),
+      spawnCli(["--json", "agent", "add", "Sian"], { ISOCAN_HARNESS: "agent", ISOCAN_SESSION_ID: percySession, ISOCAN_CANVAS: "prj_2" }),
     );
     expect(beside.code).toBe(0);
     expect(JSON.parse(beside.stdout).canvasId).toBe("prj_2");
@@ -548,17 +679,17 @@ describe("one rc, every canvas its rows name (phase 2)", () => {
 describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
   // A PATH with nothing on it, so only what config.json declares is
   // runnable and the runner's own installs cannot vote.
-  const bare = { PATH: path.join(home ?? os.tmpdir(), "no-such-bin") };
+  const bare = () => ({ PATH: path.join(home, "no-such-bin") });
 
   it("`isocan harness` reads the machine, with no daemon in the way", async () => {
-    const run = await collect(spawnCli(["--json", "harness"], bare));
+    const run = await collect(spawnCli(["--json", "harness"], bare()));
     expect(run.code).toBe(0);
     const scan = JSON.parse(run.stdout) as { harnesses: Array<{ name: string; runnable: boolean; default: boolean }>; default: string | null; source: string };
     expect(scan.default).toBe("claude-code");
     expect(scan.source).toBe("config");
     expect(scan.harnesses.find((h) => h.name === "claude-code")).toMatchObject({ runnable: true, default: true });
     expect(scan.harnesses.find((h) => h.name === "pi")).toMatchObject({ runnable: false, default: false });
-    const table = await collect(spawnCli(["harness"], bare));
+    const table = await collect(spawnCli(["harness"], bare()));
     expect(table.stdout).toContain("HARNESS");
     expect(table.stdout).toContain("config.json's defaultHarness");
   });
@@ -575,14 +706,14 @@ describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
       actor: dimitri,
       op: { type: "agent.enroll", agent: { id: "usr_sian", name: "Sian" } },
     });
-    const refused = await collect(spawnCli(["rc"], bare));
+    const refused = await collect(spawnCli(["rc"], bare()));
     expect(refused.code).not.toBe(0);
     expect(refused.stderr).toContain("Sian named no harness");
     expect(refused.stderr).toContain("2 harnesses here (claude-code, fake); an agent added without naming one can't run until");
     expect(refused.stderr).toContain("isocan rc --default-harness <name>");
 
     // The flag answers and is kept: the next bare start needs no flag.
-    const rc = spawnCli(["rc", "--default-harness", "fake"], bare);
+    const rc = spawnCli(["rc", "--default-harness", "fake"], bare());
     let out = "";
     rc.stdout!.setEncoding("utf8");
     rc.stdout!.on("data", (chunk) => (out += chunk));
@@ -592,11 +723,11 @@ describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
     rc.kill("SIGINT");
     await done;
     expect(JSON.parse(await fs.readFile(path.join(home, "config.json"), "utf8")).defaultHarness).toBe("fake");
-    const again = await collect(spawnCli(["--json", "harness"], bare));
+    const again = await collect(spawnCli(["--json", "harness"], bare()));
     expect(JSON.parse(again.stdout).default).toBe("fake");
 
     // A flag naming what cannot run here is refused with the list.
-    const wrong = await collect(spawnCli(["rc", "--default-harness", "pi"], bare));
+    const wrong = await collect(spawnCli(["rc", "--default-harness", "pi"], bare()));
     expect(wrong.code).not.toBe(0);
     expect(wrong.stderr).toContain("--default-harness pi: not runnable here");
     expect(wrong.stderr).toContain("runnable: claude-code, fake");
@@ -610,7 +741,7 @@ describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
     );
     await isocan("rc", "add", "Sian", "--harness", "fake");
     const { actorId } = (await rcRows()).find((r) => r.name === "Sian")!;
-    const rc = spawnCli(["rc"], bare);
+    const rc = spawnCli(["rc"], bare());
     let out = "";
     rc.stdout!.setEncoding("utf8");
     rc.stdout!.on("data", (chunk) => (out += chunk));
@@ -637,64 +768,85 @@ describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
 });
 
 /**
- * **An agent is taken up the same way however the rc noticed it.**
- *
- * This guards a mistake I made twice in one evening while chasing the flake
- * above. Taking up an agent is TWO things — `adoptRcAgent` records where and
- * how it runs, `claimAgent` holds its cursor so dispatch reaches it — and the
- * roster reconcile did only the second. An agent picked up that way had a
- * cursor and no record, so the test above went on timing out with the "fix"
- * in place, and it was right to: the narration was missing because the RECORD
- * was, not the other way round.
- *
- * Source-shape, deliberately. The path only runs when an enrolment lands
- * inside the rc's own startup, and that window cannot be forced from outside
- * without controlling internal timing — so what is asserted is that the two
- * paths agree, which is the property that was broken.
+ * **Two rcs answer one canvas** (room phase 3; journey 2). Two machines on one
+ * daemon, each with a badge of its own: this home is Nico's, `machine2` is
+ * Wren's. Each adds an agent, each runs `isocan rc`, and each roster names
+ * both. The cursor and hold routes require the actor, and the room parks
+ * before it does anything else for an agent, so each rc says the other's
+ * agent once and leaves it alone. Without the route check the second rc parks
+ * Percy and the two trade his cursor; without the room's rule it reads the
+ * refusal as a cursor it could not hold, every lap.
  */
-describe("both ways of taking up an agent do the same two things", () => {
-  const main = readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8");
+describe("two rcs, one canvas (room phase 3)", () => {
+  it("each answers its own agent, says the other's once, and neither takes the other's cursor", async () => {
+    const machine2 = path.join(home, "machine2");
+    await fs.mkdir(machine2);
+    await fs.writeFile(
+      path.join(machine2, "identity.json"),
+      JSON.stringify({ id: "usr_wren", name: "Wren", createdAt: new Date().toISOString() }),
+    );
+    await fs.copyFile(path.join(home, "config.json"), path.join(machine2, "config.json"));
+    const wren = { ISOCAN_HOME: machine2 };
+    expect((await isocan("rc", "add", "Percy", ...TEAM)).code).toBe(0);
+    expect((await collect(spawnCli(["--canvas", "prj_1", "rc", "add", "Wendy", ...TEAM], wren))).code).toBe(0);
+    const ids = Object.fromEntries(Object.values(await snapshotAgents()).map((a) => [a.actor.name, a.actor.id]));
+    const percy = ids["Percy"]!;
+    const wendy = ids["Wendy"]!;
 
-  it("adopts AND claims, on the enrol entry and on the roster reconcile alike", () => {
-    const adopts = main.match(/adoptRcAgent\(ctx\.home, \{/g) ?? [];
-    const claims = main.match(/await claimAgent\(/g) ?? [];
-    // Two adoption sites: the enrol entry and the reconcile. If a third
-    // appears, it needs its own claim beside it — which is the point.
-    expect(adopts.length, "every take-up adopts").toBeGreaterThanOrEqual(2);
-    expect(claims.length, "and every one of them claims too").toBeGreaterThanOrEqual(adopts.length);
-  });
+    const started = (args: string[], env: Record<string, string> = {}) => {
+      const child = spawnCli(args, env);
+      const seen = { out: "" };
+      child.stdout!.setEncoding("utf8");
+      child.stdout!.on("data", (chunk) => (seen.out += chunk));
+      child.stderr!.setEncoding("utf8");
+      child.stderr!.on("data", (chunk) => (seen.out += chunk));
+      return { child, seen, done: new Promise<void>((resolve) => child.on("close", () => resolve())) };
+    };
+    const one = started(["rc"]);
+    await until(answeringFor, (a) => a.includes(percy), "the first rc to hold Percy");
+    const two = started(["--canvas", "prj_1", "rc"], wren);
+    // The second rc's hold names Wendy only after its start has said what it
+    // has to say, so this is the end of its start.
+    await until(answeringFor, (a) => a.includes(percy) && a.includes(wendy), "both agents answerable");
 
-  it("says the same sentence either way, so a reader cannot tell them apart", () => {
-    // The line is how a person knows an agent was taken up at all. Two
-    // wordings would make the rc's narration depend on which path noticed.
-    const said = main.match(/· where and how supplied — \$\{rcCwd\}/g) ?? [];
-    expect(said.length).toBeGreaterThanOrEqual(2);
-  });
-});
+    const summon = (threadId: string, body: string) =>
+      post("/api/ops", {
+        canvasId: "prj_1",
+        actor: dimitri,
+        op: { type: "thread.create", threadId, x: 0, y: 0, anchorItemId: null, comment: { id: `cmt_${threadId}`, body } },
+      });
+    // Both outputs, so a wait that times out shows what each machine said.
+    const both = async () => `=== first\n${one.seen.out}\n=== second\n${two.seen.out}`;
+    const second = (o: string) => o.slice(o.indexOf("=== second"));
+    await summon("th_percy", "@Percy the spacing looks wrong");
+    await until(both, (o) => o.slice(0, o.indexOf("=== second")).includes("Percy · turn ended"), "the first machine to answer Percy");
+    await summon("th_wendy", "@Wendy and the heading");
+    await until(both, (o) => second(o).includes("Wendy · turn ended"), "the second machine to answer Wendy");
+    // Long enough for a lap and a hold on each side after both turns.
+    await new Promise((r) => setTimeout(r, 3_000));
 
-/**
- * **A withdrawal inside the rc's startup window** (sheep-harness phase 2).
- * The same window as above, from the other side, and source-shape for the
- * same reason: it cannot be forced from outside.
- */
-describe("a withdrawal is reaped however the rc noticed it", () => {
-  const main = readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8");
+    const threads = ((await (await fetch(`${base}/api/projects/prj_1/canvas`, { headers: badge.headers })).json()) as {
+      canvas: { threads: Record<string, { comments: { author: { name: string } }[] }> };
+    }).canvas.threads;
+    for (const [out, mine, theirs] of [
+      [one.seen.out, "Percy", "Wendy"],
+      [two.seen.out, "Wendy", "Percy"],
+    ] as const) {
+      expect(out).toContain(`${theirs} is not held by this machine — a pass minted for ${theirs} hands it over, or re-add it here`);
+      expect(out.split(`${theirs} is not held by this machine`).length - 1).toBe(1);
+      expect(out).not.toContain(`${theirs} ·`);
+      expect(out).not.toContain(`${mine} is not held by this machine`);
+      expect(out).not.toContain("another park adopted");
+      expect(out).not.toContain("could not hold");
+      expect(out).not.toContain("turn FAILED");
+    }
+    for (const threadId of ["th_percy", "th_wendy"]) {
+      expect(threads[threadId]!.comments.map((c) => c.author.name)).not.toContain("isocan");
+    }
+    expect(await answeringFor()).toEqual(expect.arrayContaining([percy, wendy]));
 
-  it("reaps and takes up once more after the start tip, where neither branch can see it", () => {
-    // Both halves of the same window (sheep-harness phase 2): an agent
-    // withdrawn between `opening` and `startTip` kept its row, and on the
-    // sheep harness its sheep — found by the full file under load; and one
-    // enrolled there waited for the first lap that read a roster, the end of
-    // a thirty-second poll on a quiet canvas — "a web add gets its rc half"
-    // failed on CI twice in three runs on it.
-    const tip = main.indexOf("const startTip = ");
-    const reaped = main.indexOf('await reap(settled, "as this rc started")');
-    const takenUp = main.indexOf("await takeUp(settled)");
-    const loop = main.indexOf("for (;;)", tip);
-    expect(tip).toBeGreaterThan(-1);
-    expect(reaped).toBeGreaterThan(tip);
-    expect(main.slice(tip, reaped)).toContain("const settled = await rosterOf()");
-    expect(takenUp).toBeGreaterThan(reaped);
-    expect(takenUp).toBeLessThan(loop);
-  });
+    one.child.kill("SIGINT");
+    two.child.kill("SIGINT");
+    await Promise.all([one.done, two.done]);
+  }, 60_000);
 });

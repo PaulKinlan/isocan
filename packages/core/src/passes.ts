@@ -261,6 +261,9 @@ export interface RedeemPassRequest {
    * dialled itself would be its own replica.
    */
   home?: string;
+  /** Setup on a local daemon also saves the pass-returned actor as its
+   * machine's person. Never forwarded; refused on a hosted/non-local door. */
+  adoptIdentity?: boolean;
 }
 
 export interface RedeemPassResponse {
@@ -271,6 +274,9 @@ export interface RedeemPassResponse {
    * redemption rather than frozen at mint, so a person who renamed herself in
    * between is handed the name she goes by now. */
   actor?: Actor;
+  /** The local machine's default after requested adoption; a different held
+   * person remains default. Absent when no adoption or identity was requested. */
+  identity?: { actor: Actor; adopted: boolean };
 }
 
 // ---- refusal ----
@@ -288,7 +294,27 @@ export interface RedeemPassResponse {
  * the button again. One collapsed refusal would send all three to the same
  * useless place.
  */
-export type PassRefusal = typeof PASS_UNKNOWN | typeof PASS_SPENT | typeof PASS_EXPIRED;
+export type PassRefusal =
+  | typeof PASS_UNKNOWN
+  | typeof PASS_SPENT
+  | typeof PASS_EXPIRED
+  | typeof PASS_MINTER_ENDED;
+
+/**
+ * **The surface that minted it has since been ended** (operator phase 4).
+ *
+ * A pass is the minter's standing, handed on: redemption writes `{root:
+ * "pass", badgeId: minter}` at the minter's rung. A minter that is dead has no
+ * standing to hand on, and the sweep would unstand the admission at the next
+ * pass anyway — but *would be expelled later* is not *was refused*, and the
+ * hour between is exactly the window a stolen laptop's outstanding pass was
+ * good for. So it is refused at the gate, with the tombstone's sentence, and
+ * the pass is left unspent: there is nothing to spend it on.
+ *
+ * 410 like `pass-expired`: it existed and is gone, and the remedy is the same
+ * shape — ask a surface that is still recognised for another.
+ */
+export const PASS_MINTER_ENDED = "pass-minter-ended";
 
 /**
  * No such pass — or the secret does not match one that exists.

@@ -1,6 +1,7 @@
 import type { CanvasState } from "./model.ts";
 import type { MetaPatch, NewVersion, Operation } from "./ops.ts";
 import { OpValidationError, unknownOperation } from "./errors.ts";
+import { invertGroupChange } from "./canvas-groups.ts";
 
 /**
  * Compute the inverse of an operation against the state it is ABOUT to be
@@ -31,6 +32,9 @@ export function invertOperation(
   };
 
   switch (op.type) {
+    case "group.change":
+      if (op.action.kind !== "apply") throw new OpValidationError("bad-op", "resolve group intent before inversion");
+      return { type: "group.change", action: { kind: "apply", change: invertGroupChange(stateBefore, op.action.change) } };
     case "actor.claim":
     case "actor.setColor":
     case "actor.setMark":
@@ -84,12 +88,14 @@ export function invertOperation(
       };
     }
 
+    case "item.edit":
     case "item.addVersion":
       return {
         type: "item.removeVersion",
         itemId: op.itemId,
         versionId: op.version.id,
         prevCurrentVersionId: getItem(op.itemId).currentVersionId,
+        ...(op.type === "item.edit" ? { patch: invertMetaPatch(getItem(op.itemId), op.patch) } : {}),
       };
 
     case "item.setCurrentVersion":
@@ -105,7 +111,9 @@ export function invertOperation(
       if (!version) {
         throw new OpValidationError("unknown-version", `unknown version: ${op.versionId}`);
       }
-      return { type: "item.restoreVersion", itemId: op.itemId, version };
+      return { type: "item.restoreVersion", itemId: op.itemId, version,
+        ...(op.patch ? { patch: invertMetaPatch(item, op.patch) } : {}),
+      };
     }
 
     case "item.restoreVersion":
@@ -114,6 +122,7 @@ export function invertOperation(
         itemId: op.itemId,
         versionId: op.version.id,
         prevCurrentVersionId: getItem(op.itemId).currentVersionId,
+        ...(op.patch ? { patch: invertMetaPatch(getItem(op.itemId), op.patch) } : {}),
       };
 
     case "item.delete":
@@ -182,6 +191,7 @@ export function invertOperation(
         body: existing.body,
         ...(existing.mentions ? { mentions: existing.mentions } : {}),
         ...(existing.items ? { items: existing.items } : {}),
+        ...(op.context !== undefined ? { context: existing.context ?? null } : {}),
       };
     }
 

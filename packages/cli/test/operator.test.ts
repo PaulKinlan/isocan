@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import {
+  CANVAS_GROUPS_FEATURE,
+  CLIENT_FEATURES_HEADER,
   DOOR_ROUTE,
   decodeHandoff,
   formatBadgeToken,
@@ -121,6 +123,24 @@ describe("the real binary, in a summoned session", () => {
     const out = await run(["operator", "log"], { ISOCAN_SESSION_ID: "Sonia" });
     expect(out.code).toBe(1);
     expect(out.stderr).toMatch(/operator acts need the person who runs this home/);
+  }, 30_000);
+
+  it("refuses `operator refuse` in a session too (operator phase 6)", async () => {
+    const out = await run(["operator", "refuse", "email:sam@example.test", "--reason", "harassment"], {
+      ISOCAN_SESSION_ID: "Sonia",
+    });
+    expect(out.code).toBe(1);
+    expect(out.stderr).toMatch(/operator acts need the person who runs this home/);
+    expect(out.stdout).not.toContain(PROVE_PATH_PREFIX);
+  }, 30_000);
+
+  it("refuses a subject it cannot read before a browser opens (operator phase 6)", async () => {
+    // No session and no daemon: the subject pre-check must exit before `ctxOf`
+    // would spawn one, so a person who typed `net:garbage` reads why at once.
+    const out = await run(["operator", "refuse", "net:garbage", "--reason", "spam"]);
+    expect(out.code).toBe(1);
+    expect(out.stderr).toMatch(/not a network/);
+    expect(out.stdout).not.toContain(PROVE_PATH_PREFIX);
   }, 30_000);
 });
 
@@ -328,6 +348,7 @@ describe("the real verbs, driven end to end", () => {
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${formatBadgeToken(badge.badgeId, badge.secret!)}`,
+      [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE,
     };
     // The desk has to vouch for Priya before this badge may speak as her —
     // mechanism 5, and the reason a seeded canvas is two calls rather than one.
@@ -363,11 +384,11 @@ describe("the real verbs, driven end to end", () => {
   /**
    * Run a verb, and be the browser it opens.
    *
-   * `ISOCAN_BROWSER_NOOP` is not a thing — the verb really does try to spawn
-   * `open`, and on a test machine that either fails silently or opens a page
-   * at a loopback port that answers a plain-text sentence. What matters is
-   * that this test reaches the loopback FIRST, with a token the home will
-   * verify, which is what makes the rest of the run the production path.
+   * The verb hands its address to `openInBrowser`, which `test/setup.ts` has
+   * told to print rather than spawn (`ISOCAN_BROWSER=none`) — it used to open
+   * a real window on whoever was running the suite. Everything else is the
+   * production path: this test reaches the loopback FIRST, with a token the
+   * home will verify, exactly as the browser would have.
    */
   const drive = (args: string[]) => {
     const env: NodeJS.ProcessEnv = {

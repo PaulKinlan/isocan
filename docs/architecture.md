@@ -43,6 +43,74 @@ one that has to stay exact.
 
 ## The stack
 
+The web and CLI use the same daemon/API vocabulary. `@isocan/mcp` adapts that
+API to stdio tools and current canvas/Context resources; it owns no canvas
+state. Explicit per-call session keys select durable `mcp:` agent claims,
+and calls without them retain ambient identity. A known canvas ID goes to
+admission directly; discovery controls lists rather than removing the
+known-address door. Shared context assembly and feedback addressing remain
+in API/core. A feedback call's deadline covers connection setup, admission
+and polling, and its cancellation reaches HTTP as well as held daemon watches.
+
+Personal memory adds private Desk records for stable owner/source bindings,
+concrete link consent and source-specific agent delegation. A first explicit
+use reserves its birth identity before the writer creates it without a link
+grant or inherited space. FileDesk serializes one daemon's callers; CloudDesk
+transactions also coordinate independent instances. Metadata lifecycle checks
+and a narrow reserved-birth recovery distinguish an interrupted birth from a
+deleted dataset. Joined owners keep all existing datasets.
+
+Core defines contributed pieces and provenance; the browser-safe
+`@isocan/api/context` leaf assembles local, inherited and explicitly authorized
+personal layers for both clients. Personal reads validate the current caller,
+destination edge and home-owned consent before opening source data. Automatic
+linked previews and inheritance classify their sources first and remain
+redacted for personal or unknown sources. Browser private text exists only in
+the current Context inspection; shared canvas state and frozen requests do not
+acquire it.
+
+Ordinary inherited Context adds a bounded metadata head from
+`GET /api/projects/:id/context/recap`. The engine's existing writer queue
+captures current and archived operations coherently with GC, and core validates
+the required recent range before calculating it. Missing history is unavailable,
+not an empty summary. The backing still materializes its archive; only the
+response is newly bounded. Context-only assembly and a deferred report leaf
+keep design resolution and automatic source classification history-free.
+
+The shared API security hooks classify the route Fastify actually matched,
+including decoded parameters, so encoded static URL segments receive the same
+badge, Origin, admission, lifecycle and source checks as canonical requests.
+Forwarding retains the actual URL. The ordinary recap route forces personal
+exclusion before generic source-loading hooks and repeats it in the queue.
+
+MCP's `read_personal_context` adapts that same authoritative read. A claimed
+session and concrete destination card are required; the resolved destination
+handle carries the actor and cancellation through the request. Pagination and
+current-piece provenance remain the API's contract, and no tool adds a second
+permission decision or changes frozen request content.
+
+MCP excludes personal sources from ambient resolution and carries an immutable
+actor and read/edit/own ceiling on explicit requests. The HTTP boundary checks
+that restriction before admission or source reads and again at queued writes;
+forwarding carries it to the authority rather than reading a retained replica.
+A replica retains only source/home classification to prevent automatic link
+migration, never ownership or delegation authority. Personal canvases refuse
+ordinary teleport because it cannot transfer these private custody records.
+
+Inbox assembly also belongs to the daemon. CLI and web ask the same route;
+each remote canvas is read through its authoritative home connection with
+that home's admission and operator checks. The response includes private
+visit marks and explicit unavailable canvases. A visible browser polls every
+30 seconds without writing marks. Marking a visit routes by that canvas's
+home, independently of the other homes the replica happens to hold.
+
+Modules also remain clients. They can carry bounded assets, declare validated
+data contributions, fill dialogs and ask the person's rc for installed
+templates. The template's directory and rc configuration exist before
+enrolment is published. Arena creation uses core's explicit prepared forest
+and one bounded group operation; removing the module leaves ordinary files,
+properties and reactions in the log.
+
 | layer | choice |
 | --- | --- |
 | language / runtime | TypeScript on Node 22, run with `tsx` as today — the container pins the toolchain, and an always-on instance makes cold-start economics moot |
@@ -212,19 +280,31 @@ because the loser's copy is overwritten with nothing anywhere saying so.
 A log line and not a throw — the other canvases at that home are
 innocent.
 
-The listing route still answers the WIDE question by default, because a
-browser asks a different question on the same route — "what can I open
-from here", which on a solo home includes the canvas a CLI just made
-under a badge the tab has never carried — and the caller states which,
-never the route sniffing who called. Phase 10.3 added a third question to
-the same route for the same reason: `?reach=here`, the canvases this
-daemon is the home of, which is what the web app's canvas list asks,
-because its links are client-side navigations that never reach the
-per-canvas page guard and the local origin would otherwise render a
-replica of a canvas that lives at dev. Enumerate-and-mirror was the
-easiest thing that worked while a home had one member; it is how a
-stranger's canvas landed on a laptop the moment a link grant was on. An
-arrival that
+Hosted discovery now includes admissions, named canvas/group/space grants
+and creator floors. Link grants answer a known address and never supply an
+ordinary hosted working directory, including explicit `?reach=admissible`
+requests. The same
+boundary governs homes, presence whereabouts, takedown lists and unscoped
+oplog watches. Named watch targets retain the entry door. Link candidates
+are excluded before choosing a discovery grant, so a stronger link cannot
+hide a valid named invitation.
+
+Public is a separate home catalogue (`GET /api/public`), not a discovery
+scope on that working list. A concrete canvas link at read/view carries an
+optional latest listing decision `{listed, at, by}`. FileDesk journals its
+atomic change; CloudDesk transacts the grant row. Revocation clears consent,
+replacement starts unlisted, and indexed grant candidates are rechecked
+against metadata-only `Store.canvasRecord`, home authority and refusals.
+Catalogue reads admit nobody and read no snapshots, blobs or thumbnails.
+The unsigned `/public` page and signed-in home section render the same narrow
+DTO; public responses and canvas entry HTML send noindex instructions.
+
+A loopback-bound daemon retains its local shelf: a local browser sees what
+its own machine holds, including a canvas the CLI created under a different
+badge. `?reach=admitted` remains narrow for replicas. `?reach=here` additionally
+limits the answer to canvases this daemon is the home of; the web list needs
+that limit because its client-side links would otherwise open stale local
+replicas. An arrival that
 holds only an ADDRESS — a cloned `.isocan/project.json`, a pass-less
 `isocan setup` — asks for that one canvas by name (`POST
 /api/home/join`), and the home runs the same door test it would have run
@@ -762,3 +842,41 @@ renderer (including React's table-whitespace removal). Receivers resolve local
 DOM ranges; CSS Custom Highlights never replace native selection. Older
 browsers retain the named attention status and explicit Show selection action.
 Version changes clear the highlight instead of guessing at another sentence.
+
+
+### Module workspaces
+
+The web and CLI module lists are the only host imports of a module. Anatomy
+adds no graph daemon: project records, concepts and checkpoints are ordinary
+versioned JSON items; membership and relationships are namespaced properties.
+Its CLI and React views use the same graph adapter and operation builders.
+
+`WebModule.workspaces` composes chrome around the host's native viewport at
+an existing module route. `ModuleWorkspace` owns capability, selection,
+navigation, history shortcuts, lazy/error boundaries and measured stage bounds.
+A fixed viewport clipped to the measured slot keeps screen-coordinate drag
+math unchanged. `WorkspaceHost` promotes authenticated blob reads and native
+selection/focus/navigation; modules still import no web stores. The API and
+proposed declaration live in `core/modules.ts`; the full contract is in
+[the module authoring guide](projects/modules/authoring.md).
+
+A workspace can supply a project-specific menu and right-rail entry from the
+canvas record's properties. Anatomy uses `anatomy.analysis` and
+`anatomy.repository`; requesting a repository read posts an ordinary `/anatomy`
+Chat message for an agent. Workspace-scoped activation routes native card
+double-clicks and underlay links without putting module semantics in ItemView.
+
+
+Anatomy’s fluid exploration adds a workspace-local presentation store in the
+web host. Modules provide target bounds and semantic detail over native IDs;
+React consumers and imperative gestures read the same interpolated frame.
+Canonical geometry remains in the daemon’s replica. The host maps item-anchored
+comments between saved and displayed coordinates, while unscoped presence is
+not projected across different local layouts. Module API 0.2.2 also makes local
+view state addressable through host navigation. See the [workspace contract](projects/modules/authoring.md).
+
+`item.edit` is a conditional body-and-metadata replacement. The reducer checks
+the version originally read and optional title/property preconditions before
+changing either field. Anatomy’s form and guarded CLI drafts use it; undo and
+redo restore body and metadata together. An older daemon rejects the new op
+rather than silently dropping a precondition it does not understand.

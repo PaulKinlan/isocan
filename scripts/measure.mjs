@@ -11,6 +11,14 @@
  *   node scripts/measure.mjs --list
  *   node scripts/measure.mjs --selftest
  *
+ * **`--names` is the second half of the ones that have it.** A count says a
+ * ratchet slipped; it does not say what to do about it, so a metric that can
+ * name its offenders declares a `names()` beside its `take()` and prints them
+ * instead of the number. `--list` marks which. Asking a metric that has none
+ * is an error rather than a silent count, because a guard's failure message
+ * naming a flag that quietly does nothing is exactly the rot this line exists
+ * to stop.
+ *
  * **`--selftest` is not optional politeness.** The build rule in
  * `docs/projects/personas/design.md` is that no persona may declare a goal
  * whose measuring command has not been shown to fail on something broken —
@@ -26,8 +34,44 @@ import { CEILING } from "./bundle-ceiling.mjs";
 import { operationMembers } from "./isomorphism.mjs";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
+/**
+ * **The buffer is large because a full answer is not a broken instrument.**
+ *
+ * `execFileSync` defaults to one megabyte of stdout and KILLS the child past
+ * it, handing back what fitted. `lint-violations` asks eslint for JSON, and
+ * when the walk reached `.claude/worktrees/` that report was 6,056 files —
+ * far past a megabyte. The metric got valid JSON with its end cut off, threw
+ * parsing it, and `take()` in `canvas-board.mjs` read the crash the only way
+ * it can: **"instrument would not run"**, printed on the board beside
+ * qa-tester for months. The instrument ran perfectly; the answer did not fit.
+ *
+ * The eslint walk is fixed in `eslint.config.js`, which is the real cause. The
+ * buffer is raised anyway, because "the output was too big" and "the command
+ * is broken" are different sentences and this one said the wrong sentence for
+ * a long time without anybody being able to tell.
+ */
+/**
+ * The files a feature cannot avoid. Named rather than derived: "big file" is
+ * not the property that matters — "every change has to go through here" is,
+ * and only a person knows which those are. A file leaves this list by being
+ * split, never by being excused.
+ */
+const CROWDED = [
+  "packages/cli/src/main.ts",
+  "packages/web/src/styles.css",
+  "packages/cli/src/agent-guide.md",
+];
+
+const lines = (file) => readFileSync(path.join(repo, file), "utf8").split("\n").length;
+
 const run = (cmd, args, opts = {}) =>
-  execFileSync(cmd, args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts });
+  execFileSync(cmd, args, {
+    cwd: repo,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+    ...opts,
+  });
 
 /**
  * Each metric: what it counts, how, and — for the selftest — a mutation that
@@ -193,23 +237,8 @@ const METRICS = {
      * sheet names, and the right answer there is to raise the bound WITH THE
      * REASON — which is what happened at 47.
      */
-    take() {
-      const css = readFileSync(path.join(repo, "packages/web/src/styles.css"), "utf8");
-      const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
-      const seen = new Map();
-      let copies = 0;
-      for (const [, body] of bare.matchAll(/\{([^{}]*)\}/g)) {
-        const decls = body
-          .split(";")
-          .map((d) => d.trim().replace(/\s+/g, " "))
-          .filter(Boolean);
-        if (decls.length < 3) continue;
-        const key = decls.sort().join(";");
-        if (seen.has(key)) copies += 1;
-        else seen.set(key, true);
-      }
-      return copies;
-    },
+    take: () => copiedRules().copies,
+    names: () => copiedRuleLines(),
     breakIt: {
       file: "packages/web/src/styles.css",
       // Paste the shared panel header back as a private copy — the exact
@@ -333,6 +362,7 @@ const METRICS = {
   "unused-exports": {
     what: "exports that nothing outside their own file uses",
     take: () => scanExports().unused,
+    names: () => scanExports(true).found,
     breakIt: {
       file: "packages/core/src/kinds.ts",
       /**
@@ -357,11 +387,51 @@ const METRICS = {
   "undocumented-exports": {
     what: "exports with no comment above them",
     take: () => scanExports().bare,
+    names: () => scanExports(true).bareFound,
     breakIt: {
       file: "packages/core/src/kinds.ts",
       apply: (t) => `${t}\nexport const SELFTEST_BARE_EXPORT = 2;\n`,
     },
   },
+  /**
+   * **The files every feature has to edit, measured because they are what
+   * stops the work scaling.**
+   *
+   * Counted on 13 September: `packages/cli/src/main.ts` is 14,700 lines and
+   * was touched 120 times in the preceding fortnight; `styles.css` 6,754 lines
+   * and 108 touches; `agent-guide.md` 2,601 and 81. They are the top of the
+   * churn list after the generated docs, and for one reason — a new verb, a
+   * new component, a new anything lands in the same file as everybody else's
+   * new thing, so parallel work conflicts by construction rather than by
+   * accident.
+   *
+   * A count of lines is a crude stand-in for "how much has to go through one
+   * door", and it is the right crudeness: it cannot be argued with, it moves
+   * the moment somebody adds to a crowded file, and it goes DOWN when the
+   * thing that actually fixes it happens — a family of commands moving to its
+   * own module, a component taking its own stylesheet.
+   *
+   * A persona goal rather than a gate, deliberately. `ratchet.mjs` says a
+   * missed bound is news and not a build break, and a hard gate on this would
+   * be turned off within a week by the first person who needed one more line
+   * at midnight.
+   */
+  "registry-lines": {
+    what: "lines in the files every feature must edit — the single doors work queues at",
+    take() {
+      return CROWDED.reduce((total, file) => total + lines(file), 0);
+    },
+    names() {
+      return CROWDED.map((file) => `${file}  ${lines(file)}`).sort(
+        (a, b) => Number(b.split(/\s+/).pop()) - Number(a.split(/\s+/).pop()),
+      );
+    },
+    breakIt: {
+      file: "packages/cli/src/agent-guide.md",
+      apply: (t) => `${t}\n<!-- selftest: one more line through the one door -->\n`,
+    },
+  },
+
   "lint-violations": {
     what: "eslint errors — rules-of-hooks and exhaustive-deps, both at error",
     take() {
@@ -448,6 +518,7 @@ function scanExports(names = false) {
   let unused = 0;
   let bare = 0;
   const found = [];
+  const bareFound = [];
   for (const file of sources) {
     const src = bodies.get(file) ?? readFileSync(path.join(repo, file), "utf8");
     const lines = src.split("\n");
@@ -457,7 +528,10 @@ function scanExports(names = false) {
       const name = m[1];
       // A comment on the line above — a block's `*/`, a `//`, or a continuation.
       const prev = (lines[i - 1] ?? "").trim();
-      if (!(prev.endsWith("*/") || prev.startsWith("//") || prev.startsWith("*"))) bare += 1;
+      if (!(prev.endsWith("*/") || prev.startsWith("//") || prev.startsWith("*"))) {
+        bare += 1;
+        if (names) bareFound.push(`${file}:${i + 1}  ${name}`);
+      }
       const word = new RegExp(`\\b${name}\\b`);
       let usedElsewhere = false;
       for (const [other, body] of bodies) {
@@ -470,20 +544,80 @@ function scanExports(names = false) {
       }
     });
   }
-  return { unused, bare, found };
+  return { unused, bare, found, bareFound };
+}
+
+/**
+ * **One walk behind both halves of `copied-rules`**, for the same reason the
+ * export metrics share `scanExports`: a `--names` that scanned separately from
+ * the count could print a set whose size is not the number the guard failed on
+ * (`docs/reviews/lessons.md` #5).
+ *
+ * The selector is the text between the previous brace and this body's `{` —
+ * which is what a person needs to go and look, and is why the reading grew a
+ * capture group it does not use for counting. `{` and `}` cannot appear in it,
+ * so a nested block (`@media … { .foo { … } }`) yields `.foo` rather than the
+ * at-rule: the innermost rule is the one that was copied.
+ */
+function copiedRules() {
+  const css = readFileSync(path.join(repo, "packages/web/src/styles.css"), "utf8");
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodies = new Map();
+  let copies = 0;
+  for (const [, selector, body] of bare.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const decls = body
+      .split(";")
+      .map((d) => d.trim().replace(/\s+/g, " "))
+      .filter(Boolean);
+    if (decls.length < 3) continue;
+    const key = decls.sort().join(";");
+    const who = selector.trim().replace(/\s+/g, " ");
+    const seen = bodies.get(key);
+    if (seen) {
+      seen.repeats.push(who);
+      copies += 1;
+    } else {
+      bodies.set(key, { first: who, repeats: [], decls });
+    }
+  }
+  return { copies, families: [...bodies.values()].filter((f) => f.repeats.length > 0) };
+}
+
+/**
+ * **What to go and look at**, biggest family first, because a body five
+ * selectors repeat is a different conversation from a body two do: the first
+ * is a vocabulary asking to be named, the second is usually one rule written
+ * twice.
+ *
+ * It prints the body too, not only the selectors. The question this number
+ * asks — "is this one thing written twice, or two things that agree?" — cannot
+ * be answered from selector names alone.
+ */
+function copiedRuleLines() {
+  const { copies, families } = copiedRules();
+  const lines = [];
+  for (const f of [...families].sort((a, b) => b.repeats.length - a.repeats.length || a.first.localeCompare(b.first))) {
+    // Copies, not occurrences — so the numbers printed here add up to the
+    // number the metric prints, and nobody has to work out whether the rule
+    // that declared the body first was counted as a copy of itself.
+    lines.push(`${f.first}  ${f.repeats.length} ${f.repeats.length === 1 ? "copy" : "copies"}`);
+    lines.push(`    ${f.decls.join("; ")}`);
+    for (const who of f.repeats) lines.push(`    repeated by  ${who}`);
+    lines.push("");
+  }
+  lines.push(`${copies} copies over ${families.length} bodies — the first number is what \`copied-rules\` prints.`);
+  return lines;
 }
 
 const argv = process.argv.slice(2);
 
-// `unused-exports --names` prints the offenders rather than the count, so a
-// tripped ratchet is actionable without a second scan somewhere else.
-if (argv[0] === "unused-exports" && argv.includes("--names")) {
-  for (const line of scanExports(true).found) console.log(line);
-  process.exit(0);
-}
-
 if (argv.includes("--list")) {
-  for (const [name, m] of Object.entries(METRICS)) console.log(`${name.padEnd(24)} ${m.what}`);
+  // The `--names` marker is part of the listing: a flag nobody can discover is
+  // a flag that goes stale unnoticed, which is how `copied-rules --names` came
+  // to be printed in a failure message without existing.
+  for (const [name, m] of Object.entries(METRICS)) {
+    console.log(`${name.padEnd(24)} ${m.what}${m.names ? "  [--names]" : ""}`);
+  }
   process.exit(0);
 }
 
@@ -575,4 +709,33 @@ if (!metric) {
   console.error(`unknown metric "${name ?? ""}" — try --list`);
   process.exit(2);
 }
+
+/**
+ * **`--names` belongs to the metric, not to an `if` naming one of them.**
+ *
+ * This dispatch used to read `argv[0] === "unused-exports" && …`, so
+ * `copied-rules --names` — the exact command `test/copied-rules.test.ts` hands
+ * somebody at the moment its guard reddens their commit — fell through to the
+ * count and exited 0. A number they already had, from the failure message that
+ * had just printed it. `undocumented-exports --names` said the same nothing.
+ *
+ * A metric that can say WHICH declares a `names()` beside its `take()`, both
+ * reading the same scan; one that cannot says so and exits non-zero, because a
+ * flag that silently means nothing is how this went stale in the first place.
+ */
+if (argv.includes("--names")) {
+  if (!metric.names) {
+    const answering = Object.entries(METRICS)
+      .filter(([, m]) => m.names)
+      .map(([n]) => n);
+    console.error(
+      `"${name}" is a count and nothing more — it has no --names.\n` +
+        `Metrics that can say which: ${answering.join(", ")}`,
+    );
+    process.exit(2);
+  }
+  for (const line of metric.names()) console.log(line);
+  process.exit(0);
+}
+
 console.log(metric.take());

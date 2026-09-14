@@ -1,3 +1,5 @@
+import { selectPersonalBinding, assertPersonalIntent, type PersonalSourceRecord, type PersonalOwnerRecord, type PersonalConsent, type PersonalLinkIntent, type ReservePersonalRequest, type PersonalReservation } from "./personal-desk.ts";
+import type { PersonalDelegate } from "@isocan/core";
 import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import type {
@@ -6,16 +8,22 @@ import type {
   CanvasTakedown,
   Capability,
   Grant,
+  GrantListingDecision,
   GrantSubject,
   Group,
+  HomeRefusal,
   PurgeCounts,
   SeenMark,
   SeenMarks,
   Space,
   OperatorAct,
+  OperatorEnd,
+  OperatorRevocation,
 } from "@isocan/core";
 import {
   advanceSeen,
+  canListGrant,
+  isListedGrant,
   groupSubject,
   inForce,
   isGroupLive,
@@ -29,7 +37,7 @@ import {
 } from "@isocan/core";
 import { appendLineDurable, readJson, readJsonLines, writeFileAtomic } from "./fsutil.ts";
 import * as p from "./paths.ts";
-import { liveAdmission } from "./grants.ts";
+import { keepsAdmission } from "./grants.ts";
 import type { Admission, BadgeRecord, Desk, PassRecord, Provenance } from "./desk.ts";
 
 /**
@@ -87,17 +95,24 @@ import type { Admission, BadgeRecord, Desk, PassRecord, Provenance } from "./des
  * must not be able to stall behind one.
  */
 
+type PersonalRows = { replicas?: { canvasId: string; home: string }[]; sources?: PersonalSourceRecord[]; owners?: PersonalOwnerRecord[]; intents?: PersonalLinkIntent[]; delegates?: { sourceCanvasId: string; delegation: PersonalDelegate }[] };
+
 type DeskLogEntry =
+  | { seq: number; type: "personal"; rows: PersonalRows; at: string }
   | { seq: number; type: "badge"; badgeId: string; secretHash: string; kind: BadgeRecord["kind"]; at: string }
   | { seq: number; type: "claims"; badgeId: string; claims: ActorClaim[]; at: string }
   | { seq: number; type: "shelve"; rows: Record<string, ActorClaim>; at: string }
   | { seq: number; type: "adopt"; sessionKey: string; badgeId: string; at: string }
   | { seq: number; type: "grant"; grant: Grant; at: string }
-  | { seq: number; type: "revoke"; grantId: string; by: string; at: string }
+  | { seq: number; type: "listing"; grantId: string; listing: GrantListingDecision; at: string }
+  | { seq: number; type: "revoke"; grantId: string; by: string; at: string; via?: OperatorRevocation }
   | { seq: number; type: "pass"; pass: PassRecord; at: string }
   | { seq: number; type: "redeem"; passId: string; by: string; at: string }
   | { seq: number; type: "attest"; badgeId: string; attestation: Attestation; at: string }
-  | { seq: number; type: "kill"; badgeId: string; by: string; at: string }
+  /** A badge ended — by its holder's other surface, or, with `end`, by the
+   * operator (operator phase 4): the reason, the address and the act, which
+   * the tombstone's sentence is rendered from. */
+  | { seq: number; type: "kill"; badgeId: string; by: string; at: string; end?: OperatorEnd }
   /** A space, WHOLE, on every write (roles phase 4): creation, a canvas added
    * or removed, the tombstone. Replayed as a replacement, not a `??=`, because
    * the latest write is the row. Losing one would quietly widen or narrow who
@@ -149,12 +164,26 @@ type DeskLogEntry =
    * refusal with no sentence is exactly the *not found* the design calls the
    * one thing a takedown must never look like.
    */
-  | { seq: number; type: "takedown"; row: CanvasTakedown; at: string };
+  | { seq: number; type: "takedown"; row: CanvasTakedown; at: string }
+  /**
+   * **A subject this home will not admit, and why** (operator phase 6).
+   *
+   * Logged rather than derived, for the takedown's reason: this row is what
+   * the refused person's sentence is rendered from, and a home that lost it
+   * would have no sentence to say — and, unlike a takedown, no store flag
+   * underneath it to keep refusing. The row IS the refusal.
+   */
+  | { seq: number; type: "refusal"; row: HomeRefusal; at: string };
 
 /** `Omit` over a union collapses it to the shared keys; this distributes. */
 type NewEntry<T> = T extends unknown ? Omit<T, "seq"> : never;
 
 interface DeskSnapshot {
+  personalReplicas?: Record<string, string>;
+  personalSources?: Record<string, PersonalSourceRecord>;
+  personalOwners?: Record<string, PersonalOwnerRecord>;
+  personalIntents?: Record<string, PersonalLinkIntent>;
+  personalDelegates?: Record<string, Record<string, PersonalDelegate>>;
   lastSeq: number;
   badges: Record<string, BadgeRecord>;
   /** Pre-badge claims waiting for the sessionKey that will collect them. */
@@ -194,6 +223,10 @@ interface DeskSnapshot {
    * EMPTY: a home with no row has taken nothing down, which is true of every
    * home in this repo. */
   takedowns?: Record<string, CanvasTakedown>;
+  /** `refusals/{subject}` (operator phase 6), keyed by the normalized subject
+   * and holding lifted and expired rows too. Absent on every desk written
+   * before it, and correctly EMPTY: a home with no row refuses nobody. */
+  refusals?: Record<string, HomeRefusal>;
 }
 
 /** How stale `lastSeen` may get before a touch costs a snapshot rewrite. A
@@ -202,7 +235,7 @@ interface DeskSnapshot {
 const TOUCH_DEBOUNCE_MS = 60_000;
 
 export class FileDesk implements Desk {
-  private state: DeskSnapshot = { lastSeq: 0, badges: {}, shelf: {}, grants: {}, passes: {}, spaces: {}, groups: {}, operator: {}, takedowns: {} };
+  private state: DeskSnapshot = { lastSeq: 0, badges: {}, shelf: {}, grants: {}, passes: {}, spaces: {}, groups: {}, operator: {}, takedowns: {}, refusals: {} };
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(readonly home: string) {}
@@ -212,6 +245,11 @@ export class FileDesk implements Desk {
     const snapshot = await readJson<DeskSnapshot>(p.badgesFile(this.home));
     this.state = {
       lastSeq: snapshot?.lastSeq ?? 0,
+      personalSources: snapshot?.personalSources ?? {},
+      personalReplicas: snapshot?.personalReplicas ?? {},
+      personalOwners: snapshot?.personalOwners ?? {},
+      personalIntents: snapshot?.personalIntents ?? {},
+      personalDelegates: snapshot?.personalDelegates ?? {},
       badges: snapshot?.badges ?? {},
       shelf: snapshot?.shelf ?? {},
       // Absent in every desk written before phase 7 — and correctly EMPTY
@@ -240,6 +278,9 @@ export class FileDesk implements Desk {
       // Absent on every desk written before takedowns; empty means this home
       // has taken nothing down, which is the truth about all of them.
       takedowns: snapshot?.takedowns ?? {},
+      // Absent on every desk written before refusals; empty means this home
+      // refuses nobody, which is the truth about all of them.
+      refusals: snapshot?.refusals ?? {},
       // Absent until a hosted home first signs a content read. Undefined
       // means "none minted", never "sign with nothing".
       ...(snapshot?.contentKey ? { contentKey: snapshot.contentKey } : {}),
@@ -259,6 +300,88 @@ export class FileDesk implements Desk {
    * its snapshot; nothing is held open beyond that. */
   async close(): Promise<void> {
     await this.chain;
+  }
+
+  async personalReplica(canvasId: string): Promise<string | null> { return this.state.personalReplicas?.[canvasId] ?? null; }
+
+  async recordPersonalReplica(canvasId: string, home: string): Promise<void> {
+    await this.enqueue(async () => {
+      const existing = await this.personalReplica(canvasId);
+      if (existing === home) return;
+      if (existing) throw new Error("personal replica authority changed");
+      await this.commitPersonal({ replicas: [{ canvasId, home }] }, new Date().toISOString());
+    });
+  }
+
+  async personalSource(canvasId: string): Promise<PersonalSourceRecord | null> {
+    return structuredClone(this.state.personalSources?.[canvasId] ?? null);
+  }
+
+  async personalBinding(ownerIds: string[]): Promise<PersonalReservation | null> {
+    return structuredClone(selectPersonalBinding(ownerIds, Object.values(this.state.personalOwners ?? {}), Object.values(this.state.personalSources ?? {})));
+  }
+
+  async reservePersonal(request: ReservePersonalRequest): Promise<PersonalReservation> {
+    return this.enqueue(async () => {
+      const existing = await this.personalBinding([request.ownerId, ...request.aliases]);
+      if (existing) {
+        if (!this.state.personalOwners?.[request.ownerId]) await this.commitPersonal({ owners: [{ ownerId: request.ownerId, sourceCanvasId: existing.source.canvasId, enrolledAt: request.at }] }, request.at);
+        return existing;
+      }
+      if (this.state.personalSources?.[request.canvasId]) throw new Error("personal source id is already reserved");
+      const source: PersonalSourceRecord = { canvasId: request.canvasId, ownerId: request.ownerId, birthOpId: request.birthOpId, createdAt: request.at, birth: "reserved" };
+      await this.commitPersonal({ sources: [source], owners: [{ ownerId: request.ownerId, sourceCanvasId: request.canvasId, enrolledAt: request.at }] }, request.at);
+      return { source, preserved: [] };
+    });
+  }
+
+  async finishPersonalBirth(canvasId: string, birthOpId: string): Promise<void> {
+    await this.enqueue(async () => {
+      const source = await this.personalSource(canvasId);
+      if (!source || source.birthOpId !== birthOpId) throw new Error("personal birth reservation does not match");
+      if (source.birth === "created") return;
+      await this.commitPersonal({ sources: [{ ...source, birth: "created" }] }, source.createdAt);
+    });
+  }
+
+  async reservePersonalLink(intent: PersonalLinkIntent): Promise<PersonalLinkIntent> {
+    return this.enqueue(async () => {
+      const key = JSON.stringify([intent.destinationCanvasId, intent.ownerId, intent.requestId]);
+      const existing = this.state.personalIntents?.[key];
+      if (existing) { assertPersonalIntent(existing, intent); return structuredClone(existing); }
+      if (!this.state.personalSources?.[intent.sourceCanvasId]) throw new Error("personal source is not reserved");
+      if (Object.values(this.state.personalIntents ?? {}).some((row) => row.destinationCanvasId === intent.destinationCanvasId && row.itemId === intent.itemId)) throw new Error("personal card id is already reserved");
+      await this.commitPersonal({ intents: [intent] }, intent.createdAt);
+      return structuredClone(intent);
+    });
+  }
+
+  async personalLinksFor(destinationCanvasId: string): Promise<PersonalConsent[]> {
+    return structuredClone(Object.values(this.state.personalIntents ?? {}).filter((row) => row.destinationCanvasId === destinationCanvasId));
+  }
+
+  async personalLinkForItem(destinationCanvasId: string, itemId: string): Promise<PersonalConsent | null> {
+    return (await this.personalLinksFor(destinationCanvasId)).find((row) => row.itemId === itemId) ?? null;
+  }
+
+  async personalDelegations(sourceCanvasId: string): Promise<PersonalDelegate[]> {
+    return structuredClone(Object.values(this.state.personalDelegates?.[sourceCanvasId] ?? {}));
+  }
+
+  async setPersonalDelegation(sourceCanvasId: string, delegation: PersonalDelegate): Promise<PersonalDelegate> {
+    return this.enqueue(async () => {
+      if (!this.state.personalSources?.[sourceCanvasId]) throw new Error("personal source is not reserved");
+      await this.commitPersonal({ delegates: [{ sourceCanvasId, delegation }] }, delegation.at);
+      return structuredClone(delegation);
+    });
+  }
+
+  private async commitPersonal(rows: PersonalRows, at: string): Promise<void> {
+    const entry: DeskLogEntry = { seq: this.state.lastSeq + 1, type: "personal", rows, at };
+    await appendLineDurable(p.badgesLogFile(this.home), JSON.stringify(entry));
+    this.replay(entry);
+    this.state.lastSeq = entry.seq;
+    await this.writeSnapshot();
   }
 
   async put(badge: BadgeRecord): Promise<void> {
@@ -351,36 +474,38 @@ export class FileDesk implements Desk {
     provenance: Provenance,
     capability?: Capability,
   ): Promise<void> {
-    const badge = this.live(badgeId);
-    if (!badge) return;
-    /**
-     * **An admission that has RUN OUT is replaced, not kept** (operator phase
-     * 2).
-     *
-     * This used to be `some(a => a.canvasId === canvasId)`, which was exactly
-     * right while every admission was live until somebody revoked it. The
-     * operator's look is the first that ends on its own, and with the old line
-     * a second look at the same canvas from the same browser would be written
-     * nowhere and refused at the door — a verb that answered "done" and did
-     * nothing. Replacing is also what makes a re-entry by a GRANT possible
-     * after a look has expired.
-     */
-    const existing = badge.admissions.find((a) => a.canvasId === canvasId);
-    if (existing && liveAdmission(existing)) return;
-    const admission: Admission = {
-      canvasId,
-      provenance,
-      at: new Date().toISOString(),
-      // Stored whenever it is not edit (`narrowed`, the one place that
-      // decides): absent has meant "edit" since before the field existed, and
-      // both backings keep that reading.
-      ...(narrowed(capability) ? { capability } : {}),
-    };
-    badge.admissions = [
-      ...badge.admissions.filter((a) => a.canvasId !== canvasId),
-      admission,
-    ];
-    await this.enqueue(() => this.writeSnapshot());
+    await this.enqueue(async () => {
+      const badge = this.live(badgeId);
+      if (!badge) return;
+      /**
+       * **An admission that has RUN OUT is replaced, not kept** (operator phase
+       * 2).
+       *
+       * This used to be `some(a => a.canvasId === canvasId)`, which was exactly
+       * right while every admission was live until somebody revoked it. The
+       * operator's look is the first that ends on its own, and with the old line
+       * a second look at the same canvas from the same browser would be written
+       * nowhere and refused at the door — a verb that answered "done" and did
+       * nothing. Replacing is also what makes a re-entry by a GRANT possible
+       * after a look has expired.
+       */
+      const existing = badge.admissions.find((a) => a.canvasId === canvasId);
+      if (keepsAdmission(existing, provenance, capability)) return;
+      const admission: Admission = {
+        canvasId,
+        provenance,
+        at: new Date().toISOString(),
+        // Stored whenever it is not edit (`narrowed`, the one place that
+        // decides): absent has meant "edit" since before the field existed, and
+        // both backings keep that reading.
+        ...(narrowed(capability) ? { capability } : {}),
+      };
+      badge.admissions = [
+        ...badge.admissions.filter((a) => a.canvasId !== canvasId),
+        admission,
+      ];
+      await this.writeSnapshot();
+    });
   }
 
   // ---- the sweep, and kill-a-badge ----
@@ -430,21 +555,35 @@ export class FileDesk implements Desk {
     });
   }
 
-  async killBadge(badgeId: string, at: string, by: string): Promise<BadgeRecord | null> {
+  async killBadge(
+    badgeId: string,
+    at: string,
+    by: string,
+    end?: OperatorEnd,
+  ): Promise<BadgeRecord | null> {
     return this.enqueue(async () => {
       const badge = this.state.badges[badgeId];
       // Already dead is not an error and is not a second kill: the caller
       // wanted this holder gone and it is, so hand back nothing to sweep.
       if (!badge || badge.killedAt !== undefined) return null;
-      badge.killedAt = at;
-      badge.killedBy = by;
       // The record as it was ALIVE — admissions and claims intact — because
       // the caller sweeps those canvases and names those actors. Killing the
       // badge is not forgetting where it had been.
       const wasAlive: BadgeRecord = { ...badge };
-      await this.append({ type: "kill", badgeId, by, at });
+      badge.killedAt = at;
+      badge.killedBy = by;
+      if (end) badge.end = end;
+      await this.append({ type: "kill", badgeId, by, at, ...(end ? { end } : {}) });
       return wasAlive;
     });
+  }
+
+  async endedBadge(badgeId: string): Promise<BadgeRecord | null> {
+    // The raw record, not `live`: this is the one read that WANTS the
+    // tombstone. A copy, as every read here hands back.
+    const badge = this.state.badges[badgeId];
+    if (!badge || badge.killedAt === undefined) return null;
+    return { ...badge };
   }
 
   async attest(badgeId: string, attestation: Attestation): Promise<void> {
@@ -475,7 +614,7 @@ export class FileDesk implements Desk {
     // `where("canvasId", "==", …)` and an index rather than a scan.
     return Object.values(this.state.grants)
       .filter((grant) => !isSpaceGrant(grant) && grant.canvasId === canvasId)
-      .map((grant) => ({ ...grant }));
+      .map((grant) => structuredClone(grant));
   }
 
   async grantsForSpace(spaceId: string): Promise<Grant[]> {
@@ -483,7 +622,7 @@ export class FileDesk implements Desk {
     // with `where("spaceId", "==", …)`.
     return Object.values(this.state.grants)
       .filter((grant) => isSpaceGrant(grant) && grant.spaceId === spaceId)
-      .map((grant) => ({ ...grant }));
+      .map((grant) => structuredClone(grant));
   }
 
   // ---- spaces (roles phase 4) ----
@@ -613,7 +752,7 @@ export class FileDesk implements Desk {
     // serves it with `where("subject", "==", …)`.
     return Object.values(this.state.grants)
       .filter((grant) => isLive(grant) && grant.subject === subject)
-      .map((grant) => ({ ...grant }));
+      .map((grant) => structuredClone(grant));
   }
 
   /** The groups ledger, which a desk from before roles phase 5 lacks. */
@@ -621,24 +760,46 @@ export class FileDesk implements Desk {
     return (this.state.groups ??= {});
   }
 
+  async listedGrants(): Promise<Grant[]> {
+    return Object.values(this.state.grants).filter(isListedGrant).map((grant) => structuredClone(grant));
+  }
+
+  async setPublicListing(canvasId: string, grantId: string, listed: boolean, at: string, by: string): Promise<Grant | null> {
+    return this.enqueue(async () => {
+      const grant = this.state.grants[grantId];
+      if (!grant || !canListGrant(grant) || grant.canvasId !== canvasId) return null;
+      const listing = { listed, at, by };
+      grant.listing = listing;
+      await this.append({ type: "listing", grantId, listing, at });
+      return structuredClone(grant);
+    });
+  }
+
   async putGrant(grant: Grant): Promise<void> {
     await this.enqueue(async () => {
-      this.state.grants[grant.id] = { ...grant };
+      this.state.grants[grant.id] = structuredClone(grant);
       await this.append({ type: "grant", grant, at: grant.at });
     });
   }
 
-  async revokeGrant(grantId: string, at: string, by: string): Promise<Grant | null> {
+  async revokeGrant(grantId: string, at: string, by: string, via?: OperatorRevocation): Promise<Grant | null> {
     return this.enqueue(async () => {
       const grant = this.state.grants[grantId];
       if (!grant) return null;
       // Idempotent: the first revocation's stamp stands, so two people
       // turning the link off at once do not argue about when it went off.
-      if (grant.revokedAt !== undefined) return { ...grant };
+      if (grant.revokedAt !== undefined) return structuredClone(grant);
       grant.revokedAt = at;
       grant.revokedBy = by;
-      await this.append({ type: "revoke", grantId, by, at });
-      return { ...grant };
+      if (grant.listing !== undefined) grant.listing = { listed: false, at, by };
+      // The operator's half rides on the same line (operator phase 5), so
+      // a replay rebuilds the tombstone the surfaces read, not a plainer one.
+      if (via) {
+        grant.revokedVia = "operator";
+        grant.revocation = { ...via };
+      }
+      await this.append({ type: "revoke", grantId, by, at, ...(via ? { via } : {}) });
+      return structuredClone(grant);
     });
   }
 
@@ -654,6 +815,14 @@ export class FileDesk implements Desk {
   async pass(passId: string): Promise<PassRecord | null> {
     const found = this.state.passes[passId];
     return found ? { ...found } : null;
+  }
+
+  async passesMintedBy(badgeId: string): Promise<PassRecord[]> {
+    // A walk, for `grantsFor`'s reason: the SEAM is the query, and the cloud
+    // backing serves it with an index.
+    return Object.values(this.state.passes)
+      .filter((pass) => pass.mintedBy === badgeId)
+      .map((pass) => ({ ...pass }));
   }
 
   /**
@@ -827,6 +996,43 @@ export class FileDesk implements Desk {
       .map((row) => ({ ...row }));
   }
 
+  // ---- refusals (operator phase 6) ----
+
+  async recordRefusal(row: HomeRefusal): Promise<void> {
+    await this.enqueue(async () => {
+      (this.state.refusals ??= {})[row.subject] = { ...row };
+      await this.append({ type: "refusal", row, at: row.at });
+    });
+  }
+
+  async liftRefusal(subject: string, lifted: { at: string; by: string; actId: string }): Promise<void> {
+    await this.enqueue(async () => {
+      const row = this.state.refusals?.[subject];
+      if (!row) return;
+      const next: HomeRefusal = {
+        ...row,
+        liftedAt: lifted.at,
+        liftedBy: lifted.by,
+        liftedActId: lifted.actId,
+      };
+      this.state.refusals![subject] = next;
+      await this.append({ type: "refusal", row: next, at: lifted.at });
+    });
+  }
+
+  async refusalFor(subject: string): Promise<HomeRefusal | null> {
+    const row = this.state.refusals?.[subject];
+    return row ? { ...row } : null;
+  }
+
+  /** Not lifted — expired rows included, because the desk keeps no clock
+   * and the registry is the one reader that judges expiry (see `Desk`). */
+  async refusals(): Promise<HomeRefusal[]> {
+    return Object.values(this.state.refusals ?? {})
+      .filter((row) => row.liftedAt === undefined)
+      .map((row) => ({ ...row }));
+  }
+
   // ---- internals ----
 
   /**
@@ -863,6 +1069,14 @@ export class FileDesk implements Desk {
 
   private replay(entry: DeskLogEntry): void {
     switch (entry.type) {
+      case "personal": {
+        for (const row of entry.rows.replicas ?? []) (this.state.personalReplicas ??= {})[row.canvasId] = row.home;
+        for (const row of entry.rows.sources ?? []) (this.state.personalSources ??= {})[row.canvasId] = row;
+        for (const row of entry.rows.owners ?? []) (this.state.personalOwners ??= {})[row.ownerId] = row;
+        for (const row of entry.rows.intents ?? []) (this.state.personalIntents ??= {})[JSON.stringify([row.destinationCanvasId, row.ownerId, row.requestId])] = row;
+        for (const row of entry.rows.delegates ?? []) ((this.state.personalDelegates ??= {})[row.sourceCanvasId] ??= {})[row.delegation.agentId] = row.delegation;
+        return;
+      }
       case "badge": {
         // A recovered badge starts with no admissions: the address admits, so
         // it re-admits itself the moment it asks for something.
@@ -898,11 +1112,21 @@ export class FileDesk implements Desk {
         this.state.grants[entry.grant.id] ??= { ...entry.grant };
         return;
       }
+      case "listing": {
+        const grant = this.state.grants[entry.grantId];
+        if (grant && canListGrant(grant)) grant.listing = { ...entry.listing };
+        return;
+      }
       case "revoke": {
         const grant = this.state.grants[entry.grantId];
         if (!grant || grant.revokedAt !== undefined) return;
         grant.revokedAt = entry.at;
         grant.revokedBy = entry.by;
+        if (grant.listing !== undefined) grant.listing = { listed: false, at: entry.at, by: entry.by };
+        if (entry.via) {
+          grant.revokedVia = "operator";
+          grant.revocation = { ...entry.via };
+        }
         return;
       }
       case "pass": {
@@ -931,6 +1155,7 @@ export class FileDesk implements Desk {
         if (!badge || badge.killedAt !== undefined) return;
         badge.killedAt = entry.at;
         badge.killedBy = entry.by;
+        if (entry.end) badge.end = entry.end;
         return;
       }
       case "space": {
@@ -964,6 +1189,13 @@ export class FileDesk implements Desk {
         // recover a lifted canvas as still down — the one direction this
         // mistake must never go.
         (this.state.takedowns ??= {})[entry.row.canvasId] = { ...entry.row };
+        return;
+      }
+      case "refusal": {
+        // A replacement, for `takedown`'s reason: a lift is a REWRITE of the
+        // one row, and a replay that kept the first would recover a lifted
+        // subject as still refused.
+        (this.state.refusals ??= {})[entry.row.subject] = { ...entry.row };
         return;
       }
       case "contentkey": {

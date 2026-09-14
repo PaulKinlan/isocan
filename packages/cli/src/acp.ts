@@ -31,9 +31,10 @@ import type { AdapterSpec } from "./harnesses.ts";
  * - The adapter's shells inherit the ADAPTER's environment and nothing
  *   else — `CLAUDE_CODE_SESSION_ID` is NOT set inside them — so identity
  *   travels by injection: the rc sets `ISOCAN_HARNESS=agent` and
- *   `ISOCAN_SESSION_ID=<name>`, making the CLI inside present exactly the
- *   session key the enrolment claim minted (`agent:<name>`, `main.ts`'s
- *   enrol verb), and `ISOCAN_CANVAS=<canvasId>` so the CLI inside knows
+ *   `ISOCAN_SESSION_ID=<mac>`, making the CLI inside present exactly the
+ *   session key the enrolment claim minted (`agent:<mac>`, derived from the
+ *   agent's name by a secret only this machine holds — `agent-key.ts`), and
+ *   `ISOCAN_CANVAS=<canvasId>` so the CLI inside knows
  *   which canvas the summons is for without a directory binding. A CLI-added agent
  *   needs no rebinding at all; a web-added one needs a single idempotent
  *   `actor.claim { as }` on the machine badge, which the turn verb makes.
@@ -134,22 +135,20 @@ function passes(name: string, extra: string[]): boolean {
  * person's (above), scrubbed of every harness variable (a stale one would
  * misidentify the agent; `CLAUDECODE` trips the adapter's nested-session
  * guard), then the injection that makes the CLI inside speak as the
- * enrolled actor. `pass` is config.json's `adapterEnv` — names, or
- * `PREFIX_*` — and `source` is a parameter so a test can hand it a shell. */
+ * enrolled actor. `agentSession` is the session half of the agent's key
+ * (`agent:<session>`, `agent-key.ts`'s `agentSessionOf`). `pass` is
+ * config.json's `adapterEnv` — names, or `PREFIX_*` — and `source` is a
+ * parameter so a test can hand it a shell. */
 export function adapterEnv(
   canvasId: string,
-  agentName: string,
+  agentSession: string,
   options: {
     pass?: string[];
     source?: NodeJS.ProcessEnv;
     /**
      * **The session the injected environment presents** — the conversation
      * this actor is already claimed under, when a rename has moved the name
-     * away from it. Defaults to the name, which is the same thing at
-     * enrolment and only diverges afterwards: `agent:<name>` is how an agent
-     * is FIRST claimed, and the key then lives as long as the actor does.
-     * Injecting the name of a renamed agent would present a key the badge
-     * does not hold, which the desk refuses — correctly.
+     * away from it. Defaults to the session or name passed in.
      */
     sessionId?: string;
   } = {},
@@ -162,7 +161,7 @@ export function adapterEnv(
   }
   for (const name of [...harnessVars, "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete env[name];
   env["ISOCAN_HARNESS"] = "agent";
-  env["ISOCAN_SESSION_ID"] = options.sessionId ?? agentName;
+  env["ISOCAN_SESSION_ID"] = options.sessionId ?? agentSession;
   // Which canvas this summons is FOR travels beside the identity, read by the
   // CLI inside the way `--canvas` is (standing agents, phase 1): one agent may
   // stand on several canvases from one directory, so the working directory's
@@ -206,16 +205,6 @@ export function identityOfKey(sessionKey: string): { harness: string; session: s
 /**
  * **The session an adapter should present for an actor — the conversation it
  * is already in.**
- *
- * An agent is first claimed under `agent:<name>`, and that key then lives as
- * long as the actor does: the daemon refuses to re-key a live actor (one actor,
- * two faces), so the NAME moving must not move the key. A spawn that injects
- * the new name therefore injects a key nobody holds, and the desk refuses it —
- * correctly, because it looks exactly like a stranger claiming a name.
- *
- * So the key this actor is already bound under WINS, and the name's key is only
- * the first-time case (an agent added from a browser holds no claim on this
- * badge yet, and gets the rebinding the spike showed is needed).
  */
 export async function enrolmentSession(
   client: {
@@ -228,7 +217,6 @@ export async function enrolmentSession(
   const sessionKey = bound?.key ?? enrolmentKey(name);
   return { sessionKey, session: identityOfKey(sessionKey).session, bound: bound !== undefined };
 }
-
 interface JsonRpcMessage {
   jsonrpc: "2.0";
   id?: number;

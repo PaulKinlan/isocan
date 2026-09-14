@@ -203,23 +203,31 @@ export async function browser(options = {}) {
   let id = 0; const pending = new Map(); let errors = [];
   /** Callers waiting on a CDP EVENT rather than a reply — see `once`. */
   const waiters = new Map();
-  /** Callers watching EVERY occurrence of an event — see `on`. */
-  const watchers = new Map();
+  const listeners = new Map();
   ws.on("message", (d) => {
     const m = JSON.parse(d.toString());
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
+    for (const listener of listeners.get(m.method) ?? []) listener(m.params);
     if (m.method === "Runtime.exceptionThrown") errors.push((m.params.exceptionDetails?.exception?.description ?? "").split("\n")[0]);
     const w = waiters.get(m.method);
     if (w) { waiters.delete(m.method); w(m.params); }
-    for (const cb of watchers.get(m.method) ?? []) cb(m.params);
   });
   const send = (method, params = {}) => {
     const mid = ++id; ws.send(JSON.stringify({ id: mid, method, params }));
     return new Promise((res, rej) => pending.set(mid, (m) => (m.error ? rej(new Error(JSON.stringify(m.error))) : res(m.result))));
   };
   await send("Page.enable"); await send("Runtime.enable");
+  let closing;
   return {
     send,
+    /** Observe every occurrence, including requests for images and frames.
+     * Return an unsubscribe function so a journey can bound its observation. */
+    on: (method, listener) => {
+      if (!listeners.has(method)) listeners.set(method, new Set());
+      const group = listeners.get(method);
+      group.add(listener);
+      return () => { group.delete(listener); if (group.size === 0 && listeners.get(method) === group) listeners.delete(method); };
+    },
     /**
      * **Arm a listener for one CDP event, BEFORE the thing that causes it.**
      *
@@ -228,17 +236,6 @@ export async function browser(options = {}) {
      * never ends. So callers arm, then act, then await.
      */
     once: (method) => new Promise((res) => waiters.set(method, res)),
-    /**
-     * **Watch every occurrence, for a stream rather than a moment.** `once`
-     * is the right tool for "the page loaded"; a run that has to measure
-     * *every* frame on a socket needs this one, because arming a second
-     * `once` after the first frame is a race the first frame always wins.
-     */
-    on: (method, cb) => {
-      const all = watchers.get(method) ?? [];
-      all.push(cb);
-      watchers.set(method, all);
-    },
     ev: async (e) => {
       const r = await send("Runtime.evaluate", { expression: e, returnByValue: true, awaitPromise: true });
       if (r.exceptionDetails) {
@@ -248,11 +245,29 @@ export async function browser(options = {}) {
       return r.result?.value;
     },
     takeErrors: () => { const e = errors; errors = []; return e; },
-    close: async () => {
-      try { ws.close(); } catch {}
-      proc.kill();
-      await new Promise((r) => { proc.once("exit", r); setTimeout(r, 2000); });
-      try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
-    },
+    close: () => closing ??= (async () => {
+      listeners.clear();
+      // The browser control socket keeps Node alive just as the page socket
+      // does. Close both, and terminate a peer that never finishes its close.
+      await Promise.all([ws, browserWs].map((socket) => new Promise((resolve) => {
+        if (socket.readyState === WebSocket.CLOSED) return resolve();
+        const done = () => { clearTimeout(timer); socket.off("close", done); resolve(); };
+        const timer = setTimeout(() => { socket.terminate(); done(); }, 500);
+        socket.once("close", done);
+        try { socket.close(); } catch { socket.terminate(); done(); }
+      })));
+      const alive = () => proc.exitCode === null && proc.signalCode === null;
+      const stop = (signal) => new Promise((resolve) => {
+        if (!alive()) return resolve();
+        const done = () => { clearTimeout(timer); proc.off("exit", done); resolve(); };
+        const timer = setTimeout(done, 2000);
+        proc.once("exit", done);
+        proc.kill(signal);
+      });
+      await stop("SIGTERM");
+      if (alive()) await stop("SIGKILL");
+      if (alive()) throw new Error("the owned Chrome process did not exit");
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    })(),
   };
 }

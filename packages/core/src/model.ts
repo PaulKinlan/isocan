@@ -1,4 +1,5 @@
 import type { TextAnchor } from "./text-anchor.ts";
+import type { GroupLayout, GroupDeletionCohort, GroupCohortRecord, GroupMigrationBoundary } from "./canvas-group-types.ts";
 /**
  * The shared state model. Both the daemon (authoritative) and the web client
  * (live replica) hold this shape; the CLI reads it through queries.
@@ -37,6 +38,10 @@ export function isSystemActor(actorId: string): boolean {
 
 export interface Canvas {
   id: string;
+  /** Missing is historical area mode; the public writer defaults new canvases to groups. */
+  groupMode?: "groups" | "legacy";
+  /** An explicit conversion boundary, never inferred from the newest visible group. */
+  groupMigration?: GroupMigrationBoundary;
   title: string;
   description: string;
   properties: Record<string, string>;
@@ -58,7 +63,9 @@ export interface Canvas {
   updatedAt: string;
   updatedBy: Actor;
   /**
-   * The type of that last operation — `item.add`, `thread.create`, and so on.
+   * The semantic type of that last act — `item.add`, `thread.create`, and so
+   * on. An atomic group insertion still describes the item it added; its
+   * canonical log entry remains `group.change`.
    *
    * Stored rather than derived because the alternative is reading every
    * canvas's log to draw a list of canvases: one metadata file per canvas is
@@ -150,6 +157,9 @@ export function hasDistinctVisualFace(version: ItemVersion): boolean {
 
 export interface Item {
   id: string;
+  /** Explicit canvas membership; coordinates remain in world space. */
+  containerId?: string;
+  groupLayout?: GroupLayout;
   /** World coordinates, top-left corner. */
   x: number;
   y: number;
@@ -205,6 +215,8 @@ export interface Comment {
   /** Item ids #-referenced in the body, resolved at authoring time against
    * the live items the author could see. Absent on older comments. */
   items?: string[];
+  /** Writer-resolved request scope, retained independently of live item versions. */
+  context?: import("./canvas-group-context.ts").ContextManifest;
   createdAt: string;
   /** When the author last rewrote it, if they did. This is what makes a
    * working note possible: one comment that says "on it", then what it found,
@@ -240,6 +252,10 @@ export interface TrashEntry {
   item: Item;
   deletedAt: string;
   deletedBy: Actor;
+  /** Captured deletion act; subtree restore never steals another act's trash. */
+  cohort?: GroupDeletionCohort;
+  /** Converted legacy trash has no historical subtree or deletion cohort to recover. */
+  legacyGroupRestore?: "frame-only" | "root";
 }
 
 /**
@@ -278,6 +294,8 @@ export interface CanvasContents {
   items: Record<string, Item>;
   threads: Record<string, CommentThread>;
   trash: TrashEntry[];
+  /** One O(n) capture per deletion, retained while members may be restored. */
+  groupCohorts?: Record<string, GroupCohortRecord>;
   /** Standing agents by actor id. Optional because snapshots older than the
    * field exist on disk; read it through `?? {}`. */
   agents?: Record<string, EnrolledAgent>;

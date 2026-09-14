@@ -5,13 +5,13 @@ every extension point it can fill and the exact shape each expects, how it
 reaches the platform, how it is built and installed, and the guards that
 will hold it. [`design.md`](design.md) is the argument; this is the manual.
 The modules in `packages/modules/` — `mindmap`, `mermaid`, `documents`,
-`stickers`, `sandbox` — are the worked examples, and each one uses a
-different subset of what is below.
+`stickers`, `sandbox`, `design-competition` and `anatomy` — are the worked examples, and each one
+uses a different subset of what is below.
 
 ## How early this is — read this first
 
 **The module API is pre-1.0 and we intend to break it.** It is at
-`MODULE_API_VERSION` 0.2.0, it moved on the day a second person wrote a module
+`MODULE_API_VERSION` 0.2.2, it moved on the day a second person wrote a module
 against it, and it will move again. Nothing here is frozen.
 
 Two things follow, and they are the whole contract:
@@ -21,7 +21,8 @@ you were built against — `^0.2.0`, not `*`. A build that cannot satisfy it
 refuses you with a sentence naming both versions, which is the outcome you
 want: a refusal you can read beats a module that half-loads.
 
-**Say if you use the unstable parts.** `overlays`, `drops` and `host` are
+**Say if you use the unstable parts.** `overlays`, `drops`, `host`, `assets`,
+`points`, `dialogs`, `templates`, `rounds` and `workspaces` are
 **proposed**: they exist, they work, and they have had one caller each. A
 manifest that uses one names it in `proposed`, and `isocan module add` refuses
 it unless the person adding it passes `--proposed`. That is VS Code's bargain
@@ -63,6 +64,7 @@ packages/modules/<name>/
   package.json        name @isocan/<name>, "type": "module", exports ./core ./web ./cli
   tsconfig.json       extends ../../../tsconfig.base.json, jsx react-jsx, lib DOM
   agent-guide.md      the section `isocan --agent-help` prints while the module is loaded
+  assets/             bounded content; styles.css loads with the module
   src/core.ts         the pure facts, and the CoreModule record — default export
   src/web.tsx         the WebModule record — default export
   src/cli.ts          the CliModule record — default export
@@ -119,6 +121,8 @@ Every field but `name` is optional. What each buys:
 | `contextPieces` | `contextPieces()` in core | Rows in `isocan context` and the Context panel. The mind map's "Mind maps" row is one. |
 | `edges` | `moduleEdges()` in core | The JSON Canvas export writes them as edges; your own underlay is what draws them. |
 | `commands` | `withModuleCommands()` on both surfaces | Slash commands, source `module`, laid UNDER the built-ins and the home's own — a built-in or home command of the same name wins. |
+| `points`, `contributes` **(proposed)** | `contributions<T>(pointId)` | A namespaced point declares a validator; other modules contribute JSON values. Accepted values retain their source module, and `refusedContributions()` explains rejected or unknown points. A data-only module carries a manifest and assets without executing code. |
+| `rounds` **(proposed)** | the shared vote curtain | Returns `{ areaId, marks, until }` for each active vote. The curtain is a viewing convention over ordinary reactions, never a privacy boundary. |
 
 **Kinds and the union.** `ItemKind` is `BuiltinKind | (string & {})`. Your
 kind's id is a string every consumer looks up with a fallback: the web app's
@@ -134,7 +138,7 @@ not list them; each surface lays them in for itself, so an agent reading
 the composer's menu or `isocan command list` sees them, and an agent
 reading the raw route does not.
 
-## `web.tsx` — the `WebModule` record and the seven slots
+## `web.tsx` — the `WebModule` record and the eight slots
 
 The shell owns the slots and maps over its module list to fill them. Every
 slot is handed **facts as props, never stores**: a module component gets a
@@ -143,9 +147,9 @@ what keeps the dependency pointing one way and what lets a runtime module
 run without the shell's source.
 
 ```ts
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type {
-  InspectorFacts, OverlayFacts, PageFacts, RendererFacts, UnderlayFacts, WebModule,
+  InspectorFacts, OverlayFacts, PageFacts, RendererFacts, UnderlayFacts, WebModule, WorkspaceFacts,
 } from "@isocan/core";
 
 export const myWeb: WebModule<
@@ -153,7 +157,8 @@ export const myWeb: WebModule<
   ComponentType<RendererFacts>,
   ComponentType<InspectorFacts>,
   ComponentType<PageFacts>,
-  ComponentType<OverlayFacts>
+  ComponentType<OverlayFacts>,
+  ComponentType<WorkspaceFacts<ReactNode>>
 > = {
   core: myModule,
   underlays: [Lines],
@@ -162,12 +167,13 @@ export const myWeb: WebModule<
   inspectors: [{ kinds: ["whiteboard"], label: "Layers", component: Layers }],
   pages: [{ segment: "boards", label: "Whiteboards", hint: "every board on this canvas", component: Boards }],
   overlays: [{ region: "left", label: "Shapes", component: ShapeTray }],   // proposed
+  workspaces: [{ segment: "explore", label: "Explore", cli: "board show", component: Explore }], // proposed
   drops: [{ mimes: ["application/vnd.acme.shape-id"], run: dropShape }],   // proposed
 };
 export default myWeb;
 ```
 
-The five type parameters are the component types of the five component
+The six type parameters are the component types of the six component
 slots; leave a parameter off (it defaults to `never`) when you do not fill
 that slot, as `mermaid` does with `WebModule<ComponentType<UnderlayFacts>,
 ComponentType<RendererFacts>>`.
@@ -175,28 +181,125 @@ ComponentType<RendererFacts>>`.
 | Slot | Where it mounts | Facts it is handed | Notes |
 | --- | --- | --- | --- |
 | `underlays` | inside `.world`, before the items, in world units | `UnderlayFacts { canvas, drag }` — `drag` is `{ itemIds, dx, dy } \| null`, the live gesture, so a line can ride it before the replica moves | Draw under the items: a node is chromeless text and a line over it strikes through the words. The mind map's lines. |
-| `renderers` | `VersionContent`, ahead of the built-in chain, on the card and on the stage | `RendererFacts { canvasId, blobHash, mimeType, filename, entered, url, readText }` | Key your effects on `blobHash`, not on `readText` — the shell may hand a fresh closure per render for the same bytes, and the first Mermaid renderer refetched on every presence tick. Put a heavy library behind `React.lazy` in a separate file so a canvas without your kind never downloads it. |
+| `renderers` | `VersionContent`, ahead of the built-in chain, on the card and on the stage | `RendererFacts { item?, canvasId, blobHash, mimeType, filename, entered, url, readText }` | Key your effects on `blobHash`, not on `readText` — the shell may hand a fresh closure per render for the same bytes, and the first Mermaid renderer refetched on every presence tick. Put a heavy library behind `React.lazy` in a separate file so a canvas without your kind never downloads it. |
 | `actions` | the ⌘K palette's Canvas group | `ModuleActionFacts { canvas, selection }` | `run` returns the ops to send (or nothing); the shell sends them echoed, so a tidy is an `items.move` the terminal sees as the same op. Every module action writes and is withheld on the read-only canvas. `available` decides whether it is offered. |
 | `inspectors` | beside the workbench's stage, when the open item's kind is one you name | `InspectorFacts { canvasId, item, readText, host }` | **Writes now** (9 Sep 2026) — it read and could not write until `host` landed, which made "change the thing you are inspecting" impossible. The documents module's Outline; the stickers module changes a sticker with `item.addVersion`. |
 | `pages` | a cover route at `x/<segment>` under the canvas's path, with the shell's bar (← Canvas, your label, your hint) above your component | `PageFacts { canvasId, canvas, host }` | Reachable from ⌘K ("Open <label>") and `isocan open --page <segment>`. Link to items with `workbenchItemPath` / `itemPath` from core; never spell `/p/`. |
 | `overlays` **(proposed)** | screen space above the viewport, against a `region` you name — `"left"` or `"right"` | `OverlayFacts { canvasId, canvas, host }` | You name an EDGE; the shell owns where that edge is, and two overlays in one region stack in module order. You cannot position yourself, deliberately: two modules that both could is how a canvas ends up with two trays on top of each other. The stickers tray. |
 | `drops` **(proposed)** | the canvas's drop handler, ahead of the built-ins, by mime | `DropFacts { canvasId, data, mimeType, at, host }` | `run` returns ops (or nothing — a claim on a mime is not a promise about its payload). Native OS file drops never reach you: those are the shell's own gesture. First match wins in module order. |
+| `dialogs` **(proposed)** | the shell's Modal, opened by an action or slash command's `opens` id | `DialogFacts { canvasId, groupMode, canvas, selection, args, rcParked, canEdit, host }` | Declares `{ id, title, wide?, component }`. `args` contains the words after the slash command. The host adds `close()`. Opening is not a write: the dialog may be shown to a reader and must explain its disabled acts. |
+| `workspaces` **(proposed)** | replaces the ordinary canvas chrome with module composition at `x/<segment>` | `WorkspaceFacts<ReactNode> { canvasId, canvas, selection, canEdit, host, canvasView }` | One native viewport, placed once; reports may omit it. See the contract below. |
+
+### `workspaces` — module chrome around the native canvas **(proposed)**
+
+Use a workspace when a module needs a hierarchy, inspector or report lenses
+around the existing canvas. Use a page when it needs to cover the canvas.
+Both use `x/<segment>`, so choose a distinct segment and give the workspace a
+`cli` equivalent. The launcher lists both; existing page registrations work
+unchanged. Anatomy is the worked example.
+
+`WorkspaceFacts<ReactNode>` supplies `viewState`, `canvasId`, `canvas`, `selection`,
+`canEdit`, `host`, and `canvasView`. Render `canvasView` **once** in a sized
+container with real height and width. A report lens may omit it while that
+report is open. The shell measures the slot, clips the native viewport to it,
+and uses those bounds for framing and radar; the native world keeps its screen
+coordinate origin so dragging and zooming do not acquire sidebar offsets.
+There is one replica and one socket. Never instantiate a second viewport.
+
+`WorkspaceHost` extends `WebHost` with:
+
+| Capability | Contract |
+| --- | --- |
+| `present(view)` | Temporary bounds/detail over native IDs; `null` restores saved geometry. See below. |
+| `navigateView(patch, replace?)` | Update query keys (`null` removes); push one browser Back step, or replace the current address. The reactive `viewState` reports the result. |
+| `readText(hash)` | Authenticated, hash-cached UTF-8 blob read for this canvas. |
+| `getCanvas()` | The currently displayed snapshot; re-read before writes to detect stale drafts. |
+| `select(ids)` | Replace native item selection; ignore missing ids. |
+| `focus(ids)` | Frame the items in the visible native stage. Call after the canvas slot mounts. |
+| `openItem(id)` | Navigate to the ordinary host item viewer. |
+| `openChat()` | Show the native Chat, for example after a module posts an agent request. |
+| `onActivateItem(handler)` | Subscribe to native double-clicks and underlay links; return true to consume, false for normal viewing. Returns cleanup. |
+
+`present` accepts `{items, isolate?, focusIds?, maxScale?}`. `items` maps native
+IDs to finite positive bounds (`x`, `y`, `width`, `height`) plus `detail`
+(`full`, `compact`, `marker`) and optional `emphasis`. The host animates from its
+current frame, honors reduced motion, and stops scheduling frames when settled.
+No `items.move` is sent. Explicit native drags still apply a durable delta.
+`isolate` limits the stage to these items. Omit `focusIds` on incoming content
+updates: a collaborator editing a concept must not move the reader’s camera.
+Use it only for navigation; `maxScale` limits magnification.
+
+The same frame drives card hit targets, selection, connection underlays,
+spatial navigation, version fans and anchored comments. `UnderlayFacts.canvas`
+is the disposable geometry view; `presentation` supplies detail/emphasis.
+`RendererFacts.presentation` is supplied only inside this local presentation.
+Marker content is a lightweight native glyph. Compact and full structured
+content uses the module renderer, which can adapt to the supplied detail;
+compact unstructured files fall back to a native title.
+
+Item selection outlines and working-session labels remain native. Free-space
+cursors and pins are hidden in an isolated layout, because their coordinates
+have no meaning in somebody else’s focus view. Pin new discussion to an item.
+Saved sizes can be edited on the ordinary canvas or from the CLI; projected
+sizes express semantic detail and have no resize handles. A workspace is for
+exploring its native items, while free placement and annotation use the canvas.
+The host restores the ordinary camera on exit and remembers the workspace’s
+last address and view cameras for this browser session. Modules own their local
+pane preferences. These capabilities require module API **0.2.2**.
+
+`canEdit` is false for a reader or a past-state view. Hide mutation controls;
+`host.send` still enforces the host's capability gate. The shell supplies Back,
+Undo/Redo shortcuts, lazy loading and an error boundary. Module chrome owns its keyboard
+events, while native canvas gestures and the global launcher retain their
+normal behavior. A report's invisible selection cannot receive Delete.
+
+`WorkspaceFacts.project` carries the native canvas record, including its properties.
+An optional `workspace.projectEntry({project, canvas})` returns `{label, glyph}`
+for the project menu and right tool rail, or null when there is no relevant
+work. The shell owns navigation to the workspace; the module owns whether its
+project metadata warrants a door. Runtime modules use the same contribution.
+
+`UnderlayFacts.activateItem` is supplied inside a workspace. It routes a
+connection link to that workspace's activation subscribers; it is absent on
+the plain canvas. Use narrow hit targets so empty canvas remains pannable.
+Subscribers must clean up on unmount. Activation and camera framing are local
+UI state; they never move or rewrite items.
+
+`RendererFacts.item` is optional native metadata, useful when a structured
+file's title belongs to the item. It does not change the blob requested by
+`readText`, so older renderers remain compatible.
 
 ### `host` — how a component changes anything **(proposed)**
 
-Every slot that a person interacts with — overlays, inspectors and pages — is
-handed a `WebHost` beside its facts. Two members, and no more:
+Every slot that a person interacts with — overlays, inspectors, pages and
+dialogs — is handed a `WebHost` beside its facts:
 
 ```ts
 interface WebHost {
   send: (ops: readonly Operation[], group?: string) => Promise<void>;
   putBlob: (bytes: Blob, filename: string) => Promise<{ blobHash: string; size: number }>;
+  enrol: (ask: EnrolAsk) => Promise<{ actorId: string }>;
+  viewer: { id: string; name: string };
+  reveal: (itemIds: readonly string[]) => void;
 }
 ```
 
 `send` is the same door `ModuleAction.run` returns into, so a write from a
 component is an ordinary op: echoed, undoable, groupable, and visible to the
 terminal as the same op. One `group` for one undo.
+
+`viewer` names the actor that sends those operations; `reveal` moves only this
+viewer's camera. `enrol` asks the person's parked rc through its existing
+owner-only admission. The ask names an installed template and bounded string
+arguments; it never carries code to run. Missing rc or template is a refusal.
+The returned receipt must succeed before a component reports work as done.
+
+Structural producers read `DialogFacts.groupMode`. On a groups canvas,
+`preparedGroupCreation` prepares an explicit forest for one bounded
+`group.change`; a loose series of area/items is not an equivalent insertion.
+Keep the mode and destination captured before awaiting content, and preserve
+ordinary behavior for legacy canvases. See the competition's
+[integration contract](../design-competition/groups-integration.md).
 
 `putBlob` is the only thing an operation cannot say. `item.add` and
 `item.addVersion` both name a `blobHash`, and a blob is minted through a
@@ -221,8 +324,8 @@ private import.
 Colours and spacing in anything you render come from the app's tokens
 (`var(--ink)`, `var(--card)`, `var(--line)`, `var(--ink-soft)`,
 `var(--radius)`): the token, scale and dimmed guards in `packages/web/test`
-read `styles.css`, and your styles live there for now, under a comment that
-names your module.
+read the app and module styles. Put module CSS in `assets/styles.css`; it
+loads with the module, rather than charging the first visit for every module.
 
 ## `cli.ts` — the `CliModule` record and the host
 
@@ -267,6 +370,16 @@ export default myCli;
 | `placementFor(snapshot, opts, size?)` | `--at`, `--anchor`, `--in`, `--cell` |
 | `truncate(text, max)` | for a table cell |
 | `runFenced(request)` | the only way a module starts a process — see below |
+| `enrol(ctx, canvasId, ask)`, `withdraw(ctx, canvasId, actorId)` | Existing rc add/remove behavior. A template prepares its directory and rc configuration before enrolment is published. |
+| `insertionReceiptPlacement(op, itemId)` | Reports the accepted group frame or ordinary placement from the operation receipt. |
+
+`CliModule.templates` is a list of `{ id, describe, prepare(args, into) }`.
+IDs are namespaced; `prepare` writes the working directory and may return a
+harness preference. The rc honors only templates installed on its own
+machine. It prepares the configuration before publishing enrolment so a
+watching rc cannot start from an absent or old directory. Indeterminate
+transport results retain that prepared row; definite rejection rolls back
+only the preparation that still owns it.
 
 A module that wants a helper not on this list is asking for one to be
 promoted — a review question, not a private import. `runFenced` is what that
@@ -394,14 +507,17 @@ stay, as files. That is the acceptance every phase was held to.
 
 ## Runtime modules: build, install, load
 
-A self-hosted home can load a module the build did not carry.
+A self-hosted home can load a module the build did not carry. Declare needed
+proposals under `isocan.proposed` in the source package; the builder copies them
+to the manifest. Modules with CSS receive a stylesheet loader in their web
+entry, so runtime imports include styles used by lazy chunks.
 
 ```
 node --import tsx scripts/module-build.mjs <name> [--out <dir>]
 ```
 
-writes `<dir>/manifest.json`, `agent-guide.md`, `dist/web.js` (+ chunks) and
-`dist/cli.mjs`. The manifest comes from `package.json` (`name`, `version`,
+writes `<dir>/manifest.json`, `agent-guide.md`, declared `assets/`,
+`dist/web.js` (+ chunks) and `dist/cli.mjs`. The manifest comes from `package.json` (`name`, `version`,
 `description`, `isocan.engines` defaulting to `>=0.1.0`) and from `core.ts`'s
 default export (`kinds`, `propertyKeys`); the code halves are esbuild
 bundles in which the four platform imports — `react`, `react/jsx-runtime`,
@@ -431,9 +547,19 @@ same minor while the major is 0), or `*`. Judged against `ISOCAN_VERSION` at
 `add` and again at every load; a refused module is a row with a reason in
 `module ls` and loads nothing else's less.
 
+**Assets have a bound:** 256 KiB per file and 2 MiB per module, enforced by
+build and install. The manifest lists each path and size. Use `moduleAsset`
+to resolve a contribution's relative asset against its source module; runtime
+assets are served under `/modules/<slug>/assets/`. Data-only manifests need
+no code halves and installation says that they run nothing.
+
+Build-time modules can register lightweight activation metadata and defer
+their code and CSS until an action or an existing item requests them. The
+competition is the worked example. Its picker must not enter the initial
+bundle; the existing bundle ceiling remains the guard.
+
 **What a runtime module cannot do that a build-time one can:** nothing, by
-design — the same record, the same slots. Two things to know: its CSS has
-no home yet (inline styles or a `<style>` you mount), and the hosted home
+design — the same record, the same slots. The hosted home
 does not load runtime modules; whether it ever should is a decision the
 [design](design.md) leaves open.
 
@@ -477,9 +603,8 @@ does not load runtime modules; whether it ever should is a decision the
 
 No panel or tool slot — a dock panel or a rail tool is still a shell change.
 No inspector on the canvas, only in the workbench (an overlay is the way to
-put something beside the work today). No per-module CSS file, and an overlay
-that needs positioning still needs a rule in `styles.css` — the stickers tray
-shipped invisible for a day because the region had no CSS at all.
+put something beside the work today). Overlay regions remain shell-owned;
+their module content can now carry `assets/styles.css`.
 No way for a card to name the module a file came from when that module is
 absent. A prose editor for documents, deferred. The BROWSER shape of a
 sandbox — a frame on the content origin that runs a canvas's code where a

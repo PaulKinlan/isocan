@@ -51,16 +51,21 @@ describe("the API/CLI seam", () => {
     // `@isocan/api` and holds typed results. A script that instead hand-rolled
     // a `fetch` of an `/api/` path would be the drift this file exists to
     // prevent, wearing a different directory — so the sweep covers scripts/
-    // too. Named browser exemptions, for one reason: `lib/browser.mjs` holds the
-    // door-crossing every headless run makes, and `journeys.mjs` watches the
-    // page's own requests; `check-text-selection.mjs` drives isolated readers
-    // with distinct browser badges. Their `/api/` strings are evaluated inside
-    // the page, where they are the web client's own speech, not a Node-side
-    // client. The crossing moved from journeys.mjs into the shared helper when
-    // the canvas screenshot needed the same door, so there is one copy of it.
+    // too. Named browser exemptions: `lib/browser.mjs` holds the door-crossing
+    // every headless run makes; `journeys.mjs` and `journey-personal.mjs` watch
+    // the page's own requests; `check-text-selection.mjs` drives isolated
+    // readers with distinct browser badges. Their route strings are browser
+    // speech or observations of it, not a second Node-side daemon client.
+    // Exact paths keep similarly named scripts inside the ordinary boundary.
+    const browserScripts = new Set([
+      path.join(repo, "scripts", "lib", "browser.mjs"),
+      path.join(repo, "scripts", "journeys.mjs"),
+      path.join(repo, "scripts", "journey-personal.mjs"),
+      path.join(repo, "scripts", "check-text-selection.mjs"),
+    ]);
     const offenders: string[] = [];
     for (const file of scriptFiles(path.join(repo, "scripts"))) {
-      if (["browser.mjs", "journeys.mjs", "check-text-selection.mjs"].includes(path.basename(file))) continue;
+      if (browserScripts.has(file)) continue;
       const text = readFileSync(file, "utf8");
       for (const [i, line] of text.split("\n").entries()) {
         const lead = line.trimStart();
@@ -83,6 +88,10 @@ describe("the API/CLI seam", () => {
     // of daemon lifecycle. Three tells, each of which is the whole violation:
     // `node:child_process` (spawning is the daemon half's job), a call that
     // spawns, and `homes.json` (the machine record only the daemon reads).
+    // And a fourth since the room became a module (docs/projects/room): an
+    // import of `@isocan/server`, which reads the disk. The badge store is a
+    // constructor parameter and the door's helpers are core's, so the surface
+    // can be handed to a host with no disk at all.
     const src = path.join(repo, "packages", "api", "src");
     const surface = closureOf(path.join(src, "routes.ts"), src);
     expect(surface.map((file) => path.basename(file))).not.toContain("client.ts");
@@ -94,14 +103,14 @@ describe("the API/CLI seam", () => {
         // The surface's own doc comment names the things it must not do; the
         // rule is about doing them.
         if (lead.startsWith("//") || lead.startsWith("*") || lead.startsWith("/*")) continue;
-        if (/node:child_process|\bspawn\s*\(|homes\.json/.test(line)) {
+        if (/node:child_process|\bspawn\s*\(|homes\.json|["']@isocan\/server["'/]/.test(line)) {
           offenders.push(`${path.relative(repo, file)}:${i + 1}: ${line.trim()}`);
         }
       }
     }
     expect(
       offenders,
-      `the route surface must stay separable from daemon lifecycle (client.ts is where that lives):\n${offenders.join("\n")}`,
+      `the route surface must stay separable from daemon lifecycle and the disk (client.ts is where that lives):\n${offenders.join("\n")}`,
     ).toEqual([]);
   });
 });

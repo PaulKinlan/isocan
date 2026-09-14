@@ -12,6 +12,25 @@ import type { LogEntry, OpEnvelope, Operation } from "./ops.ts";
 /** Default daemon port, localhost only. */
 export const DEFAULT_PORT = 4441;
 
+/** Reducer capability, independent of the caller's access-control rung. A
+ * client advertises this before receiving explicit canvas-group state. */
+export const CANVAS_GROUPS_FEATURE = "canvas-groups-v4";
+/** Shared spelling for HTTP clients and ingress checks; an upgraded replica
+ * still preserves its original caller's declaration when forwarding writes. */
+export const CLIENT_FEATURES_HEADER = "x-isocan-features";
+/** Browser WebSockets cannot set headers, so their upgrade URL carries the
+ * same reducer feature list that HTTP clients put in the feature header. */
+export const CLIENT_FEATURES_PARAM = "features";
+/** Distinguishes an unsupported reducer from an access refusal or network
+ * outage: refreshing credentials or retrying the same client cannot help. */
+export const CANVAS_GROUPS_REQUIRED = "canvas-groups-required";
+
+/** Parse both transport spellings identically. Missing or malformed input
+ * never promises reducer support, and future unrelated features may coexist. */
+export function supportsCanvasGroups(value: unknown): boolean {
+  return typeof value === "string" && value.split(",").some((part) => part.trim() === CANVAS_GROUPS_FEATURE);
+}
+
 // ---- WebSocket ----
 
 /** Everything the socket pushes DOWN to a connected tab or park. The
@@ -149,7 +168,7 @@ export type ServerMessage =
    * add` makes, so the actor is born first-claim on the machine that answers
    * for it. Carries a NAME and never an actor: minting is the rc's.
    */
-  | { type: "rc-ask"; askId: string; name: string; from: Actor };
+  | { type: "rc-ask"; askId: string; name: string; from: Actor; template?: string; args?: Record<string, string> };
 
 /** Client → server. Presence is the ephemeral plane: daemon memory + WS
  * fan-out only — never the oplog, never storage, never undo. */
@@ -493,6 +512,15 @@ export interface RcAsk {
   name: string;
   /** Who asked, for the rc's narration and the enrolment's history. */
   from: Actor;
+  /**
+   * A working-directory template to prepare before enrolling (proposed:
+   * `templates`, 11 Sep 2026) — an ID, never code. The rc honours ids from
+   * modules its operator installed and refuses the rest by name, so a canvas
+   * can say which template and never what it runs.
+   */
+  template?: string;
+  /** Strings the template reads. Nothing else crosses. */
+  args?: Record<string, string>;
 }
 
 /**
@@ -560,6 +588,8 @@ export interface RcAnsweringResponse {
 export interface RcAskRequest {
   name: string;
   from: Actor;
+  template?: string;
+  args?: Record<string, string>;
 }
 
 /** The receipt for a ring, so the caller can follow what it started. */
@@ -722,6 +752,11 @@ export function staleClientRefusal(
 /** An operation on its way up. Carries no timestamp on purpose — the home
  *  stamps it, so a client cannot lie about when something happened. */
 export interface PostOpRequest {
+  /** Captured before the first send and retained on queued retries across mode cutover. */
+  originGroupMode?: "legacy" | "groups";
+  /** Original caller's reducer features, preserved by forwarding replicas.
+   * Absent on a direct request: use its transport declaration. */
+  clientFeatures?: string;
   /** null only for project.create and actor.claim. */
   canvasId: string | null;
   /** **One gesture, one undo** — see `LogEntry.group`. Ops sent under the
@@ -826,6 +861,7 @@ export interface PostOpResponse {
 /** Whose stack to walk. Undo is per ACTOR, so two people working at once
  *  never take back each other's work. */
 export interface UndoRedoRequest {
+  clientFeatures?: string;
   actor: Actor;
   clientId?: string;
 }
@@ -917,6 +953,55 @@ export interface CanvasSnapshotResponse {
 }
 
 /**
+ * Which copy of isocan is this, and how old is it?
+ *
+ * The daemon outlives the command that started it — often across an upgrade,
+ * because `ensureDaemon` only starts one when the port is silent. So a new CLI
+ * talking to an old daemon is the normal outcome of `npm i -g …` or a moved
+ * `main`, and until a build could say which one it was, nothing could notice.
+ *
+ * `root` is exact: an npx cache directory, a global install and a checkout are
+ * three different paths. `codeAt` is a heuristic — the newest mtime among a
+ * few files that every layout has — and it is a good one, because npm rewrites
+ * the whole tree on install, so an in-place upgrade moves it even though the
+ * path did not.
+ */
+export interface BuildStamp {
+  version: string;
+  /** Package root this build runs from. */
+  root: string;
+  /** When this copy's code was last written (ISO). */
+  codeAt: string;
+  /**
+   * **The commit this build is of** — short sha, or null when nothing on disk
+   * can say.
+   *
+   * `version` cannot answer this and never could: every build this project has
+   * ever shipped says `0.1.0`, so the one field named after the question is
+   * the one field with no information in it. A person comparing two machines,
+   * or an agent asked what it is running, needs an identity that changes when
+   * the code changes.
+   *
+   * Two sources, because there are two kinds of copy. An INSTALL gets it from
+   * the manifest the release branch stamps (`scripts/release.mjs`) — the tree
+   * npm hands out has no `.git`, so nothing else could know. A CHECKOUT reads
+   * `.git` directly rather than shelling out to git: `buildStamp` is on the
+   * health route, `isocan status` is a command agents run dozens of times, and
+   * a subprocess per call is a subprocess per call.
+   */
+  commit: string | null;
+  /**
+   * When this build was cut (ISO), from the same two sources — or null.
+   *
+   * Distinct from `codeAt`, which is an mtime and therefore says when npm last
+   * rewrote the tree. That is the right heuristic for "has this copy changed
+   * under a running daemon" and the wrong answer to "how old is this code":
+   * reinstalling the same release moves `codeAt` and moves nothing else.
+   */
+  builtAt: string | null;
+}
+
+/**
  * **Does this copy of isocan disagree with the home it is talking to?**
  * Auto-upgrade phase 2's whole output: one comparison, reported and nothing
  * else.
@@ -997,6 +1082,43 @@ interface HealthResponse {
 const LOOPBACK = /^(\[::1\]|::1|localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i;
 
 /**
+ * **Is this address on this machine?** — the one question two different
+ * decisions both turn on, asked in one place so they cannot drift apart.
+ *
+ * `healthPath` below asks it to choose a door to knock on. The CLI's client
+ * asks it to decide whether a connect may be given a deadline: a loopback
+ * handshake is the kernel's own, a millisecond even against a process whose
+ * event loop is blocked for five seconds, so a connect that takes longer is
+ * a lost SYN and nothing else. Over a network it is an ordinary RTT away and
+ * on a bad link it is seconds, so the same deadline there would refuse a slow
+ * link that was working. See `boundedFetch` in `@isocan/api`'s `client.ts`,
+ * and `docs/research/2026-08-29-the-flake-family.md`.
+ *
+ * Anything unparseable is remote, for the reason `healthPath` gives: that is
+ * the safe way to be wrong, because the remote answer is the one that changes
+ * nothing.
+ */
+export function isLoopbackBase(base: string): boolean {
+  return LOOPBACK.test(hostOf(base) ?? "");
+}
+
+/** The hostname of an address somebody meant, scheme or no scheme; null when
+ * it cannot be read as one at all. */
+function hostOf(base: string): string | null {
+  try {
+    return new URL(base).hostname;
+  } catch {
+    try {
+      // A bare `127.0.0.1:4441` or `dev.isocan.io` — no scheme, still an
+      // address somebody meant. Parsing it is cheaper than refusing it.
+      return new URL(`http://${base}`).hostname;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
  * WHICH health path to ask a daemon at this address for.
  *
  * The daemon answers `/healthz` and `/api/healthz` from one handler with one
@@ -1035,19 +1157,7 @@ const LOOPBACK = /^(\[::1\]|::1|localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i;
  * the exact failure this function exists to prevent.
  */
 export function healthPath(base: string): string {
-  let host: string;
-  try {
-    host = new URL(base).hostname;
-  } catch {
-    try {
-      // A bare `127.0.0.1:4441` or `dev.isocan.io` — no scheme, still an
-      // address somebody meant. Parsing it is cheaper than refusing it.
-      host = new URL(`http://${base}`).hostname;
-    } catch {
-      return "/api/healthz";
-    }
-  }
-  return LOOPBACK.test(host) ? "/healthz" : "/api/healthz";
+  return isLoopbackBase(base) ? "/healthz" : "/api/healthz";
 }
 
 // ---- the canvas listing: two callers, two questions, one route ----
@@ -1060,11 +1170,14 @@ export function healthPath(base: string): string {
  *
  * - A **browser** asks "what can I open from here?" That is a person looking
  *   at their own home's front page, and the honest answer includes a canvas
- *   they have never been in but could walk into by clicking it — which on a
- *   solo home is most of them, because a canvas created from the CLI is
- *   admitted to the CLI's BEARER badge while the tab carries a COOKIE badge
- *   that has never been in it. Narrow this and the person opens `/` and
- *   cannot see the canvas their own agent just made.
+ *   they have never been in — a canvas created from the CLI is admitted to the
+ *   CLI's BEARER badge while the tab carries a COOKIE badge that has never
+ *   been in it. That answer used to be "anything a door would open", which on
+ *   a solo home is most of them and on a shared home is everybody's; it is now
+ *   the **shelf**: on a daemon bound to loopback, asked from that machine, the
+ *   list is everything the daemon holds — a laptop's list is exactly what it
+ *   always was. A home serving the world (`ISOCAN_BIND=0.0.0.0`) answers
+ *   admissions and named rows, and nothing else.
  * - A **replica** asks "what am I supposed to be carrying?" A replica that
  *   answers that with "everything a door would let me through" mirrors a
  *   stranger's canvas onto a laptop because a link grant happened to be on —
@@ -1082,16 +1195,15 @@ export function healthPath(base: string): string {
  * engine), because it is the same distinction: what a badge has been let
  * into, versus what the door would let it into if it knocked.
  *
- * - `"admissible"` — admitted ∪ what a grant would admit. **The default**,
- *   which is what makes this change backwards compatible in the direction
- *   that matters: an OLD replica polling a new home sends no parameter and
- *   gets exactly the answer it always got. A NEW replica polling an old home
- *   sends one that home ignores, and over-replicates the way it does today —
- *   a known, pre-existing behaviour rather than a new failure.
- * - `"admitted"` — admissions and nothing else. What a replica asks.
- * - `"here"` — of the admissible ones, the canvases **this daemon is the home
- *   of** (phase 10.3). A third question rather than a narrowing of the other
- *   two, and it exists because of a real hole: the web app's canvas list
+ * - `"admissible"` — the default discovery answer: admissions and named
+ *   grants on a hosted home, the local shelf on a loopback daemon. Kept for
+ *   existing callers; it cannot widen a hosted list to link-only canvases.
+ * - `"admitted"` — admissions and nothing else, and never the shelf. What a
+ *   replica asks: it must mirror what it was told it holds, not what the
+ *   machine it runs on happens to have.
+ * - `"here"` — of the ones this badge may see, the canvases **this daemon is
+ *   the home of** (phase 10.3). A third question rather than a narrowing of the
+ *   other two, and it exists because of a real hole: the web app's canvas list
  *   links to a canvas with a react-router `<Link>`, which is a client-side
  *   navigation that never touches the server, so the per-canvas page guard on
  *   `GET /p/<id>` is simply bypassed for anything in that list. A local origin
@@ -1438,16 +1550,6 @@ export interface CanvasLinkState {
    * a reason to expect it back. `isocan status` reads this to say so.
    */
   takenDown?: TakedownNotice;
-}
-
-/** Every refusal, in one shape. The code is what a client branches on; the
- *  message is what a person reads. */
-export interface ApiError {
-  error: string;
-  code?: string;
-  /** Why, when the code alone does not say — `withdrawn` on a `not-admitted`
-   * from a badge that had been inside (see `WITHDRAWN`). */
-  reason?: string;
 }
 
 /**

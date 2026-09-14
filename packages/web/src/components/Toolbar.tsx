@@ -1,3 +1,4 @@
+import { groupsEnabled, openGroupCreation } from "../lib/canvasgroups.ts";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -13,6 +14,7 @@ import {
   themeOf,
   themePatch,
   workbenchPath,
+  modulePagePath,
   type Actor,
 } from "@isocan/core";
 import { sendOp, uploadBlob } from "../lib/api.ts";
@@ -26,7 +28,8 @@ import { Presence } from "./Presence.tsx";
 import { CanvasEditor } from "./CanvasEditor.tsx";
 import { IdentityMenu } from "./IdentityMenu.tsx";
 import { CanvasPresence, CanvasTitle, ShareButton} from "./CanvasCrumb.tsx";
-import { useCanEdit } from "../lib/capability.ts";
+import { canEditNow, useCanEdit } from "../lib/capability.ts";
+import { moduleProjectViews } from "../modules.ts";
 
 /**
  * The top bar: where you are (canvas name, whether you're live, who's here) and
@@ -50,7 +53,6 @@ export function Toolbar({
   const contextOpen = useUiStore((s) => s.contextPanelOpen);
   const personasOpen = useUiStore((s) => s.personasPanelOpen);
   const minimapOpen = useUiStore((s) => s.minimapOpen);
-  const cursorGlow = useUiStore((s) => s.cursorGlow);
   const historyOpen = useUiStore((s) => s.historyOpen);
   const unreadNews = useUnreadNews();
   const identityOpen = useUiStore((s) => s.identityOpen);
@@ -118,6 +120,38 @@ export function Toolbar({
               // Read the button's box before the await: the element is still
               // here, but `currentTarget` is not once the handler yields.
               const { chromeMenu } = await import("../lib/menuentries.tsx");
+              const contents = useCanvasStore.getState().canvas;
+              const views = contents ? moduleProjectViews(canvas, contents) : [];
+              /* The Groups rows, built here because they read the selection
+                 and need a `navigate`. Same lazy import the button used, and
+                 the leading `Groups` separator is dropped: inside a submenu
+                 already called Groups it names itself twice. A write nobody
+                 is allowed to make is left out rather than shown greyed, which
+                 is what the button did. */
+              const { canvasGroupEntries } = await import("../lib/canvasgroupmenus.ts");
+              const selected = useUiStore
+                .getState()
+                .selectedItemIds.map((id) => contents?.items[id])
+                .filter((item) => !!item);
+              const groups = [
+                {
+                  label: "New group",
+                  writes: true,
+                  ...(!groupsEnabled() ? { value: "Preview conversion first" } : {}),
+                  run: () => openGroupCreation(),
+                },
+                ...canvasGroupEntries(selected, { canvasId: canvas.id, actor, navigate }),
+              ]
+                .filter((entry) => !("separator" in entry))
+                .filter((entry) => !("writes" in entry && entry.writes) || canEditNow());
+              /* What the parent row says beside its own name, so the answer to
+                 "will this act on anything" needs no opening — the same trick
+                 Background uses to name the current ground. */
+              const groupsValue = selected.length
+                ? `${selected.length} selected`
+                : groupsEnabled()
+                  ? ""
+                  : "Not converted";
               useUiStore.getState().setContextMenu({
                 // Under the handle, aligned to its left edge — a menu that
                 // opens where the pointer happened to be is right for a
@@ -125,6 +159,8 @@ export function Toolbar({
                 at: { x: r.left, y: r.bottom + 6 },
                 entries: chromeMenu({
                   canvasId: canvas.id,
+                  groups,
+                  groupsValue,
                   filesOpen,
                   agentsOpen,
                   mainOpen,
@@ -135,7 +171,6 @@ export function Toolbar({
                   historyOpen,
                   unreadNews,
                   minimapOpen,
-                  cursorGlow,
                   theme: themeOf(canvas),
                   anchor: anchorOf(canvas),
                   toggleAnchor: async () => {
@@ -169,6 +204,18 @@ export function Toolbar({
                   },
                   canEdit,
                   toWorkbench: () => navigate(workbenchPath(canvas.id)),
+                  /* The module's glyph reaches the icon column, so a
+                     module's room reads like Workbench rather than like a
+                     stray sentence — it was dropped here, which is why
+                     "Anatomy" was the one row in the menu with no mark. A
+                     character rather than a component on purpose: the module
+                     is deferred, and a React glyph would be a chunk fetched to
+                     draw a menu row. */
+                  projectViews: views.map((view) => ({
+                    label: view.label,
+                    ...(view.glyph ? { icon: <span className="module-glyph" aria-hidden="true">{view.glyph}</span> } : {}),
+                    run: () => navigate(modulePagePath(canvas.id, view.segment)),
+                  })),
                 }),
               });
             }}
@@ -227,11 +274,12 @@ export function Toolbar({
               return;
             }
             try {
+              const originGroupMode = canvas.groupMode ?? "legacy";
               const up = await uploadBlob(canvas.id, file, file.name);
               await sendEchoed(canvas.id, actor, {
                 type: "project.update",
                 patch: groundPatch(up.blobHash),
-              });
+              }, undefined, originGroupMode);
             } catch {
               // The same sentence shape every other upload failure here uses:
               // name the file, say what did not happen, and leave the canvas

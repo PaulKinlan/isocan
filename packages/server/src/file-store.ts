@@ -1,3 +1,4 @@
+import type { CanvasLifecycle } from "./store.ts";
 import { createReadStream, promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -8,6 +9,7 @@ import {
   applyActorJoin,
   applyActorMark,
   applyOperation,
+  activityOpType,
   bindName,
   COMMAND_NAME,
   emptyCanvas,
@@ -45,6 +47,7 @@ import type {
  */
 
 interface CanvasSnapshotFile {
+  groupCohorts?: CanvasState["canvas"]["groupCohorts"];
   lastSeq: number;
   items: CanvasState["canvas"]["items"];
   threads: CanvasState["canvas"]["threads"];
@@ -90,6 +93,33 @@ export class FileStore implements Store {
      * a client that wants a different order re-sorts with the same function.
      */
     return sortCanvases(canvases, "recent");
+  }
+
+  async canvasRecord(id: string): Promise<Canvas | null> {
+    if (await this.takenDownAt(id) || await this.purgedAt(id)) return null;
+    return readJson<Canvas>(p.canvasMetaFile(this.home, id));
+  }
+
+  async canvasLifecycle(id: string): Promise<CanvasLifecycle> {
+    if (await this.purgedAt(id)) return "purged";
+    if (await this.takenDownAt(id)) return "taken-down";
+    if (await this.canvasExists(id)) return "live";
+    const deleted = await fs.readdir(p.deletedCanvasesDir(this.home)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    for (const name of deleted.filter((name) => name.startsWith(`${id}-`))) {
+      const record = await readJson<Canvas>(path.join(p.deletedCanvasesDir(this.home), name, "project.json"));
+      if (record?.id === id) return "deleted";
+    }
+    return fs.stat(p.canvasDir(this.home, id)).then(() => "incomplete" as const, (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "absent" as const;
+      throw error;
+    });
+  }
+
+  async readBirthLog(id: string): Promise<LogEntry[]> {
+    return readJsonLines<LogEntry>(p.oplogFile(this.home, id));
   }
 
   async createCanvasDir(id: string): Promise<void> {
@@ -183,7 +213,7 @@ export class FileStore implements Store {
     let state: CanvasState = {
       project: record,
       canvas: snapshot
-        ? { items: snapshot.items, threads: snapshot.threads, trash, agents: snapshot.agents ?? {} }
+        ? { items: snapshot.items, threads: snapshot.threads, trash, agents: snapshot.agents ?? {}, ...(snapshot.groupCohorts ? { groupCohorts: snapshot.groupCohorts } : {}) }
         : { ...emptyCanvas(), trash },
     };
     let lastSeq = snapshot?.lastSeq ?? 0;
@@ -239,7 +269,7 @@ export class FileStore implements Store {
         ...canvas,
         updatedAt: last.envelope.ts,
         updatedBy: last.envelope.actor,
-        lastOp: last.envelope.op.type,
+        lastOp: activityOpType(last.envelope.op),
       });
       fixed += 1;
     }
@@ -252,6 +282,7 @@ export class FileStore implements Store {
 
   async saveSnapshot(id: string, state: CanvasState, lastSeq: number): Promise<void> {
     const snapshot: CanvasSnapshotFile = {
+      ...(state.canvas.groupCohorts ? { groupCohorts: state.canvas.groupCohorts } : {}),
       lastSeq,
       items: state.canvas.items,
       threads: state.canvas.threads,
