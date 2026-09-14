@@ -500,6 +500,8 @@ export interface ModuleDialog<D> {
  * blob path.
  */
 export interface RendererFacts {
+  /** Native metadata for structured files whose title lives on the item. */
+  item?: Item | undefined;
   canvasId: string;
   blobHash: string;
   mimeType: string;
@@ -555,6 +557,36 @@ export interface ModulePage<P> {
   label: string;
   hint?: string;
   component: P;
+}
+
+/** A module can frame the native canvas without owning its replica or camera. */
+export interface WorkspaceHost extends WebHost {
+  readText: (blobHash: string) => Promise<string>;
+  getCanvas: () => CanvasContents;
+  select: (itemIds: readonly string[]) => void;
+  focus: (itemIds: readonly string[]) => void;
+  openItem: (itemId: string) => void;
+}
+
+/** Reactive facts plus one host-created viewport, mounted wherever the module needs it. */
+export interface WorkspaceFacts<Surface> {
+  canvasId: string;
+  canvas: CanvasContents;
+  selection: readonly string[];
+  canEdit: boolean;
+  host: WorkspaceHost;
+  /** Place this once in the workspace layout. The host owns its lifecycle. */
+  canvasView: Surface;
+}
+
+/** An addressable workspace composes module chrome around the existing canvas. */
+export interface ModuleWorkspace<W> {
+  segment: string;
+  label: string;
+  hint?: string;
+  /** The terminal question this workspace answers. */
+  cli: string;
+  component: W;
 }
 
 /**
@@ -636,7 +668,7 @@ interface ModuleOverlay<O> {
   component: O;
 }
 
-export interface WebModule<C, R = never, I = never, P = never, O = never, D = never> {
+export interface WebModule<C, R = never, I = never, P = never, O = never, D = never, W = never> {
   core: CoreModule;
   /** Drawn inside `.world`, under the items, in world units. */
   underlays?: readonly C[];
@@ -649,6 +681,8 @@ export interface WebModule<C, R = never, I = never, P = never, O = never, D = ne
   inspectors?: readonly ModuleInspector<I>[];
   /** Whole sections of the app, each a cover route with an address. */
   pages?: readonly ModulePage<P>[];
+  /** Proposed: a module's UI around one native canvas, at an x/ route. */
+  workspaces?: readonly ModuleWorkspace<W>[];
   /** Screen-space chrome above the viewport, against a named edge. */
   overlays?: readonly ModuleOverlay<O>[];
   /** Drags this module catches on the canvas, by mime. */
@@ -753,7 +787,17 @@ export const MODULE_API_VERSION = "0.2.1";
  * one caller. That is not stability, and calling it stable because it shipped
  * is how an API gets frozen by accident.
  */
-export const PROPOSED = ["overlays", "drops", "host", "assets", "points", "dialogs", "templates", "rounds"] as const;
+export const PROPOSED = [
+  "overlays",
+  "drops",
+  "host",
+  "assets",
+  "points",
+  "dialogs",
+  "templates",
+  "rounds",
+  "workspaces",
+] as const;
 
 /** Which of a manifest's proposals this build does not recognise. A module
  *  asking for something that no longer exists is a refusal with a name, not a

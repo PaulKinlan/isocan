@@ -1,4 +1,4 @@
-import { lazy, type ComponentType } from "react";
+import { lazy, type ComponentType, type ReactNode } from "react";
 import {
   moduleSlug,
   registerModule,
@@ -13,12 +13,15 @@ import {
   type RendererFacts,
   type UnderlayFacts,
   type WebModule,
+  type WorkspaceFacts,
+  type ModuleWorkspace,
 } from "@isocan/core";
 import { mindmapWeb } from "@isocan/mindmap/web";
 import { mermaidWeb } from "@isocan/mermaid/web";
 import { documentsWeb } from "@isocan/documents/web";
 import { sandboxWeb } from "@isocan/sandbox/web";
 import { competitionActivation } from "@isocan/design-competition/activation";
+import { anatomyWeb } from "@isocan/anatomy/web";
 import { useUiStore } from "./stores/uiStore.ts";
 import { experimentOn } from "./lib/experiments.ts";
 
@@ -45,10 +48,11 @@ export type ShellModule = WebModule<
   ComponentType<InspectorFacts>,
   ComponentType<PageFacts>,
   ComponentType<OverlayFacts>,
-  ComponentType<DialogFacts>
+  ComponentType<DialogFacts>,
+  ComponentType<WorkspaceFacts<ReactNode>>
 >;
 
-const LIST: ShellModule[] = [mindmapWeb, mermaidWeb, documentsWeb, sandboxWeb];
+const LIST: ShellModule[] = [mindmapWeb, mermaidWeb, documentsWeb, sandboxWeb, anatomyWeb];
 
 /**
  * **Modules that are off until a person asks**, by slug (#156, 9 Sep 2026).
@@ -227,4 +231,13 @@ export function moduleDialog(id: string): ModuleDialog<ComponentType<DialogFacts
     if (hit) return hit;
   }
   return null;
+
+/** A workspace uses the page address vocabulary but retains a native viewport. */
+export function moduleWorkspace(segment: string): ModuleWorkspace<ComponentType<WorkspaceFacts<ReactNode>>> | null {
+  return live().flatMap((m) => m.workspaces ?? []).find((w) => w.segment === segment) ?? null;
+}
+
+/** Both addressable module surfaces belong in the same launcher. */
+export function moduleViews(): Array<{ segment: string; label: string; hint?: string }> {
+  return [...modulePages(), ...live().flatMap((m) => m.workspaces ?? [])];
 }

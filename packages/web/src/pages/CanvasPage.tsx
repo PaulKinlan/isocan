@@ -59,7 +59,11 @@ const FullScreen = lazy(() => import("../components/FullScreen.tsx").then((m) =>
 const DeckPrint = lazy(() => import("../components/DeckPrint.tsx").then((m) => ({ default: m.DeckPrint })));
 const ModulePage = lazy(() => import("../components/ModulePage.tsx").then((m) => ({ default: m.ModulePage })));
 const ModuleOverlays = lazy(() => import("../components/ModuleOverlays.tsx").then((m) => ({ default: m.ModuleOverlays })));
-import { modules } from "../modules.ts";
+/** Workspace composition is paid for only when someone opens a workspace. */
+const ModuleWorkspaceView = lazy(() =>
+  import("../components/ModuleWorkspace.tsx").then((m) => ({ default: m.ModuleWorkspaceView })),
+);
+import { modules, moduleWorkspace } from "../modules.ts";
 /** Module chrome loads when a module supplies it or a person opens its dialog. */
 const ModuleDialogs = lazy(() => import("../components/ModuleDialogs.tsx").then((m) => ({ default: m.ModuleDialogs })));
 import { useChromeHidden } from "../lib/hideable.ts";
@@ -212,6 +216,8 @@ function CanvasSurface({
   const onDeck = useMatch(DECK_ROUTE) !== null;
   // A module's page (ModulePage.tsx): the segment names which.
   const pageSegment = useMatch(MODULE_PAGE_ROUTE)?.params.segment ?? null;
+  useUiStore((s) => s.modulesGeneration);
+  const workspace = pageSegment ? moduleWorkspace(pageSegment) : null;
   const topFadeHidden = useChromeHidden("canvas.topfade");
   /* The token the canvas's own ground paints with, so the wash under the
      top controls is the colour of what it is washing. Null on a canvas with
@@ -571,7 +577,11 @@ function CanvasSurface({
       // shortcut that fired under here would act on the exact thing being
       // looked at (Delete deleted it). Only what crossesCover says may pass;
       // Esc is the cover's own, bound in capture phase.
-      if ((itemId || onWorkbench) && !crossesCover(e)) return;
+      if (
+        (itemId || onWorkbench || (pageSegment && (!workspace || !document.querySelector("[data-module-stage]")))) &&
+        !crossesCover(e)
+      )
+        return;
       if (useUiStore.getState().contextMenu || useUiStore.getState().groupDialog) return;
       /**
        * ⌘C / ⌘V — and the paste works on a DIFFERENT canvas, which is the
@@ -920,7 +930,7 @@ function CanvasSurface({
     // location does, and this effect's cleanup flushes a pending nudge — so
     // depending on it would flush mid-gesture every time the URL moved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasId, actor, itemId, phone, onWorkbench]);
+  }, [canvasId, actor, itemId, phone, onWorkbench, pageSegment, workspace]);
 
   if (!canvasId) return null;
 
@@ -1041,12 +1051,12 @@ function CanvasSurface({
           surface recedes and the next canvas arrives in its place, and the
           chrome around it stays put because it is the same chrome
           (`lib/canvasswitch.ts`). */}
-      <div
+      {workspace && pageSegment ? <Suspense fallback={null}><ModuleWorkspaceView canvasId={canvasId} segment={pageSegment} actor={actor} canvasView={<CanvasViewport canvasId={canvasId} actor={actor} />} /></Suspense> : <div
         className={`canvas-surface${switching ? ` switching-${switching}` : ""}`}
-        style={{ visibility: itemId || onWorkbench ? "hidden" : "visible" }}
+        style={{ visibility: itemId || onWorkbench || pageSegment ? "hidden" : "visible" }}
       >
         {!phone && <CanvasViewport canvasId={canvasId} actor={actor} />}
-      </div>
+      </div>}
       {/* A wash of the ground under the top controls, so they read over a
           busy canvas (lib/hideable.ts, "canvas.topfade"). Over the items,
           under every piece of chrome, and no pointer target at all.
@@ -1055,6 +1065,7 @@ function CanvasSurface({
           app's page ground: a starfield is dark in either app theme, and the
           fade was washing it white from the top edge. `groundTone` names the
           same token the ground itself paints with, so the two cannot drift. */}
+      {!workspace && <>
       {!topFadeHidden && (
         <div
           className="top-fade"
@@ -1090,12 +1101,15 @@ function CanvasSurface({
       <Minimap />
       {canEdit && <TrashPanel key={canvasId} canvasId={canvasId} actor={actor} />}
       <RailStrip canvasId={canvasId} actor={actor} />
+      <ReactionBar canvasId={canvasId} />
+      </>}
+      {/* Native collaboration and files remain reachable from the launcher
+          while a module owns the canvas chrome. */}
       {!phone && <MainThreadPanel canvasId={canvasId} actor={actor} />}
       <FilesPanel canvasId={canvasId} actor={actor} />
       <AgentTray canvasId={canvasId} actor={actor} />
       <ContextPanel canvasId={canvasId} actor={actor} />
       <PersonasPanel canvasId={canvasId} actor={actor} />
-      <ReactionBar canvasId={canvasId} />
       <CommentToasts />
       {/* Offline, refusals, and anything that could not be done at all
           (phase 10). Above the panels for the reason `ArrivalNotice` is:
@@ -1133,7 +1147,9 @@ function CanvasSurface({
       {/* The deck on paper: every slide stacked, printed one to a sheet. A
           route like full screen, mounted here so it reads the open replica. */}
       {onDeck && <Suspense fallback={null}><DeckPrint canvasId={canvasId} /></Suspense>}
-      {pageSegment && <Suspense fallback={null}><ModulePage canvasId={canvasId} segment={pageSegment} actor={actor} /></Suspense>}
+      {pageSegment && !workspace && (
+        <Suspense fallback={null}><ModulePage canvasId={canvasId} segment={pageSegment} actor={actor} /></Suspense>
+      )}
       {/* The other cover: same architecture, different room. Lazy, so the
           canvas path never pays for it; Suspense falls back to nothing for
           the frame the chunk takes. */}
