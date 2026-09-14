@@ -41,6 +41,9 @@ export const anatomyWeb: WebModule<
   ComponentType<InspectorFacts>,
   ComponentType<PageFacts>,
   ComponentType<OverlayFacts>,
+  // The dialogs slot, which this module does not use. `WebModule` gained
+  // `dialogs` before `workspaces`, so the workspace type is the seventh.
+  never,
   ComponentType<WorkspaceFacts<ReactNode>>
 > = {
   core: anatomyModule,

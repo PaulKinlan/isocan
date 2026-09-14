@@ -319,11 +319,38 @@
  * and ambient membership, atomic copy resolution, and operation-owned form
  * completion. No new eager dependency was added. The reviewed ceiling leaves
  * 41 bytes of margin; GOAL 640,000 and JUMP 20,000 remain unchanged.
+ *
+ * **734,200 -> 743,700 on 13 Sep, for anatomy, after deferral.**
+ * The fresh production entry is 743,652 bytes, a net 9,493 over the 734,159
+ * canvas-groups build, and the number this was asked for was 748,100 before
+ * the deferral below. Measured in halves rather than asserted: taking the
+ * module out of the shell registry and rebuilding gives 741,024, so **2,628
+ * bytes are Anatomy's own** and **6,865 are the shared presentation change**
+ * in `lib/presentation.ts`, `lib/presentationStore.ts`, `CanvasViewport`,
+ * `ItemView` and `CanvasPage` — which every canvas renders through whether or
+ * not a project is on it, and which cannot be deferred because layout is
+ * synchronous.
+ *
+ * **Anatomy is for a subset of canvases and now costs like one.** It was a
+ * build-time entry in `LIST` at 7,039 bytes; it arrives through
+ * `deferredModule` instead, the path `design-competition` already uses, so the
+ * web half is fetched the first time something asks it to draw and never on a
+ * canvas with no Anatomy items. Two things had to be true for that to save
+ * anything. The underlay, which every canvas asks to draw, carries a predicate
+ * (`projectsOn`) rather than a `lazy()` — a lazy underlay downloads the module
+ * everywhere and defeats the deferral. And the light facts moved to their own
+ * module, `facts.ts`: while the mimes and the core record shared a file, the
+ * eager and lazy chunks both reached into it and rollup hoisted what they
+ * share into the entry, so the first attempt at this saved exactly 0 bytes.
+ * The 2,329-byte agent prompt is no longer in the entry at all.
+ *
+ * 9,493 is inside JUMP's 20,000. The reviewed ceiling leaves 48 bytes of
+ * margin; GOAL 640,000 and JUMP 20,000 remain unchanged.
  */
 
 /** The last number somebody agreed to. Raised in the ANSWER to a finding, with
  *  the reason in that answer — not quietly in a diff. */
-export const CEILING = 734_200;
+export const CEILING = 743_700;
 
 /**
  * **Run as a program it prints that number**, so the performance persona's

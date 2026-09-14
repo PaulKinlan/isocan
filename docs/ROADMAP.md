@@ -9,7 +9,7 @@ what it describes. Run `node scripts/roadmap.mjs` after changing one.
 The same board lives on a canvas, [\[isocan\] Roadmap](https://isocan.io/p/prj_OE-AuGl119),
 open to anyone with the address — it should say what `main` says.
 
-**29 built · 48 still open** — of which 35 partly
+**30 built · 48 still open** — of which 35 partly
 built, 13 designed, 0 blocked, and
 **0 with no verdict recorded at all**, which is the number worth
 watching: an untriaged doc is not a doc nobody needs, it is a doc nobody has
@@ -77,12 +77,13 @@ and the done column should not be flattered by either.
 | research | [Small personas: cheap agents, an idle trigger, and a registry of what to explore](research/2026-09-07-small-personas.md) | 2026-09-07 | the cheap tier #197 claims already exists does not — all nine personas are opus at xhigh. This is what a small persona would need: an idle trigger, a cost that is declared, permission to write where a guard already exists, and a registry of what to explore that is not the findings queue. · see personas, standing-agents, on-demand · [#205](https://github.com/dglazkov/isocan/issues/205) |
 | **project** | [webmcp-cobrowsing](projects/webmcp-cobrowsing/journey.md) | 2026-09-11 | roadmap defined — the WebMCP surface is designed against the verified API and the existing @isocan/mcp vocabulary; design and phases follow the census-informed design · see iso-api, embed |
 
-## Built <sub>29</sub>
+## Built <sub>30</sub>
 
 | | What | Since | |
 | --- | --- | --- | --- |
 | research | [A timeline for the canvas](research/2026-08-26-timeline.md) | 2026-08-30 | built 30 Aug — the significance function, the CLI track (`isocan timeline`, `isocan at`) and the app's Scrubber, all over core's one fold; still open is measuring that fold on a ~20k-entry canvas before adding snapshots |
 | **project** | [agent-custody](projects/agent-custody/design.md) | 2026-08-31 | designed and built 31 Aug — no Add button without a visible rc; enrolment is a handshake the rc completes, the desk changed not at all. The Open section records what the build decided and what still waits. Its oldest open question — whose ask a parked rc honors — answered 11 Sep 2026 by owner-only summons (its owner's, announced with the hold). · see agent-custody |
+| **project** | [anatomy](projects/anatomy/design.md) | 2026-09-11 | phases 1–8 built on branch anatomy; native file graph, module workspace API, fluid focus, guarded edits, addressable navigation, four lenses, CLI parity, evidence, native discussion and checkpoints; acceptance in fluid-exploration.md · see anatomy, modules, atlas |
 | **project** | [auto-upgrade](projects/auto-upgrade/journey.md) | 2026-08-29 | all four phases done 27–29 Aug 2026 — the home says which commit it runs, a CLI that disagrees says so once, an upgrade is a build installed aside and probed before `current` flips, and a managed install upgrades while parked. Three open items stay named at the top of phases.md. · see auto-upgrade |
 | **project** | [canvas-groups](projects/canvas-groups/journey.md) | 2026-09-12 | all five phases verified: explicit membership, nested transforms, label-safe placement, frozen context, lifecycle, legacy conversion and normal group creation on both surfaces · see sprint, context, design-competition |
 | research | [Chrome you can turn off](research/2026-09-02-chrome-you-can-turn-off.md) | 2026-09-04 | designed 2 Sep — chrome a person can hide (undo/redo in the zoom cluster, the scrubber's rail glyph), as a local preference over a registry of controls, with three doors: right-click the control, a Settings sheet, and ⌘K as the door that never closes. Stages 1, 2 and 4 built 4 Sep — the registry, the store field, the two controls asked for hidden by right-click and shown again under the identity menu or by right-clicking the area they were hidden from, ⌘K "Show hidden controls", and the test that every entry names its other door. Residue — stage 3 (the rest of the rail and the corners) is on request by design, one registry entry each as somebody asks · see ui-refresh · [#151](https://github.com/dglazkov/isocan/issues/151) |

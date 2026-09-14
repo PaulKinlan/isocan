@@ -1119,7 +1119,7 @@ export function CanvasViewport({ canvasId, actor, onPlanItem, currentNode }: { c
   // siblings at one z-index, and DOM order is the only order there is. A
   // stable sort keeps the rest as they were.
   const items = canvas
-    ? Object.values(canvas.items).filter(item => !presentation?.isolate || presentation.items[item.id]).sort((a, b) => Number(isArea(b)) - Number(isArea(a)))
+    ? Object.values(canvas.items).filter((item) => !presentation?.isolate || presentation.items[item.id]).sort((a, b) => Number(isArea(b) || isGroupItem(b)) - Number(isArea(a) || isGroupItem(a)) || (isGroupItem(a) && isGroupItem(b) ? groupAncestors(canvas, a.id).length - groupAncestors(canvas, b.id).length : 0))
     : [];
 
   return (

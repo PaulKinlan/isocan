@@ -579,11 +579,7 @@ function CanvasSurface({
       // shortcut that fired under here would act on the exact thing being
       // looked at (Delete deleted it). Only what crossesCover says may pass;
       // Esc is the cover's own, bound in capture phase.
-      if (
-        (itemId || onWorkbench || (pageSegment && (!workspace || !document.querySelector("[data-module-stage]")))) &&
-        !crossesCover(e)
-      )
-        return;
+      if ((itemId || onWorkbench || (pageSegment && (!workspace || !document.querySelector("[data-module-stage]")))) && !crossesCover(e)) return;
       if (useUiStore.getState().contextMenu || useUiStore.getState().groupDialog) return;
       /**
        * ⌘C / ⌘V — and the paste works on a DIFFERENT canvas, which is the
