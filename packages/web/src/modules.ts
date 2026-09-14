@@ -15,6 +15,8 @@ import {
   type WebModule,
   type WorkspaceFacts,
   type ModuleWorkspace,
+  type Canvas,
+  type CanvasContents,
 } from "@isocan/core";
 import { mindmapWeb } from "@isocan/mindmap/web";
 import { mermaidWeb } from "@isocan/mermaid/web";
@@ -240,4 +242,12 @@ export function moduleWorkspace(segment: string): ModuleWorkspace<ComponentType<
 /** Both addressable module surfaces belong in the same launcher. */
 export function moduleViews(): Array<{ segment: string; label: string; hint?: string }> {
   return [...modulePages(), ...live().flatMap((m) => m.workspaces ?? [])];
+}
+
+/** Project metadata decides which module doors this canvas should offer. */
+export function moduleProjectViews(project: Canvas, canvas: CanvasContents) {
+  return live().flatMap((m) => (m.workspaces ?? []).flatMap((workspace) => {
+    const entry = workspace.projectEntry?.({ project, canvas });
+    return entry ? [{ ...entry, segment: workspace.segment }] : [];
+  }));
 }

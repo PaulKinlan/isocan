@@ -1,6 +1,7 @@
 import { groupContentBox, groupCellBox, groupGridNeedsRoom, groupChildren, groupAncestors, groupScopedRoot, groupDropTarget, groupDropPolicy, groupTransformClosure, isGroupItem } from "@isocan/core";
 import { groupsEnabled, enterCanvasGroup, scopedHit } from "../lib/canvasgroups.ts";
-import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CanvasActivation } from "../lib/canvasActivation.ts";
 import { Markdown } from "../lib/markdown.tsx";
 import type { Actor, Item, Neighbour, Operation } from "@isocan/core";
 import {
@@ -124,6 +125,7 @@ function ItemViewInner({
   settling?: boolean;
 }) {
   const navigate = useNavigate();
+  const activateItem = useContext(CanvasActivation);
   /**
    * **A live item is only live while it is somewhere near the window** (the
    * 6 September freeze, second half).
@@ -743,6 +745,7 @@ function ItemViewInner({
     const hitId = scopedHit(item.id);
     const hit = useCanvasStore.getState().canvas?.items[hitId];
     if (hit && isGroupItem(hit)) { enterCanvasGroup(hit.id); e.stopPropagation(); return; }
+    if (activateItem?.(item.id)) return;
     // A canvas is a place you go, not a thing you step inside of: the same
     // gesture opens it in a tab. Never in place — a canvas inside a canvas
     // inside a canvas is a maze, and a tab is where a place belongs.
