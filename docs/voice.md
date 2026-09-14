@@ -1,11 +1,13 @@
 # The voice page
 
-`packages/web/voice.html` is a standalone microphone page: no router, no React,
-no identity gate. Vite serves it at `/voice` (the dev server also proxies
-`/harness` to the local voice harness, so the page and the harness share an
-origin). It exists for one reason — to speak operations onto a canvas as an
-enrolled actor — and it is a client of the harness, never a second
-implementation of it.
+`packages/voice-agent/voice.html` is a standalone microphone page: no router,
+no React, no identity gate — its own workspace package, `@isocan/voice-agent`,
+with its own build, its own tests and its own Vite on port 5200. That server
+serves the page at `/voice` and proxies `/harness` to the local voice harness,
+so the page and the harness share an origin; the app's dev server redirects
+`/voice` there, so the address people already have keeps working. It exists for
+one reason — to speak operations onto a canvas as an enrolled actor — and it is
+a client of the harness, never a second implementation of it.
 
 ## Starting a working page
 
@@ -14,9 +16,11 @@ implementation of it.
   2. **A harness.** `node packages/cli/bin/isocan.js voice --canvas "<name>"`.
      It claims the actor, opens the provider's Live session and holds the key;
      the page only sends audio to loopback.
-  3. **The page.** `npm run dev` in `packages/web`, then
-     `http://127.0.0.1:5173/voice` (the integration build serves it at
-     `/voice` on its own port). The header carries a **build tag** —
+  3. **The page.** `npm run dev` at the repo root (daemon, app and page), or
+     `npm run dev -w @isocan/voice-agent` for the page on its own, then
+     `http://localhost:5200/voice` — the page's own server, and its own origin
+     for `/harness`. `http://localhost:5173/voice` also works: the app's dev
+     server redirects there. The header carries a **build tag** —
      `branch @ commit` — so you can see which build you are looking at; a build
      without the injected value says `build tag not injected`.
 

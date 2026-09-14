@@ -1,60 +1,57 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { execFileSync } from "node:child_process";
-
-// The config's checkout, even when Vite was launched from another directory.
-const checkout = new URL("../../", import.meta.url);
-const git = (args: string[]): string | null => {
-  try { return execFileSync("git", args, { cwd: checkout, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
-  catch { return null; }
-};
-const gitBranch = () => {
-  const branch = git(["branch", "--show-current"]);
-  return branch === null ? "unknown branch" : branch || "(detached)";
-};
 
 /**
- * **`/voice` is a second entry, not a route.**
+ * **The page's own port, and it is declared in the page's own config.**
  *
- * `voice.html` is the standalone microphone page: no router, no identity gate,
- * no React — see `src/voice/main.ts`. Vite serves any `.html` at its own
- * address, so the only thing this plugin does is spell the address without the
- * extension: `/voice` must open the microphone, not the app shell's "pick a
- * name" door.
- *
- * It is deliberately NOT in `build.rollupOptions.input`. Adding a second Rollup
- * entry splits the app's first-visit chunk and moves the cursor art out of it —
- * `cursorart.test.ts`'s "keeps the shapes out of what a first visit downloads"
- * caught exactly that. This page is a local surface served by Vite, and the
- * app's first visit is not going to pay for it.
+ * `packages/voice-agent/vite.config.ts` binds this; the redirect below names it
+ * because a redirect has to name something. Change it there and here.
  */
-function voiceEntry(): Plugin {
-  const rewrite = (url: string | undefined): string | undefined => {
-    if (url === "/voice") return "/voice.html";
-    if (url?.startsWith("/voice?")) return "/voice.html" + url.slice("/voice".length);
-    return url;
-  };
+const VOICE_PORT = 5200;
+
+/**
+ * **`/voice` still opens the microphone; the page just lives elsewhere now.**
+ *
+ * `voice.html` used to be a second entry in this app — served by this config,
+ * with `/harness` proxied here so the page's audio socket was same-origin. The
+ * page is now `packages/voice-agent`, with its own server, its own `/harness`
+ * proxy and its own build, so this config's whole remaining interest in it is
+ * the address people already have.
+ *
+ * **A redirect, not a proxy** (option A of the extraction plan). Proxying under
+ * a prefix would have needed `base: "/voice/"` on the page and every asset and
+ * module path rewritten under it — a mistake in the prefix is a silent 404 on a
+ * module, which is the shape of bug this project keeps excavating. Redirecting
+ * leaves the page's origin the server that serves it, so HMR and `/harness/audio`
+ * stay same-origin for free, and the app server being down does not take the
+ * page with it.
+ *
+ * **The host comes from the request, not from a constant.** Vite's dev server
+ * binds `localhost`, which resolves to `::1` here, and this repo's own docs
+ * record the day `http://127.0.0.1:5173` stopped answering because of it. A
+ * hardcoded target would hand that surprise to whoever typed the other name;
+ * swapping only the port keeps the name they used.
+ */
+function voiceRedirect(): Plugin {
   return {
-    name: "voice-entry",
+    name: "voice-redirect",
     configureServer(server) {
-      server.middlewares.use((req, _res, next) => {
-        req.url = rewrite(req.url);
-        next();
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? "";
+        // Exactly `/voice`, with or without a query — not `/voice/`, which is
+        // not an address this page has ever had.
+        if (url !== "/voice" && !url.startsWith("/voice?")) return next();
+        const host = (req.headers.host ?? "localhost").replace(/:\d+$/, "");
+        res.statusCode = 302;
+        res.setHeader("Location", `http://${host}:${VOICE_PORT}${url}`);
+        res.end();
       });
     },
   };
 }
 
-export default defineConfig(({ command }) => ({
-  define: {
-    __VOICE_BUILD_INFO__: JSON.stringify({
-      branch: gitBranch(),
-      commit: git(["rev-parse", "--short", "HEAD"]) || "unknown",
-      command,
-      startedAt: new Date().toISOString(),
-    }),
-  },
-  plugins: [react(), voiceEntry()],
+export default defineConfig({
+  plugins: [react(), voiceRedirect()],
   server: {
     port: 5173,
     // /ws is deliberately NOT proxied: the client connects its WebSocket
@@ -62,16 +59,6 @@ export default defineConfig(({ command }) => ({
     // spammed EPIPE stacks whenever the daemon restarted mid-write.
     proxy: {
       "/api": "http://127.0.0.1:4441",
-      // The voice harness, same-origin so the daemon needs no CORS header and
-      // the audio socket survives HMR. `ws: true` for /harness/audio.
-      // `ISOCAN_VOICE_HARNESS` aims it at another harness for an evidence run
-      // that must not attach to the one on 7654 somebody is using.
-      "/harness": {
-        target: process.env.ISOCAN_VOICE_HARNESS ?? "http://127.0.0.1:7654",
-        changeOrigin: true,
-        ws: true,
-        rewrite: (path: string) => path.replace(/^\/harness/, ""),
-      },
     },
   },
-}));
+});
