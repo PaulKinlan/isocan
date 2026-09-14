@@ -18,6 +18,7 @@ import type {
   PersonalSourcePolicy,
 } from "@isocan/core";
 import {
+  prunedVersions,
   actorNameIn,
   actorsAnswerTo,
   resolveActor,
@@ -663,6 +664,27 @@ export class CanvasHandle {
   async remove(itemId: string): Promise<void> {
     return this.reach(async () => {
       await this.ctx.client.sendOp(this.id, this.ctx.actor, { type: "item.delete", itemId });
+    });
+  }
+
+  /**
+   * Keep only the newest `keep` versions of an item — `isocan version prune`.
+   * Not undoable, which is why a script and not a person is the usual caller:
+   * a generator that publishes a version per run is the thing that silts a
+   * stack, and the same generator is the right place to keep it bounded.
+   * Returns the item as it stands after; a stack already within the bound
+   * sends no op at all.
+   */
+  async pruneVersions(itemId: string, keep: number): Promise<Item> {
+    return this.reach(async () => {
+      const before = await this.item(itemId);
+      if (prunedVersions(before, keep).length === 0) return before;
+      await this.ctx.client.sendOp(this.id, this.ctx.actor, {
+        type: "item.pruneVersions",
+        itemId,
+        keep,
+      });
+      return this.item(itemId);
     });
   }
 

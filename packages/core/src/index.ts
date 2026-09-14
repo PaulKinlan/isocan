@@ -6,7 +6,7 @@ export * from "./canvas-group-context-resolve.ts";
 export * from "./canvas-group-copy.ts";
 export * from "./canvas-group-migration.ts";
 export * from "./ops.ts";
-export { applyOperation } from "./reducer.ts";
+export { applyOperation, pruneVersions, prunedVersions } from "./reducer.ts";
 export * from "./badge.ts";
 export * from "./grants.ts";
 export * from "./public.ts";
