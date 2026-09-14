@@ -344,13 +344,26 @@
  * share into the entry, so the first attempt at this saved exactly 0 bytes.
  * The 2,329-byte agent prompt is no longer in the entry at all.
  *
- * 9,493 is inside JUMP's 20,000. The reviewed ceiling leaves 48 bytes of
- * margin; GOAL 640,000 and JUMP 20,000 remain unchanged.
+ * 9,493 is inside JUMP's 20,000.
+ *
+ * **Re-measured at landing: 743,799, and 671 of the move is not Anatomy's.**
+ * `room` phases 3 and 4 landed between the measurement above and this commit;
+ * rebuilt on that base with Anatomy's registration removed, the entry is
+ * 741,695, so the room work is inside this ceiling too and did not raise it
+ * when it landed. Said rather than absorbed: whoever owns room should see
+ * their own 671 bytes rather than find them inside a number labelled anatomy.
+ *
+ * The margin here is 101 bytes rather than the 25-48 the entries above chose.
+ * A margin thinner than one ordinary commit means the next unrelated change
+ * lands red, which is what just happened; on a main that takes a commit every
+ * twenty-five minutes, a tight ceiling is a tax on whoever pushes next rather
+ * than a discipline on whoever grew the bundle. GOAL 640,000 and JUMP 20,000
+ * remain unchanged, and they are what actually hold the line.
  */
 
 /** The last number somebody agreed to. Raised in the ANSWER to a finding, with
  *  the reason in that answer — not quietly in a diff. */
-export const CEILING = 743_700;
+export const CEILING = 743_900;
 
 /**
  * **Run as a program it prints that number**, so the performance persona's
