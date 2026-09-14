@@ -23,13 +23,20 @@ see it print the canvas it is attached to, the agent identity it resolved, the d
 is speaking to and the model it will use — then the address to open, which is
 **`http://127.0.0.1:7654/`** by default. Open it, press **Listen**, and talk.
 
-There is no build step between an edit and a run: the entry point registers `tsx`, so the
-package's own TypeScript is imported directly. `npm run dev -w @isocan/voice-agent` starts
-Vite instead, for working on the page itself.
+`npm start` builds the page first (`vite build` → `dist/`, which is what the harness
+serves) and the harness's own TypeScript is imported directly — the entry point registers
+`tsx`, so there is no build step between an edit to the harness and a run. The page is
+different: **run `npm run build -w @isocan/voice-agent`** if you started the entry point
+by hand without one, or the harness answers with the command instead of a blank page.
+`npm run dev -w @isocan/voice-agent` starts Vite instead, for working on the page itself
+with HMR — same page, same routes, proxied to the harness.
 
-**The same entry point is what `isocan rc` starts.** `npx isocan rc` launches this file as
-a supervisor — one entry, two ways to reach it — so a person starting it directly and rc
-starting it as a managed agent run identical code.
+**The same entry point is what `isocan rc` starts**, and it needs no configuration to do
+it: when the harness starts it writes its own declaration into
+`~/.isocan/config.json` (`acpAdapters.voice` → this file, `--acp`), which is where
+`isocan rc` resolves a harness from. One entry, two ways in — a person starting it
+directly and rc starting it as a managed agent run identical code. A `voice` declaration
+you wrote yourself is left alone.
 
 ## What it is
 
@@ -37,8 +44,9 @@ starting it as a managed agent run identical code.
   Three modules that import **nothing but browser globals**: no React, no router, no app
   state. Mic waveform inside the ring for the person, around the outside for the model.
 - **The harness** — `src/voice-harness.ts`. It holds the provider session, exposes the
-  tools the model can call, brokers the ones that need the page, writes the log, and
-  serves the page itself.
+  tools the model can call, brokers the ones that need the page, writes the log, serves
+  the built page (`dist/`, at `/` and under `/harness` — the Vite dev proxy's path, so
+  dev and served are one page), and declares itself as the machine's `voice` harness.
 
 ## How it works
 
@@ -67,7 +75,7 @@ click rather than a path.
 
 - **Talk to it**: open the page, press Listen.
 - **Supervise it**: `npx isocan rc` — it resolves the agent from the enrolment record and
-  starts this same entry point.
+  starts this same entry point (the declaration this harness wrote for itself).
 - **Default port**: 7654. The daemon it attaches to is chosen when the harness starts.
 
 ## What it needs
@@ -82,7 +90,7 @@ agent shows a *"needs setup"* callout pointing at the cog.
 ## Test it
 
 ```bash
-npm test -w @isocan/voice-agent        # unit tests
+npm test -w @isocan/voice-agent        # unit tests (one of them runs a real vite build)
 npm run typecheck -w @isocan/voice-agent
 ```
 

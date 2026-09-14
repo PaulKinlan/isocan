@@ -56,6 +56,7 @@ export const USAGE = [
   "",
   "  voice-agent                     the standing server: page, microphone, operations",
   "  voice-agent --acp               speak ACP on stdio — what `isocan rc` spawns",
+  "                                  (--port and --model belong to the run, not to it)",
   "",
   "  --as <name>                     the agent the microphone speaks as (default:",
   "                                  the injected session, else Voice)",
@@ -159,6 +160,17 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const name = args.name ?? (await voiceName(home, canvas));
 
   if (args.acp) {
+    // **The adapter is not the run.** It attaches to whichever microphone is
+    // standing (or starts one on the default port) and hands it a summons, so
+    // `--port` and `--model` typed here would be promises nothing keeps — the
+    // standing server settled both when it started. Refused rather than
+    // silently dropped, which is what they used to be.
+    if (args.port !== undefined || args.model !== undefined) {
+      throw new Error(
+        "`--port` and `--model` are the standing server's flags: `voice-agent --acp` is the adapter the rc spawns, " +
+          "and it attaches to the harness that is already running (or starts one on the default port)",
+      );
+    }
     await runVoiceAdapter({ home, name, ...(canvas ? { canvas } : {}) });
     return;
   }

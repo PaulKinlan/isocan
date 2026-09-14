@@ -663,11 +663,27 @@ export function wireVoice(doc: Document = document): VoicePage {
     if (offered.canvases && Array.isArray(offered.canvases) && offered.canvases.length > 0) {
       canvasRow.hidden = false;
       const canvases = offered.canvases as { id?: string; title?: string }[];
-      const html = canvases
-        .map((c) => `<option value="${c.id ?? ""}">${c.title ?? c.id ?? ""}</option>`)
-        .join("");
-      if (canvasSelect.innerHTML !== html) {
-        canvasSelect.innerHTML = html;
+      /**
+       * **Elements, never markup.** A canvas title is somebody's text — it is
+       * whatever that person typed — and a title containing `</option>` (or a
+       * `<script>`) inside an `innerHTML` template becomes part of this page.
+       * `textContent` cannot be talked into being markup.
+       *
+       * The signature is what keeps a state poll from rebuilding the list
+       * under a person's cursor: the DOM is touched only when the set of
+       * canvases actually changed.
+       */
+      const signature = canvases.map((c) => `${c.id ?? ""}\u0000${c.title ?? ""}`).join("\u0001");
+      if (canvasSelect.dataset.signature !== signature) {
+        canvasSelect.dataset.signature = signature;
+        canvasSelect.replaceChildren(
+          ...canvases.map((c) => {
+            const option = doc.createElement("option");
+            option.value = c.id ?? "";
+            option.textContent = c.title ?? c.id ?? "";
+            return option;
+          }),
+        );
       }
       if (doc.activeElement !== canvasSelect && facts?.canvas?.id) {
         canvasSelect.value = facts.canvas.id;

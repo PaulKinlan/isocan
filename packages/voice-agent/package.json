@@ -8,6 +8,7 @@
     "voice-agent": "./bin/voice-agent.js"
   },
   "scripts": {
+    "prestart": "vite build",
     "start": "node bin/voice-agent.js",
     "dev": "vite",
     "build": "vite build",

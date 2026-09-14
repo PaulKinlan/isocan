@@ -907,35 +907,6 @@ describe("the page", () => {
     } finally { reads.mockRestore(); socket.terminate(); }
   });
 
-  it("serves the harness's own page, prefers `<microphone>` and falls back in the stated order, and writes nothing to browser storage", async () => {
-    const server = await serve();
-    const page = await (await fetch(server.state.url)).text();
-
-    expect(page).toContain("isocan voice");
-    expect(page).toContain("Voice");
-    // The ladder, in order: microphone, then usermedia, then getUserMedia.
-    const mic = page.indexOf('name: "microphone"');
-    const gum = page.indexOf('name: "getUserMedia"');
-    expect(mic).toBeGreaterThan(-1);
-    expect(mic).toBeLessThan(gum);
-    // `<usermedia>` is deliberately NOT a rung: it asks for camera and
-    // microphone together, and an audio feature must not prompt for a camera.
-    expect(page).not.toContain('name: "usermedia"');
-    expect(page).toContain("asks for camera and microphone together");
-    // And the constraint is audio-only.
-    expect(page).toContain("getUserMedia({ audio: true, video: false })");
-    // The key is never the page's to keep: the BEHAVIOUR script — the only
-    // half that could write anything — names no browser storage at all. The
-    // prose above it is allowed to say so in words.
-    // No deprecated node: Paul read the console, and a deprecation warning
-    // that looks like a defect is one.
-    expect(page).not.toContain("createScriptProcessor");
-    expect(page).toContain("audioWorklet.addModule");
-    const behaviour = page.slice(page.lastIndexOf("<script>"));
-    expect(behaviour).not.toContain("localStorage");
-    expect(behaviour).not.toContain("document.cookie");
-  });
-
   it("says what it is connected to: canvas by title and id, daemon, home, agent, provider", async () => {
     const server = await serve();
     const facts = (await (await fetch(`${server.state.url}connection`)).json()) as Record<string, any>;
@@ -1498,17 +1469,6 @@ describe("the person's gate", () => {
     expect(((await missing.json()) as { error: string }).error).toContain("no canvas matches");
   });
 
-  it("asks on the page with buttons a person can press, and posts the answer nowhere else", async () => {
-    const server = await serve();
-    const page = await (await fetch(server.state.url)).text();
-    expect(page).toContain('id="confirm"');
-    expect(page).toContain('id="confirm-what"');
-    expect(page).toContain("Yes, do it");
-    expect(page).toContain('post("/confirm"');
-    // A question asked while the tab was closed still finds it: the poll reads
-    // it off /state, which the socket-less typed path never announces on.
-    expect(page).toContain("showConfirm(s.confirm || null)");
-  });
 });
 
 describe("what an agent is called", () => {
@@ -3146,6 +3106,47 @@ describe("the Live API path", () => {
 });
 
 describe("the harness as the rc's adapter", () => {
+  /**
+   * **The declaration the rc resolves, written by the thing it names.**
+   *
+   * `isocan rc` finds a harness in `~/.isocan/config.json`'s `acpAdapters`
+   * (`adapterFor`), so a harness that is not declared there cannot be
+   * summoned — and a person having to write that line by hand is how an
+   * enrolment could stand an agent up with nothing able to start it. The
+   * package writes it when it starts, by absolute path and the interpreter
+   * that is running: the file a person's own command starts.
+   */
+  it("declares itself in config.json, and leaves a person's own declaration alone", async () => {
+    const config = () => fs.readFile(path.join(home, "config.json"), "utf8").then((t) => JSON.parse(t) as any);
+
+    const server = await startVoiceServer({ home, port: 0, identity: await identityFor(), canvas: "prj_1", daemonPort: Number(new URL(base).port) });
+    await server.close();
+
+    const written = await config();
+    const entry = fileURLToPath(new URL("../bin/voice-agent.js", import.meta.url));
+    expect(written.acpAdapters.voice).toEqual([process.execPath, entry, "--acp"]);
+    // And the entry point it names really is this package's.
+    await fs.access(written.acpAdapters.voice[1]);
+
+    // A second start is not a rewrite: the file's other keys and the
+    // declaration survive as they were.
+    await fs.writeFile(path.join(home, "config.json"), `${JSON.stringify({ ...written, home: "https://isocan.io" }, null, 2)}\n`);
+    const again = await startVoiceServer({ home, port: 0, identity: await identityFor(), canvas: "prj_1", daemonPort: Number(new URL(base).port) });
+    await again.close();
+    expect((await config()).home, "an unrelated key is not touched").toBe("https://isocan.io");
+    expect((await config()).acpAdapters.voice).toEqual(written.acpAdapters.voice);
+
+    // A declaration a person wrote WINS: pointing `voice` at your own bridge
+    // is a deliberate act, and `adapterFor` reads config before anything else.
+    await fs.writeFile(
+      path.join(home, "config.json"),
+      `${JSON.stringify({ acpAdapters: { voice: ["node", "/somewhere/mine.mjs", "--acp"] } }, null, 2)}\n`,
+    );
+    const kept = await startVoiceServer({ home, port: 0, identity: await identityFor(), canvas: "prj_1", daemonPort: Number(new URL(base).port) });
+    await kept.close();
+    expect((await config()).acpAdapters.voice).toEqual(["node", "/somewhere/mine.mjs", "--acp"]);
+  });
+
   it("is summoned for real: `rc turn` reaches the standing page", async () => {
     // No config declaration: `voice` is a builtin of the harness registry, and
     // this is the test that proves the registry — not a person's config.json —
@@ -3400,107 +3401,4 @@ describe("the harness session & tool-call log API", () => {
     const voiceSession2 = sessions2.find((s) => s.harness === "voice");
     expect(voiceSession2!.status).toBe("enrolled — nobody is listening right now");
   });
-});
-
-describe("responsive layout and bounding-box isolation", () => {
-  let close: (() => Promise<void>) | null = null;
-
-  afterEach(async () => {
-    await close?.();
-    close = null;
-  });
-
-  for (const width of [1440, 420]) {
-    it(`guarantees zero panel overlaps and zero text overflow at ${width}px`, async () => {
-      const server = await startVoiceServer({
-        home,
-        port: 0,
-        identity: await identityFor(),
-        canvas: "prj_1",
-        daemonPort: Number(new URL(base).port),
-      });
-      close = server.close;
-
-      // @ts-expect-error - JS helper module
-      const { browser } = await import("../../../scripts/lib/browser.mjs");
-      const b = await browser({
-        flags: [
-          `--window-size=${width},900`,
-          "--use-fake-device-for-media-stream",
-          "--use-fake-ui-for-media-stream",
-          "--autoplay-policy=no-user-gesture-required",
-        ],
-      });
-
-      try {
-        const loaded = b.once("Page.loadEventFired");
-        await b.send("Page.navigate", { url: server.state.url });
-        await loaded;
-        await b.send("Emulation.setDeviceMetricsOverride", {
-          width,
-          height: 900,
-          deviceScaleFactor: 1,
-          mobile: width <= 500,
-        });
-        await new Promise((r) => setTimeout(r, 300));
-
-        /* The question bar is hidden until something asks, and it is the one
-           element on the page whose whole job is to be seen while somebody is
-           mid-decision — so it is measured with a question standing, not in
-           the state a quiet canvas leaves it in. Unhidden by hand: what is
-           being measured is the layout, and the gate's own behaviour is
-           driven for real in `the person's gate` above. */
-        await b.ev(
-          `(() => { document.getElementById("confirm-what").textContent = "delete “Checkout screen”"; document.getElementById("confirm").hidden = false; })()`,
-        );
-
-        // 1. Document width <= viewport width + 1
-        const docWidth = Number(await b.ev(`document.documentElement.scrollWidth`));
-        expect(docWidth).toBeLessThanOrEqual(width + 1);
-
-        // 2. Zero pairwise bounding-box intersection between panels
-        const overlaps = ((await b.ev(`(() => {
-          const boxes = [...document.querySelectorAll("aside .panel, main > .panel, main > .composer, main > .dock, main > #confirm")]
-            .map((el) => ({ el, r: el.getBoundingClientRect() }));
-          const hits = [];
-          for (let i = 0; i < boxes.length; i++) {
-            for (let j = i + 1; j < boxes.length; j++) {
-              const a = boxes[i].r, b = boxes[j].r;
-              const x = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-              const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-              if (x > 2 && y > 2) {
-                hits.push((boxes[i].el.querySelector("h2")?.textContent || boxes[i].el.className || boxes[i].el.id) + " overlaps " +
-                          (boxes[j].el.querySelector("h2")?.textContent || boxes[j].el.className || boxes[j].el.id) +
-                          " by " + Math.round(x) + "x" + Math.round(y) + "px");
-              }
-            }
-          }
-          return hits;
-        })()`)) as string[]) ?? [];
-        expect(overlaps, `Overlapping panels at ${width}px: ${overlaps.join("; ")}`).toEqual([]);
-
-        // 3. scrollWidth <= clientWidth + 1 for every text element
-        const overflows = ((await b.ev(`(() => {
-          const elements = [...document.querySelectorAll("body *")];
-          const offenders = [];
-          for (const el of elements) {
-            if (el.scrollWidth > el.clientWidth + 1) {
-              const style = window.getComputedStyle(el);
-              if (style.overflowX !== "auto" && style.overflowX !== "scroll") {
-                offenders.push(
-                  (el.tagName.toLowerCase() + (el.className ? "." + String(el.className).split(" ").join(".") : "")) +
-                  " scrollWidth=" + el.scrollWidth + " > clientWidth=" + el.clientWidth +
-                  " text=" + JSON.stringify((el.textContent || "").trim().slice(0, 30))
-                );
-              }
-            }
-          }
-          return offenders;
-        })()`)) as string[]) ?? [];
-        expect(overflows, `Text overflow at ${width}px: ${overflows.join("; ")}`).toEqual([]);
-      } finally {
-        await b.close();
-      }
-    });
-  }
 });

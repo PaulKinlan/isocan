@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
-import { readConfigFile, readMarker } from "@isocan/server";
+import { readConfigFile, readMarker, updateConfigFile } from "@isocan/server";
 import { agentSessionOf, machineAgentKey } from "./agent-key.ts";
 import { readRcAgents, upsertRcAgent } from "./rc-rows.ts";
 import { statSync } from "node:fs";
@@ -29,7 +29,6 @@ import {
   siteLabel,
   type InkStroke,
 } from "@isocan/core";
-import { voicePage } from "./voice-harness-page.ts";
 
 /**
  * **The voice harness** (Paul, 11 Sep 2026) — a local process that is enrolled
@@ -3643,14 +3642,16 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       /**
        * **The adapter is not a thing that can be missing any more.**
        *
-       * It used to be: `voice` was only runnable if a person had declared
-       * `{"acpAdapters": {"voice": ["node", "<isocan.js>", "voice", "--acp"]}}`
-       * in their config, so an enrolment could succeed on a canvas and still
+       * It used to be: `voice` was only runnable if a person had written
+       * `{"acpAdapters": {"voice": ["node", "<bin>", "--acp"]}}` into their
+       * config by hand, so an enrolment could succeed on a canvas and still
        * leave nothing able to start the agent, and this flag is what said so.
-       * The harness is a builtin now — `packages/cli/src/harnesses.ts` names
-       * this package's own entry point — so the answer is the same on every
-       * machine. The field is kept because it is part of this response's shape,
-       * not because there is a case left that can make it false.
+       * This harness now writes that declaration itself when it starts
+       * (`registerVoiceHarness`) — and this endpoint only runs inside a
+       * standing harness — so by the time an enrolment can arrive, the thing
+       * that starts the agent exists. The field is kept because it is part of
+       * this response's shape, not because there is a case left that can make
+       * it false.
        */
       const declared = true;
       const answer = `enrolled “${target.name}” on “${target.canvasLabel}” — it answers on this canvas now`;
@@ -3859,6 +3860,19 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     const t0 = performance.now();
     let reqBytes = 0;
     req.on("data", (chunk: Buffer) => { reqBytes += chunk.length; });
+    /**
+     * **`/harness` is the page's spelling of this door, and it is the same door.**
+     *
+     * The page is served in two ways: in dev by Vite on 5199, which proxies
+     * `/harness/*` here (same origin, so the audio socket survives HMR), and in
+     * production by this process, out of `dist/`. The page cannot have two
+     * sets of paths — one spelling in dev and another served — so the prefix is
+     * stripped here, once, and everything below routes exactly as it always
+     * did. A request for `/harness/state` IS a request for `/state`.
+     */
+    if (req.url === "/harness" || req.url?.startsWith("/harness/") || req.url?.startsWith("/harness?")) {
+      req.url = req.url.slice("/harness".length) || "/";
+    }
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${options.port || DEFAULT_VOICE_PORT}`);
     res.on("finish", () => {
       const dur = (performance.now() - t0).toFixed(1);
@@ -3886,14 +3900,41 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       if (text.trimStart().startsWith('"')) return JSON.parse(text) as string;
       return { raw };
     };
+    /** A file out of the built page, when there is one there. False means
+     * "not a page file", and the caller decides what that costs. */
+    const servePage = async (out: http.ServerResponse, wanted: string): Promise<boolean> => {
+      const dir = voiceDistDir();
+      const file = path.resolve(dir, wanted);
+      if (file !== dir && !file.startsWith(dir + path.sep)) return false;
+      try {
+        const body = await fs.readFile(file);
+        out.writeHead(200, {
+          "Content-Type": PAGE_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream",
+          "Cache-Control": "no-store",
+        });
+        out.end(body);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const guard = (work: () => Promise<void>) => {
       void work().catch((err) => respond(500, { error: String((err as Error).message ?? err) }));
     };
     void (async () => {
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${options.port || DEFAULT_VOICE_PORT}`);
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
-        respond(200, voicePage(await factsFor()), "text/html; charset=utf-8");
+        if (!(await servePage(res, "voice.html"))) respond(503, pageNotBuilt(), "text/html; charset=utf-8");
         return;
+      }
+      /**
+       * The page's own furniture: the built bundle, the fonts, the icon, and
+       * `/voice` — the dev server's spelling of the page, kept so a bookmark
+       * from dev works here. Anything else is not this harness's to answer.
+       */
+      if (req.method === "GET" && url.pathname !== "/favicon.ico") {
+        const wanted = url.pathname === "/voice" ? "voice.html" : url.pathname.replace(/^\/+/, "");
+        if (await servePage(res, wanted)) return;
       }
       if (req.method === "GET" && url.pathname === "/connection") {
         // Machine-readable, because "what is this agent connected to" is a
@@ -4612,7 +4653,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
    */
   const live = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
-    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname.replace(/^\/harness(?=\/|$)/, "") || "/";
     if (pathname === "/live" || pathname === "/audio" || pathname === "/broker") {
       live.handleUpgrade(request, socket, head, (ws) => {
         live.emit("connection", ws, request);
@@ -5459,6 +5500,19 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   };
   await rememberWhatIAm();
 
+  // Registering is a fact about being up: the rc can reach this harness only
+  // through config.json's acpAdapters, and the honest moment to write it is now
+  // that the page is standing and the summons has something to attach to.
+  const registered = await registerVoiceHarness(home).catch((err: Error) => {
+    logLine("harness", `could not register as the "${VOICE_HARNESS}" harness — ${err.message}`);
+    return null;
+  });
+  if (registered?.state === "written") {
+    logLine("harness", `registered as the "${VOICE_HARNESS}" harness in config.json's acpAdapters — \`isocan rc\` can summon it now`);
+  } else if (registered?.state === "kept") {
+    logLine("harness", `config.json already declares a "${VOICE_HARNESS}" harness (${registered.declared?.join(" ")}) — leaving it alone`);
+  }
+
   // Announce presence on the canvas so `isocan who` and the canvas facepile
   // show the voice agent in the room:
   void announcePresence("enrolled — nobody is listening right now");
@@ -5501,6 +5555,55 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       await fs.rm(voiceServerFile(home), { force: true });
     },
   };
+}
+
+/**
+ * **The page itself, from the build `npm run build -w @isocan/voice-agent`
+ * leaves in `dist/`.**
+ *
+ * The harness used to GENERATE the page it served (`voice-harness-page.ts`, a
+ * few hundred lines of template that had drifted a long way from the page the
+ * package actually owns: `voice.html` + `src/main.ts` + `src/voiceAudio.ts`,
+ * with its own tests, its own resampler and its own setup panel). Two pages
+ * meant the served one was the untested one — and it was the older one, with a
+ * fractional resampler that zeroed most samples at 44.1 kHz. The page is the
+ * package's own artifact now, and serving it is serving a directory.
+ *
+ * `dist/` is built, not committed, so a harness started without one says so
+ * rather than serving a blank: the answer to `GET /` names the command.
+ *
+ * The page asks for the harness under `/harness` (the Vite dev server's proxy
+ * path, so dev and served are the same page), which the request handler strips
+ * before routing. The assets are the only thing served from here; every door
+ * is still the harness's own.
+ */
+const PAGE_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+};
+
+/** Where the built page is: `new URL("../dist", import.meta.url)`. */
+export function voiceDistDir(): string {
+  return fileURLToPath(new URL("../dist", import.meta.url));
+}
+
+/** What `GET /` answers when there is no build: the one fact that is missing,
+ * and the command that settles it — never a blank page. */
+function pageNotBuilt(): string {
+  return (
+    "<!doctype html><meta charset=\"utf-8\"><title>Voice — the page is not built</title>" +
+    "<body style=\"font:15px/1.5 system-ui;padding:2rem;max-width:44rem;margin:auto\">" +
+    "<h1>The page is not built yet</h1>" +
+    "<p>This harness serves <code>dist/</code>, which <code>npm run build -w @isocan/voice-agent</code> writes. " +
+    "<code>npm start -w @isocan/voice-agent</code> builds it first.</p>" +
+    "<p>The harness itself is up, so this is the only thing missing.</p>"
+  );
 }
 
 /** Is a harness already standing where the adapter or a second start would
@@ -5629,6 +5732,48 @@ function promptText(prompt: unknown): string {
  * build and not whatever is on the PATH. */
 function voiceEntry(): string {
   return fileURLToPath(new URL("../bin/voice-agent.js", import.meta.url));
+}
+
+/** What this harness is, in the form a person's `config.json` takes. */
+export interface VoiceRegistration {
+  state: "written" | "already" | "kept";
+  /** What a declaration that is not ours names, when there was one. */
+  declared?: string[];
+}
+
+/**
+ * **The harness registers itself, in the one place `isocan rc` looks.**
+ *
+ * The rc resolves a harness through `~/.isocan/config.json`'s `acpAdapters`
+ * (`packages/cli/src/harnesses.ts`, `adapterFor`): a named command and its
+ * arguments, and nothing else is needed — no registry entry, no PATH lookup,
+ * no new code in the CLI. A person used to have to write that declaration by
+ * hand *before* an enrolment could stand anything up, which meant an agent
+ * could be enrolled on a canvas and have nothing able to start it.
+ *
+ * So the package writes its own: **this file**, by absolute path, run by the
+ * interpreter that is running this code (`process.execPath`), with `--acp` —
+ * the file a person starts, which is one entry with two ways in, so a summons
+ * runs exactly what the person's own command runs.
+ *
+ * A declaration by hand WINS and is left alone: `adapterFor` reads config
+ * first for exactly this reason, and a person who pointed `voice` at their own
+ * bridge (or their own checkout — the path above is absolute, and a checkout
+ * that moves is a declaration that did not) meant it. `written` and `already`
+ * are what the start line narrates.
+ */
+export async function registerVoiceHarness(home: string): Promise<VoiceRegistration> {
+  const entry = [process.execPath, voiceEntry(), "--acp"];
+  const raw = await readConfigFile<{ acpAdapters?: Record<string, string[] | string> }>(home);
+  const declared = raw.acpAdapters?.[VOICE_HARNESS];
+  if (Array.isArray(declared) && declared.length === entry.length && declared.every((part, i) => part === entry[i])) {
+    return { state: "already" };
+  }
+  if (declared !== undefined) {
+    return { state: "kept", declared: Array.isArray(declared) ? declared : declared.trim().split(/\s+/) };
+  }
+  await updateConfigFile(home, { acpAdapters: { ...(raw.acpAdapters ?? {}), [VOICE_HARNESS]: entry } });
+  return { state: "written" };
 }
 
 /** A line on stderr: the adapter's stdout is JSON-RPC and nothing else. */
@@ -5800,7 +5945,7 @@ function voiceVersion(): string {
 function voiceUpdated(): string {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const files = ["voice-harness.ts", "voice-harness-page.ts"].map((name) => statSync(path.join(here, name)).mtimeMs);
+    const files = ["voice-harness.ts", "main.ts", "voiceAudio.ts"].map((name) => statSync(path.join(here, name)).mtimeMs);
     return new Date(Math.max(...files)).toISOString().replace("T", " ").slice(0, 16) + "Z";
   } catch {
     return "unknown";
