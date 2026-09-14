@@ -12,6 +12,10 @@
       "types": "./packages/api/src/index.ts",
       "default": "./index.mjs"
     },
+    "./rc": {
+      "types": "./packages/rc/src/index.ts",
+      "default": "./rc.mjs"
+    },
     "./package.json": "./package.json"
   },
   "workspaces": [
