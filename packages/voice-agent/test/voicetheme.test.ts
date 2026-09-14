@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
+import { voiceHtml } from "./page.ts";
 
-const html = readFileSync(path.join(process.cwd(), "packages/web/voice.html"), "utf8");
-const script = /<script>([\s\S]*?)<\/script>/.exec(html);
+const script = /<script>([\s\S]*?)<\/script>/.exec(voiceHtml);
 
 // Execute the actual entry's bootstrap, not a copy and not a hand-set theme.
 function boot(dark: boolean, stored: string | null = null, refuseStorage = false) {
@@ -37,8 +35,8 @@ function boot(dark: boolean, stored: string | null = null, refuseStorage = false
 describe("the standalone voice entry's automatic theme", () => {
   it("runs a classic pre-paint script in its own head, not React's entry", () => {
     expect(script).not.toBeNull();
-    expect(script!.index).toBeLessThan(html.indexOf("</head>"));
-    expect(html).toContain('<meta name="color-scheme" content="light dark"');
+    expect(script!.index).toBeLessThan(voiceHtml.indexOf("</head>"));
+    expect(voiceHtml).toContain('<meta name="color-scheme" content="light dark"');
   });
 
   it.each([

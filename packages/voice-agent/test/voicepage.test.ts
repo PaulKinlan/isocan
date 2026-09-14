@@ -1,25 +1,23 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { entriesFrom, sessionFrom } from "../src/lib/voice.ts";
-import { buildWords, wireVoice, type VoicePage } from "../src/voice/main.ts";
+import { entriesFrom, sessionFrom } from "../src/voice.ts";
+import { buildWords, wireVoice, type VoicePage } from "../src/main.ts";
+import { voiceBody } from "./page.ts";
 
 /**
  * **The standalone page, driven as a page.**
  *
  * There is no React here, so there is no component tree to render: the markup
- * is `voice.html` and the controller is `src/voice/main.ts`. These tests load
+ * is `voice.html` and the controller is `src/main.ts`. These tests load
  * the real body, answer the wire with stubs, and then read the DOM a person
  * would see — which is the only place the two bugs that mattered tonight
  * lived: an unwrapped session state that left every control disabled, and log
  * objects handed to a renderer that wanted text.
  */
 
-// jsdom serves modules over http, so `import.meta.url` is not a file URL here;
-// the repo root is the vitest root and this file is where it has always been.
-const voiceHtml = readFileSync(path.resolve(process.cwd(), "packages/web/voice.html"), "utf8");
-const voiceBody = /<body[^>]*>([\s\S]*)<\/body>/i.exec(voiceHtml)?.[1] ?? "";
+// The page's markup lives in its own file and this is it — read from this
+// test's own directory rather than from wherever the command was run (see
+// `page.ts`). The body is what the DOM tests install.
 
 /** jsdom has no server; the wire is answered by these values. */
 let stateReply: unknown = {};

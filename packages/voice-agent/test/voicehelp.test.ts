@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { wireSettingsHelp } from "../src/voice/help.ts";
+import { wireSettingsHelp } from "../src/help.ts";
+import { voiceBody } from "./page.ts";
 
 /**
  * **The "?" beside a setting, in a DOM that has no Popover API at all.**
@@ -17,9 +16,6 @@ import { wireSettingsHelp } from "../src/voice/help.ts";
  * whether two of them can be on screen at once — is driven in Chrome by
  * `scripts/voice-settings-evidence.mjs`, not asserted here.
  */
-
-const voiceHtml = readFileSync(path.resolve(process.cwd(), "packages/web/voice.html"), "utf8");
-const voiceBody = /<body[^>]*>([\s\S]*)<\/body>/i.exec(voiceHtml)?.[1] ?? "";
 
 const element = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);

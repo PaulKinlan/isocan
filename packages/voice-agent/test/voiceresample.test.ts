@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Resampler } from "../src/lib/voiceAudio.ts";
+import { Resampler } from "../src/voiceAudio.ts";
 
 /**
  * **The resampler, driven at the two rates a real browser hands out.**

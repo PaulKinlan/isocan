@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { wireThemeChoice } from "../src/voice/theme.ts";
+import { wireThemeChoice } from "../src/theme.ts";
+import { headScript, voiceBody } from "./page.ts";
 
 /**
  * **The theme choice, wired to the page's own pre-paint applier.**
@@ -20,10 +19,6 @@ import { wireThemeChoice } from "../src/voice/theme.ts";
  * wrapped in a function before it is evaluated: its `const`s would otherwise
  * land in the global lexical environment and refuse a second boot.
  */
-
-const voiceHtml = readFileSync(path.resolve(process.cwd(), "packages/web/voice.html"), "utf8");
-const voiceBody = /<body[^>]*>([\s\S]*)<\/body>/i.exec(voiceHtml)?.[1] ?? "";
-const headScript = /<script>([\s\S]*?)<\/script>/.exec(voiceHtml)?.[1] ?? "";
 
 /** Everyone listening for the device to change, as the page's script does. */
 let listeners: (() => void)[] = [];

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Playback, START_CUSHION, type ScheduleInfo } from "../src/lib/voiceAudio.ts";
+import { Playback, START_CUSHION, type ScheduleInfo } from "../src/voiceAudio.ts";
 
 /**
  * **The overlap Paul heard, and the cursor that ends it.**

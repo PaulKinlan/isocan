@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { rules, withoutComments } from "./cssrules.ts";
+import { voiceHtml } from "./page.ts";
 
 /**
  * **The pair of names that decides where a help card lands.**
@@ -17,7 +16,6 @@ import { rules, withoutComments } from "./cssrules.ts";
  * actually lands is driven in Chrome by `scripts/voice-settings-evidence.mjs`.
  */
 
-const voiceHtml = readFileSync(path.join(process.cwd(), "packages/web/voice.html"), "utf8");
 const anchors = [...voiceHtml.matchAll(/commandfor="(help-[\w-]+)"/g)].map((m) => m[1]!);
 
 describe("the anchor each help card hangs from", () => {
