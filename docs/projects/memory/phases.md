@@ -1,10 +1,10 @@
 # Memory — the walk
 
-**Where we are:** phases 0–4 are closed. Memory phase 5 is next: inherited
-recap heads under [inherited-recap.md](inherited-recap.md), on CLI, web and
-MCP. Pin-from-source follows as a separate phase once its concrete copy act
-is defined. Both are engineering work with no credential, resource or person
-blocking them. Public and the four personal-memory journeys are verified.
+**Where we are:** phases 0–5 are closed. CLI, web and MCP share bounded
+inherited Recent work; Public and all five memory journeys are verified.
+Memory phase 6, pin-from-source, is the next engineering contract: define the
+explicit copy act and both surfaces before building. No credential, resource
+or person blocks that work.
 
 ## Phase 0 — Context with headings
 
@@ -119,7 +119,9 @@ only the personal portion that implementation did not claim to provide.
 
 ## Phase 5 — A bounded head from inherited history
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 13 September 2026 — inherited Recent work agrees on
+CLI, desktop/phone and real MCP transport; authoritative history and route
+security pass the actual HTTP and both-backing proofs.
 
 **Proof:** actual CLI, browser and MCP reads show an ordinary inherited
 source's bounded Recent work with matching provenance. Real mutations exceed
@@ -137,7 +139,40 @@ and bundle suite, typecheck, build and actual browser acceptance without
 raising the entry ceiling. Journey 5 and inherited-recap.md define the scope.
 
 
+**Verified:** the conductor ran the full suite with
+`ISOCAN_REQUIRE_DEEP=1 ISOCAN_REQUIRE_EMULATOR=1 ISOCAN_REQUIRE_BUNDLE=1`:
+5,197 passed, three existing ACP/dispatch skips, 528 files, 297.61
+seconds, exit 0. Workspace typecheck and build passed; the entry is 734,004
+bytes against the unchanged 734,200 ceiling. All ten standard browser
+journeys, Public and personal regression walks passed.
+
+Actual CLI/browser acceptance in `scripts/journey-recap.mjs` proves matching
+typed heads, source provenance, omissions, local design precedence, unchanged
+shared/frozen bytes, GC and daemon/store restart. Desktop and 390px phone
+screens were inspected, including an unavailable head whose readable design,
+pins and reason remain visible. The real SDK stdio proof in
+`packages/mcp/test/recap-summary-transport.test.ts` passed independently.
+
+FileStore and required-emulator CloudStore run the same real 130-operation,
+GC, lost-compaction-receipt, reopen, missing-range and held-read tests. The
+queue proof fails when its actual enqueue boundary is removed. Actual HTTP
+also proves encoded-route security, caller ceilings, personal exclusion before
+private I/O and cancellation through a real authoritative-home forward. The
+conductor's anonymous snapshot/history probe leaked before the correction and
+returned 401 with no source reads afterward.
+
+**Both surfaces:** this is a read, so no new Operation, CLI verb or MCP tool
+is needed. Existing Context commands and resources gain the same core head
+and formatter; the guide and README describe it. Pure logic, both backings,
+real HTTP/stdio and browser interaction each prove their own boundary.
+Personal current-piece reading and frozen-request semantics stay unchanged.
+
 ## Trajectory
+
+- **2026-09-13** — A core namespace loaded by runtime modules made an eager
+  Context formatter retain the new history code in the entry. Factoring the
+  report into a compatible leaf and deferring the web read reduced the entry
+  to 734,004 bytes without increasing its ceiling.
 
 - **2026-09-13** — The router accepts encoded static URL segments while raw-path
   guards missed them. Actual HTTP exposed closed snapshot/history data without

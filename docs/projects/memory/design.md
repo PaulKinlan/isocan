@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-02
 see: context, inception, standing-agents
-note: phases 0–4 are verified on CLI, browser and real MCP transport. Phase 5 next adds bounded inherited recap heads under inherited-recap.md; pin-from-source remains the following engineering contract
+note: phases 0–5 and all five memory journeys are verified on CLI, desktop/phone and real MCP transport, 13 Sep. Bounded inherited Recent work is built; phase 6 pin-from-source is the next engineering contract
 ---
 # Memory, in layers you can see
 
@@ -71,7 +71,7 @@ property: `memory=inherit`. A linked canvas contributes its *context pieces*
 here, read-only: its design system (if this canvas has none of its own, the
 linked one governs; if both, this canvas's wins and the panel says so), its
 pinned items, and its bounded recap head under
-[inherited-recap.md](inherited-recap.md), the next build in memory phase 5. The
+[inherited-recap.md](inherited-recap.md), built in memory phase 5. The
 link contributes neither Chat nor items wholesale: context is what somebody
 decided matters, and the link inherits exactly that decision. Several links compose in the order they sit on the canvas, top to
 bottom, left to right, because that is the order the room reads.
@@ -271,3 +271,16 @@ the other clients use. Real stdio calls prove all three layers, independent
 callers, current versions, zero private reads on refusal and unchanged saved
 requests. The four journeys are verified; recap-head and pin-from-source are
 the next engineering phases.
+
+**Phase 5, 13 September 2026.** Ordinary inherited sources now contribute
+Recent work on CLI, web and MCP. Core calculates and formats one bounded
+metadata head; the authoritative engine captures the required contiguous
+history in its existing writer queue. Personal history is excluded before
+source reads. Missing history preserves readable design/pins and says why.
+
+The actual HTTP audit found that encoded static URL segments bypassed raw-path
+guards on existing snapshot/history routes as well as the new recap route.
+Shared checks now classify Fastify's matched API route, retaining the original
+URL for forwarding. Both backings, real CLI/browser/stdio and the full
+5,197-test suite passed; the entry is 734,004 bytes. See phases.md for the
+proof and inherited-recap.md for the limits. Pin-from-source remains next.

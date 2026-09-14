@@ -2,7 +2,7 @@
 status: partial
 since: 2026-09-02
 see: context, inception, standing-agents, embed, public
-note: phases 0–4 and the four personal-memory scenes are verified, 13 Sep. Phase 5 adds bounded inherited recap heads under Journey 5; pin-from-source remains the following engineering contract
+note: phases 0–5 and all five memory journeys are verified on CLI, desktop/phone and real MCP transport, 13 Sep. Bounded inherited Recent work is built; phase 6 pin-from-source is the next engineering contract
 ---
 # Memory — bring a source, see where it came from
 
