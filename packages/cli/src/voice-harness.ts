@@ -661,7 +661,7 @@ export async function runMemoryTool(
         said: error,
         answer: {
           ok: false,
-          error: "no memory with that id — ids come from remember or search_memory",
+          error,
           ...(answer.recentIds ? { recentIds: answer.recentIds } : {}),
         },
       };
@@ -3195,6 +3195,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
   let activeLiveSession: LiveSession | null = null;
+  let activeAudioPage: NodeSocket | null = null;
   /** The model the running session was opened with, or null when idle. */
   let liveModelInUse: string | null = null;
   const initialLog = await readVoiceLog(home).catch(() => []);
@@ -4239,9 +4240,9 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method === "POST" && url.pathname === "/session/start") {
-        sessionState = "live";
-        void announcePresence("listening");
-        recordToolLog({ type: "session_event", event: "session opened" });
+        // This is intent, not a socket or a provider session. Permission may
+        // still be pending, refused, or lost with a page reload.
+        recordToolLog({ type: "session_event", event: "session requested; waiting for audio connection" });
         respond(200, { ok: true, state: sessionState });
         return;
       }
@@ -4267,6 +4268,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         sessionState = "ended";
         void announcePresence("enrolled — nobody is listening right now");
         recordToolLog({ type: "session_event", event: "session ended", reason: "user ended" });
+        activeAudioPage?.close();
         if (activeLiveSession) {
           try { activeLiveSession.close(); } catch {}
           activeLiveSession = null;
@@ -4555,7 +4557,7 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   const live = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-    if (pathname === "/live" || pathname === "/audio") {
+    if (pathname === "/live" || pathname === "/audio" || pathname === "/broker") {
       live.handleUpgrade(request, socket, head, (ws) => {
         live.emit("connection", ws, request);
       });
@@ -4563,53 +4565,80 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
       socket.destroy();
     }
   });
-  live.on("connection", (page: NodeSocket) => {
-    sessionState = "live";
-    recordToolLog({ type: "session_event", source: "live", event: "session opened" });
+  live.on("connection", (page: NodeSocket, request: { url?: string }) => {
+    const brokerOnly = new URL(request.url ?? "/audio", "http://localhost").pathname === "/broker";
+    let pageSession: LiveSession | null = null;
+    let liveFailure = "";
     const say = (message: unknown) => {
       if (page.readyState === page.OPEN) page.send(JSON.stringify(message));
     };
+    // A new page is not the old page's permission, nor an answer to its
+    // outstanding questions. The new owner must report its actual grant.
+    pending?.resolve(false);
+    files.abandon();
+    memories.abandon();
+    files.grant(null);
     announce = say;
-    // A tab that closed is not a yes: the question dies with the page that
-    // could have answered it.
-    page.on("close", () => {
-      if (pending) {
-        const what = pending.what;
-        pending.resolve(false);
-        recordToolLog({
-          type: "session_event",
-          event: `the page closed with a question unanswered: ${what}`,
-          reason: "page closed",
-        });
-      }
-      if (announce === say) announce = null;
-      // A question owed by the page that closed is refused, not left hanging.
-      files.abandon();
-      memories.abandon();
-    });
-    const onLog = (entry: ToolLogEntry) => {
-      say({ type: "tool_log", entry });
-    };
+    const onLog = (entry: ToolLogEntry) => say({ type: "tool_log", entry });
     logListeners.add(onLog);
+    // Register cleanup BEFORE key/model/context awaits. Previously a close
+    // in that window left /state live and could start a provider for a dead page.
+    page.on("close", () => {
+      logListeners.delete(onLog);
+      if (announce === say) {
+        if (pending) {
+          const what = pending.what;
+          pending.resolve(false);
+          recordToolLog({ type: "session_event", event: `the page closed with a question unanswered: ${what}`, reason: "page closed" });
+        }
+        announce = null;
+        files.abandon();
+        memories.abandon();
+        files.grant(null);
+      }
+      pageSession?.close();
+      if (activeAudioPage === page) {
+        activeAudioPage = null;
+        activeLiveSession = null;
+        liveModelInUse = null;
+        sessionState = "ended";
+        void announcePresence("enrolled — nobody is listening right now");
+        recordToolLog({ type: "session_event", event: "closed", reason: liveFailure || "page closed" });
+      }
+    });
+    page.on("message", (data: Buffer, isBinary: boolean) => {
+      if (!isBinary && String(data) === "broker:ping") say({ broker: "ready" });
+      else if (isBinary && sessionState !== "muted") pageSession?.send(new Uint8Array(data));
+    });
+    say({ broker: "ready" });
+    // This door restores page capabilities only: no key read, model lookup,
+    // provider connection or session-state change. Audio is a separate act.
+    if (brokerOnly) return;
+    const previous = activeAudioPage;
+    activeAudioPage = page;
+    previous?.close();
     void (async () => {
       const stored = await readVoiceKey(home).catch((err) => {
         say({ state: String((err as Error).message), bad: true });
         return null;
       });
+      if (page.readyState !== page.OPEN || activeAudioPage !== page) return;
       if (!stored) {
         say({
           state: "no key stored — set one in the panel and the microphone will use the Live API",
           bad: true,
+          live: false,
         });
+        page.close();
         return;
       }
-      let liveFailure = "";
       const current = await resolveModel();
-      liveModelInUse = current.model;
       narrate(`opening a live session on ${current.model} (${current.source})`);
       // The same builder the inspector reads, so what the panel shows and what
       // the session is told are one text, not two copies of one.
       const parts = await liveInstructionParts(home, target);
+      if (page.readyState !== page.OPEN || activeAudioPage !== page) return;
+      liveModelInUse = current.model;
       const session = startLiveSession({
         key: stored,
         instructions: parts.instructions,
@@ -4623,6 +4652,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           // without another read turn.
           decorateResponse: (answer) => ({ ...answer, recent: recentActions.slice(-5) }),
           onEvent: (event: string, details?: Record<string, unknown>) => {
+            if (event === "socket_closed" && activeAudioPage === page) {
+              say({ state: "provider connection closed", live: false });
+              page.close();
+            }
             narrate(`live socket: ${event} ${JSON.stringify(details ?? {})}`);
             recordToolLog({
               type: "session_event",
@@ -4634,6 +4667,11 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           },
           onState: (state: string, bad?: boolean) => {
             if (bad) liveFailure = state;
+            if (state === "live" && activeAudioPage === page && page.readyState === page.OPEN) {
+              if (sessionState !== "muted") sessionState = "live";
+              void announcePresence(sessionState === "muted" ? "muted" : "listening");
+              recordToolLog({ type: "session_event", source: "live", event: "session opened" });
+            }
             if (state.includes("interrupted")) {
               recordToolLog({ type: "session_event", source: "live", event: "interrupted", reason: state });
             } else if (state === "turn_complete") {
@@ -5315,26 +5353,18 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           },
         },
       });
-      activeLiveSession = session;
-      page.on("message", (data: Buffer, isBinary: boolean) => {
-        if (sessionState === "muted") return; // muted: suppress audio
-        if (isBinary || Buffer.isBuffer(data)) session.send(new Uint8Array(data as Buffer));
-      });
-      page.on("close", () => {
-        logListeners.delete(onLog);
-        sessionState = "ended";
-        void announcePresence("enrolled — nobody is listening right now");
-        recordToolLog({ type: "session_event", event: "closed", reason: liveFailure || "closed" });
-        session.close();
-        liveModelInUse = null;
-      });
+      pageSession = activeLiveSession = session;
       const ok = await session.ready;
       if (!ok && page.readyState === page.OPEN) {
         // Loud, and never a silent fallback: a quiet failure here is what made
         // a credential problem look like a grammar problem.
         say({ state: "Live session could not start — " + (liveFailure || "the provider refused, see above"), bad: true, live: false });
+        page.close();
       }
-    })().catch((err) => say({ state: String((err as Error).message ?? err), bad: true }));
+    })().catch((err) => {
+      say({ state: String((err as Error).message ?? err), bad: true, live: false });
+      page.close();
+    });
   });
 
   const port = options.port ?? DEFAULT_VOICE_PORT;

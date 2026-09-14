@@ -206,8 +206,9 @@ export function sessionFrom(reply: State | null | undefined): SessionState | und
   return state as SessionState | undefined;
 }
 
-export function audioSocket(): WebSocket {
-  const url = new URL(HARNESS + "/audio", window.location.href);
+/** The broker door never opens a provider session; audio requires a separate act. */
+export function audioSocket(brokerOnly = false): WebSocket {
+  const url = new URL(HARNESS + (brokerOnly ? "/broker" : "/audio"), window.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return new WebSocket(url);
 }

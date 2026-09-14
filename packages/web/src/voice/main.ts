@@ -150,7 +150,7 @@ function audioFacts(facts: State | null): { provider: string; model: string; key
  * a page that shows a live microphone while it is off is lying about the one
  * thing the person controls.
  */
-export type Activity = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "muted" | "ended";
+export type Activity = "idle" | "connecting" | "connected" | "disconnected" | "listening" | "thinking" | "speaking" | "muted" | "ended";
 
 /** Only a fallback for text-only replies; PCM follows its playback schedule. */
 const TEXT_TAIL_MS = 700;
@@ -161,6 +161,8 @@ const TEXT_TAIL_MS = 700;
  */
 function stateWords(activity: Activity, muted: boolean, microphone: string): string {
   if (activity === "connecting") return "connecting…";
+  if (activity === "disconnected") return "page disconnected — microphone stopped";
+  if (activity === "connected") return "broker connected — microphone stopped";
   if (activity === "thinking") return "thinking…";
   if (activity === "speaking") {
     return muted ? "speaking — you are muted" : "speaking";
@@ -262,6 +264,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   const modeSelect = required<HTMLSelectElement>("input-mode", doc);
   const modeNote = required<HTMLElement>("mode-note", doc);
   const shortcut = required<HTMLElement>("shortcut", doc);
+  const brokerNote = required<HTMLElement>("broker-note", doc);
   let mode: "toggle" | "push-to-talk" = "toggle";
   try { if (localStorage.getItem(MODE_KEY) === "push-to-talk") mode = "push-to-talk"; } catch { /* optional preference */ }
   modeSelect.value = mode;
@@ -381,6 +384,12 @@ export function wireVoice(doc: Document = document): VoicePage {
   let stateComplaint = false;
   let held: Capture | null = null;
   let socket: WebSocket | null = null;
+  let brokerOnly = false;
+  let brokerReady = false;
+  let lastBrokerReply = 0;
+  let brokerStarted = 0;
+  let reconnectReason = doc.defaultView?.performance.getEntriesByType?.("navigation")
+    .some((entry) => "type" in entry && entry.type === "reload") ? "The page was reloaded." : "";
   let playback: Playback | null = null;
   let ticker: number | null = null;
   let opening = false;
@@ -434,11 +443,19 @@ export function wireVoice(doc: Document = document): VoicePage {
     hero.dataset.muted = String(muted);
     hero.dataset.mode = mode;
     shortcut.textContent = mode === "push-to-talk" ? "Hold the mic or Space; release to mute" : "Space toggles the microphone";
+    const connected = brokerReady && socket?.readyState === WebSocket.OPEN;
     if (opening) activity = "connecting";
+    else if (!connected && reconnectReason) activity = "disconnected";
+    else if (connected && brokerOnly) activity = "connected";
     else if (session === "idle" || session === "ended") activity = session;
-    else if (muted && activity !== "speaking") activity = "muted";
-    else if (session === "live" && (activity === "idle" || activity === "ended" || activity === "muted"))
-      activity = "listening";
+    else if (!connected) activity = "disconnected";
+    else if ((muted || !held) && activity !== "speaking") activity = "muted";
+    else if (session === "live" && !["thinking", "speaking"].includes(activity)) activity = "listening";
+    brokerNote.hidden = !reconnectReason && !brokerOnly;
+    brokerNote.textContent = brokerOnly && connected
+      ? "Page broker reconnected for memory, files and confirmation prompts. Microphone stopped. " +
+        (mode === "push-to-talk" ? "Hold the mic or Space to talk." : "Press Listen again to start the microphone.")
+      : `${reconnectReason} Requests for memory, files and confirmation prompts need this page’s connection. Press Listen to reconnect the broker; the microphone stays stopped.`;
     hero.dataset.activity = activity;
     // Keep keyboard focus through an async start; guards refuse repeat presses.
     listenButton.disabled = false;
@@ -451,8 +468,16 @@ export function wireVoice(doc: Document = document): VoicePage {
       listenButton.setAttribute("aria-label", heldControl === null ? "Hold to talk" : "Release to stop microphone");
       listenButton.title = "Hold the mic or Space; release stops the microphone";
     }
-    muteButton.disabled = mode === "push-to-talk" ? heldControl === null
-      : opening || muting || acquiring || (session !== "live" && session !== "muted");
+    if (!connected && reconnectReason) {
+      listenButton.setAttribute("aria-label", "Listen — reconnect page broker");
+      listenButton.title = "Reconnect the page broker without starting the microphone";
+      shortcut.textContent = "Press Listen to reconnect — microphone stays stopped";
+    } else if (brokerOnly && connected) {
+      listenButton.setAttribute("aria-label", mode === "push-to-talk" ? "Hold to talk" : "Listen — start microphone");
+      listenButton.title = "Start the microphone in a new audio session";
+    }
+    muteButton.disabled = !connected || brokerOnly || (mode === "push-to-talk" ? heldControl === null
+      : opening || muting || acquiring || (session !== "live" && session !== "muted"));
     endButton.disabled = !opening && (session === "idle" || session === "ended");
     muteButton.textContent = mode === "push-to-talk" ? "Mute" : muted ? "Unmute" : "Mute";
     stateLine.textContent =
@@ -947,7 +972,9 @@ export function wireVoice(doc: Document = document): VoicePage {
           wantMuted = true;
           stopInput();
         }
-        muted = wantMuted || acquiring || running === "muted";
+        if (!socket && (running === "live" || running === "muted") && !reconnectReason)
+          reconnectReason = "This page is not connected to the harness.";
+        muted = wantMuted || acquiring || !held || running === "muted";
         renderHero();
       }
       // Only the poll's own complaint is the poll's to clear. An action that
@@ -1365,6 +1392,9 @@ export function wireVoice(doc: Document = document): VoicePage {
     muteWork = Promise.resolve();
     socket?.close();
     socket = null;
+    brokerReady = false;
+    brokerOnly = false;
+    reconnectReason = "";
     playback?.close();
     playback = null;
     stopTicker();
@@ -1491,17 +1521,32 @@ export function wireVoice(doc: Document = document): VoicePage {
     }
   }
 
-  async function listen(): Promise<void> {
-    if (opening || disposed) return;
+  // Losing a page connection is not an instruction to restart capture or spend.
+  function disconnected(reason: string): void {
+    void finish();
+    wantMuted = muted = true;
+    reconnectReason = reason;
+    renderHero();
+  }
+
+  async function listen(onlyBroker = false): Promise<void> {
+    if (opening || disposed || doc.hidden) return;
+    socket?.close();
+    socket = null;
+    playback?.close();
+    brokerReady = false;
+    brokerOnly = onlyBroker;
     const epoch = ++generation;
     opening = true;
-    wantMuted = mode === "push-to-talk" && heldControl === null;
+    wantMuted = onlyBroker || (mode === "push-to-talk" && heldControl === null);
     muted = wantMuted;
     renderHero();
     put({ at: new Date().toLocaleTimeString(), event: `opening the session through ${HARNESS}` });
     try {
-      const opened = await startSession();
-      if (opened.error) throw new Error(opened.error);
+      if (!onlyBroker) {
+        const opened = await startSession();
+        if (opened.error) throw new Error(opened.error);
+      }
       if (epoch !== generation) return;
     } catch (err) {
       if (epoch !== generation || disposed) return;
@@ -1572,23 +1617,51 @@ export function wireVoice(doc: Document = document): VoicePage {
       return;
     }
 
-    const live = audioSocket();
+    let live: WebSocket;
+    try { live = audioSocket(onlyBroker); }
+    catch (err) { disconnected(`The page connection failed: ${String(err)}.`); return; }
     live.binaryType = "arraybuffer";
     socket = live;
+    brokerStarted = lastBrokerReply = Date.now();
+    let confirming = false;
     live.onopen = () => {
-      put({ at: new Date().toLocaleTimeString(), event: "audio socket open" });
-      if (mode === "push-to-talk" || wantMuted) void syncMute(wantMuted);
+      put({ at: new Date().toLocaleTimeString(), event: `${onlyBroker ? "broker" : "audio"} socket open; waiting for the page broker` });
     };
     live.onmessage = (message) => {
       if (socket !== live) return;
       if (typeof message.data === "string") {
         try {
-          handleEvent(JSON.parse(message.data) as Record<string, unknown>);
+          const event = JSON.parse(message.data) as Record<string, unknown>;
+          if (event.broker === "ready") {
+            lastBrokerReply = Date.now();
+            if (!brokerReady && !confirming) {
+              confirming = true;
+              void (async () => {
+                await folderRestored;
+                if (socket !== live || disposed) return;
+                await reportGrant();
+                if (socket !== live || disposed) return;
+                brokerReady = true;
+                opening = false;
+                reconnectReason = "";
+                if (!onlyBroker) {
+                  session = "live";
+                  if (mode === "push-to-talk" || wantMuted) void syncMute(wantMuted);
+                  if (!wantMuted && !held) void changeMute(false);
+                }
+                renderHero();
+              })().catch((err) => { if (socket === live) disconnected(`The page broker could not reconnect: ${String(err)}.`); });
+            }
+            return;
+          }
+          if (event.live === false) { disconnected(`The audio session ended: ${String(event.state ?? "provider disconnected")}.`); return; }
+          handleEvent(event);
         } catch {
           put({ at: new Date().toLocaleTimeString(), event: message.data.slice(0, 200) });
         }
         return;
       }
+      if (onlyBroker) return; // This door cannot start audio playback or capture.
       const turn = outputEpoch;
       audioWork = audioWork.then(async () => {
         if (socket !== live || playback !== player || turn !== outputEpoch) return;
@@ -1613,24 +1686,18 @@ export function wireVoice(doc: Document = document): VoicePage {
     live.onclose = (event) => {
       put({ at: new Date().toLocaleTimeString(), event: `audio socket closed ${event.code} ${event.reason}`.trim() });
       if (socket !== live) return;
-      complaint = "Audio connection closed. Press Listen to start a new session.";
-      renderComplaint();
-      void end();
+      disconnected("The page connection closed.");
     };
     live.onerror = () => {
       if (socket !== live) return;
-      complaint = "Audio connection failed. End the session and try Listen again.";
-      renderComplaint();
-      put({ at: new Date().toLocaleTimeString(), event: "audio socket error", error: "the socket failed" });
+      disconnected("The page connection failed.");
+      put({ at: new Date().toLocaleTimeString(), event: "page socket error", error: "the socket failed" });
     };
 
-    session = "live";
+    if (!onlyBroker) session = "live";
     muted = wantMuted || !held;
     if (held) held.muted = muted;
-    activity = muted ? "muted" : "listening";
-    opening = false;
-    // A new hold can follow a release while the first grant is still pending.
-    if (!wantMuted && !held) void changeMute(false);
+    activity = "connecting";
     renderHero();
     stopTicker();
     ticker = requestAnimationFrame(animate);
@@ -1640,7 +1707,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     chosenId = deviceId;
     store(DEVICE_KEY, deviceId);
     store(DEVICE_NAME_KEY, deviceId ? nameOf(deviceId, mics, DEVICE_NAME_KEY) : "");
-    if (wantMuted || (session !== "live" && session !== "muted")) {
+    if (!brokerReady || brokerOnly || wantMuted || (session !== "live" && session !== "muted")) {
       await lookForDevices();
       return;
     }
@@ -1678,7 +1745,7 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   function syncMute(next: boolean): Promise<void> {
     const live = socket;
-    if (opening || disposed || (!live && session !== "live" && session !== "muted")) return Promise.resolve();
+    if (opening || disposed || brokerOnly || !brokerReady || live?.readyState !== WebSocket.OPEN) return Promise.resolve();
     const epoch = ++generation;
     muting = true;
     renderHero();
@@ -1699,7 +1766,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
 
   async function changeMute(next: boolean): Promise<void> {
-    if (disposed) return;
+    if (disposed || (!next && (doc.hidden || !brokerReady || brokerOnly || socket?.readyState !== WebSocket.OPEN))) return;
     wantMuted = next;
     if (next) {
       muted = true;
@@ -2771,12 +2838,22 @@ export function wireVoice(doc: Document = document): VoicePage {
 
   /** Tell the harness what it may read — a name, never a handle. */
   async function reportGrant(): Promise<void> {
-    const granted = folder.permission === "granted" && Boolean(folder.name);
-    await callSetup("/fs/grant", {
+    const live = socket;
+    if (disposed || (live && live.readyState !== WebSocket.OPEN)) return;
+    const handle = folder.handle;
+    if (handle?.queryPermission) {
+      const allowed = await handle.queryPermission({ mode: "read" });
+      if (handle !== folder.handle || socket !== live || disposed) return;
+      folder.permission = allowed === "granted" ? "granted" : "needs-permission";
+      renderFolder();
+    }
+    const granted = Boolean(handle) && folder.permission === "granted" && Boolean(folder.name);
+    const answer = await callSetup("/fs/grant", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ folder: granted ? folder.name : null, granted }),
-    }).catch(() => undefined);
+    });
+    if (!answer.ok || answer.body?.ok !== true) throw new Error(answer.error ?? String(answer.body?.error ?? "the folder report was not acknowledged"));
   }
 
   async function pickFolder(): Promise<void> {
@@ -2833,7 +2910,11 @@ export function wireVoice(doc: Document = document): VoicePage {
     folder = { handle: null, name: null, permission: "none", persisted: false };
     renderFolder();
     put({ at: new Date().toLocaleTimeString(), event: `folder access dropped: ${was ?? "none"}` });
-    await reportGrant();
+    try { await reportGrant(); }
+    catch (err) {
+      complaint = `Folder access was dropped locally, but the harness could not be told: ${String(err)}`;
+      renderComplaint();
+    }
   }
 
   /** A path inside the granted folder, or null. `..` and absolutes never fit. */
@@ -3084,9 +3165,10 @@ export function wireVoice(doc: Document = document): VoicePage {
   });
 
   function beginHold(control: string | number): void {
-    if (disposed || heldControl !== null || settings.open || !confirmBox.hidden) return;
+    if (disposed || doc.hidden || heldControl !== null || settings.open || !confirmBox.hidden || (opening && brokerOnly)) return;
+    if (!socket && reconnectReason) { void listen(true); return; }
     heldControl = control;
-    if (!socket) {
+    if (!socket || brokerOnly) {
       wantMuted = muted = false;
       if (!opening) void listen();
     } else void changeMute(false);
@@ -3099,7 +3181,18 @@ export function wireVoice(doc: Document = document): VoicePage {
   }
   function pointerEnd(event: PointerEvent): void { releaseHold(event.pointerId); }
   function loseFocus(): void { releaseHold(); }
-  function hide(): void { if (doc.hidden) releaseHold(); }
+  function pauseConnection(): void {
+    if (socket || opening) disconnected("The page was hidden or suspended.");
+    else releaseHold();
+  }
+  function hide(): void { if (doc.hidden) pauseConnection(); }
+  function offline(): void { if (socket || opening) disconnected("The browser went offline."); }
+  function pressListen(): void {
+    if (opening || disposed) return;
+    if (!socket) void listen(Boolean(reconnectReason));
+    else if (brokerOnly && brokerReady) void listen();
+    else void toggleMute();
+  }
   function focusMoved(): void {
     if (doc.activeElement !== listenButton && doc.activeElement !== doc.body) releaseHold();
   }
@@ -3113,8 +3206,7 @@ export function wireVoice(doc: Document = document): VoicePage {
     event.preventDefault();
     if (event.repeat) return;
     if (mode === "push-to-talk") beginHold(event.code);
-    else if (session === "live" || session === "muted") void toggleMute();
-    else void listen();
+    else pressListen();
   }
   function shortcutUp(event: KeyboardEvent): void {
     if (heldControl === event.code) { event.preventDefault(); releaseHold(event.code); }
@@ -3145,6 +3237,8 @@ export function wireVoice(doc: Document = document): VoicePage {
   doc.addEventListener("keyup", shortcutUp);
   doc.addEventListener("focusin", focusMoved);
   doc.addEventListener("visibilitychange", hide);
+  doc.addEventListener("freeze", pauseConnection);
+  doc.defaultView?.addEventListener("offline", offline);
   doc.defaultView?.addEventListener("blur", loseFocus);
   /**
    * **Escape refuses.**
@@ -3161,8 +3255,7 @@ export function wireVoice(doc: Document = document): VoicePage {
   });
   listenButton.addEventListener("click", () => {
     if (mode === "push-to-talk") return; // Release's compatibility click must not reopen capture.
-    if (session === "live" || session === "muted") void toggleMute();
-    else void listen();
+    pressListen();
   });
   muteButton.addEventListener("click", () => {
     if (mode === "push-to-talk") releaseHold();
@@ -3211,7 +3304,17 @@ export function wireVoice(doc: Document = document): VoicePage {
   const onDeviceChange = () => void lookForDevices();
   navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
 
-  const stateTimer = setInterval(() => void refresh(), 2000);
+  const stateTimer = setInterval(() => {
+    if (socket) {
+      const now = Date.now();
+      // A readyState of OPEN can outlive a dead/suspended transport. The
+      // broker answers these pings without touching the provider or capture.
+      if (socket.readyState > WebSocket.OPEN || now < lastBrokerReply || now - lastBrokerReply > 6000 || (!brokerReady && now - brokerStarted > 8000))
+        disconnected("The page connection stopped responding or was suspended.");
+      else if (socket.readyState === WebSocket.OPEN) socket.send("broker:ping");
+    }
+    void refresh();
+  }, 2000);
   const logTimer = setInterval(() => void pollLog(), 2000);
   void refresh();
   void pollLog();
@@ -3223,7 +3326,10 @@ export function wireVoice(doc: Document = document): VoicePage {
   // The folder grant: restored from IndexedDB, reported honestly either way —
   // a returning page whose permission lapsed says so instead of reading nothing.
   renderFolder();
-  void restoreFolder();
+  const folderRestored = restoreFolder().catch((err) => {
+    complaint = `The saved folder could not be restored: ${String(err)}`;
+    renderComplaint();
+  });
   // Memory: the page's own store. Show what is kept, ask the browser to keep it
   // for real, and take anything the harness's old file still holds.
   renderMemory();
@@ -3246,6 +3352,8 @@ export function wireVoice(doc: Document = document): VoicePage {
       doc.removeEventListener("keyup", shortcutUp);
       doc.removeEventListener("focusin", focusMoved);
       doc.removeEventListener("visibilitychange", hide);
+      doc.removeEventListener("freeze", pauseConnection);
+      doc.defaultView?.removeEventListener("offline", offline);
       doc.defaultView?.removeEventListener("blur", loseFocus);
       viewport?.removeEventListener("resize", fitSettings);
       viewport?.removeEventListener("scroll", fitSettings);

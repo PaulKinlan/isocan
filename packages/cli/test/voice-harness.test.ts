@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
@@ -662,6 +662,13 @@ describe("memory is the page's store, asked over the socket", () => {
     expect(await owed).toEqual({ ok: false, error: "the page closed before it answered" });
   });
 
+  it("does not turn a disconnected broker into a missing-memory answer", async () => {
+    const error = "no page is connected — memory lives in the page's own store";
+    const result = await runMemoryTool("read_memory", { id: "mem_existing" }, async () => ({ ok: false, error }), { session: "Voice" });
+    expect(result.said).toBe(error);
+    expect(result.answer).toEqual({ ok: false, error });
+  });
+
   it("asks the page for a write, a read and a search, and still states what search is", async () => {
     const asked: { op: string; payload: Record<string, unknown> }[] = [];
     const ask = async (op: "remember" | "read" | "search", payload: Record<string, unknown>) => {
@@ -763,6 +770,98 @@ describe("the page", () => {
     close = server.close;
     return server;
   }
+
+  it("does not report a provider session from a start request with no audio socket", async () => {
+    const server = await serve();
+    await fetch(`${server.state.url}session/start`, { method: "POST" });
+    const facts = await (await fetch(`${server.state.url}state`)).json();
+    expect(facts).toMatchObject({ session: { state: "idle" } });
+  });
+
+  it("ends an audio page that closes before provider startup, including the no-key path", async () => {
+    const server = await serve();
+    const { WebSocket } = await import("ws");
+    const socket = new WebSocket(`${server.state.url.replace("http:", "ws:")}audio`);
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once("error", reject);
+        socket.on("message", (data) => { if (String(data).includes("no key stored")) resolve(); });
+      });
+      socket.close();
+      await closed;
+      const facts = await (await fetch(`${server.state.url}state`)).json();
+      expect(facts).toMatchObject({ session: { state: "ended" } });
+    } finally { socket.terminate(); }
+  });
+
+  it("does not start a provider if the page closes while the key read is pending", async () => {
+    await writeVoiceKey(home, { provider: "gemini", key: "inert-local-fixture" });
+    let starts = 0;
+    const server = await startVoiceServer({
+      home, port: 0, identity: { session: "Voice", harness: "agent" }, canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      WebSocketImpl: class { constructor() { starts++; throw new Error("provider forbidden"); } },
+    });
+    close = server.close;
+    let release!: (text: string) => void;
+    const waiting = new Promise<string>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => { entered = resolve; });
+    const read = fs.readFile.bind(fs);
+    const reads = vi.spyOn(fs, "readFile").mockImplementation(((file: Parameters<typeof fs.readFile>[0], ...args: unknown[]) => {
+      if (String(file) === voiceKeyFile(home)) { entered(); return waiting; }
+      return Reflect.apply(read, fs, [file, ...args]);
+    }) as typeof fs.readFile);
+    const { WebSocket } = await import("ws");
+    const socket = new WebSocket(`${server.state.url.replace("http:", "ws:")}audio`);
+    try {
+      await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+      await reading; // The actual key-file read, not merely websocket OPEN.
+      expect(reads.mock.calls.some(([file]) => String(file) === voiceKeyFile(home))).toBe(true);
+      const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+      socket.close(); await closed;
+      reads.mockRestore();
+      release(JSON.stringify({ provider: "gemini", key: "inert-local-fixture" }));
+      await sleep(20);
+      expect(starts).toBe(0);
+      expect(await (await fetch(`${server.state.url}state`)).json()).toMatchObject({ session: { state: "ended" } });
+    } finally { reads.mockRestore(); release("null"); socket.terminate(); }
+  });
+
+  it("reconnects the broker without reading a key, starting a provider or inventing a session", async () => {
+    await writeVoiceKey(home, { provider: "gemini", key: "inert-local-fixture" });
+    let starts = 0;
+    const server = await startVoiceServer({
+      home, port: 0, identity: { session: "Voice", harness: "agent" }, canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      WebSocketImpl: class { constructor() { starts++; throw new Error("provider forbidden"); } },
+    });
+    close = server.close;
+    const reads = vi.spyOn(fs, "readFile");
+    const { WebSocket } = await import("ws");
+    const socket = new WebSocket(`${server.state.url.replace("http:", "ws:")}broker`);
+    const received: unknown[] = [];
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once("error", reject);
+        socket.on("message", (data) => { received.push(JSON.parse(String(data))); resolve(); });
+      });
+      socket.send("broker:ping");
+      socket.send(Buffer.alloc(32)); // The broker door must not forward PCM.
+      await sleep(20);
+      expect(received).toEqual([{ broker: "ready" }, { broker: "ready" }]);
+      expect(reads.mock.calls.filter(([file]) => String(file) === voiceKeyFile(home))).toHaveLength(0);
+      expect(starts).toBe(0);
+      expect(await (await fetch(`${server.state.url}state`)).json()).toMatchObject({ session: { state: "idle" } });
+      await fetch(`${server.state.url}fs/grant`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ folder: "Synthetic notes", granted: true }),
+      });
+      const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+      socket.close(); await closed;
+      expect(await (await fetch(`${server.state.url}fs`)).json()).toMatchObject({ granted: false, folder: null });
+    } finally { reads.mockRestore(); socket.terminate(); }
+  });
 
   it("serves the harness's own page, prefers `<microphone>` and falls back in the stated order, and writes nothing to browser storage", async () => {
     const server = await serve();
@@ -3000,10 +3099,12 @@ describe("the harness session & tool-call log API", () => {
     return server;
   }
 
-  it("exposes session state and transitions through /session/start, /session/mute, /session/unmute, /session/end", async () => {
-    const server = await serve();
+  it("exposes live transitions only after an audio provider setup, and ends explicitly", async () => {
+    const live = await liveServer();
+    close = live.close;
+    const server = live.server;
     const state0 = await (await fetch(`${server.state.url}state`)).json();
-    expect(state0).toMatchObject({ session: { state: "idle" } });
+    expect(state0).toMatchObject({ session: { state: "live" } });
 
     const startRes = await (await fetch(`${server.state.url}session/start`, { method: "POST" })).json();
     expect(startRes).toEqual({ ok: true, state: "live" });
@@ -3103,12 +3204,13 @@ describe("the harness session & tool-call log API", () => {
     expect(utt.result.answer).not.toBe(utt.op.said);
   });
 
-  it("marks restarts and session opens in the stream", async () => {
+  it("records a session request without misreporting a session open", async () => {
     const server = await serve();
     await fetch(`${server.state.url}session/start`, { method: "POST" });
     const logRes = (await (await fetch(`${server.state.url}log`)).json()) as any;
     expect(logRes.entries.some((e: any) => e.event === "harness restarted")).toBe(true);
-    expect(logRes.entries.some((e: any) => e.event === "session opened")).toBe(true);
+    expect(logRes.entries.some((e: any) => e.event === "session requested; waiting for audio connection")).toBe(true);
+    expect(logRes.entries.some((e: any) => e.event === "session opened")).toBe(false);
   });
 
   it("keeps the persisted file as the record when the in-memory window is capped at 200", async () => {
@@ -3155,7 +3257,7 @@ describe("the harness session & tool-call log API", () => {
     expect(redirectRes.headers.get("location")).toContain("/p/prj_1#pss_");
   });
 
-  it("publishes enrolled-but-idle presence at start and switches to listening while live", async () => {
+  it("keeps presence enrolled-but-idle when a start request has no audio session", async () => {
     const server = await serve();
     await new Promise((r) => setTimeout(r, 100));
 
@@ -3165,13 +3267,13 @@ describe("the harness session & tool-call log API", () => {
     expect(voiceSession0).toBeDefined();
     expect(voiceSession0!.status).toBe("enrolled — nobody is listening right now");
 
-    // Start session -> switches to listening
+    // A start request alone cannot claim listening.
     await fetch(`${server.state.url}session/start`, { method: "POST" });
     await new Promise((r) => setTimeout(r, 50));
 
     const sessions1 = await (await fetch(`${base}/api/projects/prj_1/sessions`, { headers: badge.headers })).json() as any[];
     const voiceSession1 = sessions1.find((s) => s.harness === "voice");
-    expect(voiceSession1!.status).toBe("listening");
+    expect(voiceSession1!.status).toBe("enrolled — nobody is listening right now");
 
     // End session -> drops back
     await fetch(`${server.state.url}session/end`, { method: "POST" });

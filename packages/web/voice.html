@@ -74,6 +74,7 @@
 
       <section class="voice-hero" id="hero" data-state="idle" data-activity="idle" aria-label="Microphone">
         <div class="voice-caption-slot">
+          <p id="broker-note" class="voice-shortcut" role="status" hidden></p>
           <div class="voice-captions" id="captions" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false" aria-label="Voice captions"></div>
           <div class="voice-setup-callout" id="setup-callout" hidden>
             <p id="setup-status" role="status"></p>
@@ -90,7 +91,7 @@
             <circle class="voice-orbit" cx="120" cy="120" r="103" />
             <path id="output-wave" />
           </svg>
-          <button id="listen" type="button" aria-label="Listen" title="Start listening" aria-keyshortcuts="Space" aria-describedby="shortcut">
+          <button id="listen" type="button" aria-label="Listen" title="Start listening" aria-keyshortcuts="Space" aria-describedby="shortcut broker-note">
             <svg class="voice-input" viewBox="0 0 128 128" aria-hidden="true" focusable="false"><path id="input-wave" /></svg>
             <svg class="voice-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 3.5a2.75 2.75 0 0 0-2.75 2.75v5a2.75 2.75 0 0 0 5.5 0v-5A2.75 2.75 0 0 0 12 3.5Z" />
