@@ -131,7 +131,11 @@ and undo the edit. Confirm an HTML repair cannot weaken the governing policy.
 
 **Trajectory:**
 
-*nothing — implementation has not begun.*
+- **2026-09-14** — The existing YAML subset silently changed five of six
+  extension round-trip probes, including quoted reasons and unknown JSON types.
+  Version 1 now names its supported ownership/selector boundary and requires
+  an opaque preservation path before enforcement, with DTCG vendor metadata
+  and explicit CSS conversion notes.
 
 ## Phase 4 — Optional repository checks and Tailwind proof (#303)
 
