@@ -70,13 +70,6 @@ export {
   writeMarker,
 } from "./binding.ts";
 export type { DirBinding, DirMarker } from "./binding.ts";
-/**
- * The enrolment record's rc half, for the same reason binding's primitives are
- * here: the CLI is no longer its only reader or writer. The voice agent claims,
- * renames and reads these rows, and one lock with one implementation is the
- * only shape in which two writers are safe (`packages/voice-agent`).
- */
-export { rcAgentsFile, readRcAgents, replaceRow, updateRcAgents, upsertRcAgent } from "./rc-rows.ts";
 export * from "./personas.ts";
 
 export * from "./personal-desk.ts";

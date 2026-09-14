@@ -6,7 +6,6 @@ import http from "node:http";
 import { execFileSync } from "node:child_process";
 import {
   REGISTRY_IDS,
-  VOICE_HARNESS,
   adapterFor,
   binaryDir,
   binaryInstalled,
@@ -18,7 +17,6 @@ import {
   registryIndexFile,
   scanHarnesses,
   setDefaultHarness,
-  voiceEntryFile,
 } from "../src/harnesses.ts";
 
 /**
@@ -113,38 +111,6 @@ describe("the harness scan", () => {
     expect(byName["mine"]).toMatchObject({ installed: null, adapter: "config", runnable: true });
     expect(scan.default).toBeNull();
     expect(await adapterFor(home, "mine")).toEqual({ harness: "mine", command: "my-bridge", args: ["--stdio"] });
-  });
-
-  it("the voice agent is a builtin: rc resolves it with no config and no PATH", async () => {
-    // It ships with isocan rather than coming from the ACP registry, so the
-    // only things that can be wrong are the harness's name, the file it names,
-    // and whether a person's config can shadow it. All three are asserted
-    // here, because this is the registry and the package cannot see it.
-    const spec = await adapterFor(home, VOICE_HARNESS, { PATH: bin });
-    expect(spec?.harness).toBe("voice");
-    expect(spec?.command).toBe(process.execPath);
-    expect(spec?.args).toEqual([voiceEntryFile(), "--acp"]);
-    // The named file is the package's entry point — the one a person also
-    // runs — and it is there.
-    expect(spec!.args[0]).toBe(path.resolve("packages/voice-agent/bin/voice-agent.js"));
-    await fs.access(spec!.args[0]!);
-
-    // Listed nowhere, deliberately: it ships with isocan, so as a scan row it
-    // would become the default harness on every machine that has nothing else,
-    // and turn "one harness, so no question" into "two, so pick" anywhere pi
-    // is installed. Named is how it is reached (`--harness voice`), and
-    // `packages/cli/src/harnesses.ts` says so where the entry lives.
-    const scan = await scanHarnesses(home, { PATH: bin });
-    expect(scan.rows.find((r) => r.name === VOICE_HARNESS)).toBeUndefined();
-    expect(scan.default, "a PATH with nothing on it still has no default").toBeNull();
-
-    // A declaration still wins — the hook is for harnesses isocan has never
-    // heard of, and a home that names its own voice bridge gets that one.
-    await config({ acpAdapters: { voice: ["node", "/somewhere/mine.mjs"] } });
-    expect(await adapterFor(home, VOICE_HARNESS, { PATH: bin })).toMatchObject({
-      command: "node",
-      args: ["/somewhere/mine.mjs"],
-    });
   });
 
   it("setDefaultHarness keeps the rest of config.json", async () => {
