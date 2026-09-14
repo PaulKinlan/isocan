@@ -9,7 +9,7 @@ what it describes. Run `node scripts/roadmap.mjs` after changing one.
 The same board lives on a canvas, [\[isocan\] Roadmap](https://isocan.io/p/prj_OE-AuGl119),
 open to anyone with the address — it should say what `main` says.
 
-**30 built · 50 still open** — of which 36 partly
+**31 built · 50 still open** — of which 36 partly
 built, 13 designed, 0 blocked, and
 **1 with no verdict recorded at all**, which is the number worth
 watching: an untriaged doc is not a doc nobody needs, it is a doc nobody has
@@ -84,7 +84,7 @@ and the done column should not be flattered by either.
 | --- | --- | --- | --- |
 | **project** | [room](projects/room/journey.md) | 2026-09-13 | designed 13 Sep 2026 from #294. The rc's room — the loop over a cursor, a hold and a prompt that `isocan rc` parks on a canvas — becomes a module, `isocan/rc`, that a host supplies its machine to; the laptop's `isocan rc` is its first consumer and behaves as it does today. Nothing under `isocan/rc` imports `node:*` or `@isocan/server`. One rule the laptop never needed: an agent whose actor another badge holds is narrated once and never claimed, faced or dispatched. Ends when the laptop's rc runs over the module and a browser-platform bundle of it builds; no host is built here. Phase 0 closed 13 Sep 2026: `packages/rc` exists and ships as `isocan/rc` beside `isocan`, holding the dispatch guards, the rc row types, the room's pure helpers and the collab skill as a constant, with the boundary test in the suite; phase 1 closed the same day: the room is `runRoom(deps)` in the module, the laptop's `isocan rc` builds its deps and prints its narration unchanged, and `packages/rc/src` typechecks with no Node types; phase 2 closed too: the sheep's policy is `SheepAgent` over `SheepCommands` in the module, with the laptop's `spawn("sheep")` as one implementation; phase 3 closed the same day with the claim rule: measured first, the desk accepts a second badge's claim under the shared enrolment key, so the refusal journey 2's room reads now comes from the cursor and hold routes requiring the actor, and phase 3.5 made agent keys machine-keyed (a secret in `~/.isocan`), so a name alone no longer claims an agent; its hosted measurement waits on a second dev badge. Phase 5 walked all three on 14 Sep: journey 1 on dev.isocan.io from Dimitri's own home (a claude-code turn, a sheep turn on sheep-2, the sheep withdrawn, the record's shape unchanged), journey 2 with two real rcs on one canvas, and journey 3 against `release`. Journey 3's walk against `release` failed the same day, because the package's `./rc` export was the Node shim; phase 4 closed the same day with a `browser` export condition naming a release-built bundle, and journey 3's install and one-line bundle were walked clean against `release`; phase 5 holds the walks of journeys 1 and 2 · see sheep-harness, on-demand, standing-agents, agent-custody, harnesses, iso-api · [#294](https://github.com/dglazkov/isocan/issues/294) |
 
-## Built <sub>30</sub>
+## Built <sub>31</sub>
 
 | | What | Since | |
 | --- | --- | --- | --- |
@@ -114,6 +114,7 @@ and the done column should not be flattered by either.
 | research | [The ask: what the field built for the moment an agent needs a person](research/2026-08-24-the-ask.md) | 2026-08-29 |  · see context |
 | research | [The post-it, and which of three things it is](research/2026-09-01-post-it-notes.md) | 2026-09-01 | built 1 Sep — `properties.paper` on a text node, a swatch row on the Text tool and `isocan text --paper`; option A as recommended, no new op and no new kind · see ui-refresh |
 | **project** | [ui-refresh](projects/ui-refresh/phases.md) | 2026-08-29 | phases 1-6, all acceptances closed · see ui-refresh |
+| research | [What a deep version stack costs, measured](research/2026-09-02-version-scaling.md) | 2026-09-02 | pruning is on every surface and the board bounds itself; the hosted path's own latency (cold start, Firestore tail, GCS reads) is still unmeasured · see on-demand |
 | research | [What people ask agents for](research/2026-09-03-what-people-ask-agents-for.md) | 2026-09-03 | Stage 1's deliverable — every ask at one home hand-labelled 3 Sep 2026, the distribution published, a classifier calibrated against it (84%) and shipped in `isocan evals corpus` with that number attached. Found and fixed a cancel bug that had inflated the cancelled count sixteen-fold on one canvas · see evals |
 | research | [Where the canvas is janky](research/2026-08-29-performance.md) | 2026-08-29 |  |
 | **project** | [workbench](projects/workbench/design.md) | 2026-08-29 |  · see workbench |
