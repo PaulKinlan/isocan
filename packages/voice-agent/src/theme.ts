@@ -12,11 +12,22 @@
  * That is also why the storage key is spelled here as well as in the inline
  * script: a pre-paint script cannot import a module, so one of the two has to
  * repeat the other. A test pins this module's writes and the inline script's
- * reads to `isocan.theme`, and the canvas app reads the same key (see
+ * reads to `isocan.theme`, and the canvas app reads the same key (see its own
  * `lib/theme.ts`) — which nothing asserts, so changing it is a deliberate
  * edit in three places, not one.
  */
-import type { ThemePref } from "../lib/theme.ts";
+
+/**
+ * **The three words, declared here rather than imported.**
+ *
+ * The canvas app has a type of the same name in `packages/web/src/lib/theme.ts`,
+ * and this package must not reach into it: that module is a zustand store, so
+ * borrowing its type would make the page's typecheck depend on the app's React
+ * toolchain — the coupling this package exists to be free of. Three string
+ * literals is the whole of what is shared, and the KEY above is the part that
+ * actually has to agree.
+ */
+type ThemePref = "light" | "dark" | "system";
 
 const KEY = "isocan.theme";
 

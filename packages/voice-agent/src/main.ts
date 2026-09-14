@@ -8,11 +8,11 @@
  * That is not nostalgia. The React version handed `/log`'s `{ type, said }`
  * and `{ ok, answer }` objects to a renderer that wanted text, and the whole
  * route went white; an update that writes `textContent` cannot fail that way.
- * The wire normalisation in `lib/voice.ts` still turns every entry into a
+ * The wire normalisation in `voice.ts` still turns every entry into a
  * sentence — the difference is that a mistake there now shows as
  * "[object Object]" in one row instead of taking the page down.
  */
-import "../styles.css";
+import "./voice.css";
 import {
   HARNESS,
   audioSocket,
@@ -33,7 +33,7 @@ import {
   type ProviderModel,
   type SessionState,
   type State,
-} from "../lib/voice.ts";
+} from "./voice.ts";
 import {
   Playback,
   canRouteOutput,
@@ -46,7 +46,7 @@ import {
   type Input,
   type Output,
   type ScheduleInfo,
-} from "../lib/voiceAudio.ts";
+} from "./voiceAudio.ts";
 import { wireSettingsHelp } from "./help.ts";
 import { wireThemeChoice } from "./theme.ts";
 

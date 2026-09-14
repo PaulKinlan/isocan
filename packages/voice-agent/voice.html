@@ -36,7 +36,7 @@
       so the page itself is the conversation and the record is not. Missing
       prerequisites remain visible inline without opening either.
 
-      Vite serves this file directly (HMR included) and `src/voice/main.ts` is
+      Vite serves this file directly (HMR included) and `src/main.ts` is
       its only script; there is no identity gate, no router and no React.
     -->
     <div class="voice">
@@ -460,7 +460,7 @@
     </div>
 
     <script type="module">
-      import { wireVoice } from "/src/voice/main.ts";
+      import { wireVoice } from "/src/main.ts";
       const page = wireVoice();
       addEventListener("pagehide", () => page.stop(), { once: true });
       // A bfcache return restores a disposed controller; start a fresh page.
