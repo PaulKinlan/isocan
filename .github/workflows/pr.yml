@@ -77,6 +77,11 @@ jobs:
       - run: npm test
         env:
           ISOCAN_REQUIRE_EMULATOR: "1"
+          # The deep lane — the CLI walks and the board, a third of the CPU —
+          # is left out of `npm test` on a laptop and must never be left out
+          # HERE. Same argument as the emulator switch above: a green run that
+          # skipped the walks launders an unknown into a checkmark.
+          ISOCAN_REQUIRE_DEEP: "1"
           # The bundle budget measures packages/web/dist, which `npm ci`
           # built through `prepare`. If it is missing here, that did not
           # happen — and a silent skip would let the entry chunk drift again.
