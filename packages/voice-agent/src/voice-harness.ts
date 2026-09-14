@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket as NodeSocket } from "ws";
-import { readConfigFile, readMarker, readRcAgents, upsertRcAgent } from "@isocan/server";
+import { readConfigFile, readMarker } from "@isocan/server";
+import { readRcAgents, upsertRcAgent } from "./rc-rows.ts";
 import { statSync } from "node:fs";
 import { connect, matchRef, type CanvasHandle, type ListedItem } from "@isocan/api";
 import {

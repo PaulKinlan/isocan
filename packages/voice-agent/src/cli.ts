@@ -25,7 +25,7 @@
  * as it points at pi or Claude Code.
  */
 import { connect } from "@isocan/api";
-import { readRcAgents } from "@isocan/server";
+import { readRcAgents } from "./rc-rows.ts";
 import {
   DEFAULT_VOICE_PORT,
   VOICE_HARNESS,
