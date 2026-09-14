@@ -5,7 +5,7 @@ Each phase ends with **Trajectory**: only what the phase discovered
 that changes the project's course. A phase that went as planned leaves
 it empty.
 
-**Where we are: phases 0–2 CLOSED 13 Sep 2026; the laptop's `isocan rc` runs over `runRoom` and the module's `SheepAgent` in `isocan/rc`. Phase 3, answered elsewhere, waits on Dimitri: the desk accepts a second badge's claim, so where the refusal comes from is a custody decision (design.md, the claim rule). Next: room phase 4, the bundle a host installs, which needs no answer; phase 5's walks wait on phase 3.** Six phases, none
+**Where we are: phases 0–2 CLOSED 13 Sep 2026; the laptop's `isocan rc` runs over `runRoom` and the module's `SheepAgent` in `isocan/rc`. Phase 3, answered elsewhere, waits on Dimitri: the desk accepts a second badge's claim, so where the refusal comes from is a custody decision (design.md, the claim rule). Phase 4, the bundle a host installs, is built and waits on its walk against `release` after CI; phase 5's walks wait on phase 3.** Six phases, none
 needing a person: no ⚑ step, no cloud resource, no second machine
 except journey 2's walk, which two loopback badges on one laptop can
 stand in for (the roles project's proof recipe). The rule for every
@@ -158,7 +158,7 @@ remembered across a second `runRoom` over the same `state`.
 
 ## Phase 4 — The bundle a host installs
 
-**Status: NOT STARTED.**
+**Status: PART-DONE 2026-09-13.** The `browser` condition and the release-built bundle (`packages/rc/dist/index.mjs`, 143 KB, core inlined) are in, and the installed-tree test bundles through them and fails without the condition; the walk waits on CI rebuilding `release`.
 
 **Outcome:** a host that installs `isocan` from `release` and bundles
 `import "isocan/rc"` for the browser platform gets the module, not the
@@ -186,7 +186,9 @@ exits 0, and `esbuild --bundle --platform=browser` over a one-line
 file importing `isocan/rc` exits 0 with no `node:` among the bundle's
 externals, output recorded here.
 
-**Trajectory:** to be written at close.
+**Trajectory:**
+
+- **2026-09-13** — Open: the walk against `release` — install, Node import, one-line browser bundle — waits on the CI run that rebuilds `release` from this phase's commit.
 
 **Formerly:** phase 4 was "The bundle, and the walk": journeys 1, 2 and 3
 walked together after phase 3. Re-cut 13 Sep 2026, when journey 3's
