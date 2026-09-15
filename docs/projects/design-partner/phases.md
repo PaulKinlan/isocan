@@ -1,10 +1,10 @@
 # A design partner — the walk
 
-**Where we are:** designed 14 September 2026; **phase 0 is next**.
-All eight phases are NOT STARTED. The research and executable source probes
-are complete; they are not implementation, browser acceptance or measured
-design quality. This plan covers canvas chat and external coding agents as
-equal entrances to one workflow. Read [journey.md](journey.md),
+**Where we are:** phase 0 CLOSED on 14 September 2026; **phase 1 is next**.
+The shared contracts and twelve-case evaluation preparation are verified.
+Phases 1–7 are NOT STARTED. This closes preparation, not the live questionnaire
+workflow, browser acceptance or measured design quality. This plan covers
+canvas chat and external coding agents as equal entrances to one workflow. Read [journey.md](journey.md),
 [design.md](design.md), then this walk.
 
 The first useful release fixes discovery integrity. The next delivers one
@@ -91,7 +91,7 @@ one issue to each bounded outcome and cross-reference the existing owners.
 
 ## Phase 0 — Freeze the baseline and the acceptance contract
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 14 September 2026 — the offline matrix, baseline adapter and shared contract proofs held; full fast, typecheck, build and strict emulator checks passed. See [verification/phase-0.md](verification/phase-0.md).
 
 **Outcome:** an implementer can run the same cases before and after the
 workflow change, and knows exactly which shared facts and acts to build.
@@ -122,7 +122,11 @@ one decision. `verification/phase-0.md` contains the baseline, exact next
 commands and the resolved contract; full suite and typecheck results are
 recorded honestly. This closes preparation, not a quality baseline.
 
-**Trajectory:** to be written at close.
+**Trajectory:**
+
+- **2026-09-14** — Existing operation groups do not provide atomic writes. Answers need refusing canonical operations at the writer; selection and adoption fit one conditional item edit, with additional request/source checks still owed at the writer.
+- **2026-09-14** — An accepted retry remains observable after cancellation without permitting fresh work. Superseding an answer must retain each prior question resolution; the protocol bound of 32 is separate from the ordinary initial budget of three.
+- **2026-09-14** — Source/evidence identity validation is not comparison eligibility. The frozen corpus, executable baseline envelopes and complete run matrix make preparation reproducible; candidate/model/capability/spend conditions and human evidence remain phase 7 work.
 
 ## Phase 1 — Questions and references that can be trusted
 

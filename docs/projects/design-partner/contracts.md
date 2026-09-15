@@ -33,6 +33,13 @@ these meanings require a schema revision or a recorded compatible extension.
 Unknown fields that carry future meaning must not be silently treated as
 validated current semantics.
 
+The protocol permits up to 32 questions for an explicitly requested interview;
+the ordinary workflow has a separate initial budget of zero to three. A
+replacement answer retains an explicit resolution for every question the
+previous answer resolved. It cannot silently reopen a settled question by
+omitting it. An identical accepted retry remains observable after cancellation;
+that observation does not authorize a fresh write to the canceled request.
+
 ## Actor and request authority
 
 An operation's authenticated actor is the author. A payload cannot choose a

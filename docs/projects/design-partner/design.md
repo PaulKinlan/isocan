@@ -18,8 +18,8 @@ Keep the daemon and existing operation log authoritative. Use versioned
 items for the durable brief and decisions, existing comments for conversation,
 existing groups for arrangement, and existing versions for output history.
 Do not add an independent workflow database or record every sentence as a
-workflow transition. One user-visible act is one undoable operation or the
-existing bounded operation group.
+workflow transition. One user-visible act is one undoable operation. Existing
+operation groups correlate work; they do not supply an atomic transaction.
 
 Phase 0 fixes the precise schemas and operation mapping before implementation.
 The [phase-0 contract](contracts.md) now specifies the representation,

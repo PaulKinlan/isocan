@@ -1,8 +1,8 @@
 ---
-status: designed
+status: partial
 since: 2026-09-14
 see: design-competition, evals, context, memory
-note: eight phases turn ordinary design requests into one adaptive workflow across canvas chat and external agents. Phase 0 is next; implementation and outcome evaluation have not started.
+note: phase 0 closed with shared contracts and a verified twelve-case evaluation preparation path. Phase 1 is next; the live workflow and generated-design outcome evaluation remain unbuilt.
 ---
 # A design partner — the experience
 
