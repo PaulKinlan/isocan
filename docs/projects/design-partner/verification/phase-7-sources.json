@@ -104,9 +104,16 @@
     }
   ],
   "entry": {
+    "path": "packages/web/dist/assets/index-B5be_4hS.js",
+    "sha256": "4ebf1b44cfd4bb26f7f2d95f670d9e589229691ab449d00aebb478de01a0d3da",
+    "size": 742340
+  },
+  "entryCeiling": 743900,
+  "preparedProductEntry": {
     "path": "packages/web/dist/assets/index-DEF98bII.js",
     "sha256": "ca5c47e5d19ff5901d1c6e9b96e43240e4b2884ca87c2275cf9a21eb7de3cdaa",
     "size": 742315
   },
-  "entryCeiling": 743900
+  "landingSourceBase": "5ca33e3ecb40db71fefa3c6fb03ff880e6b37c19",
+  "landingEntryNote": "Unrelated incoming core address fix changes the landing bundle. Frozen study B remains the independently built 08bbf101 candidate recorded as preparedProductEntry."
 }

@@ -37,7 +37,7 @@ condition would measure adapted guidance, not native Impeccable playbooks.
 The machine-readable [preparation record](phase-7-preparation.json) retains
 source/artifact identities, observed results and limits. The final
 [source manifest](phase-7-sources.json) names all twenty implementation/test
-paths and the unchanged web entry. Every proof below used the actual frozen
+paths and the final landing web entry. Every proof below used the actual frozen
 source or current study implementation, with zero provider calls.
 
 | Proof | Actual observation | Limit |
@@ -130,6 +130,73 @@ and prepared product A/B revisions remain unchanged. Post-record documentation
 guards passed 34 tests in seven files (4.64 s). All 395 relative links across
 fifteen staged Markdown documents resolved; all twenty source hashes and the
 rebuilt entry matched. Conductor lint is clean and 84 lessons have no collisions.
+
+
+## Landing integration: identity continuity
+
+While landing, `main` advanced to `5ca33e3ecb40db71fefa3c6fb03ff880e6b37c19`
+with voice-agent/address changes. The rebase was clean. Full fast (5,743 tests),
+all-workspace typecheck and build passed; 238 direct address/voice/pass tests
+also passed with the deep lane enabled. The resulting entry is
+`index-B5be_4hS.js`, 742,340 bytes, SHA-256
+`4ebf1b44cfd4bb26f7f2d95f670d9e589229691ab449d00aebb478de01a0d3da`.
+This landing entry is separate from frozen B's 742,315-byte study build.
+
+The incoming release had failed a replica pass test that ordinary local runs
+passed. A forced actual two-daemon/CLI schedule reproduced the exact custody
+failure: setup returned success, the daemon's stale identity write dropped the
+CLI's local badge, and the next command received a new badge that could not
+speak for the previously adopted person. The conductor independently reproduced
+it against actual preserved source, whose badge-store SHA matched the incoming
+implementation exactly. Evidence `phase7-conductor-identity-before.json` records
+successful setup, a missing local badge and a refused next command, without
+credential secrets. The private fixture preference remained intact.
+
+[identity-persistence.md](../identity-persistence.md) records the correction
+before implementation. Its process-shared critical section covers all shared
+identity-file writers, including API human-name updates; the lock protects the
+read, conditional choice and atomic write as one act. Existing fields and modes
+survive. Unknown locks or unreadable/corrupt existing data refuse rather than
+replace another writer's state. The frozen A/B runtimes remain unchanged.
+
+The independent after walk observed actual lock contention before the second
+protected read, then verified both credentials, setup, the next pass at the
+authoritative home and another pass after both daemons restarted. Actor custody
+and the private fixture field survived. A separate actual five-second lock
+refusal preserved a foreign owner; four corrupt/unsupported files and a real
+filesystem read error preserved state, and subsequent name/badge updates
+retained ID, credential, private fields and 0640 permissions. No credential
+secrets were recorded.
+
+Commands: `node --import tsx` with each of the conductor's
+`phase7-conductor-identity-before.mjs`, `phase7-conductor-identity-after.mjs` and
+`phase7-conductor-identity-errors.mjs` under the same scratch directory. All
+exited 0 with their expected before-failure/after-success outcomes. The before,
+after and error directories end respectively in `JFVXoI`, `aiS9My` and `kVWPFY`.
+The before badge-store SHA was
+`80fd2c8865e2d4397219740612f4e5a0456ca93122d0ed6d34a86fa837698648`;
+the independently verified correction is
+`616dcb21ebdeed3a01b2e910d90108a85bd72021689857196f736189ce9be4c0`.
+[phase-7-identity-sources.json](phase-7-identity-sources.json) binds all seven
+additional source/test paths and the actual landing entry.
+
+Forty-eight focused tests cover field/mode preservation, process ordering,
+actual CLI setup/pass/restart, ordinary identity commands and badge recovery.
+The changed packages typecheck. The complete combined tree then passed:
+
+| Final combined-tree gate | Result |
+| --- | --- |
+| `npm test` | 570 files, 5,757 tests pass; 108 skips, 164.63 s; exit 0 |
+| `npm run typecheck` | All workspaces pass; exit 0 |
+| `npm run build` | Pass in 6.01 s; exact 742,340-byte landing entry remains below the unchanged ceiling; exit 0 |
+| `npm run test:ci -- --maxWorkers=6` | 626 files, 6,332 tests pass; 3 existing skips, 448.83 s; owned Java 21 Firestore emulator and required deep/bundle gates; exit 0 |
+
+This correction adds no operation or user-facing verb. The existing API identity
+writer delegates to one shared server helper; the CLI and daemon use the same
+critical section. Core remains filesystem-free and README capabilities do not
+change. The real daemon/CLI proof covers the failure; the existing browser
+journeys remain recorded separately. Lesson 58 now includes this second writer
+schedule, rather than treating another green run as a correction.
 
 
 ## Evidence still required

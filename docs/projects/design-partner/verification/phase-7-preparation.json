@@ -253,7 +253,7 @@
     }
   },
   "providerCalls": 0,
-  "updatedAt": "2026-09-15T13:48:28.642168+00:00",
+  "updatedAt": "2026-09-15T14:23:26.733332+00:00",
   "isolatedAuthentication": {
     "recordedAt": "2026-09-15T11:56:41.038Z",
     "scope": "Read-only authentication discovery under an owned empty configuration directory; no credential copying, login, native model session or tool-isolation claim.",
@@ -1004,5 +1004,134 @@
     "lessons": 84,
     "lessonCollisions": 0,
     "frozenCorpus": "unchanged"
+  },
+  "landingIntegration": {
+    "incomingRevision": "5ca33e3ecb40db71fefa3c6fb03ff880e6b37c19",
+    "incomingFailedRelease": "https://github.com/dglazkov/isocan/actions/runs/34976543716",
+    "independentProofs": {
+      "before": {
+        "recordedAt": "2026-09-15T14:01:00.923Z",
+        "source": "/tmp/isocan-design-partner-execution/phase7-prepared-candidate",
+        "sourceRevision": "08bbf1017213b2d7a24b269384e1861481958ae7",
+        "badgeStoreSha256": "80fd2c8865e2d4397219740612f4e5a0456ca93122d0ed6d34a86fa837698648",
+        "output": "/var/folders/63/4k_ydj554mz6_56j2hpg7jcr0000gn/T/isocan-conductor-identity-before-JFVXoI",
+        "events": [
+          "first process held its stale identity read",
+          "second process reached its stale identity read"
+        ],
+        "setupCode": 0,
+        "originalLocalBadgeId": "bdg_NYSkne4QfU",
+        "afterSetupLocalBadgeId": null,
+        "nextCommandCode": 1,
+        "custodyRefused": true,
+        "privateFieldPreserved": true,
+        "providerCalls": 0,
+        "result": "before-failure-reproduced"
+      },
+      "after": {
+        "recordedAt": "2026-09-15T14:07:46.401Z",
+        "source": "/Users/dionalmaer/code/isocan-design-partner",
+        "badgeStoreSha256": "616dcb21ebdeed3a01b2e910d90108a85bd72021689857196f736189ce9be4c0",
+        "output": "/private/var/folders/63/4k_ydj554mz6_56j2hpg7jcr0000gn/T/isocan-conductor-identity-after-aiS9My",
+        "events": [
+          "first process held its stale identity read",
+          "second process reached actual lock contention",
+          "conductor released the first writer",
+          "second process read identity after acquiring the lock"
+        ],
+        "protectedReads": [
+          [
+            "http://127.0.0.1:51396"
+          ]
+        ],
+        "setupCode": 0,
+        "localBadgeRetained": true,
+        "homeBadgeRetained": true,
+        "nextCommand": {
+          "code": 0,
+          "actorId": "usr_acme_owner",
+          "recordAtHome": true
+        },
+        "afterBothDaemonsRestart": {
+          "code": 0,
+          "actorId": "usr_acme_owner",
+          "recordAtHome": true
+        },
+        "privateFieldPreserved": true,
+        "ownedLockReleased": true,
+        "providerCalls": 0,
+        "qualityEvidence": false,
+        "result": "after-proof-passed"
+      },
+      "errors": {
+        "recordedAt": "2026-09-15T14:09:55.688Z",
+        "result": "passed",
+        "output": "/private/var/folders/63/4k_ydj554mz6_56j2hpg7jcr0000gn/T/isocan-conductor-identity-errors-kVWPFY",
+        "sources": [
+          {
+            "path": "packages/server/src/badge-store.ts",
+            "sha256": "616dcb21ebdeed3a01b2e910d90108a85bd72021689857196f736189ce9be4c0"
+          },
+          {
+            "path": "packages/server/src/index.ts",
+            "sha256": "a3adf5303a0aa1da1281db9bf12441807ef48e196c1fbd1322e11aa72000cd79"
+          },
+          {
+            "path": "packages/api/src/identity.ts",
+            "sha256": "b1c72d7163f78c06137072666f88ca86245c1d42664bdd429d6f38e1f6f6ae79"
+          }
+        ],
+        "checks": [
+          "Actual five-second contention refused without stealing a foreign lock or changing identity",
+          "Four malformed/unsupported contents and an actual filesystem read error preserved original state and released owned locks",
+          "Later actual badge/name updates preserved person ID, credential, private field and0640 mode"
+        ],
+        "waitMs": 5010,
+        "providerCalls": 0,
+        "qualityEvidence": false
+      }
+    },
+    "focusedTests": 48,
+    "finalRepositoryGates": {
+      "fast": {
+        "command": "npm test",
+        "exitCode": 0,
+        "summary": "570 files, 5,757 tests pass; 108 skips, 164.63 s",
+        "log": "/tmp/isocan-design-partner-execution/phase7-identity-final-fast.log"
+      },
+      "typecheck": {
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "summary": "All workspaces pass",
+        "log": "/tmp/isocan-design-partner-execution/phase7-identity-final-typecheck.log"
+      },
+      "build": {
+        "command": "npm run build",
+        "exitCode": 0,
+        "summary": "Pass in 6.01 s; exact 742,340-byte landing entry remains below the unchanged ceiling",
+        "log": "/tmp/isocan-design-partner-execution/phase7-identity-final-build.log"
+      },
+      "strict": {
+        "command": "npm run test:ci -- --maxWorkers=6",
+        "exitCode": 0,
+        "summary": "626 files, 6,332 tests pass; 3 existing skips, 448.83 s; owned Java 21 Firestore emulator and required deep/bundle gates",
+        "log": "/tmp/isocan-design-partner-execution/phase7-identity-final-strict.log",
+        "wrapperLog": "/tmp/isocan-design-partner-execution/phase7-identity-final-strict-wrapper.log"
+      }
+    },
+    "sourceManifest": "phase-7-identity-sources.json",
+    "studyRuntimeRevisionsUnchanged": true,
+    "providerCalls": 0,
+    "qualityEvidence": false,
+    "postRecordChecks": {
+      "tests": 34,
+      "files": 7,
+      "durationSeconds": 4.6,
+      "exitCode": 0,
+      "relativeLinks": 42,
+      "markdownFiles": 4,
+      "conductorLint": "clean",
+      "lessonCollisions": 0
+    }
   }
 }
