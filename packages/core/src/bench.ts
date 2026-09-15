@@ -32,10 +32,10 @@ export const AGENT_KIND = "agent";
 /** `actorId=<id>` — the actor this agent speaks as. The row's identity: the
  * title is what a person calls it and can be renamed, the actor is what a
  * summons, an enrolment and a parked rc all name. */
-export const AGENT_ACTOR_PROP = "actorId";
+const AGENT_ACTOR_PROP = "actorId";
 /** `harness=<name>` — `claude-code`, `codex`, `sheep`, … so a reader knows
  * WHAT Percy is without being told where it runs. */
-export const AGENT_HARNESS_PROP = "harness";
+const AGENT_HARNESS_PROP = "harness";
 /**
  * `runsAt=<label>` — an opaque label for WHERE this agent runs.
  *
@@ -44,11 +44,11 @@ export const AGENT_HARNESS_PROP = "harness";
  * renaming a property that has shipped is a migration. Opaque also means no
  * reader may infer a working directory from it.
  */
-export const AGENT_RUNS_AT_PROP = "runsAt";
+const AGENT_RUNS_AT_PROP = "runsAt";
 /** The blob a bench item carries. An item.add needs a version, and the honest
  * one here is the row written out — readable on the canvas itself, so the
  * registry is not a row of blank cards. */
-export const BENCH_ITEM_FILENAME = "agent.md";
+const BENCH_ITEM_FILENAME = "agent.md";
 /** What a bench card is, placed: a caption's worth of space, not a screen. */
 export const BENCH_ITEM_SIZE = { width: 320, height: 180 };
 
@@ -65,7 +65,7 @@ export const BENCH_ITEM_SIZE = { width: 320, height: 180 };
  * and it assumes the question is about THIS machine, which journey 4 makes
  * false. Never reduce this to two.
  */
-export type BenchReach = "ready" | "elsewhere" | "unreachable";
+type BenchReach = "ready" | "elsewhere" | "unreachable";
 
 /**
  * Every reachability a bench row can read, in the order a person meets them.
@@ -99,7 +99,7 @@ export interface BenchAgent {
   runsAt: string | null;
 }
 
-export function isAgentItem(item: Item): boolean {
+function isAgentItem(item: Item): boolean {
   return item.properties.kind === AGENT_KIND;
 }
 
@@ -175,7 +175,7 @@ export interface BenchCanvas {
 
 /** A canvas this agent stands on — its enrolment, named so a row can say
  * "standing on 4 canvases" and a reader can go and look. */
-export interface BenchStanding {
+interface BenchStanding {
   canvasId: string;
   canvasTitle: string;
 }

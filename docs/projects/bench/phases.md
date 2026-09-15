@@ -90,6 +90,19 @@ ways. Full suite and typecheck.
   would have forced the panel to compute something core could not, which is
   the one thing this phase forbids.
 
+### Integration correction, 15 September 2026
+
+Release run [34937549827](https://github.com/dglazkov/isocan/actions/runs/34937549827)
+failed on `07c493d8`: 45 unused exports exceeded the existing ceiling of 39.
+Design-partner integration independently reproduced the guard failure (46 with
+its own additions). Seven new bench implementation details had no external
+uses: four property/filename constants, the item predicate and two supporting
+types. Keeping those local preserves the consumed bench API, three-state
+behavior and generated declarations without raising the ceiling. The actual
+bench CLI, core and web cases plus the export guard pass (13 tests); core
+also typechecks. The design-partner landing gates verify the integrated tree.
+The original phase 0 proof above is not evidence that its release CI passed.
+
 ---
 
 ## Phase 1 — join from the agents panel
