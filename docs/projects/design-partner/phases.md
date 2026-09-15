@@ -388,6 +388,8 @@ leaving an incompatible package as an invisible dependency.
 
 **Depends on:** phases 1–5. Include phase 6's experimental condition only if
 it has a supported implementation; record its omission otherwise.
+[execution.md](execution.md) defines the preserved runtime, matched inputs,
+execution accounting and blinded analysis preparation before provision.
 
 **Outcome:** the project has evidence of better results and useful collaboration,
 and a reversible default rollout on both entrances. A negative or inconclusive

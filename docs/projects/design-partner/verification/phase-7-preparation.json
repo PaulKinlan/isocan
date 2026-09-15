@@ -1,0 +1,255 @@
+{
+  "recordedAt": "2026-09-15T11:36:56.812Z",
+  "scope": "Preparation only; no generated design, provider call or human quality result.",
+  "baselineSource": {
+    "sourceRevision": "304346276dbabd3b7c10dff3f55070dbcff10ab2",
+    "directory": "/tmp/isocan-design-partner-execution/phase7-frozen-baseline",
+    "archiveSha256": "048b71fe2c6aa17fa4a560af0a97058df7353a69ff98ac9034e671626175843c",
+    "selectedFileCount": 1273,
+    "dependencies": {
+      "lockSha256": "2a3f6add6d3fff24d765e50c9bcbd37b3dc642b2958f76b039c762a0e4318151",
+      "identicalToCandidateLock": true,
+      "externalPackagesFrom": "/Users/dionalmaer/code/isocan-design-partner/node_modules",
+      "localWorkspaceBindings": [
+        {
+          "package": "@isocan/core",
+          "source": "packages/core"
+        },
+        {
+          "package": "@isocan/web",
+          "source": "packages/web"
+        },
+        {
+          "package": "@isocan/cloudstore",
+          "source": "packages/cloudstore"
+        },
+        {
+          "package": "@isocan/server",
+          "source": "packages/server"
+        },
+        {
+          "package": "@isocan/mcp",
+          "source": "packages/mcp"
+        },
+        {
+          "package": "@isocan/cli",
+          "source": "packages/cli"
+        },
+        {
+          "package": "@isocan/api",
+          "source": "packages/api"
+        },
+        {
+          "package": "@isocan/voice-agent",
+          "source": "packages/voice-agent"
+        },
+        {
+          "package": "@isocan/rc",
+          "source": "packages/rc"
+        },
+        {
+          "package": "@isocan/stickers",
+          "source": "packages/modules/stickers"
+        },
+        {
+          "package": "@isocan/anatomy",
+          "source": "packages/modules/anatomy"
+        },
+        {
+          "package": "@isocan/sandbox",
+          "source": "packages/modules/sandbox"
+        },
+        {
+          "package": "@isocan/mermaid",
+          "source": "packages/modules/mermaid"
+        },
+        {
+          "package": "@isocan/mindmap",
+          "source": "packages/modules/mindmap"
+        },
+        {
+          "package": "@isocan/documents",
+          "source": "packages/modules/documents"
+        },
+        {
+          "package": "@isocan/design-competition",
+          "source": "packages/modules/design-competition"
+        }
+      ]
+    },
+    "providerCalls": 0,
+    "qualityEvidence": false,
+    "status": "source-prepared-runtime-not-yet-probed"
+  },
+  "sourceFileCount": 1273,
+  "actualRuntime": {
+    "kind": "design-partner-baseline-runtime-proof",
+    "sourceRevision": "304346276dbabd3b7c10dff3f55070dbcff10ab2",
+    "sourceDirectory": "/tmp/isocan-design-partner-execution/phase7-frozen-baseline",
+    "sourceFilesVerified": 1273,
+    "dependencyLockSha256": "2a3f6add6d3fff24d765e50c9bcbd37b3dc642b2958f76b039c762a0e4318151",
+    "workspaceBindings": [
+      {
+        "package": "@isocan/core",
+        "source": "packages/core"
+      },
+      {
+        "package": "@isocan/web",
+        "source": "packages/web"
+      },
+      {
+        "package": "@isocan/cloudstore",
+        "source": "packages/cloudstore"
+      },
+      {
+        "package": "@isocan/server",
+        "source": "packages/server"
+      },
+      {
+        "package": "@isocan/mcp",
+        "source": "packages/mcp"
+      },
+      {
+        "package": "@isocan/cli",
+        "source": "packages/cli"
+      },
+      {
+        "package": "@isocan/api",
+        "source": "packages/api"
+      },
+      {
+        "package": "@isocan/voice-agent",
+        "source": "packages/voice-agent"
+      },
+      {
+        "package": "@isocan/rc",
+        "source": "packages/rc"
+      },
+      {
+        "package": "@isocan/stickers",
+        "source": "packages/modules/stickers"
+      },
+      {
+        "package": "@isocan/anatomy",
+        "source": "packages/modules/anatomy"
+      },
+      {
+        "package": "@isocan/sandbox",
+        "source": "packages/modules/sandbox"
+      },
+      {
+        "package": "@isocan/mermaid",
+        "source": "packages/modules/mermaid"
+      },
+      {
+        "package": "@isocan/mindmap",
+        "source": "packages/modules/mindmap"
+      },
+      {
+        "package": "@isocan/documents",
+        "source": "packages/modules/documents"
+      },
+      {
+        "package": "@isocan/design-competition",
+        "source": "packages/modules/design-competition"
+      }
+    ],
+    "build": {
+      "entry": "index-k3a2TSzf.js",
+      "bytes": 762574,
+      "sha256": "75945c5fe067994f380c4dd265204ce1023bf728f0373c637fb89c9bf7b6c6cb",
+      "exitCode": 0
+    },
+    "runtime": {
+      "base": "http://127.0.0.1:50821",
+      "canvasId": "prj_662nOXZc5q",
+      "actualBrowser": "Chrome/152.0.7977.84",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "cliIdentity": "same browser person, independently read by CLI",
+      "checks": [
+        "source file hashes unchanged",
+        "actual built entry served byte-for-byte",
+        "browser identity and canvas navigation",
+        "API item mutation and snapshot",
+        "actual baseline CLI command surface"
+      ]
+    },
+    "output": "/var/folders/63/4k_ydj554mz6_56j2hpg7jcr0000gn/T/isocan-design-request-conductor-T35kKm",
+    "providerCalls": 0,
+    "qualityEvidence": false,
+    "scope": "Separately built baseline engineering runtime, not a generated-design or partnership result."
+  },
+  "nativeReadOnlyPreflight": {
+    "recordedAt": "2026-09-15T11:36:56.812Z",
+    "providerCalls": 0,
+    "scope": "Read-only native version/help/authentication check reused from existing isolated preflight. Not a full-workflow profile or generation/cap enforcement proof.",
+    "preflight": {
+      "available": true,
+      "version": "2.1.269 (Claude Code)",
+      "helpSha256": "ae85d661e9c086f05637ebcd868f5702b477ff6e55e2e65b8ada7807cd51a4b6",
+      "model": {
+        "model": "claude-sonnet-5",
+        "outputTokens": 8192,
+        "effort": "high",
+        "maxTurns": 1,
+        "retries": 0,
+        "tools": [],
+        "maxCalls": 72
+      },
+      "auth": {
+        "available": true,
+        "loggedIn": true,
+        "authMethod": "claude.ai",
+        "apiProvider": "firstParty",
+        "subscriptionType": "max",
+        "exitCode": 0
+      },
+      "isolation": {
+        "flags": [
+          "--tools",
+          "",
+          "--safe-mode",
+          "--strict-mcp-config",
+          "--mcp-config",
+          "{\"mcpServers\":{}}",
+          "--setting-sources",
+          "",
+          "--disable-slash-commands",
+          "--no-chrome",
+          "--no-session-persistence",
+          "--permission-mode",
+          "dontAsk"
+        ],
+        "environmentKeys": [
+          "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS",
+          "CLAUDE_CODE_AUTO_CONNECT_IDE",
+          "CLAUDE_CODE_DISABLE_ADVISOR_TOOL",
+          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+          "CLAUDE_CODE_EFFORT_LEVEL",
+          "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+          "CLAUDE_CODE_MAX_RETRIES",
+          "CLAUDE_CODE_MAX_TURNS",
+          "CLAUDE_CODE_SAFE_MODE",
+          "CLAUDE_CODE_SKIP_PROMPT_HISTORY",
+          "HOME",
+          "LANG",
+          "LC_ALL",
+          "PATH",
+          "TMPDIR",
+          "USER"
+        ],
+        "workingDirectory": "fresh empty scratch"
+      },
+      "contextBoundary": "Safe mode disables local customizations; admin-managed provider policy may still apply. Ordinary OS USER/HOME discovery is preserved; credentials are not copied or retained in evidence.",
+      "budgetBoundary": "CLI-reported estimated/API-equivalent token cost; admin-managed modelPricing can affect rates. Not billing evidence. Actual provider cap enforcement remains unmeasured."
+    },
+    "binary": {
+      "path": "/Users/dionalmaer/.local/share/claude/versions/2.1.269",
+      "sha256": "c942e1228b93cb4d52183b3dfbc77f28264f35aa947acd9c0853d029164cf450"
+    }
+  },
+  "providerCalls": 0
+}
