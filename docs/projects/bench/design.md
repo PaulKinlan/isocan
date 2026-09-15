@@ -67,7 +67,14 @@ It has three values and must never be reduced to two:
 | --- | --- | --- |
 | **ready** | something is parked that can answer for this agent now | a parked rc for this agent's actor, from `roster()` |
 | **elsewhere** | the agent stands on canvases, but nothing here is parked | enrolment rows with no parked rc |
-| **unreachable** | no machine present holds this agent's key | the key is not derivable here |
+| **unreachable** | no machine present can run this agent | no rc row for it in `~/.isocan/rc-agents.json` |
+
+**Measured, not inferred** (sharpened 14 Sep, before phase 0): *unreachable*
+is "this machine holds no running row for it", which is a fact on disk. The
+design first said "the key is not derivable here", which is true and is not
+something a caller can ask — nothing can read what key an actor was claimed
+under. A state whose measurement is vague is how a facade gets built, so the
+measurement is named here rather than left to the phase.
 
 A boolean — "is my rc parked?" — would be the natural shape and is the wrong
 one twice. It cannot say *unreachable*, which is the dead-machine case

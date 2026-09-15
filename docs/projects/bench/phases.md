@@ -35,16 +35,29 @@ The registry exists and can be looked at. No joining, no new op.
 
 **Work.** An agent is an item on the personal canvas with
 `properties.kind = "agent"` and the fields `design.md` names. `isocan bench`
-lists them with the three-state reachability, `--json` included. The web shows
-the same rows under the identity menu as **Your bench**. `roster()` is the
-source of the first two states; the third is the key not being derivable here.
+lists them with the three-state reachability, `--json` included. **`isocan
+bench add <name>` and `isocan bench rm <name>`** write and remove a row, taking
+the agent from what this machine already knows — the rc rows in
+`~/.isocan/rc-agents.json` and the enrolments they name — so adding to the
+bench never mints an actor and never needs an rc handshake. The web shows the
+same rows under the identity menu as **Your bench**. `roster()` is the source
+of the first two states.
 
-**Proof.** `isocan bench --json` on a home with two agents enrolled from this
-machine and one whose key this machine does not hold returns three rows with
-states `ready`/`elsewhere`/`unreachable` respectively. A test asserts all three
-are reachable values and that no code path collapses them to two. The web rows
-are read from the same derivation — a test fails if the panel computes a state
-of its own. Full suite and typecheck.
+**Amended 14 Sep, before briefing.** The Proof as first written could not be
+run: it asked for three rows on a bench, and nothing in the phase wrote one —
+phase 3 is what fills the bench from enrolment, and until then the rows have to
+come from somewhere. A phase whose proof cannot be executed is a phase that
+will be marked by a proof that was not the one named, so the writer moved here.
+
+**Proof.** From a clean home: enrol two agents from this machine the ordinary
+way, `isocan bench add` each, and add a third row for an agent this machine has
+no rc row for. `isocan bench --json` returns three rows with states
+`ready`/`elsewhere`/`unreachable` respectively. A test asserts all three are
+reachable values and that no code path collapses them to two. The web rows are
+read from the same derivation — a test fails if the panel computes a state of
+its own. `isocan bench rm` removes a row and leaves the agent's enrolments
+untouched, asserted, because "a bench row confers nothing" has to cut both
+ways. Full suite and typecheck.
 
 **Closes.** Journey 1.
 
