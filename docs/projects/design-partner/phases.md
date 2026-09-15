@@ -34,7 +34,7 @@ flowchart LR
   P1 --> P2[2 Complete shared flow]
   P2 --> P3[3 Defaults and systems]
   P3 --> P4[4 Alternatives and decisions]
-  P3 --> P5[5 Shared review and repair]
+  P4 --> P5[5 Shared review and repair]
   L[Existing design-lint 300 and 301] --> P5
   P4 --> P7[7 Evaluation and default rollout]
   P5 --> P7
@@ -302,9 +302,12 @@ not an option count or screenshot test, establishes whether choices help.
 
 **Status: NOT STARTED.**
 
-**Depends on:** phases 2–3; #300/#301's required contracts are present in the
-execution baseline. Own the default journey integration jointly with #302;
-phase 4 and design-lint's pending human ratings are not technical prerequisites.
+**Depends on:** phases 2–4; #300/#301's required contracts are present in the
+execution baseline. Own the default journey integration jointly with #302.
+The explicit repair continuation extends phase 4's exact adoption-edge model;
+design-lint's pending human ratings are not a technical prerequisite.
+[review-and-repair.md](review-and-repair.md) settles the shared review artifacts,
+explicit repair transition, budget and verifier handoff before implementation.
 
 **Outcome:** Scene 6 is dependable across add/edit and CLI text/JSON, API and
 web. A clean source check cannot substitute for trying the artifact.
