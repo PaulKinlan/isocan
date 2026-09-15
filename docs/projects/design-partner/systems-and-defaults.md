@@ -122,6 +122,23 @@ All relevant actions work by keyboard at narrow and wide widths; focus, long
 labels, reduced motion and absent imagery have deliberate behavior. A reference
 must remain useful beyond the exact values entered by its acceptance script.
 
+Creating a reference or its system from the browser is one ordinary add in
+its captured group or canvas scope. Group mode supplies explicit membership.
+Legacy area geometry cannot guarantee that intent with one add: its existing
+placement helper can require a separate area resize and shifts, while anchoring
+beside an area can accidentally create a canvas-wide policy. Refuse new library
+creation on a legacy canvas before journaling or uploading, explain the existing
+groups migration, and keep previews, downloads and scoped source reads/edits
+available. Do not silently migrate a canvas or claim geometric proximity is
+membership. Previously submitted exact intents remain confirmable.
+
+An accepted creation receipt must match the full normalized create payload and
+authoritative actor, including destination, title, properties and content. A
+later snapshot failure cannot turn that accepted add into a refusal. Likewise,
+a retry preflight or upload failure cannot prove that an earlier uncertain add
+was refused. Preserve the original intent until the actual writer confirms or
+definitively refuses it; report post-save consistency independently.
+
 The shared on-demand procedure explains when and how to inspect/adapt a recipe.
 Both entrances can discover and open the same installed bytes. Connected work
 first inspects actual repository components, token files and conventions; no
