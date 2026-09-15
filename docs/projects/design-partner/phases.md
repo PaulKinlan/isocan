@@ -221,6 +221,8 @@ contract behavior; model-generated quality remains phase 7's proof.
 **Status: NOT STARTED.**
 
 **Depends on:** phase 2. Coordinate governing-system resolution with #300/#301.
+[systems-and-defaults.md](systems-and-defaults.md) settles selection, explicit
+exemption and projection before implementation.
 
 **Outcome:** Scenes 4 and 5 work: a first screen has deliberate craft, and
 a later screen extends the accepted design through either entrance.
