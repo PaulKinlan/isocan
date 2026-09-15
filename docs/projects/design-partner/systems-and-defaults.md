@@ -130,7 +130,10 @@ beside an area can accidentally create a canvas-wide policy. Refuse new library
 creation on a legacy canvas before journaling or uploading, explain the existing
 groups migration, and keep previews, downloads and scoped source reads/edits
 available. Do not silently migrate a canvas or claim geometric proximity is
-membership. Previously submitted exact intents remain confirmable.
+membership. Previously submitted exact intents remain confirmable where the
+canonical receipt proves their captured intent. A retained legacy automatic
+anchor whose normalized receipt cannot establish that destination stays pending
+with the limitation explained; it cannot become a claimed scoped success.
 
 An accepted creation receipt must match the full normalized create payload and
 authoritative actor, including destination, title, properties and content. A
