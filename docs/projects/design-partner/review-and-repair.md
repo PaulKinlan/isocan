@@ -32,7 +32,7 @@ Each inspection retains three readings separately:
 - Browser/task observations identify the actual output/runtime, tool/version,
   action, expected and observed result, state, viewport and retrievable evidence.
   Passing observations must cover each declared required task/state/viewport.
-  A screenshot alone cannot establish saving or correction.
+A screenshot alone cannot establish saving or correction.
 - Craft findings explain hierarchy, composition, typography, content and state
   treatment against this brief. They retain rationale and criticality, separate
   from deterministic diagnostics and later independent human preference.
@@ -46,6 +46,17 @@ unverified draft with named limits. An unavailable browser is unverified.
 Explicit audit-only intent preserves its requested inspection scope and reserves
 no repair attempt. `design audit` remains source-only. Ordinary add/edit source
 advice never starts a paid model turn.
+
+Source findings and source coverage remain different facts. Actual actionable
+diagnostics or off-system values make Source failed; a real report with bounded,
+unexamined or omitted coverage makes it unsupported when no findings remain.
+Unreadable source or governing identity is unavailable. A run may be ready for
+its agreed scope with explicitly reported unsupported static coverage only when
+every required task and craft observation passes with readable exact evidence,
+its inputs remain current, and no source findings or critical defects remain.
+Finishing carries those coverage limits into the receipt. Browser success never
+changes the analyzer's coverage reading, and JavaScript alone does not make a
+working interactive task categorically unready.
 
 ## Shared evidence artifacts, local pending intents
 
@@ -125,6 +136,16 @@ retry returns the original acceptance after Undo/removal/archive and never
 reapplies it. The generic submit path also reserves these archived IDs. A
 canonical different-intent/actor conflict is definitive; a generic access or
 source-read failure after uncertain delivery is not proof of non-acceptance.
+
+The ordinary inverse does not by itself protect a teammate's newer current
+version: `item.removeVersion` restores its recorded previous current version.
+Before repair Undo, the writer therefore checks the exact adopted full target;
+before Redo it checks the captured before target. A conflict leaves both content
+and the Undo/Redo candidate untouched. Grouped history walks check each repair
+against the evolving planned state, allowing an intact chain to unwind without
+rewinding unrelated work. This adds no inverse operation or generic edit rule.
+Historical restoration does not require today's request to be active and does
+not reactivate a cancelled request or erase later source/policy changes.
 
 ## Exact continuation, not recaptured context
 
