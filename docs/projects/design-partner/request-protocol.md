@@ -117,7 +117,14 @@ log, inverse, pruning and actual blob collection. A hash inside JSON alone is
 not a GC root. Inherited/private references keep origin identities and
 permission-bearing reads; admission must not copy private bytes into shared
 retention merely to make evidence durable. Revocation remains unavailable.
-Historical readable bytes are not evidence that an input is still current.
+Historical readable bytes are not evidence that a live binding is still current.
+`brief.context` and declared `receipt.context` are live contextual bindings,
+checked for current versions alongside output and governing selection. In
+contrast, `facts.sources`, explicit reference artifacts and check evidence are
+exact historical citations: require permitted retained bytes, not newest-version
+equality. An intentional v1/v2 pair from one item must remain usable. Changing
+the chosen citation is an explicit brief edit. Check local receipt context at
+publication and read as well as remote context in the shared reader.
 
 ## Adaptive questions and continuation
 
