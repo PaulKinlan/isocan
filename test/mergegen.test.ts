@@ -139,7 +139,7 @@ describe("generated docs are regenerated at a conflict, not merged", () => {
           `${file} is routed to the regenerating merge driver, but \`${script}\` never writes ` +
             "it — the path does not appear in its code. The driver copies the on-disk file over " +
             "git's merge result, so the incoming side of every merge is silently discarded; that " +
-            "is lessons.md #83. Remove it from GENERATED and `.gitattributes`, or make the " +
+            "is lessons.md #85. Remove it from GENERATED and `.gitattributes`, or make the " +
             "generator write it whole.",
         ).toContain(file);
       }

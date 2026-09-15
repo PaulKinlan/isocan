@@ -4,6 +4,7 @@ import {
   BENCH_ITEM_SIZE,
   benchAgents,
   benchItemOf,
+  benchJoinRefusal,
   benchRows,
   benchStandingWords,
   benchWords,
@@ -114,7 +115,12 @@ function oneRow<T extends { name: string; actorId: string; itemId: string }>(
   const matches = rows.filter(
     (row) => row.name.toLowerCase() === wanted || row.actorId === name || row.itemId === name,
   );
-  if (matches.length === 0) throw new Error(`nobody called "${name}" is on your bench`);
+  // One refusal, spelled in core, because the terminal's is the same refusal
+  // the Chat's `@Name join` gives and the wording is the security property
+  // rather than the copy: it must not say "unknown name", and it must not
+  // read differently for a name that happens to exist on somebody else's
+  // private bench. `benchJoinRefusal` is given the name and nothing else.
+  if (matches.length === 0) throw new Error(benchJoinRefusal(name));
   if (matches.length > 1) {
     throw new Error(
       `"${name}" is on your bench ${matches.length} times (${matches.map((row) => row.itemId).join(", ")}). Name one by its item id.`,

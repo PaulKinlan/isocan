@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { benchAgents, benchRows, type BenchCanvas, type BenchRow } from "@isocan/core";
+import { benchAgents, benchRows, type BenchAgent, type BenchCanvas, type BenchRow } from "@isocan/core";
 import { fetchRcAnswering, getSnapshot, listCanvases } from "./api.ts";
 import { personalApi } from "./personal.ts";
 
@@ -37,6 +37,33 @@ export interface Bench {
    */
   canvasId: string | null;
   error: string | null;
+}
+
+/**
+ * **The bench as a RECORD, without measuring whether anything could answer.**
+ *
+ * The composer's `@Name` menu (phase 2, journey 3) needs the names on your
+ * bench and nothing else: the row is offered because it is yours, not because
+ * it is reachable, and `benchWords` never appears in a mention menu. So this
+ * reads the one canvas the rows live on and stops, where `useBench` above goes
+ * on to snapshot every canvas this reader can see and ask the daemon who is
+ * answering on each — a walk the size of somebody's canvas list, paid on every
+ * canvas page load if the composer used it.
+ *
+ * It is not a second derivation: both fold the SAME `benchAgents()` out of the
+ * same canvas, and the thing `yourbench.test.ts` guards — that nobody spells
+ * one of the three reachability states for itself — is untouched, because this
+ * one computes no state at all.
+ */
+export async function readBenchAgents(
+  actorId: string,
+  signal?: AbortSignal,
+): Promise<{ agents: BenchAgent[]; canvasId: string | null }> {
+  const status = await personalApi.personalStatus(actorId, signal);
+  const source = status.source?.state === "live" ? status.source.canvasId : null;
+  if (!source) return { agents: [], canvasId: null };
+  const mine = await getSnapshot(source, signal);
+  return { agents: benchAgents(mine.canvas), canvasId: source };
 }
 
 export function useBench(actorId: string): Bench {

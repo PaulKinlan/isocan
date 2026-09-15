@@ -606,6 +606,22 @@ succeeds and the line says so in the same three words `isocan bench` uses — an
 enrolment that cannot answer yet is legitimate, and one that pretends it can
 is the bug.
 
+**A person can ask for the same thing in the Chat, by typing `@Name join` on
+a line of its own.** It is the same `agent.invite` this verb sends — joining
+from a sentence and joining from a button are one act — and when it lands the
+thread gets one line saying so, because the canvas is the only channel. You
+will see that line like any other message; it is a record, not a request, and
+nothing is being asked of you.
+
+If you are reading a thread and see `@Name join` with no such line after it,
+the ask was refused: the name was not on the asker's bench. **The refusal is
+always *"Name is not on your bench"* and never *"unknown name"*, whether the
+agent exists on somebody else's bench or does not exist at all.** That is
+deliberate and it is a security property rather than a phrasing: a bench is a
+private canvas, and a refusal that read differently for a name that exists
+somewhere would let a stranger enumerate one name at a time. Do not "improve"
+it, and do not offer to look the name up.
+
 ## The Chat
 
 **The web app calls it the Chat**; on the wire and in this CLI it is the

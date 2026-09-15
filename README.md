@@ -652,6 +652,16 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   standing here and nothing else: it starts no turn, widens nobody's right to
   summon, and touches no other canvas. Each row says whether anything could
   answer *before* you click, in the same three words the bench uses.
+- **Asking in the Chat**: type `@Name join` on a line of its own and the agent
+  joins — the same act, said where you were already talking. Your bench is in
+  the `@` menu as well as the canvas's own people, marked *not here yet* so a
+  name never reads as somebody who can already hear you, and the line becomes
+  a chip as you write it. When it lands the thread gets one line saying so,
+  because the canvas is the only channel. A name that is not on **your** bench
+  is refused with *"Name is not on your bench"* — never "unknown name", and
+  never a different answer for a name that happens to exist on somebody
+  else's bench, because a bench is a private canvas and a refusal that varied
+  would be a way to read it one name at a time.
 - **Watching one thing**: `isocan wait` is the agent's feedback loop, and it
   can be told what to care about — `--item <ref>` and `--op item.addVersion`
   (or a family, `item.*`) narrow which changes wake it, so a watcher does not

@@ -170,15 +170,24 @@ describe("the bench is behind a lazy boundary", () => {
       })
       .map(([rel, text]) => [rel, text] as [string, string]);
 
-  it("only the two panels read it, and nothing else imports them eagerly", () => {
+  /**
+   * Both ways in, because there are two now. A static `import … from` puts
+   * the reader in whatever chunk the importer lands in; a dynamic `import()`
+   * makes its own. The regex covers both deliberately — the composer's
+   * roster (phase 2) reaches the reader the second way, and a guard that only
+   * knew about the first would have said nothing about it either way.
+   */
+  const READS_IT = /(?:from|import\()\s*"\.{1,2}\/(?:\.\.\/)*(?:lib\/)?bench\.ts"/;
+
+  it("only the three readers read it, and nothing else imports the panels eagerly", () => {
     const readers = sources()
-      .filter(([, text]) => /from "\.{1,2}\/(\.\.\/)*lib\/bench\.ts"/.test(text))
+      .filter(([, text]) => READS_IT.test(text))
       .map(([rel]) => rel)
       .sort();
     expect(
       readers,
-      "a third reader of lib/bench.ts is a third door into the entry chunk — put it behind a lazy boundary and add it here",
-    ).toEqual(["components/BenchJoin.tsx", "components/YourBench.tsx"]);
+      "a fourth reader of lib/bench.ts is a fourth door into the entry chunk — put it behind a lazy boundary and add it here",
+    ).toEqual(["components/BenchJoin.tsx", "components/YourBench.tsx", "lib/benchmentions.ts"]);
 
     /**
      * And who imports the two panels with a plain `import`, which is what
@@ -207,6 +216,29 @@ describe("the bench is behind a lazy boundary", () => {
     expect(src("components/CanvasCrumb.tsx")).toMatch(
       /const IdentityMenu = lazy\(\(\) => import\("\.\/IdentityMenu\.tsx"\)/,
     );
+  });
+
+  /**
+   * **The composer's roster is the one reader that is NOT behind a lazy
+   * component**, because the Chat is on the canvas page and its composer is
+   * eager. So the boundary is inside the module instead: the hook is a dozen
+   * lines of `useState` and `useEffect`, and the fetch it runs is an
+   * `import()`. A plain import here would put the bench reader, `benchRows`
+   * and `roster()` into the chunk every first visit downloads — which is the
+   * accident the whole describe block above was written after.
+   */
+  it("the composer's bench roster reaches it only through import()", () => {
+    const roster = src("lib/benchmentions.ts");
+    expect(roster).toMatch(/await import\("\.\/bench\.ts"\)/);
+    expect(roster, "a static import puts the bench in the entry chunk").not.toMatch(
+      /from "\.\/bench\.ts"/,
+    );
+    // And it computes no reachability of its own — `readBenchAgents` reads
+    // the record, and nothing on this path spells one of the three states.
+    for (const state of BENCH_REACH) {
+      expect(roster).not.toContain(`"${state}"`);
+    }
+    expect(roster).not.toMatch(/benchRows\(/);
   });
 
   it("the tray loads it with lazy() and renders it inside Suspense", () => {
