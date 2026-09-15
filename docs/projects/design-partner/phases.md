@@ -128,6 +128,8 @@ recorded honestly. This closes preparation, not a quality baseline.
 - **2026-09-14** — An accepted retry remains observable after cancellation without permitting fresh work. Superseding an answer must retain each prior question resolution; the protocol bound of 32 is separate from the ordinary initial budget of three.
 - **2026-09-14** — Source/evidence identity validation is not comparison eligibility. The frozen corpus, executable baseline envelopes and complete run matrix make preparation reproducible; candidate/model/capability/spend conditions and human evidence remain phase 7 work.
 
+- **2026-09-14** — Release CI found 33 undocumented new exports that local git-driven measurement omitted before staging. It also found premature unused exports. Purpose comments and narrower exports preserve both guards; subsequent phases stage intended files before the full gate. See the phase 0 verification correction and lesson 70.
+
 ## Phase 1 — Questions and references that can be trusted
 
 **Status: NOT STARTED.**

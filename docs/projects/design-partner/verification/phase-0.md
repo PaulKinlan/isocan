@@ -114,3 +114,56 @@ deliberately remain unchanged in phase 0. The offline eval CLI is an instrument,
 not a product command. The source baseline and all preparation results remain
 explicitly ineligible for a controlled quality comparison until the execution
 conditions are frozen and the actual study and independent human review run.
+
+## Release CI correction
+
+The phase landed as `1f7d12e17b249d9e842a73c0974313140a6175ea`. Release
+[run 34915545080](https://github.com/dglazkov/isocan/actions/runs/34915545080)
+then failed both unchanged export guards: 364 undocumented exports against
+a ceiling of 331, and 57 unused exports against 39. The 33 undocumented
+additions and 20 new unused declarations were in the two core contract modules. The
+local runs above happened before those files were staged; `git ls-files`
+therefore omitted them from the measure. Those runs are real, but they did
+not establish that this particular tracked-file guard covered the new files.
+The `green` deployment gate correctly withheld the failing revision.
+
+The correction adds purpose and boundary comments to those 33 declarations
+and keeps presently unused declarations private until a real consumer needs
+them. Runtime behavior is unchanged. Receipt parsing explicitly validates record shape;
+it does not certify that browser inspection occurred. Both guards and their
+ceilings remain unchanged. [Lesson 70](../../../reviews/lessons.md) records the
+failure, and the conductor now stages only the intended phase paths before
+running the full gate so locally measured sources match committed sources.
+
+Correction verification uses a separate clean checkout at committed
+`86b2bdb9` plus the documentation and export-scope patch. Paused phase 1 product changes
+remain in the execution checkout and cannot enter these results. With the
+correction staged, `node scripts/measure.mjs undocumented-exports` reports
+331; `node scripts/measure.mjs unused-exports` reports 37 against 39;
+`node scripts/lessons.mjs --check` reports no collisions across 70 lessons. The original source manifest above continues to identify the
+original phase 0 implementation, before these documentation and export-scope changes.
+
+The first clean correction run passed 5,456 tests and failed only the unused
+export guard (57 against 39). Reading all failed CI shards confirmed it had
+also failed in the original release run. The correction therefore covers
+both measurements; a single failed job is not a complete CI failure inventory.
+
+The final corrected tree passed the conductor's complete checks:
+
+| Correction check | Result |
+| --- | --- |
+| `npm test -- --maxWorkers=4` | Exit 0; 532 files, 5,457 tests passed; 11 files/108 tests skipped; 180.00 seconds |
+| `npm run typecheck` | Exit 0 across workspaces |
+| `npm run test:ci -- --maxWorkers=6` with an owned local Firestore emulator | Exit 0; 584 files, 6,014 tests passed; three opt-in tests skipped; 424.12 seconds |
+| Both export measurements, lesson/status lint and `git diff --check` | Passed with unchanged guard limits |
+
+The two corrected files have SHA-256 identities
+`7406e5bdb2b50c6faa45fe7ba8c9a33e2707c45acf5016a9b6933257164eb6f5`
+(`design-partner.ts`) and
+`5fe837130b210ad928eb85d3f311508117d4aedd3f78dd894b9090d7e4fc4098`
+(`design-partner-plan.ts`). The conductor compared their TypeScript-emitted
+runtime after removing comments and export visibility: both matched the
+committed originals. The build produced during clean installation remains
+applicable; these modules are not in the phase 0 browser import graph. The
+execution checkout receives these exact files, and its staged tree is compared
+with the clean verification tree before commit, excluding phase 1's work.

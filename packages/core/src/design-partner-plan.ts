@@ -8,8 +8,10 @@ import {
 } from "./design-partner.ts";
 
 /** Ports supply these after existing custody/grant/join resolution. They are not credentials. */
-export interface DesignWriterActor { actorId: string; kind: DesignActorKind }
-export interface ActiveDesignRequest { brief: DesignBrief; ref: DesignArtifactRef }
+interface DesignWriterActor { actorId: string; kind: DesignActorKind }
+/** The current brief bytes and their source identity, read together by the calling writer. */
+interface ActiveDesignRequest { brief: DesignBrief; ref: DesignArtifactRef }
+/** Published question provenance plus current request state; retained bytes alone do not make a question current. */
 export interface DesignQuestionContext {
   request: ActiveDesignRequest;
   questions: DesignQuestionSet;
@@ -18,7 +20,8 @@ export interface DesignQuestionContext {
   sourceStatus: "current" | "removed" | "superseded";
 }
 function refuse(code: DesignPartnerContractError["code"], reason: string): never { throw new DesignPartnerContractError(code, reason); }
-export function sameDesignArtifact(a: DesignArtifactRef, b: DesignArtifactRef): boolean {
+/** Full authority and version equality; identical blob bytes on another canvas are a different source. */
+function sameDesignArtifact(a: DesignArtifactRef, b: DesignArtifactRef): boolean {
   return a.home === b.home && a.canvasId === b.canvasId && a.itemId === b.itemId && a.versionId === b.versionId && a.blobHash === b.blobHash;
 }
 function sameQuestion(a: DesignQuestionSource, b: DesignQuestionSource): boolean {
@@ -65,7 +68,8 @@ function canonical(value: unknown): string {
   if (value !== null && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
   return JSON.stringify(value);
 }
-export interface DesignAnswerMaterializationPlan {
+/** Describes the single reply effect and required guards; it is deliberately not a sendable wire act. */
+interface DesignAnswerMaterializationPlan {
   kind: "answer-materialization";
   /** NOT a sendable operation: old daemons drop typed metadata. Phase 1 owns its refusing wire act. */
   reply: Extract<Operation, { type: "thread.reply" }>;
@@ -73,9 +77,10 @@ export interface DesignAnswerMaterializationPlan {
   opId: string;
   guard: { requestId: string; epoch: number; brief: DesignArtifactRef; question: DesignQuestionSource };
 }
-export type DesignAnswerPlan = DesignAnswerMaterializationPlan | { kind: "already-recorded"; responseId: string };
+/** An accepted identical retry is an observation and must not create another comment or undo step. */
+type DesignAnswerPlan = DesignAnswerMaterializationPlan | { kind: "already-recorded"; responseId: string };
 /** This projection is for people. Readers use typed data, never parse these sentences. */
-export function designResponseMarkdown(response: DesignResponse, questions: DesignQuestionSet): string {
+function designResponseMarkdown(response: DesignResponse, questions: DesignQuestionSet): string {
   return ["Design answers", ...response.resolutions.map((answer) => {
     const q = questions.questions.find((one) => one.id === answer.questionId)!;
     let value: string;
@@ -86,6 +91,7 @@ export function designResponseMarkdown(response: DesignResponse, questions: Desi
     return `- ${q.title}: ${value}`;
   })].join("\n");
 }
+/** Associates outcomes and supersession with one source; the future serialized writer must enforce its guards. */
 export function planDesignAnswer(input: {
   response: unknown; context: DesignQuestionContext; actor: DesignWriterActor;
   commentId: string; opId: string; previousResponses?: readonly DesignResponse[];
@@ -112,13 +118,15 @@ export function planDesignAnswer(input: {
   return { kind: "answer-materialization", reply: { type: "thread.reply", threadId: response.question.threadId, comment: { id: input.commentId, body: designResponseMarkdown(response, input.context.questions) } }, design: response, opId: input.opId, guard: { requestId: response.requestId, epoch: response.epoch, brief: structuredClone(input.context.request.ref), question: structuredClone(response.question) } };
 }
 
-export interface DesignDecisionPlan {
+/** One existing conditional edit preserves target content and decision metadata under the same undo. */
+interface DesignDecisionPlan {
   kind: "decision-edit";
   operation: Extract<Operation, { type: "item.edit" }>;
   opId: string;
   /** Existing item.edit only enforces target conditions. The future writer also enforces these. */
   guard: { requestId: string; epoch: number; brief: DesignArtifactRef; alternatives: DesignArtifactRef[] };
 }
+/** Plans faithful adoption only into the brief's target or greenfield winner; it does not enforce concurrency. */
 export function planDesignDecision(input: {
   decision: unknown; request: ActiveDesignRequest; actor: DesignWriterActor;
   canvas: CanvasContents; home: string; opId: string;

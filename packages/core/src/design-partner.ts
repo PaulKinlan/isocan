@@ -1,15 +1,21 @@
 import { validateContextManifest, type ContextManifest } from "./canvas-group-context.ts";
 
 /** Phase-0 data contract. Parsing proves shape, never custody, grants or inspection. */
-export const DESIGN_PARTNER_SCHEMA_VERSION = 1;
+const DESIGN_PARTNER_SCHEMA_VERSION = 1;
 /** Workflow default is adaptive; explicit interviews may exceed it within the protocol bound. */
-export const DESIGN_PARTNER_INITIAL_QUESTION_BUDGET = 3;
-export const DESIGN_PARTNER_MAX_QUESTIONS = 32;
+const DESIGN_PARTNER_INITIAL_QUESTION_BUDGET = 3;
+/** Maximum published batch size; explicit interviews may exceed the initial workflow budget. */
+const DESIGN_PARTNER_MAX_QUESTIONS = 32;
+/** Decision metadata travels with the adopted target's conditional content edit and inverse. */
 export const DESIGN_PARTNER_DECISION_PROPERTY = "designPartner.decision";
-export const DESIGN_PARTNER_POLICY_PROPERTY = "design.workflow";
-export type DesignPartnerPolicy = "off" | "adaptive-v1" | "unsupported";
+/** Canvas-owned rollout setting, shared by the browser and external-agent entrances. */
+const DESIGN_PARTNER_POLICY_PROPERTY = "design.workflow";
+/** Unsupported values remain visible and cannot accidentally enable automatic enrollment. */
+type DesignPartnerPolicy = "off" | "adaptive-v1" | "unsupported";
+/** Writer-resolved classification; a missing agent-map entry does not establish a human. */
 export type DesignActorKind = "human" | "agent" | "unknown";
-export type DesignFidelity = "wireframe" | "designed" | "implementation";
+/** Presentation intent, independent of request progress and verification status. */
+type DesignFidelity = "wireframe" | "designed" | "implementation";
 
 /** A hash alone cannot identify which permitted source supplied an artifact. */
 export interface DesignArtifactRef {
@@ -20,13 +26,15 @@ export interface DesignArtifactRef {
   blobHash: string;
 }
 interface DesignRecordBase { schemaVersion: 1; requestId: string; epoch: number }
-export interface DesignReference {
+/** Supplied locations and inspected bytes are distinct states; unavailable sources retain a reason. */
+interface DesignReference {
   id: string;
   state: "supplied" | "fetched" | "inaccessible" | "superseded";
   url?: string;
   artifact?: DesignArtifactRef;
   reason?: string;
 }
+/** Versioned request facts owned by the canvas; projections must preserve provenance and assumptions. */
 export interface DesignBrief extends DesignRecordBase {
   kind: "brief";
   requestingActorId: string;
@@ -47,8 +55,10 @@ export interface DesignBrief extends DesignRecordBase {
   outstandingDecisionIds: string[];
   outputIds: string[];
 }
-export interface DesignQuestionOption { id: string; title: string; consequence: string; preview?: DesignArtifactRef }
-export interface DesignQuestion {
+/** An identified answer choice explains its consequence and may point to an actual preview version. */
+interface DesignQuestionOption { id: string; title: string; consequence: string; preview?: DesignArtifactRef }
+/** Renderer-specific input semantics; permission to skip or delegate is explicit for each question. */
+interface DesignQuestion {
   id: string;
   title: string;
   consequence: string;
@@ -71,11 +81,14 @@ export interface DesignQuestionSet extends DesignRecordBase {
   questions: DesignQuestion[];
   supersedes: DesignQuestionSource | null;
 }
+/** Exact immutable published source; a title or latest thread message cannot substitute for identity. */
 export interface DesignQuestionSource { threadId: string; commentId: string; payloadId: string; revision: number }
-export type DesignResolution =
+/** One explicit outcome; skipped, dismissed and delegated states never imply a supplied answer. */
+type DesignResolution =
   | { questionId: string; state: "answered"; value: { kind: "options"; optionIds: string[] } | { kind: "text"; text: string } | { kind: "references"; references: DesignReference[] } }
   | { questionId: string; state: "skipped" | "dismissed" }
   | { questionId: string; state: "delegated"; agentActorId: string };
+/** Published respondent outcomes linked to their exact source; changes explicitly supersede a prior response. */
 export interface DesignResponse extends DesignRecordBase {
   kind: "response";
   id: string;
@@ -84,6 +97,7 @@ export interface DesignResponse extends DesignRecordBase {
   resolutions: DesignResolution[];
   supersedesResponseId: string | null;
 }
+/** Attributed direction choice and version adoption, retaining the comparison and its reasoning. */
 export interface DesignDecision extends DesignRecordBase {
   kind: "decision";
   id: string;
@@ -103,8 +117,10 @@ export interface DesignDecision extends DesignRecordBase {
   adoption: { targetItemId: string; expectedVersionId: string; versionId: string };
   supersedesDecisionId: string | null;
 }
-export type DesignOutputIdentity = { kind: "canvas"; artifact: DesignArtifactRef }
+/** Identifies the actual delivery surface; a repository result also requires its build and running address. */
+type DesignOutputIdentity = { kind: "canvas"; artifact: DesignArtifactRef }
   | { kind: "repository"; repository: string; revision: string; buildId: string; runtimeUrl: string };
+/** Scoped completion evidence, independent of craft preference; references make later staleness detectable. */
 export interface DesignReceipt extends DesignRecordBase {
   kind: "receipt";
   id: string;
@@ -126,7 +142,8 @@ export interface DesignReceipt extends DesignRecordBase {
   }>;
   unresolved: Array<{ severity: "critical" | "noncritical"; description: string }>;
 }
-export type DesignPartnerRecord = DesignBrief | DesignQuestionSet | DesignResponse | DesignDecision | DesignReceipt;
+/** Closed persisted record family; unsupported kinds require a deliberate schema change. */
+type DesignPartnerRecord = DesignBrief | DesignQuestionSet | DesignResponse | DesignDecision | DesignReceipt;
 
 export class DesignPartnerContractError extends Error {
   constructor(readonly code: "invalid" | "association" | "actor" | "stale" | "conflict", message: string) {
@@ -161,10 +178,12 @@ function base(v: Record<string, unknown>): DesignRecordBase {
   if (v.schemaVersion !== 1) bad("Unsupported design-partner schema version.");
   return { schemaVersion: 1, requestId: text(v.requestId), epoch: integer(v.epoch, 1) };
 }
-export function parseDesignArtifactRef(value: unknown): DesignArtifactRef {
+/** Checks source/version/hash shape without claiming the caller can access or has inspected its bytes. */
+function parseDesignArtifactRef(value: unknown): DesignArtifactRef {
   const v = object(value, ["home", "canvasId", "itemId", "versionId", "blobHash"]);
   return { home: url(v.home), canvasId: text(v.canvasId), itemId: text(v.itemId), versionId: text(v.versionId), blobHash: hash(v.blobHash) };
 }
+/** Refuses filename-only uploads and fetched URLs without version identities; availability stays explicit. */
 export function parseDesignReference(value: unknown): DesignReference {
   const v = object(value, ["id", "state", "url", "artifact", "reason"]);
   const state = choice(v.state, ["supplied", "fetched", "inaccessible", "superseded"]);
@@ -196,6 +215,7 @@ function question(value: unknown): DesignQuestion {
   if (!isChoice && result.multiple) bad("Only option questions may select multiple options.");
   return result;
 }
+/** Validates immutable questions, unique choices and real visual-preview identities before publication. */
 export function parseDesignQuestionSet(value: unknown): DesignQuestionSet {
   const v = object(value, [...recordFields, "id", "revision", "brief", "respondentActorId", "headline", "inferredAnswers", "questions", "supersedes"]); if (v.kind !== "questions") bad("Expected questions.");
   return { ...base(v), kind: "questions", id: text(v.id), revision: integer(v.revision, 1), brief: parseDesignArtifactRef(v.brief), respondentActorId: text(v.respondentActorId), headline: text(v.headline), inferredAnswers: unique(list(v.inferredAnswers, (entry) => { const a = object(entry, ["questionId", "value", "sources"]); return { questionId: text(a.questionId), value: text(a.value), sources: list(a.sources, parseDesignArtifactRef) }; }), (a) => a.questionId), questions: unique(nonempty(list(v.questions, question, DESIGN_PARTNER_MAX_QUESTIONS)), (q) => q.id), supersedes: v.supersedes === null ? null : questionSource(v.supersedes) };
@@ -218,10 +238,12 @@ function resolution(value: unknown): DesignResolution {
   if (kind === "text") return { questionId, state, value: { kind, text: text(answer.text) } };
   return { questionId, state, value: { kind, references: unique(nonempty(list(answer.references, parseDesignReference, 20)), (r) => r.id) } };
 }
+/** Validates outcome shape; source freshness, respondent custody and allowed choices need association checks. */
 export function parseDesignResponse(value: unknown): DesignResponse {
   const v = object(value, [...recordFields, "id", "question", "respondentActorId", "resolutions", "supersedesResponseId"]); if (v.kind !== "response") bad("Expected a response.");
   return { ...base(v), kind: "response", id: text(v.id), question: questionSource(v.question), respondentActorId: text(v.respondentActorId), resolutions: unique(nonempty(list(v.resolutions, resolution, DESIGN_PARTNER_MAX_QUESTIONS)), (r) => r.questionId), supersedesResponseId: nullableText(v.supersedesResponseId) };
 }
+/** Reuses the retained-context validator and preserves known facts separately from stated assumptions. */
 export function parseDesignBrief(value: unknown): DesignBrief {
   const v = object(value, [...recordFields, "requestingActorId", "source", "progress", "intent", "fidelity", "delivery", "targetItemId", "groupId", "audience", "primaryTask", "constraints", "facts", "context", "references", "outstandingDecisionIds", "outputIds"]); if (v.kind !== "brief") bad("Expected a brief.");
   const rawSource = object(v.source);
@@ -236,6 +258,7 @@ export function parseDesignBrief(value: unknown): DesignBrief {
     context: structuredClone(rawContext) as unknown as ContextManifest, references: unique(list(v.references, parseDesignReference), (r) => r.id), outstandingDecisionIds: ids(v.outstandingDecisionIds), outputIds: ids(v.outputIds),
   };
 }
+/** Checks comparable alternatives and attribution consistency, without authorizing adoption into a target. */
 export function parseDesignDecision(value: unknown): DesignDecision {
   const v = object(value, [...recordFields, "id", "brief", "questionId", "uncertainty", "alternatives", "recommendedAlternativeId", "chosenAlternativeId", "recommendation", "tradeoff", "reason", "decidingActorId", "attribution", "delegationResponseId", "adoption", "supersedesDecisionId"]); if (v.kind !== "decision") bad("Expected a decision.");
   const adoption = object(v.adoption, ["targetItemId", "expectedVersionId", "versionId"]);
@@ -248,6 +271,7 @@ export function parseDesignDecision(value: unknown): DesignDecision {
   if (result.adoption.expectedVersionId === result.adoption.versionId) bad("Adoption requires a fresh target version.");
   return result;
 }
+/** Checks readiness and evidence shape; actual inspection requires separate proof beyond record validation. */
 export function parseDesignReceipt(value: unknown): DesignReceipt {
   const v = object(value, [...recordFields, "id", "brief", "output", "context", "fidelity", "status", "checks", "unresolved"]); if (v.kind !== "receipt") bad("Expected a receipt.");
   const rawOutput = object(v.output), outputKind = choice(rawOutput.kind, ["canvas", "repository"]);
@@ -263,6 +287,7 @@ export function parseDesignReceipt(value: unknown): DesignReceipt {
   if (result.status === "ready" && (result.unresolved.some((u) => u.severity === "critical") || result.checks.some((c) => c.result === "failed") || !result.checks.some((c) => c.kind === "browser-task" && c.result === "passed"))) bad("Ready cannot be claimed without browser/task evidence or with known failures.");
   return result;
 }
+/** Dispatches the persisted schema explicitly; unknown kinds and future semantics are refused. */
 export function parseDesignPartnerRecord(value: unknown): DesignPartnerRecord {
   switch (object(value).kind) {
     case "brief": return parseDesignBrief(value);
