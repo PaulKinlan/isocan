@@ -167,6 +167,13 @@ refuse. Accepted retry after cancellation, Undo, pruning or target/comment
 removal appends nothing and recreates nothing. Snapshot recovery requires
 canonical intent proof, not only matching IDs, bytes or a generic property.
 
+A structured intent-conflict response is definitive only when canonical
+live/archived receipt lookup proves that this submitted identity belongs to a
+different full intent or authenticated actor. It refuses this submission; it
+does not erase another actor's original pending journal. A generic access,
+custody, source or transport failure before that lookup cannot prove an earlier
+uncertain write absent. Preserve pending status and the original scoped intent.
+
 ## Retention and mixed decoders
 
 Comparison/decision comments retain exact local brief, all options, prior
