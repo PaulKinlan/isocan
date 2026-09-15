@@ -172,6 +172,21 @@ freshness consumes the same derived transitions on both surfaces. Checks remain
 bound to their actually inspected output; a repair requires affected rechecks,
 not relabeling prior observations with its new version.
 
+Receipt context may retain the originally selected target identity when the
+same exact active transition chain reaches the current target. The receipt's
+output must still be the actually inspected current version; later output
+changes stale its checks. This applies to writer admission and both read
+surfaces, without substituting the current version's bytes for old evidence.
+
+Completion is a separate canonical transition from a captured active brief to
+its completed version. Review and repair history may remain current across
+that exact completion at the same epoch, when the canonical completion names
+the captured brief and current source/context/governing facts still hold.
+Missing history, a corrected brief, a resumed epoch or changed inputs cannot
+borrow that exception. New repair writes still require the active exact brief.
+This preserves a finished run's immutable original request identity without
+making every successful finish stale or silently accepting arbitrary revisions.
+
 Negotiate `design-repairs-v1` on the new operation and any reads, histories,
 replication or inverses carrying its new semantics. Gate what the response
 actually contains; do not add an HTML marker only to trigger a guard. An actual
