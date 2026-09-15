@@ -3,17 +3,19 @@ status: designed
 since: 2026-09-14
 issue: 309
 see: bench, standing-agents, on-demand, agent-custody, sheep-harness, room, memory, inbox
-note: phase 0 closed 15 Sep 2026 — the bench is items on the personal canvas, `isocan bench`/`add`/`rm` and **Your bench…** read one derivation in core, and the three states come from three different facts. Four phases, none of which provisions anything or spends money. Phase 0 was the registry and its three-state reachability; phase 1 joins from the panel with `agent.invite` and moves op-types 36 → 37; phase 2 joins from chat; phase 3 makes enrolment write its own rows. The rc in a cell is journey 4 and is NOT here.
+note: phases 0 and 1 closed 15 Sep 2026 — the bench is items on the personal canvas, `isocan bench`/`add`/`rm` and **Your bench…** read one derivation in core with three states from three different facts; `agent.invite` (op-types 40 → 41) then joins an agent you already have to a canvas with NO rc parked, from the panel or `isocan bench join`, preserving `rules` and `writtenBy` so a join cannot widen who may summon. Four phases, none of which provisions anything or spends money. Phase 0 was the registry and its three-state reachability; phase 1 joins from the panel with `agent.invite` and moves op-types 36 → 37; phase 2 joins from chat; phase 3 makes enrolment write its own rows. The rc in a cell is journey 4 and is NOT here.
 ---
 
 # The bench — the phases
 
-**Where we are, 15 September 2026.** **Phase 0 is CLOSED** — the bench exists,
-on both surfaces, and reachability is measured rather than asserted. Phase 1 is
-next (`bench phase 1`), and it is the one that moves `op-types` 36 → 37 for
-`agent.invite`. Nothing waits on a person and nothing waits on another project.
-One debt is open and named in phase 0's trajectory: the two surfaces measure
-from different inputs, and closing that needs a daemon route nobody owns yet.
+**Where we are, 15 September 2026.** **Phases 0 and 1 are CLOSED** — the bench
+exists on both surfaces with reachability measured rather than asserted, and an
+agent you already have joins a canvas from the agents panel with no rc parked
+anywhere. Phase 2 is next (`bench phase 2`): the same act from chat. Nothing
+waits on a person and nothing waits on another project. Two debts are open and
+named in the trajectories: the two surfaces measure reachability from different
+inputs (needs a daemon route nobody owns yet), and four `op-types` arrived from
+design-partner without an argument beside the number.
 No phase here provisions a cloud resource or spends money — the one thing that
 would, the rc in a cell, is journey 4 and deliberately out of scope.
 
@@ -107,12 +109,16 @@ The original phase 0 proof above is not evidence that its release CI passed.
 
 ## Phase 1 — join from the agents panel
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 15 September 2026 — `agent.invite` carries provenance, the
+agents panel offers Join above *Add an agent…* with no rc parked anywhere, and
+the walk was falsified as well as run.
 
 **Work.** `agent.invite` in the op vocabulary, its reducer case, its inverse
-(refuses, beside `agent.enroll`), `touches.ts`, `opwords.ts`. `op-types` moves
-36 → 37 in `.agents/personas/architect.md` **with the argument from
-`design.md` written beside it**. `isocan bench join <name>` on the CLI and a
+(refuses, beside `agent.enroll`), `touches.ts`, `opwords.ts`. `op-types` moves **by
+exactly one** in `.agents/personas/architect.md`, with the argument from
+`design.md` written beside it. (The design said 36 → 37; by the time the phase
+ran the tree was at 40, so the real move is 40 → 41. One op is the promise; the
+absolute number is whatever the day says.) `isocan bench join <name>` on the CLI and a
 **Join** control on each bench row in the agents panel, above *Add an agent…*.
 
 **Proof.** Joining with no parked rc on the target canvas succeeds and the
@@ -125,6 +131,32 @@ from the panel on a canvas whose rc is not running, and read the roster back
 from the CLI.
 
 **Closes.** Journey 2.
+
+### Trajectory
+
+- **2026-09-15** — Join is gated on HAVING a bench, never on a parked rc.
+  "No rc, no button" is right for a stranger and wrong for an agent whose
+  custody is already settled; one rule for both acts is what made an agent's
+  fifth canvas as hard as its first.
+- **2026-09-15** — The reducer preserves `rules` AND `writtenBy` on an invite
+  to an already-standing agent. Re-stamping `writtenBy` would hand the inviter
+  authorship of a gate somebody else wrote — widening `listen` by the back
+  door. All three preservations were mutation-checked; each fails a test.
+- **2026-09-15** — `EnrolledAgent.invitedFrom` is written and read by nothing,
+  deliberately. The moment anything reads it to decide reach or a right to
+  summon, `agent-custody`'s fence has a hole. It is provenance for a person.
+- **2026-09-15** — `op-types` read 36 in the persona while `ops.ts` held 40:
+  four ops arrived from design-partner without raising the bound, so the
+  nightly reported a miss nobody had written down. The bound is now 41 and
+  those four are still owed an argument by the project that added them.
+- **2026-09-15** — Open: phase 0 pushed `unused-exports` past its ceiling (45
+  against 39) and reached `main` red, found only when this phase gated. Paid
+  the same day by un-exporting the seven — none had a caller outside
+  `bench.ts`. The ceiling was NOT raised. A phase that gates green on its own
+  base can still cross a SHARED ceiling when other projects land beside it.
+- **2026-09-15** — `packages/cli/test/bench.test.ts` crossed the ten-second
+  line (7.5s → 12.9s) and moved to `DEEP`, so the phase's CLI proof no longer
+  runs in `npm test`. `test:deep` and CI still run it.
 
 ---
 
