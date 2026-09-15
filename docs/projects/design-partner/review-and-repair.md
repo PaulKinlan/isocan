@@ -69,6 +69,18 @@ Actual version authorship supplies attribution; a body cannot impersonate a
 verifier. Keep its evidence and exact source references readable through the
 same API/CLI/browser read model.
 
+New report and offer creations also carry ordinary `design.review.request` and
+`design.review.run` string properties naming their request and run. Recover
+those discovery bindings from the original canonical creation, including its
+archived form, before fetching historical bodies. Mutable current properties
+cannot move old history to a different task. Validate each readable body against
+its creation binding; contradictory creations remain unavailable for every
+scope they name. This is discovery metadata, not admitted quality authority.
+A filtered read can ignore history proven to belong to another request/run;
+one old run's lost bytes cannot block an unrelated task's first inspection.
+Readable older reports can supply a legacy binding; truly unidentified history
+stays explicitly unavailable rather than being silently assigned elsewhere.
+
 Use conditional ordinary adds/edits for this artifact, preserving stable item,
 version and operation IDs. The shared progression validates each append against
 its captured prior version. A run's prior pass identities/records remain in its
@@ -209,6 +221,15 @@ settings or a browser-open command. Unknown/unavailable is a valid report.
 A positive offer must be current, match the actor's live session, and declare
 support for this output. Automatic expiry is at most five minutes; refresh by
 probing again, not by extending someone else's declaration.
+
+Agent classification still comes from the daemon's actual registry. The existing
+canvas actor lookup includes actors in that canvas's current live presence,
+even before their first authored item or comment. Pass those live actor IDs
+through the existing registry/join classifier; do not infer eligibility from a
+session's label or expose the home's unrelated global actor roster. Expired
+presence supplies no such discovery, and an unknown registry identity remains
+unknown. Offer eligibility separately requires the live native session and
+current tool probe.
 
 A handoff requires that current report, actual reachability and existing
 `mayWake` authorization. It uses an ordinary addressed request and existing
