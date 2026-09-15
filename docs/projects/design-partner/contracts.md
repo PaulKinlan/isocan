@@ -24,7 +24,7 @@ is a conflict, not a second accepted answer.
 | Brief | A versioned JSON item, with request ID and epoch, requesting actor, origin, target/group, intent, delivery type, known facts/assumptions, unresolved decisions, outputs and exact reference/context identities. Progress, fidelity and verification are independent fields. |
 | Question set | Immutable typed `design` metadata on a comment. Contains request ID/epoch, question-set ID/revision, intended respondent, headline, inferred answers and renderer-specific questions/options. Its exact source is thread ID, comment ID and payload revision. Reissuing a question produces a new identity and explicitly supersedes the old set. |
 | Answer | A new comment with typed `design` metadata referring to the exact question set, request epoch and respondent. Each question has an explicit selected-option, freeform, reference, skipped, dismissed or delegated outcome. Human-readable Markdown is its projection. |
-| Reference | Canvas/item/version/blob identity when bytes are available, plus supplied URL and availability where applicable. A filename alone is not a reference. Context uses the existing retained manifest; no second inheritance resolver. |
+| Reference | Canvas/item/version/blob identity when bytes are available, plus supplied URL and availability where applicable. A filename alone is not a reference. Ordinary selected scope uses the existing retained context manifest; exact typed references additionally retain their identified versions on the comment. Neither introduces another inheritance resolver. |
 | Decision | A typed JSON record in the adopted target's `designPartner.decision` property. Includes request/epoch, compared alternatives and versions, selected version, recommendation, reason and deciding actor/kind. The brief and comparison items remain independent of the adoption target. |
 | Receipt | A versioned JSON record tying results to output/build, context/system and rule/tool/package identities, with check scope, coverage, viewport/states, failures and evidence. It cannot declare quality measured by an offline fixture. |
 
@@ -75,10 +75,24 @@ thread/comment inverse effects and ordinary history/retention semantics.
 Only the internal undo/redo path may restore canonical authored records.
 Final request/reissue/cancel mappings must preserve this same boundary.
 
+The existing context manifest has one entry per item. It cannot represent two
+compared versions of the same item, and resolving its live scope would replace
+an older explicit reference with the current version. The writer therefore
+fills canonical-only `retainedReferences` on the operation and
+`Comment.designReferences`: each entry pairs a `DesignArtifactRef` with its
+actual `ItemVersion`, including any visual face. Public writes cannot supply
+these fields. Ordinary scope context stays separate. Snapshot, replay,
+replication, inverses and blob collection retain these exact versions; reference
+reads use them rather than guessing the item's current version.
+
 Legacy `/ask` strings remain readable with strict validation and a conservative
 fallback. They acquire no authority from another participant's later message.
 Phase 1 defines an explicit adoption into the new protocol when answering an
 old question; silently inferring a missing respondent is not a migration.
+
+[questionnaire-protocol.md](questionnaire-protocol.md) records phase 1's concrete
+publishing, legacy-adoption and reference-read boundaries. Request creation in
+phase 2 removes its temporary need to select an existing valid brief.
 
 ## One selection, one conditional edit
 
