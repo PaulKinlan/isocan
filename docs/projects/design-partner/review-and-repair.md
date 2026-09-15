@@ -129,6 +129,14 @@ title/description/properties/scope, governing binding and rule version. Preserve
 the target filename and HTML MIME. Preparation validates the source before
 journaling; upload verifies those exact bytes and never recaptures a newer base.
 
+Existing consumers, including the design-lint evaluation runner, pass the basis
+captured by their original audit into this shared preparation path. A second
+capture after generating a candidate would conceal intervening metadata or
+policy changes. Guaranteed invalid source preparation reports candidate rejection;
+missing or unreadable original evidence remains unavailable. Prove both a changed
+valid candidate and an invalid candidate through the actual consumer: an unchanged
+clean control can bypass submission and cannot establish repair compatibility.
+
 Within the writer queue, validate actual custody, target content and metadata,
 actual membership/scope, the same-canvas governing winner and explicit exemption.
 For a task repair, require its current source, request epoch, cancellation and
