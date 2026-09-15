@@ -176,7 +176,8 @@ answer state. Legacy questions remain readable. Record these in
 
 **Status: NOT STARTED.**
 
-**Depends on:** phase 1.
+**Depends on:** phase 1. The concrete [request protocol](request-protocol.md)
+settles the write/read boundary before implementation.
 
 **Outcome:** Scenes 1 and 6 have a small end-to-end implementation behind
 the shared rollout policy. Both entrances can create and resume the same
