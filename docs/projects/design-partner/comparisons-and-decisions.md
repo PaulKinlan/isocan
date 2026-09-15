@@ -201,6 +201,13 @@ the shared API and CLI expose the same read, publish, respond, prepare, adopt,
 reference and history acts. Keep the shared workflow procedure authoritative
 instead of copying another interview into each harness.
 
+The designer publishes from canvas chat or an external conversation through
+that same API/CLI. Phase 4's browser consumes those comparisons and performs
+Try, Use and non-adopting responses; it does not add a manual schema-authoring
+form. Every human act has a CLI equivalent. Publication is explicitly an agent
+producer here, not an unused browser wrapper counted as a working control.
+The surface audit must report this scope honestly.
+
 Equal desktop summaries show names, hypotheses, actual retained previews,
 tradeoffs and one attributed recommendation. **Try** opens an interactive
 exact-version frame using existing content-origin/ticket machinery. Give this
