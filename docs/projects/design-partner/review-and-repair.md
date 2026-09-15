@@ -147,6 +147,13 @@ rewinding unrelated work. This adds no inverse operation or generic edit rule.
 Historical restoration does not require today's request to be active and does
 not reactivate a cancelled request or erase later source/policy changes.
 
+The grouped walk also exposed a pre-existing ordering error: after newest-first
+Undo, traversing the redo stack from its end already returns oldest-first acts.
+`nextRedoGroup` must not reverse that result again. Restore the documented order
+and prove it with both sequential ordinary edits and sequential repairs; a
+special repair path that works around an incorrectly ordered generic group
+would preserve the underlying bug.
+
 ## Exact continuation, not recaptured context
 
 Derive active repair transitions from existing live and archived canonical
