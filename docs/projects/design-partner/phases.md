@@ -276,7 +276,7 @@ person sees an actual decision, a recommendation and a safe way to adopt it.
   open interactive examples. Show the hypothesis, recommendation and tradeoff.
   The CLI reads the same options and can select or delegate without a pointer.
 - Implement safe greenfield and existing-screen adoption as specified in
-  `design.md`. Preserve the brief, references, rejected alternatives and reason;
+  [comparisons-and-decisions.md](comparisons-and-decisions.md). Preserve the brief, references, rejected alternatives and reason;
   do not reuse `choose` in a way that overwrites a Markdown brief. Capture
   a human preference separately from an agent's recommendation.
 - Let the next request read the accepted decision. Version changes to an
