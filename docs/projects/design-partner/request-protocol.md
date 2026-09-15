@@ -23,7 +23,8 @@ operation records the resolved effect; replay does not resolve placement,
 context, actors or policy again. This is not a generic atomic batch.
 
 Each admitted ItemVersion has a small canonical marker: record kind, request
-ID, epoch, originating operation ID and bounded retained reference metadata.
+ID, epoch, originating operation ID, authenticated public-intent digest and
+bounded retained reference metadata.
 The JSON remains the record, parsed on demand; the marker is admission and
 retention information, not a second cached brief. Generic uploaded JSON is
 readable but acquires no canonical standing. Public item add/edit/restore and
@@ -77,6 +78,12 @@ history. An identical accepted retry remains an observation after cancellation;
 changed payload or actor conflicts. Delivery preserves accepted/pending/refused,
 `submittedOpId`, actual canonical `opId` or null, and receipt/snapshot evidence.
 Unknown fields are rejected rather than silently acquiring future semantics.
+For lost-ack snapshot confirmation, matching an operation ID alone is insufficient:
+a changed-content retry might have been refused while the original version
+remains visible. The writer-owned digest binds the validated public semantic
+operation and canonical authenticated actor, excluding its resolved effect,
+with deterministic key-order-independent serialization. Compare that digest
+before reporting snapshot-confirmed acceptance. Public input cannot supply it.
 
 ## Context, source bytes and governing identity
 
