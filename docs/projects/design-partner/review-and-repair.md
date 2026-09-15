@@ -75,7 +75,12 @@ its captured prior version. A run's prior pass identities/records remain in its
 cumulative document and version history; a fresh process reads them before
 working. Inspect live plus archived canonical operations when recovering
 reservations or accepted repairs. Missing, malformed or contradictory history
-is unavailable, never a fresh zero counter. A second process cannot reserve
+is unavailable, never a fresh zero counter. Expose an unknown remaining budget
+as `null`, not a numeric count: unavailable history blocks progression, and the
+surface says why the budget cannot be established. Conflicting canonical writes
+that reuse an ordinary report version ID must remain visible as a contradiction;
+a map keyed by that ID cannot replace the original evidence or its attribution.
+A second process cannot reserve
 against a changed run version. Undo, an entrance switch, a missing local file or
 a new epoch does not silently replenish this run's budget. An explicitly
 requested new review may create a linked run with a reason; the automatic
