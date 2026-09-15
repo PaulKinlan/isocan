@@ -69,6 +69,15 @@ Delegate identifies an eligible actual agent; skip/dismiss cannot be treated
 as supplied preferences. Superseding responses identify their exact predecessor
 and retain it. Ordinary prose cannot resolve or revise these records.
 
+A larger exploration request can span multiple batches without another human
+response. Each batch retains the original effective revision-response identity
+through its exact authored predecessor chain: same request, brief item, epoch
+and decision key, unchanged source text, explicit consecutive supersession and
+no fork or missing predecessor. The response must still be effective at its
+original source. A response to an unrelated comparison is not a predecessor.
+This preserves the original requested count and instruction while allowing,
+for example, four additional hypotheses in two batches of two.
+
 ## Authority belongs to the actual act
 
 Audience is either a named known canvas human or the reporter of an admitted
