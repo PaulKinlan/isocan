@@ -1,12 +1,15 @@
 # A design partner — the walk
 
-**Where we are:** phases 0–6 CLOSED; phase 6 closed on 15 September 2026.
+**Where we are:** phases 0–6 CLOSED; phase 7 PART-DONE on 15 September 2026.
 Both entrances share discovery, scoped systems, working alternatives, durable
-adoption and bounded review/repair. Optional adapted Impeccable guidance uses
-that same context, with exact exports, freshness and honest native limits.
-Local browser/CLI proofs and full strict gates pass. **Phase 7 is next**:
-measure generated-design results and real-user partnership, then decide rollout.
-The workflow stays opt-in; engineering proofs do not establish quality uplift.
+adoption and bounded review/repair, with optional adapted Impeccable guidance.
+The actual A/B runtimes, native runner, independent assessment, blinded review,
+participant instruments and local rollback pass their available proofs and full
+strict gates. **Next: design-partner phase 7's measured smoke comparison**,
+with the exact [provision request](provision.md): compatible API authentication
+and a $40 ceiling. Independent raters, six participants, authenticated hosted
+acceptance and the rollout decision remain owed. The workflow stays opt-in;
+engineering proofs do not establish quality uplift.
 Read [journey.md](journey.md), [design.md](design.md), then this walk.
 
 The first useful release fixes discovery integrity. The next delivers one
@@ -384,7 +387,7 @@ leaving an incompatible package as an invisible dependency.
 
 ## Phase 7 — Measure the partnership, then enable the default
 
-**Status: NOT STARTED.**
+**Status: PART-DONE.** 15 September 2026 — all zero-provider preparation, actual CLI/browser assessment and full strict gates pass; measured generation, independent ratings, participant sessions and hosted rollout wait on the provision and people below. See [verification/phase-7.md](verification/phase-7.md).
 
 **Depends on:** phases 1–5. Include phase 6's experimental condition only if
 it has a supported implementation; record its omission otherwise.
@@ -424,7 +427,12 @@ candidate and reviewable results comes first.
 
 **Trajectory:**
 
-- **2026-09-14** — Open: real-user quality and partnership evidence is still owed. The executing agent owns the dataset and analysis; the product owner supplies the paid-run ceiling, participants and final rollout decision when the candidate is ready. No model spend or recruitment is authorized by writing this plan.
+- **2026-09-15** — Evaluator tools can invent apparent product defects. Native input initially appended values and Enter lacked browser key metadata; real MCP Save/correction/keyboard proofs now guard them. A concurrent file write also changed bytes during CLI capture; the complete checked operation now owns the tool queue.
+- **2026-09-15** — The isolated study browser cannot authenticate the canvas UI. Both arms receive this measured limit and use the actual bound CLI for canvas state; task pages and the fixed connected app remain interactive. Product-canvas acceptance is a separate real browser walk, not an inferred capability.
+- **2026-09-15** — Complete failures are negative evidence; missing provenance is unavailable. Independent final-task observations determine success, producer browser usage remains descriptive, and false-ready rollout gates apply to the candidate. Review packets retain full task states without pretending a connected backend is a static page.
+- **2026-09-15** — Open: execute the prepared 16-cell smoke comparison after the product owner approves the $40 API-equivalent ceiling and configures compatible isolated authentication. The ordinary subscription login does not authenticate this profile; [provision.md](provision.md) names exact sources, model, bounds and stop rules.
+- **2026-09-15** — Open: three independent reviewers and six intended users must supply the quality and partnership evidence. The product owner supplies access, effort and any compensation; a reviewed smoke result precedes any separately funded full study. Empty forms and synthetic checks are not human observations.
+- **2026-09-15** — Open: the executing agent must walk an authorized hosted canvas and opt-in cohort, then the product owner decides broad enablement against the completed evidence. Local rollback and public dev identity pass; authenticated hosted acceptance and a rollout decision remain unperformed.
 
 ## Outside this P0
 

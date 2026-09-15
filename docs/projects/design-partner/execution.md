@@ -62,6 +62,13 @@ canvas chat and the appropriate external doorway/guide for external-agent entry.
 Provide existing commands, files and browser tools on demand to both arms.
 Record each delivered resource, actual prompt and source identity.
 
+The isolated generation browser operates on contained task files and the fixed
+connected fixture runtime. Interactive canvas UI is unavailable in this
+profile: the real daemon requires a badge, while the study does not grant the
+browser a door, session or WebSocket capability. Canvas reads and edits use the
+actual bound CLI. This limitation is identical across A/B/C and is recorded in
+the native profile; local and hosted canvas acceptance remain separate checks.
+
 An evaluator maps each actual question to a frozen fact ID, supplies only the
 matching bank answer and records the question/answer and timing. Do not invent
 automatic semantic matching or buy another model to answer. Repeated questions
@@ -98,6 +105,13 @@ billing evidence, and unknown cost as unknown. Stop further spending on missing
 accounting, a mismatched model/tool profile, an overrun or exhausted total budget.
 No implicit retries, image calls or extra repair rounds.
 
+The isolated tool boundary checks transitive local assets before invoking the
+real CLI and orders file, CLI and browser actions through completion. Otherwise
+a concurrent source write could invalidate the checked bytes while the CLI is
+starting. Questions may remain pending outside that queue; the evaluator's
+separate person-attributed answer can still resume the same native session.
+Extra screenshot browsers and external export are unavailable in this profile.
+
 The matched harness may expose an instrumentation-only `review_phase` marker
 for a final review and up to two finding-driven repair rounds. It records the
 same ceiling across A and B without requiring A to adopt B's canonical review
@@ -115,6 +129,14 @@ viewport evidence for the final output, with known failures resolved. A simulate
 provider can prove orchestration and stop rules but cannot make comparison-ready
 quality results. Actual source/browser findings and human ratings remain separate.
 
+Independent assessment runs a separate, attributed evaluator's bounded action
+plan against the exact captured final bytes. It checks every frozen task step
+at every frozen viewport, records actual control/action failures and captures
+those states. A producing agent's own browser use is measured separately:
+skipping it cannot remove a completed output from the comparison. An observed
+failure, false-ready claim or cap violation is valid negative evidence when its
+provenance is complete; missing observations remain unavailable.
+
 ## Blinded review and analysis
 
 Prepare neutral local review IDs and a separately held condition key. Reviewers
@@ -124,6 +146,15 @@ left/right placement reproducibly per reviewer and retain ties, both unusable,
 disagreement, overall craft score and rubric dimensions. Condition/model/agent
 identity must not be exposed by the review wrapper. Never prefill human ratings
 or present the builder/conductor's judgment as an independent review.
+
+Connected-app task checks execute the supplied fixed backend and exact final
+frontend. Review packets show verified screenshots for every task step and
+viewport with normalized task outcomes; an interactive repository preview is
+explicitly unavailable. Retain the exact repository and local support files
+privately. Standalone outputs requiring support files get the same explicit
+limitation unless an exact neutral bundle is available. Reviewers leave
+unjudgeable dimensions unscored; missing evidence cannot earn a strong rating.
+This keeps the study bounded without mistaking a static page for a running API.
 
 Use three independent raters and the preregistered five-point rubric. Before
 seeing results, fix aggregation: majority pair outcome with ties reported; one
