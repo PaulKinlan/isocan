@@ -2674,6 +2674,48 @@ Put every asset on the canvas — `isocan add icon.png --title "App icon"
 --prop parent=<the screen it came from>` — so it hangs under its source when
 anyone runs `isocan tidy`, instead of landing in a folder nobody opens.
 
+### Carrying an authored design into the next screen
+
+Run `design workflow` for the shared procedure. `design show --in <scope>`
+(and `--css` or `--tokens`) opens the same permitted governing document as
+`design check --in <scope> --provenance --json`. The default check JSON stays
+the findings array; `--provenance` returns `{findings,governing}`, including an
+exact identity even when no findings exist. `design=none` exempts the canvas
+from requiring a system; any incumbent remains visible and applicable.
+
+Use a new folder for a projection; its manifest identifies the source rather
+than creating another canvas design system. After inspecting the current
+system, this walk preserves every vendor/lint field and the prose while
+changing one authored rationale:
+
+```sh
+isocan design recipes
+isocan design recipe receiving --out /tmp/acme-receiving-reference
+isocan design project /tmp/acme-working-system
+isocan design direction --json
+# Edit /tmp/acme-working-system/DESIGN.md using its actual tokens and rationale.
+isocan design reconcile /tmp/acme-working-system --json
+```
+
+`design direction <file>` accepts `{projection,direction,opId,versionId,retry?}`:
+use the projection manifest and a complete version-1 direction with `stage`,
+`rationale`, `taskHierarchy`, `layout`, `density`, `typography`, `palettePurpose`
+and `treatments:[{name,guidance,states}]`. Stage is `provisional` or `accepted`;
+it is authored content, with the actual version author shown separately, and
+does not manufacture a human preference. Use `design set DESIGN.md --in <scope>`
+for the first system; subsequent direction edits identify their exact source.
+After uncertain direction delivery, preserve `projection`, `direction`, `opId`
+and `versionId` unchanged and set `retry:true` in that file. This asks for the
+original receipt even if a later edit pruned its version or removed the item.
+
+Invalid working document syntax is refused before preparing a pending intent;
+correct `DESIGN.md` and run reconciliation again. An uncertain save retains `DESIGN.intent.json` and the original IDs. Retry the
+same content; changing it does not authorize overwriting the pending intent.
+A refused stale save leaves the working file intact. Review the new source,
+then explicitly use `design project <directory> --refresh` to capture it while
+preserving your working file. An accepted save can separately report stale or
+unavailable consistency after another edit; do not call that a current system.
+
 ## Quick reference of the whole surface
 
 **Canvas membership (new canvases use groups):** `canvas group new <title> [--at x,y] [--size WxH] [--note text]`,
@@ -2797,7 +2839,9 @@ on the thread before putting one on somebody else's canvas,
 `inbox [--mentions] [--new]`, `seen [--mark] [--canvas <name>]`,
 `who [--all]`, `activity [who]`, `whoami`, `identity [--color]`,
 `command list|show|add|rm`, `format [--dry-run]`, `merge`, `shortcuts`,
-`design [--css|--tokens] [set|check]`, `design audit [--item|--in|--file|--fail]`,
+`design [--css|--tokens] [set|check]`, `design check [--in <scope>] [--provenance]`,
+`design direction [file] [--in <scope>|--item <id>]`, `design project <directory> [--in <scope>|--item <id>] [--refresh]`,
+`design reconcile <directory>`, `design recipes`, `design recipe <id> [--design|--out <directory>]`, `design audit [--item|--in|--file|--fail]`,
 `design repair <item> <file> --from-audit <report.json>`,
 `design questions [payload] [--respondents]`, `design ask <file> [--thread <id>]`,
 `design answer [payload] [--file <file>]`, `design reference <thread> <comment> <reference> [--out <file>]`,

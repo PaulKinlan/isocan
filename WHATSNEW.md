@@ -21,6 +21,14 @@ notice. A what's-new with an entry every day is one nobody believes by the
 second week.
 
 
+## 15 September 2026
+
+- Open **Design system & references** to inspect the guidance for a group or
+  screen, record reusable choices, and continue them with another agent. Working
+  drafts survive source changes and can be preserved while you open a newer
+  document. Try complete receiving, reading and campaign references before
+  adapting them; agents can open the same examples and design documents.
+
 ## 14 September 2026
 
 - Start a design task from a chat message and keep its brief beside the work.
