@@ -348,6 +348,8 @@ journey and record it as the P0 candidate, not a proven default.
 **Status: NOT STARTED.**
 
 **Depends on:** phase 2's context and receipt contracts. Optional for rollout.
+[craft-integration.md](craft-integration.md) records the pinned compatibility
+probe and settles the supported adapted-guidance subset before implementation.
 
 **Outcome:** Scene 7 uses a verified package or states precisely which adapted
 guidance ran. The integration cannot impose a second discovery ceremony.
