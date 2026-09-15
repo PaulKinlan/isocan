@@ -201,3 +201,14 @@ continuation claim beside the prior evidence names the new run before its first
 candidate call. It prevents two continuation branches from spending the same
 remaining budget. Prior reports and output files remain unchanged. Record the
 claim, original approval and both reports with the final evidence.
+
+
+## Execution record after the frozen pilot
+
+The approved comparison completed on 14 September; its [actual results and
+remaining human review](../../research/2026-09-14-design-lint-evaluation.md#approved-model-pilot-objective-result-human-review-pending)
+are recorded separately from this preregistration. No task, scoring predicate,
+model setting or decision threshold was changed during execution. All observed
+calls stayed below their fixed requested allowance; behavior at the cap itself
+and actual billed spend remain unmeasured. Human ratings can finish the record
+without another provider call.
