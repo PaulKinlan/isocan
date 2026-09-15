@@ -223,7 +223,12 @@ exact-version frame using existing content-origin/ticket machinery. Give this
 bounded surface form permission for local script-handled tasks while retaining
 `form-action 'none'`, origin isolation and the top-navigation restriction.
 Thumbnails stay inert. Never silently fall back to the latest item version.
-Keep active same-version frames mounted across status refresh. Provide Return
+Keep active same-version frames mounted across status refresh and changes
+between desktop and phone layouts. The comparison is owned by a stable
+page-level host, not by a chat/task button whose responsive parent can unmount.
+Changing width is not closing the comparison; in-progress prototype state,
+choice and focus remain available. Actor/canvas changes still enforce their
+existing boundaries and preserve exact pending drafts. Provide Return
 controls before and after the frame and restore focus to Try. Parent Escape
 handlers cannot be assumed to receive events inside a cross-origin child.
 
@@ -249,5 +254,6 @@ The independent conductor additionally exercises stale chosen/rejected options,
 target metadata/content, source/brief/epoch/governing drift, MIME refusal,
 direct/precise paths, more/combine, false custody, exact uncertain retry,
 actual archived history/GC/restart, old daemon/decoder delivery, keyboard/mobile
-behavior and cross-entrance continuation. Record the exact built entry and
+behavior, live desktop/phone resize without a frame restart, and cross-entrance
+continuation. Record the exact built entry and
 commands. Preserve the frozen phase 0 corpus; these are new synthetic fixtures.
