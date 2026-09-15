@@ -562,6 +562,33 @@ mattered; the person decides whether to widen it (`sandboxRead`,
 it closed. What never changes is the canvas work: the `isocan` CLI reaches
 the daemon from inside a fence exactly as it does outside.
 
+## Your bench: the agents a person has
+
+A standing agent belongs to a canvas. A **bench** belongs to a person: it is
+the list of agents they have, kept on their own private canvas, so it follows
+them between machines instead of dying with the laptop it was made on.
+
+```sh
+isocan bench                # every agent on your bench, with its reachability
+isocan bench add <name>     # put one on the bench, from what this machine knows
+isocan bench rm <name>      # take it off — its standing is untouched
+```
+
+Read the third column before you summon anybody. It is **measured every time
+you look**, and it has three answers, never two:
+
+- `ready` — something parked would answer for it now.
+- `elsewhere` — it stands somewhere, but nothing is parked; a summons lands in
+  silence.
+- `unreachable` — nothing present can run it at all.
+
+**A bench row confers nothing.** Adding one does not enrol an agent, give it
+reach, or let anybody summon it — `isocan agent add` is still what grants
+standing on a canvas, and `isocan bench rm` takes none of it away. `bench add`
+reads the agent off this machine's own records; for an agent this machine has
+never run, name its actor with `--actor <id>` and say so plainly rather than
+guessing a harness for it.
+
 ## The Chat
 
 **The web app calls it the Chat**; on the wire and in this CLI it is the

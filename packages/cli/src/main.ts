@@ -1,5 +1,6 @@
 import { classifyAutomaticSource } from "@isocan/api/context";
 import { registerPersonalContext } from "./personal-context.ts";
+import { registerBench } from "./bench.ts";
 import { makeTextAnchor, resolveTextAnchor, quoteRange, SOURCE_PATH_PROP } from "@isocan/core";
 import { CanvasGroups, insertedItemBox, resolveCanvasGroupRef } from "@isocan/api";
 import { registerAreaAliases, registerCanvasGroups, reportCanvasGroup } from "./canvas-groups.ts";
@@ -9519,6 +9520,10 @@ const context = program
 
 registerContextReads(context, ctxOf);
 registerPersonalContext(context, ctxOf);
+// Your bench (docs/projects/bench/design.md): the personal canvas read as a
+// registry of agents. Its body is `bench.ts`, because this file is the list of
+// verbs and every verb that keeps its body here makes the list harder to read.
+registerBench(program, ctxOf);
 
 /**
  * **Inherit a canvas's memory here** (`docs/projects/memory/design.md`,

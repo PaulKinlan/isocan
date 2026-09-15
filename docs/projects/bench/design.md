@@ -1,6 +1,7 @@
 ---
 status: designed
 since: 2026-09-14
+issue: 309
 see: bench, standing-agents, on-demand, agent-custody, sheep-harness, room, memory, inbox
 note: designed 14 Sep 2026. The registry is the personal canvas — an agent is an item on it, so the bench inherits custody, grants, replication, undo, recap and the door rather than growing them back. `agent.invite` is enroll plus provenance, distinct so an older daemon refuses instead of dropping the provenance half; op-types moves 36 → 37 with the argument. Reachability is a measurement with three answers, never a boolean about this machine, so the rc in a cell is not painted out.
 ---

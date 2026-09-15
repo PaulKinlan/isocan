@@ -603,6 +603,18 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   stranger with none of your personas, and whether a stranger gets in is what
   the link grant decides. The two gestures compose, and neither pretends to be
   the other.
+- **Your bench**: a standing agent belongs to a canvas; the agents *you have*
+  belong to you. Click your own face and pick **"Your bench…"**, or run
+  `isocan bench`, for a row per agent — its name, its harness, where it stands,
+  and **whether anything could answer for it right now**. That last column is
+  measured every time you look and has three answers, never two: *ready*,
+  *elsewhere* (it stands somewhere, but nothing is parked — a summons lands in
+  silence), and *unreachable* (nothing present can run it at all). The bench
+  itself is your own private canvas, so it follows you between machines instead
+  of dying with the laptop it was made on. `isocan bench add <name>` takes the
+  agent from what this machine already knows and `isocan bench rm <name>` takes
+  it off — and a row confers nothing either way: it does not enrol an agent,
+  and removing it withdraws nothing.
 - **Watching one thing**: `isocan wait` is the agent's feedback loop, and it
   can be told what to care about — `--item <ref>` and `--op item.addVersion`
   (or a family, `item.*`) narrow which changes wake it, so a watcher does not
@@ -728,6 +740,12 @@ isocan pass [--admit-only]         # a one-use pass: the command another
                                    # machine of yours pastes to join
 isocan badges [--kill <badgeId>]   # the surfaces carrying your identity, and
                                    # what each has proved; end one
+isocan bench [add <name> [--actor <id>] [--harness <n>] [--runs-at <label>]]
+             [rm <name>]           # the agents you have, and whether anything
+                                   # could answer for one right now: ready /
+                                   # elsewhere / unreachable. A row is a
+                                   # record — it enrols nobody, and removing
+                                   # it withdraws nobody.
 isocan canvas create|list [--all]|show|edit|delete
 isocan use <canvas> [--home]      # bind this dir to a canvas (--home: fallback)
 isocan add <file> [--at x,y | --anchor <item>] [--title] [-d] [--prop k=v]

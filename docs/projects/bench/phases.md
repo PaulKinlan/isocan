@@ -1,17 +1,21 @@
 ---
 status: designed
 since: 2026-09-14
+issue: 309
 see: bench, standing-agents, on-demand, agent-custody, sheep-harness, room, memory, inbox
-note: designed 14 Sep 2026. Four phases, none of which provisions anything or spends money. Phase 0 is the registry and its three-state reachability; phase 1 joins from the panel with `agent.invite` and moves op-types 36 → 37; phase 2 joins from chat; phase 3 makes enrolment write its own rows. The rc in a cell is journey 4 and is NOT here.
+note: phase 0 closed 15 Sep 2026 — the bench is items on the personal canvas, `isocan bench`/`add`/`rm` and **Your bench…** read one derivation in core, and the three states come from three different facts. Four phases, none of which provisions anything or spends money. Phase 0 was the registry and its three-state reachability; phase 1 joins from the panel with `agent.invite` and moves op-types 36 → 37; phase 2 joins from chat; phase 3 makes enrolment write its own rows. The rc in a cell is journey 4 and is NOT here.
 ---
 
 # The bench — the phases
 
-**Where we are, 14 September 2026.** Nothing built. Phase 0 is next
-(`bench phase 0`). Nothing waits on a person, nothing waits on another
-project, and no phase here provisions a cloud resource or spends money — the
-one thing that would, the rc in a cell, is journey 4 and deliberately out of
-scope.
+**Where we are, 15 September 2026.** **Phase 0 is CLOSED** — the bench exists,
+on both surfaces, and reachability is measured rather than asserted. Phase 1 is
+next (`bench phase 1`), and it is the one that moves `op-types` 36 → 37 for
+`agent.invite`. Nothing waits on a person and nothing waits on another project.
+One debt is open and named in phase 0's trajectory: the two surfaces measure
+from different inputs, and closing that needs a daemon route nobody owns yet.
+No phase here provisions a cloud resource or spends money — the one thing that
+would, the rc in a cell, is journey 4 and deliberately out of scope.
 
 **Rules this project keeps, beyond the house rules.**
 
@@ -29,7 +33,9 @@ scope.
 
 ## Phase 0 — the bench reads
 
-**Status: NOT STARTED.**
+**Status: CLOSED.** 15 September 2026 — `isocan bench` and **Your bench…** in
+the identity menu both read `benchRows()` in core, and the three states are
+reached from three different facts rather than asserted.
 
 The registry exists and can be looked at. No joining, no new op.
 
@@ -60,6 +66,29 @@ untouched, asserted, because "a bench row confers nothing" has to cut both
 ways. Full suite and typecheck.
 
 **Closes.** Journey 1.
+
+### Trajectory
+
+- **2026-09-15** — `ready` is decided before anything else, so a relayed hold
+  outranks this machine holding no row. A laptop that has never heard of an
+  agent must not print `unreachable` over one that is answering — journey 4's
+  case, decided here rather than left to the phase that needs it.
+- **2026-09-15** — `elsewhere` is evidenced by a running row on this machine
+  **or** an enrolment on a canvas the reader can see. That second half is what
+  lets a browser reach the state at all, and it is why phase 0 needed no
+  daemon route.
+- **2026-09-15** — Open: the two surfaces measure from different inputs. A tab
+  cannot read `~/.isocan/rc-agents.json`, so an agent with a running row here
+  and no enrolment anywhere reads `elsewhere` in the terminal and
+  `unreachable` in the tab. Journey 1 promises the same state on both. It is
+  one function with different inputs, not two derivations, and the fix is a
+  daemon route serving the machine's running rows. Waits on a phase that owns
+  `packages/server/src`.
+- **2026-09-15** — `bench add` resolves a null rc harness to this machine's
+  default and writes it down, rather than storing null and resolving at read.
+  Deliberate: a browser cannot scan a machine's harnesses, so resolving late
+  would have forced the panel to compute something core could not, which is
+  the one thing this phase forbids.
 
 ---
 

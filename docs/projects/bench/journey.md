@@ -1,8 +1,9 @@
 ---
-status: designed
+status: partial
 since: 2026-09-14
+issue: 309
 see: bench, standing-agents, on-demand, agent-custody, sheep-harness, room, memory, inbox
-note: designed 14 Sep 2026 from the bench research note. Four journeys. The registry is the personal canvas — agents as items on it — so nothing new stores anything; joining is one op with provenance; and a bench row is honest about reachability before any socket is held. Journey 4 (the rc in a cell) is written here so phases 0–3 do not paint it into a corner, and is NOT in this project's phases.
+note: journey 1 closed 15 Sep 2026 by phase 0 — `isocan bench` and **Your bench…** list the agents a person has, with reachability measured from three different facts rather than asserted. Journeys 2 and 3 are next. Designed 14 Sep from the bench research note; four journeys. The registry is the personal canvas — agents as items on it — so nothing new stores anything; joining is one op with provenance; and a bench row is honest about reachability before any socket is held. Journey 4 (the rc in a cell) is written here so phases 0–3 do not paint it into a corner, and is NOT in this project's phases.
 ---
 
 # The bench — the journeys
