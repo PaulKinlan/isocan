@@ -208,3 +208,11 @@ one continuous candidate journey. Authored synthetic repairs and real tool
 observations prove this orchestration, not generated-design quality or a human
 preference uplift. No paid services, recruitment or model calls are authorized
 by this mechanism.
+
+Scenes 1–2 map to the existing questionnaire protocol as two consequential
+design questions and an explicitly optional sketch upload in the same batch.
+These are three controls and consume all three initial slots; the proof must
+not describe them as two total prompts. The upload uses the existing upload
+renderer, can be skipped, and does not add a third design decision or require
+a reference before work starts. This avoids changing the closed answer schema
+merely to stage the continuous journey.
