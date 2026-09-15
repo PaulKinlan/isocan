@@ -98,6 +98,16 @@ billing evidence, and unknown cost as unknown. Stop further spending on missing
 accounting, a mismatched model/tool profile, an overrun or exhausted total budget.
 No implicit retries, image calls or extra repair rounds.
 
+The matched harness may expose an instrumentation-only `review_phase` marker
+for a final review and up to two finding-driven repair rounds. It records the
+same ceiling across A and B without requiring A to adopt B's canonical review
+procedure: a run may finish explicitly reporting that no review occurred.
+Ordinary construction and comparison edits are not automatically repairs.
+Marker limits are declared process accounting, not proof that unmarked edits
+did not repair a finding. Retain the actual edit/browser transcript and require
+an independent evaluator's repair-budget disposition for comparison eligibility.
+B's canonical review and repair records remain separate actual product evidence.
+
 Retain failures, timeouts, abandoned and unavailable runs in the denominator.
 An incomplete matrix is incomplete. A terminal artifact needs exact stored bytes
 and actual source/runtime/build identity. A ready claim requires current task and
