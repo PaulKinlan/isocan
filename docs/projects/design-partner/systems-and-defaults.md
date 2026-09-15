@@ -82,6 +82,18 @@ save an inherited source as a local override, overwrite a newer source or
 relabel an uncertain save as refusal. Explicit local override creation remains
 a separate ordinary add with visible scope.
 
+A prepared uncertain retry resends the exact original conditional envelope after
+an authority-bearing source read. The proposed version need not remain in the
+visible stack: pruning or later removal cannot make confirmation impossible.
+Only a returned receipt matching source, full semantic intent and actual actor
+confirms acceptance. A fresh attempt still needs the preflight reads and upload.
+If an earlier unaccepted retry lands after governing selection alone changes,
+the source version/metadata fence still applies and post-save consistency is
+stale; no cross-canvas policy lock is claimed. Explicit direct-source access
+retains its existing caller policy, including permitted personal access, while
+inherited source operations retain automatic exclusion. Neither a manifest nor
+a retry flag grants permissions.
+
 Use the existing design-lint repair boundary: refresh before save, conditional
 source edit, then reread after save. It is not an atomic lock across canvases.
 If selection or remote context changes during the write, preserve accepted
