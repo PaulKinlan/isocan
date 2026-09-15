@@ -49,6 +49,12 @@ function's return value. Run the connected fixture's actual server and use its
 known task as a preparation check. Materialization creates no generated-design
 quality evidence.
 
+Set the ordinary synthetic canvas property `design.workflow=adaptive-v1` in
+all matched arms before the request and retain it in the materialization.
+The old A runtime ignores it; B uses it to exercise the proposed opt-in
+procedure. This does not change the product default or any hosted canvas.
+C differs from B only through explicit supported adapted guidance.
+
 The agent sees the ordinary public instruction and available known context.
 It must not receive task.json's answer bank, scoring invariants or blinded labels.
 The evaluator retains them separately. Render the actual preserved summons for
@@ -61,6 +67,13 @@ matching bank answer and records the question/answer and timing. Do not invent
 automatic semantic matching or buy another model to answer. Repeated questions
 remain visible; an unmapped question requires explicit disposition. This setup
 is distinct from the real-user partnership study.
+
+For a typed canvas questionnaire, the evaluator explicitly maps the frozen
+fact to the actual question source and answer option/text, then submits through
+the synthetic person's own pinned CLI. Keep that operation and answer custody
+in the private evaluator record. A native tool reply cannot impersonate this
+human act. External replies remain facts reported by the receiving agent.
+No automatic answer-to-option matching is allowed.
 
 ## Generation boundary, accounting and recovery
 
@@ -113,6 +126,21 @@ Freeze the exact uncertainty method and seed before paid execution: a determinis
 keeping their repeats and entrances together. A nonpositive lower bound is not
 evidence for broad default enablement. Use seed `design-partner-brief-bootstrap-v1`. This method is fixed before
 paid execution; do not choose a different interval after seeing results.
+
+Freeze the automated timing measure before results too: a qualifying acceptable
+output passes its independently checked primary task and earns majority overall
+craft at least 4. Its time is the recorded delivery latency of that output,
+not the later reviewer's scoring time or a claim about participant acceptance.
+If fewer than half the planned A runs qualify, report the acceptable-output
+ratio unavailable; exactly half meets the denominator rule. Always show
+descriptive task-success-conditioned latency and capped time to task success
+for all runs. An unavailable ratio cannot silently pass through an alternate
+absolute budget. Participant acceptance time is measured separately.
+
+Generate neutral public reviewer IDs independently of supplied identities;
+only the private key maps them to actual raters. Public wrappers must not expose
+condition-bearing identifiers through filenames, metadata or evidence links.
+Preserve exact artifact bytes and flag any self-identification they contain.
 
 Provide the six-person partnership protocol and empty recording instruments:
 counterbalanced task/condition order, optional realistic cross-entrance return,
@@ -170,3 +198,27 @@ working alternatives, browser interaction and repair being evaluated. The full
 workflow needs one explicitly bounded native agent with the same actual CLI,
 owned task files and browser capabilities in both arms. No extra agents, model
 fallback, web search, image generation or concealed answering model is allowed.
+
+The prepared native profile uses `--bare` with an explicit local MCP server
+and no built-in tools. The server exposes the pinned CLI, contained task files,
+owned browser and the explicit evaluator queue. Actual screenshots and supplied
+images must reach the model as image content; saving a screenshot hash alone
+does not enable visual inspection. Record delivered resource identities and
+keep evaluator answers, scoring and the condition key outside agent access.
+
+Installed native help says `--bare` requires API-key authentication and ignores
+OAuth/keychain discovery. The earlier subscription login therefore does not
+authenticate this full-workflow profile. An alternate owned-config probe also
+reported no authenticated session. No key was present in the inherited
+environment. The exact profile remains unavailable until normally configured
+authentication is checked; do not migrate credentials or weaken isolation to
+turn readiness green.
+
+The concrete proposed ceilings, headroom, aggregate stop and human effort are
+in [provision.md](provision.md). Native MCP initialization and real provider
+accounting remain unmeasured until an approved smoke run. Canned process and
+MCP-client tests establish instrumentation only. [hosted-acceptance.md](hosted-acceptance.md)
+separates the measured public deployment and local rollback from the remaining
+authenticated hosted walk. [partnership-study.md](partnership-study.md) and
+[study-tasks.json](study-tasks.json) define the one six-person protocol; no
+second generated schedule or synthetic ratings can replace it.
