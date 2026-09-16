@@ -1,5 +1,5 @@
 ---
-status: done
+status: built
 since: 2026-09-14
 issue: 309
 see: bench, standing-agents, on-demand, agent-custody, sheep-harness, room, memory, inbox
