@@ -97,7 +97,7 @@ export function addressesActor(
  * everyone who ever spoke in that thread (`agent-guide.md`: "comments for
  * others ... is ether and won't wake you").
  */
-export function addressesOthers(
+function addressesOthers(
   comment: NewComment | Comment,
   names: readonly MentionCandidate[],
   joined?: ActorJoins,
