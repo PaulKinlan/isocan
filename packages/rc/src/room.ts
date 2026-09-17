@@ -883,8 +883,9 @@ async function room(
     })();
     // The host starts the adapter: on the laptop, the session pointer loaned
     // to the agent's own CLI, the fence, and the spawn.
-    const agent = await harness.open({ face: face?.sessionId ?? null, threadId, narrate: say });
+    let agent: RoomAdapter | null = null;
     try {
+      agent = await harness.open({ face: face?.sessionId ?? null, threadId, narrate: say });
       // One session handle per AGENT (standing agents phase 2): a summons on
       // any canvas resumes the same conversation — this row's handle, else the
       // one another room minted for the same actor.
@@ -966,7 +967,7 @@ async function room(
     } finally {
       endHeartbeat();
       life.removeEventListener("abort", endHeartbeat);
-      await agent.close();
+      if (agent) await agent.close();
       if (face) await routes.endSession(p.id, face.sessionId).catch(() => {});
     }
   };

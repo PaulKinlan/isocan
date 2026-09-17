@@ -977,4 +977,30 @@ describe("the room over in-memory deps", () => {
     await room.done;
     expect(home.calls).toContain(`release:${CANVAS.id}`);
   });
+
+  it("ends the presence session face and stops heartbeat when adapter.open throws (#298)", async () => {
+    const clock = new HandClock();
+    const home = new AcmeHome(clock);
+    home.enrol(PERCY);
+    const { deps, lines } = roomOver(home, clock);
+    deps.adapterFor = async (row) => ({
+      harness: row.harness ?? "claude-code",
+      open: async () => {
+        throw new Error("bwrap refused namespace");
+      },
+    });
+    const room = runRoom(deps);
+    await clock.advance(0);
+
+    home.mention(OWNER, PERCY, "@Percy please check");
+    await clock.advance(0);
+
+    expect(lines.some((l) => l.includes("turn FAILED — bwrap refused namespace"))).toBe(true);
+    const liveFaces = [...home.sessions.values()].filter((s) => s.kind !== "rc");
+    expect(liveFaces).toEqual([]);
+    expect(home.ended.length).toBeGreaterThanOrEqual(1);
+
+    await room.stop();
+    await room.done;
+  });
 });

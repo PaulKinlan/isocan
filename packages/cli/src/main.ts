@@ -13911,6 +13911,15 @@ async function openAdapter(
   turn: RoomTurn,
 ): Promise<RoomAdapter> {
   const actorId = row.actorId;
+  const reclaimLoan = async () => {
+    const left = await readSessionFile(ctx.home, actorId);
+    if (left && left.canvasId === p.id) {
+      if (turn.face && left.sessionId !== turn.face) {
+        await ctx.client.endSession(p.id, left.sessionId).catch(() => {});
+      }
+      await writeSessionFile(ctx.home, actorId, null).catch(() => {});
+    }
+  };
   if (turn.face) {
     // The face's id goes into the actor's session pointer file — the
     // loan that makes the agent's OWN CLI commands presence-visible
@@ -13930,25 +13939,31 @@ async function openAdapter(
       ...(turn.threadId ? { onThread: turn.threadId, onThreadAt: new Date().toISOString() } : {}),
     }).catch(() => {});
   }
-  // The fence, if the rc was started with one (`sandbox.ts`). The start
-  // was already refused if it could not be built here, so this cannot
-  // fail for want of `bwrap` at the doorbell.
-  const fence = await fenceSpec(ctx, spec, row, shared.sandbox, shared.codexSandbox);
-  turn.narrate(`${spec.harness}${fenceNote(fence)}`);
-  const agent =
-    spec.harness === SHEEP_HARNESS
-      ? await openSheep(spec, {
-          name: row.name,
-          cwd: row.cwd,
-          stored: row.sheep ?? null,
-          narrate: turn.narrate,
-          birth: await sheepBirth(ctx, p, actorId),
-        })
-      : await AcpAgentProcess.spawn(fence.spec, {
-          cwd: row.cwd,
-          env: adapterEnv(p.id, agentSessionOf(await machineAgentKey(ctx.home, row.name)), { pass: await passedEnv(ctx.home) }),
-          narrate: turn.narrate,
-        });
+  let agent: SheepAgent | AcpAgentProcess;
+  try {
+    // The fence, if the rc was started with one (`sandbox.ts`). The start
+    // was already refused if it could not be built here, so this cannot
+    // fail for want of `bwrap` at the doorbell.
+    const fence = await fenceSpec(ctx, spec, row, shared.sandbox, shared.codexSandbox);
+    turn.narrate(`${spec.harness}${fenceNote(fence)}`);
+    agent =
+      spec.harness === SHEEP_HARNESS
+        ? await openSheep(spec, {
+            name: row.name,
+            cwd: row.cwd,
+            stored: row.sheep ?? null,
+            narrate: turn.narrate,
+            birth: await sheepBirth(ctx, p, actorId),
+          })
+        : await AcpAgentProcess.spawn(fence.spec, {
+            cwd: row.cwd,
+            env: adapterEnv(p.id, agentSessionOf(await machineAgentKey(ctx.home, row.name)), { pass: await passedEnv(ctx.home) }),
+            narrate: turn.narrate,
+          });
+  } catch (err) {
+    await reclaimLoan();
+    throw err;
+  }
   return {
     ensureSession: (cwd, stored) => agent.ensureSession(cwd, stored),
     prompt: (sessionId, text, onEvent) => agent.prompt(sessionId, text, onEvent),
@@ -13967,13 +13982,7 @@ async function openAdapter(
       // canvas ends with the turn (the CLI inside may have revived an
       // expired face under a NEW id — end that one too, not just ours),
       // and the pointer itself is removed so nothing dangles.
-      const left = await readSessionFile(ctx.home, actorId);
-      if (left && left.canvasId === p.id) {
-        if (turn.face && left.sessionId !== turn.face) {
-          await ctx.client.endSession(p.id, left.sessionId).catch(() => {});
-        }
-        await writeSessionFile(ctx.home, actorId, null).catch(() => {});
-      }
+      await reclaimLoan();
     },
   };
 }
