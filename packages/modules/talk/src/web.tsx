@@ -194,7 +194,11 @@ export async function runTool(
       const mime = String(op.mime ?? "text/markdown");
       // A drawing is an SVG file; a note is markdown. The mime says which.
       const filename = String(
-        op.filename ?? (mime === "image/svg+xml" ? "sketch.svg" : mime === "text/markdown" ? "note.md" : "note.txt"),
+        op.filename ??
+          (mime === "image/svg+xml" ? "sketch.svg"
+          : mime === "text/markdown" ? "note.md"
+          : mime === "text/html" ? "index.html"
+          : "note.txt"),
       );
       // The blob carries its declared type, so the daemon stores it under the
       // mime the op announces — an untyped blob uploads as octet-stream and

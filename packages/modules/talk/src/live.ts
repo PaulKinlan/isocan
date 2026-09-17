@@ -141,14 +141,16 @@ export const LIVE_TOOLS = [
     description:
       "Add something to the canvas. A note: title + text. A live web page: pass url (e.g. 'add a web page', " +
       "'put localhost:3000 on the canvas', 'show me example.com'). A page is an ordinary item whose content is a " +
-      "text/uri-list, so it renders as a live site.",
+      "text/uri-list, so it renders as a live site." +
+      "A page YOU build: pass kind 'html' and the full HTML in text (e.g. 'build a calculator as html') — it embeds on the canvas " +
+      "as an interactive page.",
     parameters: {
       type: "OBJECT",
       properties: {
         title: { type: "STRING", description: "The title of the new item." },
         text: { type: "STRING", description: "The note's markdown or text content." },
         url: { type: "STRING", description: "A web address to add as a live page (http(s) or host:port)." },
-        kind: { type: "STRING", description: "What kind of item: 'note' (default) or 'site'." },
+        kind: { type: "STRING", description: "What kind of item: 'note' (default), 'site' (a URL to embed), or 'html' (you write the markup; it embeds as a page)." },
         x: { type: "NUMBER", description: "Optional x position on canvas." },
         y: { type: "NUMBER", description: "Optional y position on canvas." },
       },
@@ -791,6 +793,31 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
                 y: args.y !== undefined ? Number(args.y) : undefined,
               },
               said: `add "${title}" as a web page`,
+            },
+          ],
+        };
+      }
+      if (args.kind === "html") {
+        // The voice writes the page itself and it embeds on the canvas as an
+        // interactive item — the same shape `isocan add index.html` makes.
+        const html = String(args.text ?? "");
+        if (!html.trim()) {
+          return { plans: [], what: "building a page needs its markup — put the full HTML in `text`" };
+        }
+        const title = String(args.title ?? "Page");
+        return {
+          plans: [
+            {
+              op: {
+                type: "item.add",
+                title,
+                text: html,
+                mime: "text/html",
+                filename: "index.html",
+                x: args.x !== undefined ? Number(args.x) : undefined,
+                y: args.y !== undefined ? Number(args.y) : undefined,
+              },
+              said: `built "${title}" as an embedded page`,
             },
           ],
         };
