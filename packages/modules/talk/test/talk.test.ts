@@ -200,6 +200,16 @@ describe("a spoken request becomes the same operations a click sends", () => {
     expect(op.y).toBe(20);
   });
 
+  it("builds a page itself: kind html becomes an embedded interactive item", async () => {
+    const result = await runTool("add_item", { kind: "html", title: "Calculator", text: "<html><body>7*8</body></html>" }, facts);
+    expect(result.ok).toBe(true);
+    expect(blobs.at(-1)).toEqual({ body: "<html><body>7*8</body></html>", filename: "index.html" });
+    const op = sent.at(-1)!.ops[0] as Record<string, unknown>;
+    expect(op.type).toBe("item.add");
+    expect(op.version).toMatchObject({ mimeType: "text/html", filename: "index.html" });
+    expect(op.width).toBeGreaterThan(0);
+  });
+
   it("leaves a legacy canvas's item.add free of group fields — its daemon refuses them", async () => {
     const legacy = { ...facts, groupMode: "legacy" } as DialogFacts;
     const result = await runTool("add_item", { title: "Legacy note", text: "plain" }, legacy);
