@@ -258,6 +258,23 @@ export async function noIdentityHere(client: DaemonClient, home: string): Promis
   );
 }
 
+async function realPathOrResolved(p: string): Promise<string> {
+  try {
+    return await fs.realpath(p);
+  } catch {
+    const resolved = path.resolve(p);
+    const parent = path.dirname(resolved);
+    if (parent !== resolved) {
+      try {
+        return path.join(await fs.realpath(parent), path.basename(resolved));
+      } catch {
+        return resolved;
+      }
+    }
+    return resolved;
+  }
+}
+
 /**
  * The directory identity files the deleted slot left behind (#56, #59). One
  * may be sitting in any checkout an agent ever named itself in — this repo
@@ -267,11 +284,12 @@ export async function noIdentityHere(client: DaemonClient, home: string): Promis
  * notice saying what it was and the deliberate way back (`--as`).
  */
 export async function retireStrandedIdentities(cwd: string, home: string): Promise<void> {
-  const isocanHome = path.resolve(home);
-  const userHome = path.resolve(os.homedir());
-  let dir = path.resolve(cwd);
+  const isocanHome = await realPathOrResolved(home);
+  const userHome = await realPathOrResolved(os.homedir());
+  let dir = await realPathOrResolved(cwd);
   for (;;) {
-    if (dir !== userHome && path.join(dir, ".isocan") !== isocanHome) {
+    const dirIsocan = await realPathOrResolved(path.join(dir, ".isocan"));
+    if (dir !== userHome && dirIsocan !== isocanHome) {
       const file = path.join(dir, ".isocan", "identity.json");
       const stranded = await readFrom(file);
       if (stranded) {
