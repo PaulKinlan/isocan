@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DEFAULT_COMMAND_CATALOGUE,
   mainThread,
   newCommentId,
   newItemId,
@@ -15,7 +14,7 @@ import {
   type WebModule,
 } from "@isocan/core";
 import { LevelMeter, Playback, capture, fromBytes, type Capture } from "./audio.ts";
-import { LIVE_MODEL, canvasSnapshotText, liveSetup, liveUrl, planForCall } from "./live.ts";
+import { LIVE_MODEL, canvasSnapshotText, commandsBrief, liveSetup, liveUrl, planForCall } from "./live.ts";
 import { voiceCore } from "./core.ts";
 
 /**
@@ -396,7 +395,7 @@ function useTalkSession(facts: PanelFacts, autoStart = false) {
         Object.values(factsRef.current.canvas.items ?? {}).map((i) => ({ id: i.id, title: i.title })),
         Object.values(factsRef.current.canvas.threads ?? {}).map((t) => ({ id: t.id, comments: t.comments })),
       );
-      const instructions = { source: "canvas", text: [capabilityBrief(), snapshot].join("\n\n") };
+      const instructions = { source: "canvas", text: [commandsBrief(), snapshot].join("\n\n") };
       socket.send(JSON.stringify(liveSetup(model.trim(), instructions)));
     };
     socket.onclose = (event: CloseEvent) => {
@@ -559,21 +558,6 @@ function CaptionToast({ lines }: { lines: Line[] }) {
         </div>
       ))}
     </div>
-  );
-}
-
-/** What the model is told it cannot do itself, and where the work goes —
- *  the canvas's agents run isocan's commands in the Chat, and the voice's
- *  `say` is how an ask reaches them. Built from the one catalogue the app's
- *  own command list reads, so the names cannot drift. */
-export function capabilityBrief(): string {
-  const commands = DEFAULT_COMMAND_CATALOGUE.map((c) => `/${c.name} — ${c.description}`).join("\n");
-  return (
-    "You are the voice in the browser: you cannot run commands, code or agents yourself. " +
-    "For heavy or multi-step work — building code, slides, decks, audits, assets — say what you " +
-    "need into the Chat with the `say` tool, naming the command when one fits. The canvas's " +
-    "agents run these commands there:\n" +
-    commands
   );
 }
 

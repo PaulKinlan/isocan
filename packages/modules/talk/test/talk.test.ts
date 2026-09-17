@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { mainThread } from "@isocan/core";
 import type { DialogFacts } from "@isocan/core";
-import { canvasSnapshotText } from "../src/live.ts";
-import { capabilityBrief, decodeMessage, runTool, talkWeb } from "../src/web.tsx";
+import { canvasSnapshotText, commandsBrief } from "../src/live.ts";
+import { decodeMessage, runTool, talkWeb } from "../src/web.tsx";
 
 /**
  * **Talk: the dialog's tool-call half, driven with a fake host.**
@@ -210,11 +210,11 @@ describe("a spoken request becomes the same operations a click sends", () => {
     expect(op.placement).toEqual({ x: 160, y: 120 });
   });
 
-  it("tells the model what it cannot do itself, with the one command catalogue", () => {
-    const brief = capabilityBrief();
-    expect(brief).toContain("cannot run commands, code or agents yourself");
+  it("names the commands the canvas's agents run, with their usage, from the one catalogue", () => {
+    const brief = commandsBrief();
     expect(brief).toContain("/accessibility-audit");
     expect(brief).toContain("/design-audit");
+    expect(brief).toContain("/skill find <what you want> | add <owner/repo/path>");
   });
 
   it("a tool the dialog does not wire is said so, not faked", async () => {
