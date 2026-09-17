@@ -65,6 +65,11 @@ export const EXPERIMENTS: readonly Experiment[] = [
     name: "Inbox",
     what: "Everything addressed to you, across every canvas at this home. Off while its shape settles: what a row shows, what the count counts, and what a whole-home read costs on a busy home are all still moving.",
   },
+  {
+    id: "modules.anatomy",
+    name: "Anatomy",
+    what: "Explore a codebase as a map of concepts, files and evidence on the canvas. The workspace slot and its four lenses are still taking shape.",
+  },
 ];
 
 /** Is this one on? Read outside React — the module list is not a component. */

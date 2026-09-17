@@ -2,6 +2,7 @@ import { Suspense, createElement, lazy, type ComponentType, type ReactNode } fro
 import {
   moduleSlug,
   registerModule,
+  unregisterModule,
   type DialogFacts,
   type InspectorFacts,
   type ModuleInspector,
@@ -23,7 +24,6 @@ import { mermaidWeb } from "@isocan/mermaid/web";
 import { documentsWeb } from "@isocan/documents/web";
 import { sandboxWeb } from "@isocan/sandbox/web";
 import { competitionActivation } from "@isocan/design-competition/activation";
-import { anatomyActivation } from "@isocan/anatomy/activation";
 import { useUiStore } from "./stores/uiStore.ts";
 import { experimentOn } from "./lib/experiments.ts";
 
@@ -72,6 +72,7 @@ const LIST: ShellModule[] = [mindmapWeb, mermaidWeb, documentsWeb, sandboxWeb];
 const BEHIND_EXPERIMENT: Record<string, string> = {
   stickers: "modules.stickers",
   talk: "modules.talk",
+  anatomy: "modules.anatomy",
 };
 
 /**
@@ -89,6 +90,7 @@ const BEHIND_EXPERIMENT: Record<string, string> = {
 const EXPERIMENT_HALVES: Record<string, () => Promise<{ default: ShellModule }>> = {
   "modules.stickers": () => import("@isocan/stickers/web") as Promise<{ default: ShellModule }>,
   "modules.talk": () => import("@isocan/talk/web") as Promise<{ default: ShellModule }>,
+  "modules.anatomy": () => import("@isocan/anatomy/web") as Promise<{ default: ShellModule }>,
 };
 
 /**
@@ -148,7 +150,6 @@ function deferredModule(activation: { core: ShellModule["core"]; actions?: Shell
 }
 
 LIST.push(deferredModule(competitionActivation, () => import("@isocan/design-competition/web") as Promise<{ default: ShellModule }>));
-LIST.push(deferredModule(anatomyActivation, () => import("@isocan/anatomy/web") as Promise<{ default: ShellModule }>));
 
 const fetched = new Set<string>();
 
@@ -165,6 +166,14 @@ export async function loadExperiments(): Promise<void> {
       fetched.delete(id);
     }
   }
+  for (const m of LIST) {
+    const gate = BEHIND_EXPERIMENT[moduleSlug(m.core.name)];
+    if (gate !== undefined) {
+      if (experimentOn(gate)) registerModule(m.core);
+      else unregisterModule(m.core.name);
+    }
+  }
+  useUiStore.getState().bumpModules();
 }
 
 /**

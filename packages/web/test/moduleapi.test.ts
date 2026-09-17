@@ -5,7 +5,7 @@ import { PROPOSED, unknownProposals } from "@isocan/core";
 
 import { EXPERIMENTS } from "../src/lib/experiments.ts";
 import { useUiStore } from "../src/stores/uiStore.ts";
-import { modules, moduleDropFor, moduleInspectorsFor } from "../src/modules.ts";
+import { modules, moduleDropFor, moduleInspectorsFor, moduleWorkspace } from "../src/modules.ts";
 
 /**
  * **The API #156 asked for, and the bargain the experiment gate makes.**
@@ -40,9 +40,11 @@ describe("a module behind an experiment", () => {
        knows which module implements an experiment is a test that has to change
        when that stops being true. The observable fact is the count. */
     useUiStore.getState().setExperiment("modules.stickers", false);
+    useUiStore.getState().setExperiment("modules.anatomy", false);
     const off = modules().length;
     expect(moduleInspectorsFor("sticker")).toEqual([]);
     expect(moduleDropFor(["application/vnd.isocan.sticker-id"])).toBeNull();
+    expect(moduleWorkspace("anatomy")).toBeNull();
     expect(off).toBe(modules().length);
   });
 
@@ -57,6 +59,7 @@ describe("a module behind an experiment", () => {
     if (first === null) return;
     expect(first.includes("vnd.isocan.sticker"), "the sticker mime is in the first download").toBe(false);
     expect(first.includes("Thumbs up"), "the tray is in the first download").toBe(false);
+    expect(first.includes("vnd.isocan.anatomy"), "the anatomy mime is in the first download").toBe(false);
   });
 
   it("names itself in Settings, in words rather than an id", () => {

@@ -383,11 +383,19 @@
  * It is deliberate and it is not a claim that 745,000 is roomy: the next change
  * to the composer should expect to raise this again and say why, rather than
  * inheriting headroom nobody agreed to.
+ *
+ * **745,000 → 745,900 on 17 Sep 2026, after moving Anatomy behind `modules.anatomy`.**
+ * Moving Anatomy from an eager `deferredModule` in `LIST` to an experiment
+ * (`modules.anatomy`) removed `anatomyActivation` (~2,628 bytes) from first
+ * paint completely when the experiment is off. That offset the growth from
+ * `#309` (facepile lightness and ring-thickness ladders) and `#320` (the talk
+ * module experiment entry in Settings), leaving the fresh entry at 745,811
+ * bytes with 89 bytes of margin.
  */
 
 /** The last number somebody agreed to. Raised in the ANSWER to a finding, with
  *  the reason in that answer — not quietly in a diff. */
-export const CEILING = 745_000;
+export const CEILING = 745_900;
 
 /**
  * **Run as a program it prints that number**, so the performance persona's
