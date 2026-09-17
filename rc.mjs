@@ -42,7 +42,10 @@ export const {
   SHEEP_HARNESS,
   SheepAgent,
   assistantText,
+  cellProblemFor,
   endSheep,
+  isExpiredPassSetup,
+  pastureFor,
   toolCalls,
   toolTitle,
   // skill.ts — the collab skill's text, generated
