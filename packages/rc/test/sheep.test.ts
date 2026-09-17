@@ -233,6 +233,54 @@ describe("SheepAgent over SheepCommands", () => {
     expect(home.verbs()).not.toContain("pastureSecret");
     expect(lines.some((line) => line.includes("secret for one sheep"))).toBe(false);
   });
+
+  it("a sheep whose birth pass expired before its first container ran is removed and replaced with a fresh pass (#317)", async () => {
+    const home = new MemoryHome();
+    home.rows = [
+      {
+        id: "s_stale",
+        name: "Percy",
+        pasture: "isocan-percy",
+        secrets: ["ISOCAN_PASS"],
+        setup: {
+          state: "failed",
+          tail: "setup: redeeming the pass\nPass expired — passes are good for 15 minutes from when they are minted.",
+        },
+      },
+    ];
+    home.pastureTrees.set("isocan-percy", { tree: {}, secrets: {} });
+    const { agent, lines, passes } = agentAt(home);
+
+    const session = await agent.ensureSession("/acme", "s_stale");
+    expect(session).toEqual({ sessionId: "s_1", resumed: false });
+    expect(passes()).toBe(1);
+    expect(agent.bornPass).toBe("pass_acme");
+    expect(home.verbs()).toContain("rm");
+    expect(home.calls.find(([verb]) => verb === "rm")).toEqual(["rm", "s_stale"]);
+    expect(lines).toContain(
+      "Percy's cell (s_stale) cannot start — its pass expired before its first container ran; replacing s_stale with a fresh pass",
+    );
+  });
+
+  it("a sheep whose setup failed for a non-pass reason refuses with cellProblemFor (#317)", async () => {
+    const home = new MemoryHome();
+    home.rows = [
+      {
+        id: "s_broken",
+        name: "Percy",
+        pasture: "isocan-percy",
+        setup: {
+          state: "failed",
+          tail: "npm ERR! network timeout",
+        },
+      },
+    ];
+    const { agent } = agentAt(home);
+
+    await expect(agent.ensureSession("/acme", "s_broken")).rejects.toThrow(
+      "Percy's cell cannot start — setup failed (npm ERR! network timeout); `sheep rm s_broken` and summon Percy again",
+    );
+  });
 });
 
 describe("endSheep over SheepCommands", () => {

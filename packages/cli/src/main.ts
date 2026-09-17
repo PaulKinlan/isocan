@@ -500,7 +500,7 @@ import { loadRuntimeModules } from "./runtime-modules.ts";
 import type { CliHost, EnrolTemplate } from "./modulehost.ts";
 import { harnessSessions } from "@isocan/api";
 import { fileRcRows, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, withPreparedRcAgent, type RcAgentRow } from "./rc.ts";
-import { SheepAgent, actorNamesOn, endSheep, itemCenter, mapState, nameResolver, runRoom, threadLocus, type RoomAdapter, type RoomState, type RoomTurn } from "@isocan/rc";
+import { SheepAgent, actorNamesOn, cellProblemFor, endSheep, itemCenter, mapState, nameResolver, pastureFor, runRoom, threadLocus, type RoomAdapter, type RoomState, type RoomTurn, type SheepRow } from "@isocan/rc";
 import { AcpAgentProcess, adapterEnv } from "./acp.ts";
 import { agentSessionOf, keysMovedLines, machineAgentKey, moveToMachineKeys } from "./agent-key.ts";
 import { openInBrowser } from "./browser.ts";
@@ -11807,10 +11807,36 @@ program
       const machineDefault = (await scanHarnesses(ctx.home)).default?.name ?? null;
       const person = await readIdentity(ctx.home).catch(() => null);
       const viewer = viewerIdOf(ctx);
+      const sheepSpec = await adapterFor(ctx.home, SHEEP_HARNESS).catch(() => null);
+      const sheepSessionsByPlace = new Map<string, SheepRow[]>();
+      if (sheepSpec) {
+        for (const row of rcRows) {
+          if (row.canvasId !== p.id || (row.harness ?? machineDefault) !== SHEEP_HARNESS) continue;
+          const place = row.sheep ?? sheepPlaceFor(row.cwd);
+          if (!place || sheepSessionsByPlace.has(place.kennel)) continue;
+          const rows = await sheepCommands(place, { command: [sheepSpec.command, ...sheepSpec.args] })
+            .sessions()
+            .catch(() => []);
+          sheepSessionsByPlace.set(place.kennel, rows);
+        }
+      }
       const standing = Object.values(canvas.agents ?? {})
         .filter((a) => !liveActorIds.has(a.actor.id))
         .map((a) => {
           const row = rcRows.find((r) => r.canvasId === p.id && r.actorId === a.actor.id);
+          const harness = row ? (row.harness ?? machineDefault) : null;
+          let problem: string | null = null;
+          if (row && harness === SHEEP_HARNESS) {
+            const place = row.sheep ?? sheepPlaceFor(row.cwd);
+            const sheepRows = place ? sheepSessionsByPlace.get(place.kennel) : undefined;
+            if (sheepRows) {
+              const pasture = pastureFor(a.actor.name);
+              const prevRow = row.sessionId ? sheepRows.find((s) => s.id === row.sessionId) : undefined;
+              const herd = sheepRows.filter((s) => s.pasture === pasture);
+              const found = prevRow ?? herd.find((s) => s.name === a.actor.name) ?? herd[0];
+              if (found) problem = cellProblemFor(found, a.actor.name);
+            }
+          }
           // The gate, in the roster — because the roster is where somebody
           // looks after a mention went unanswered, and a gate nobody can read
           // is the silent gate the sheepdog design refuses. Since owner-only
@@ -11829,9 +11855,10 @@ program
           return {
             actor: a.actor,
             state,
-            harness: row ? (row.harness ?? machineDefault) : null,
+            harness,
             ...(listens ? { listens } : {}),
             ...(policy && state === "answerable" ? { policy } : {}),
+            ...(problem ? { problem } : {}),
           };
         });
       if (ctx.json) return printJson({ sessions, standing });
@@ -11872,7 +11899,8 @@ program
           // somebody the policy leaves out: the roster must not invite a
           // summons the reader cannot make.
           status:
-            (a.state === "answerable"
+            a.problem ??
+            ((a.state === "answerable"
               ? a.policy &&
                 viewer &&
                 !mayWake(a.policy, viewer, snapshot.joined) &&
@@ -11880,7 +11908,7 @@ program
                 !(person && sameActor(snapshot.joined, a.policy.owner.id, person.id))
                 ? "answerable — not by you"
                 : "answers if you comment"
-              : "enrolled — nobody is listening right now") + (a.listens ? ` · ${a.listens}` : ""),
+              : "enrolled — nobody is listening right now") + (a.listens ? ` · ${a.listens}` : "")),
           seen: "—",
         })),
       ]);

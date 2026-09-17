@@ -43,8 +43,25 @@ const PASS_SECRET = "ISOCAN_PASS";
 
 /** The pasture an agent's sheep are born into: one per agent, named for it.
  * The rc makes it and never removes it — a pasture is the shepherd's. */
-function pastureFor(name: string): string {
+export function pastureFor(name: string): string {
   return `isocan-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+/** Whether a sheep's setup failed specifically because its birth pass expired (#317). */
+export function isExpiredPassSetup(row: SheepRow): boolean {
+  if (row.setup?.state !== "failed" && row.setup?.state !== "error") return false;
+  const text = `${row.setup.tail ?? ""}\n${row.setup.error ?? ""}`;
+  return /pass expired|passes are good for/i.test(text);
+}
+
+/** A sentence describing why a sheep's cell cannot start, or null if setup is not failed (#317). */
+export function cellProblemFor(row: SheepRow, name: string): string | null {
+  if (row.setup?.state !== "failed" && row.setup?.state !== "error") return null;
+  if (isExpiredPassSetup(row)) {
+    return `${name}'s cell cannot start — its pass expired; \`sheep rm ${row.id}\` and summon ${name} again`;
+  }
+  const lastLine = row.setup.tail?.trim().split("\n").filter(Boolean).slice(-1)[0];
+  return `${name}'s cell cannot start — setup failed${lastLine ? ` (${lastLine})` : ""}; \`sheep rm ${row.id}\` and summon ${name} again`;
 }
 
 /** What every fresh container of an isocan sheep runs: the CLI on PATH, the
@@ -119,7 +136,7 @@ export interface SheepRow {
   name: string | null;
   pasture: string | null;
   secrets?: string[];
-  setup?: { state: string } | null;
+  setup?: { state: string; tail?: string; error?: string } | null;
 }
 
 /** How an `attach` ended: the turn ran to its end, or it did not, and why. */
@@ -290,29 +307,45 @@ export class SheepAgent {
    */
   async ensureSession(_cwd: string, previous: string | null): Promise<{ sessionId: string; resumed: boolean }> {
     const sessions = await this.commands.sessions();
-    if (previous && sessions.some((s) => s.id === previous)) {
-      await this.refreshTree();
-      return { sessionId: previous, resumed: true };
-    }
+    const prevRow = previous ? sessions.find((s) => s.id === previous) : undefined;
     const herd = sessions.filter((s) => s.pasture === this.pasture);
-    const found = herd.find((s) => s.name === this.name) ?? herd[0];
+    const found = prevRow ?? herd.find((s) => s.name === this.name) ?? herd[0];
     if (found) {
-      this.narrate(
-        `sheep ${found.id} is already in pasture ${this.pasture}` +
-          `${previous ? ` (the row named ${previous}, which the home no longer has)` : ""} — resuming it rather than birthing a second`,
-      );
-      // Minted and never asked: its first container is still to come. A home
-      // from before sheep#4 has no `setup` field and says nothing.
-      if (found.setup === null) {
+      if (isExpiredPassSetup(found)) {
         this.narrate(
-          `sheep ${found.id} has never run setup, so its first container runs it before this summons ` +
-            "(installing isocan, about two minutes)",
+          `${this.name}'s cell (${found.id}) cannot start — its pass expired before its first container ran; replacing ${found.id} with a fresh pass`,
         );
+        const removed = await this.commands.rm(found.id).catch(() => ({ ended: false, refusal: "rm failed" }));
+        if (!removed.ended) {
+          const problem = cellProblemFor(found, this.name)!;
+          this.narrate(problem);
+          throw new Error(problem);
+        }
+      } else if (found.setup?.state === "failed" || found.setup?.state === "error") {
+        const problem = cellProblemFor(found, this.name)!;
+        this.narrate(problem);
+        throw new Error(problem);
+      } else {
+        if (!prevRow) {
+          this.narrate(
+            `sheep ${found.id} is already in pasture ${this.pasture}` +
+              `${previous ? ` (the row named ${previous}, which the home no longer has)` : ""} — resuming it rather than birthing a second`,
+          );
+        }
+        // Minted and never asked: its first container is still to come. A home
+        // from before sheep#4 has no `setup` field and says nothing.
+        if (found.setup === null) {
+          this.narrate(
+            `sheep ${found.id} has never run setup, so its first container runs it before this summons ` +
+              "(installing isocan, about two minutes)",
+          );
+        }
+        await this.refreshTree();
+        return { sessionId: found.id, resumed: true };
       }
-      await this.refreshTree();
-      return { sessionId: found.id, resumed: true };
+    } else if (previous) {
+      this.narrate(`sheep ${previous} is gone from ${this.where} — a new one is born`);
     }
-    if (previous) this.narrate(`sheep ${previous} is gone from ${this.where} — a new one is born`);
     this.narrate(`birthing a sheep for ${this.name} at ${this.where}`);
     const pasture = await this.ensurePasture();
     // A pass is single-use and lives fifteen minutes. The sheep is minted idle

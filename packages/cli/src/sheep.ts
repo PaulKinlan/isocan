@@ -40,7 +40,7 @@ import type { AdapterSpec } from "./harnesses.ts";
 export { SHEEP_HARNESS };
 
 /** The transcript readers, where `sheep.test.ts` has always found them. */
-export { assistantText, toolCalls, toolTitle } from "@isocan/rc";
+export { assistantText, cellProblemFor, isExpiredPassSetup, pastureFor, toolCalls, toolTitle } from "@isocan/rc";
 
 /** The line that puts `sheep` on a machine that has none. */
 const SHEEP_INSTALL = "npm install -g github:dglazkov/sheep#release";
