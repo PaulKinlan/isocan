@@ -21,6 +21,7 @@
  */
 import {
   BROWSER_MIME,
+  DEFAULT_COMMAND_CATALOGUE,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
   drawingSvg,
@@ -48,6 +49,7 @@ export const VOICE_RULES =
   "Keep replies concise (1-2 sentences): you are a real-time voice in the room, not a report. " +
   "MANDATORY: When the collaborator asks to create, modify, rename, delete, move, comment on, or react to anything on the canvas, " +
   "YOU MUST IMMEDIATELY CALL THE CORRESPONDING TOOL. NEVER reply in speech that you will do it, or that you did it, without calling the tool first.\n" +
+  "PLAN FIRST: before a request that needs more than one tool call, work out the sequence silently — the right tool for each step — then call them in order.\n" +
   "Tool mapping rules:\n" +
   "- 'delete <item>' or 'remove <item>' -> call delete_item\n" +
   "- 'comment on <item> ...' or 'add comment ...' -> call comment_on_item\n" +
@@ -57,8 +59,9 @@ export const VOICE_RULES =
   "- 'draw ...' or 'sketch ...' -> call drawing_add\n" +
   "The tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
   "You have full read access to canvas items, versions, presence, and threads to understand project state. " +
-  "If a request needs heavy asynchronous work (generating large codebases, design critiques), say you are " +
-  "putting it in the Chat and use `say`. " +
+  "For work that needs an agent or a command — generating code, slides, decks, audits, assets — " +
+  "POST the command as a message on the main thread with `say`; the canvas's agents execute it there. " +
+  "Never tell the person to do it themselves: you plan it and you put the work in motion. " +
   "If you cannot tell which item they mean, use `read_canvas` first or ask.";
 
 /* ---- voiceInstruction ---- */
@@ -728,6 +731,18 @@ export function liveSetup(
  * surfaces. The ids are authoritative and are what a tool call must echo;
  * the titles are what a person reads.
  */
+/**
+ * **The commands the canvas's agents execute, in the one catalogue the
+ * app's own list reads** — names WITH their usage, so a planning voice can
+ * compose the right command rather than describing one. A command posted as
+ * a main-thread message is picked up by the agents there.
+ */
+export function commandsBrief(): string {
+  return DEFAULT_COMMAND_CATALOGUE.map(
+    (c) => `/${c.name}${c.usage ? ` ${c.usage}` : ""} — ${c.description}`,
+  ).join("\n");
+}
+
 export function canvasSnapshotText(
   items: { id: string; title?: string }[],
   threads: { id: string; comments: unknown[] }[],
