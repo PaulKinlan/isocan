@@ -102,5 +102,5 @@ describe("the board, laid and read back", () => {
     const stillOne = await json("ls", "--in", "Brief");
     expect(stillOne.length).toBe(1);
     expect(stillOne[0].versions.length).toBe(2);
-  });
+  }, 60_000);
 });

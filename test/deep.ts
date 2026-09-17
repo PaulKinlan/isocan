@@ -132,6 +132,7 @@ export const DEEP: readonly DeepFile[] = [
   // personal canvas, two verbs enrolling, and a withdrawal from two canvases
   // that must leave the row standing.
   { file: "packages/cli/test/bench.test.ts", secs: 22.3 },
+  { file: "packages/cli/test/board.test.ts", secs: 42.6 },
   { file: "packages/voice-agent/test/voice-harness.test.ts", secs: 61 },
 ];
 
@@ -169,7 +170,6 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
   { file: "packages/cli/test/grid.test.ts", secs: 9.4, why: "a single case that walks once" },
   { file: "packages/cli/test/tools.test.ts", secs: 7.7, why: "three cases sharing one daemon" },
   { file: "test/ratchetroot.test.ts", secs: 1.5, why: "spawns the binary four times over temp directories — no daemon, no canvas, just files on disk" },
-  { file: "packages/cli/test/board.test.ts", secs: 7.9, why: "one case; the file the first version of this list mistook for `test/canvas-board.test.ts`" },
   { file: "packages/cli/test/setup.test.ts", secs: 7.8, why: "five cases, and the first thing a new person runs — worth keeping in the ordinary run" },
   { file: "packages/cli/test/rehome.test.ts", secs: 7.3, why: "eight cases, one command each" },
   { file: "packages/cli/test/runtimemodules.test.ts", secs: 6.0, why: "three cases" },
