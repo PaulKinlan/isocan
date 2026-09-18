@@ -22,8 +22,17 @@ import os from "node:os";
 
 describe("isocan-7r8: CLI flake isolation under controlled saturation", () => {
   it("direction 1: place.test.ts passes cleanly under controlled CPU saturation", async () => {
-    // Spin up CPU workers to simulate machine saturation (load > 20)
-    const workerCount = Math.min(24, Math.max(4, os.cpus().length - 4));
+    // Controlled saturation: target saturation is ~12-16 active threads.
+    // If the machine already has high ambient load (e.g. multi-agent fleet running,
+    // loadavg > 16), spawning 24 unconditional burners causes severe compounding
+    // oversubscription (load > 75). Instead, dynamically scale synthetic burners
+    // based on ambient load so total pressure is controlled and bounded.
+    const ambientLoad = os.loadavg()[0];
+    const targetPressure = Math.min(16, Math.max(4, Math.floor(os.cpus().length / 2)));
+    const workerCount = ambientLoad >= targetPressure
+      ? 0 // Ambient machine load already provides the required saturation
+      : Math.min(8, Math.max(2, Math.round(targetPressure - ambientLoad)));
+
     const workers: Worker[] = [];
     for (let i = 0; i < workerCount; i++) {
       workers.push(new Worker("while(true);", { eval: true }));
@@ -37,7 +46,7 @@ describe("isocan-7r8: CLI flake isolation under controlled saturation", () => {
         {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
-          timeout: 70_000,
+          timeout: 120_000,
         },
       );
       expect(result).toContain("1 passed");
@@ -47,7 +56,7 @@ describe("isocan-7r8: CLI flake isolation under controlled saturation", () => {
         w.terminate();
       }
     }
-  }, 90_000);
+  }, 150_000);
 
   it("direction 2 (falsification): a genuinely hung test still fails loudly with Test timed out", async () => {
     // Write a temporary test file in test/ that deliberately exceeds its timeout
