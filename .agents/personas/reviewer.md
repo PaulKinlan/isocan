@@ -91,6 +91,45 @@ goal:
     at most: 60
     measured by: node scripts/measure.mjs copied-rules
     baseline: 47, 2026-08-30, bb3f98c
+  # Added 2026-09-18 (isocan-wy2). Front matter is the single status authority and
+  # `core/docStatus` is its one reader — but `docStatus` cannot see the hand-kept
+  # `**Where we are:**` line that 28 project docs carry beside it. So a doc can say
+  # `status: designed` (core's own words: "written, argued, nothing built") while its
+  # prose says phase 1 is in progress, and `docs/ROADMAP.md` prints the front matter
+  # and nothing objects.
+  #
+  # That is not a hypothetical. `docs/projects/voice-interface/phases.md` said "**Where
+  # we are: PHASE 1 IN PROGRESS (2026-09-11)**" for a week while `packages/voice-agent`
+  # shipped fifteen test files underneath it — three verdicts in one project, none of
+  # them the truth. `docs/research/2026-08-26-attaching-a-directory.md` carries the
+  # older scar of the same shape: a second verdict left behind after the first was
+  # corrected, and the reason front matter became the authority in the first place.
+  #
+  # **The bound is 0 because it measured 0 the day it was written** — 28 lines, no
+  # contradictions, and the one `designed` doc carrying the line says "ROADMAP
+  # REGISTERED … specified … defined", which is design language and correctly does not
+  # match. So this is strict about the NEXT doc and asks nobody to clean up this one,
+  # which is the condition this file argues for on the exports goal above: "a ratchet
+  # set above its floor is slack nobody decided to leave."
+  #
+  # Narrow on purpose, in the direction `scanExports` argues for: it under-reports
+  # rather than crying wolf, because a guard that reddens on "the design is complete"
+  # is a guard somebody turns off inside a week. Two directions only, both keyed on a
+  # phase/walk/project quantifier rather than a verb alone, and `partial` is not
+  # checked at all — "some of it is built, the doc says which part" agrees with any
+  # mix by definition.
+  #
+  # Unlike the two ratchets above, this one is ALSO enforced in the ordinary suite
+  # (`test/doc-verdicts.test.ts`), because this file's own history is the argument:
+  # "The principle was right and nothing acted on it, because only the nightly ever
+  # read this number, and a nightly report is not a commit failing." The test is shown
+  # red against a real doc before it was trusted — injecting the voice-interface
+  # contradiction into `browser-surface/phases.md` fails it, naming the doc, the
+  # authority and both verdicts.
+  - name: project docs whose prose contradicts their own front matter
+    at most: 0
+    measured by: node scripts/measure.mjs doc-verdict-conflicts
+    baseline: 0, 2026-09-18, 49f53071
 runs: docs/reviews/
 trigger:
   cron: 43 8 * * *

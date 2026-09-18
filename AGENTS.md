@@ -239,6 +239,35 @@ opinion about anything.
   deploys** — so a commit that is green on your laptop and red on CI never
   reaches the dogfood home (phase 10.5). Three refs, three jobs: main is the
   source, `green` is the tested source, `release` is the shipped CLI.
+- **Show a regression test red before it closes anything — and read why it is
+  red.** A test named after a bug is not evidence the bug is fixed, because the
+  name is free and the assertion may be too loose to catch it. So the fix is
+  reproduced first, on source that does not have it:
+
+  ```
+  git stash push <the fix>                 # keep the test, drop the fix
+  npx vitest run <file> -t "<test name>"   # must fail — and for the right reason
+  git stash pop
+  ```
+
+  `isocan-xsh.9` was closed on a test whose threshold the unfixed code satisfied:
+  it asserted `zeroFraction < 0.01` and the bug measured 0.00009375, so it passed
+  on main and the bead was reopened. Reading the assertion is necessary and not
+  sufficient — the question is whether it *could* fail.
+
+  **The second half of the rule is the half that finds new bugs.** Red is a
+  colour, not an explanation, and the two are not interchangeable. The voice
+  readiness fix went red five ways, and one of them failed with
+  `Error: provider transport still opening` thrown out of `voice-harness.ts`
+  **into the caller** — an unclaimed defect in the page's audio pump that a
+  pass/fail check would have recorded as "red, good" and walked past. Equally, a
+  test can pass *on* the bug: `voice-harness.test.ts`'s "speaks the wire: setup
+  first, then audio up and tool calls answered" sent audio into an open but
+  unacknowledged socket and expected the frame on the wire, which is why the
+  readiness defect looked covered for six days. That is the fourth time this
+  shape has turned up here, after `xsh.9`'s threshold, `7poq`'s fixture and
+  `xsh.8.23`'s generator — a suite that encodes the bug is the reason a bug looks
+  tested.
 - Mutations are `Operation` values applied by one reducer — if a change makes
   the CLI and the web app able to disagree, it is the wrong change.
 - Presence is honest: never claim work you did not do.
