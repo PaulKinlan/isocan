@@ -13,6 +13,15 @@ import { harnessVars } from "@isocan/api";
 // competing worker forks, sequential spawns require a 60s liveness bound
 // (2.5s/spawn) to prevent wall-clock starvation while still failing loudly on
 // any genuine hang (isocan-7r8).
+//
+// **No test in this file carries its own timeout argument, on purpose**
+// (isocan-swf). `it(name, fn, 40_000)` OVERRIDES this line, so a literal at the
+// end of a long test body is a second, competing bound that silently wins — and
+// it is 126 lines away from the one that reads as though it governs. That is
+// exactly how the 60s bound landed inert: this file's only test closed with
+// `}, 40_000)` and failed under load at `Test timed out in 40000ms`, never
+// reaching the bound its own header comment claimed. One bound per file, here.
+// If a test genuinely needs a different one, say why beside it.
 vi.setConfig({ testTimeout: 60_000 });
 
 /**
@@ -137,7 +146,5 @@ describe("placing a canvas on a canvas", () => {
     expect(self.stderr).toContain("cannot be placed on itself");
     // Thirty-odd CLI walks in one case: 14-17s on a laptop, and it timed out at
     // the default 30s on a loaded release shard (run 34893853023, 14 Sep 2026).
-    // The same 40s the other long walks here take — `dispatch.test.ts` and
-    // friends — rather than a case that is fine until the runner is busy.
-  }, 40_000);
+  });
 });

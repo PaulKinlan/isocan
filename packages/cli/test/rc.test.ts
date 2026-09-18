@@ -7,6 +7,14 @@ import { describe, expect, it, vi } from "vitest";
 // 26 multi-step tests. Under parallel load, sequential spawns require a 60s
 // liveness bound to prevent wall-clock starvation while still failing loudly
 // on any genuine hang (isocan-7r8).
+// **No test in this file carries its own timeout argument, on purpose**
+// (isocan-swf). `it(name, fn, 30_000)` OVERRIDES the line above, so a literal at
+// the end of a test body is a second, competing bound that silently wins. This
+// file had eleven of them — seven at 30_000, two at 40_000, one at 60_000 and one
+// at 20_000, that last being TIGHTER than the 30s repo default, so for that test
+// isocan-7r8's calibration moved the bound the opposite way from its intent. All
+// eleven are gone and this file has one bound. If a test genuinely needs a
+// different one, say why beside it rather than leaving it implicit.
 vi.setConfig({ testTimeout: 60_000 });
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -345,7 +353,7 @@ describe("the running rc — quiet start, events narrated", () => {
     rc.kill("SIGINT");
     await done;
     expect(Object.values(await snapshotAgents()).map((a) => a.actor.name)).toEqual(["Percy"]);
-  }, 30_000);
+  });
 });
 
 describe("the web doors' mechanics (phase 2.5)", () => {
@@ -369,7 +377,7 @@ describe("the web doors' mechanics (phase 2.5)", () => {
     // Ended deliberately, not left to the TTL: the dialog must stop saying
     // "an rc is parked here" the moment nobody is.
     await until(sessions, (list) => !list.some((s) => s.kind === "rc"), "the announcement gone");
-  }, 30_000);
+  });
 
   it("a web add (the same enroll op) gets its rc half from the parked rc", async () => {
     const rc = spawnCli(["rc"]);
@@ -409,7 +417,7 @@ describe("the web doors' mechanics (phase 2.5)", () => {
 
     rc.kill("SIGINT");
     await done;
-  }, 30_000);
+  });
 
   it("a web ask naming a template gets a working directory from a module on THIS machine (proposed: templates)", async () => {
     const rc = spawnCli(["rc"]);
@@ -475,7 +483,7 @@ describe("the web doors' mechanics (phase 2.5)", () => {
 
     rc.kill("SIGINT");
     await done;
-  }, 30_000);
+  });
 
   it("refuses at the door an ask whose template is not an id and strings", async () => {
     const res = await fetch(`${base}/api/projects/prj_1/agents/ask`, {
@@ -509,7 +517,7 @@ describe("the web doors' mechanics (phase 2.5)", () => {
 
     rc.kill("SIGINT");
     await done;
-  }, 30_000);
+  });
 });
 
 function rows0<T>(rows: T[]): T {
@@ -611,7 +619,7 @@ describe("one agent, one name, one machine, many canvases", () => {
     );
     expect(beside.code).toBe(0);
     expect(JSON.parse(beside.stdout).canvasId).toBe("prj_2");
-  }, 30_000);
+  });
 });
 
 describe("one rc, every canvas its rows name (phase 2)", () => {
@@ -664,7 +672,7 @@ describe("one rc, every canvas its rows name (phase 2)", () => {
 
     rc.kill("SIGINT");
     await done;
-  }, 40_000);
+  });
 
   it("`rc --all` with only the bound canvas is one room, untagged — nothing large happens by default", async () => {
     const rc = spawnCli(["rc", "--all"]);
@@ -678,7 +686,7 @@ describe("one rc, every canvas its rows name (phase 2)", () => {
     expect(out).not.toContain("[P]");
     rc.kill("SIGINT");
     await done;
-  }, 20_000);
+  });
 });
 
 describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
@@ -736,7 +744,7 @@ describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
     expect(wrong.code).not.toBe(0);
     expect(wrong.stderr).toContain("--default-harness pi: not runnable here");
     expect(wrong.stderr).toContain("runnable: claude-code, fake");
-  }, 40_000);
+  });
 
   it("with nothing settling it and nothing needing it, the rc only says so", async () => {
     const fakeAcp = fileURLToPath(new URL("./fake-acp.mjs", import.meta.url));
@@ -769,7 +777,7 @@ describe("which harness an unnamed agent runs on (decided 2026-09-04)", () => {
     expect(who.stdout).toMatch(/Sian\s+fake\s+answerable/);
     rc.kill("SIGINT");
     await done;
-  }, 30_000);
+  });
 });
 
 /**
@@ -853,5 +861,5 @@ describe("two rcs, one canvas (room phase 3)", () => {
     one.child.kill("SIGINT");
     two.child.kill("SIGINT");
     await Promise.all([one.done, two.done]);
-  }, 60_000);
+  });
 });
