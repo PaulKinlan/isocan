@@ -218,12 +218,11 @@ describe("isocan pass — minting the escalation credential from a terminal", ()
 });
 
 /**
- * **`isocan pass --agent` — handing an agent over, not the person** (sheep's
- * collie, phase 3: an agent moves in).
+ * **`isocan pass --agent` — handing an agent over, not the person.**
  *
  * Priya's laptop enrolled Percy with `isocan rc add`, so the laptop's badge
  * holds Percy's claim; a pass minted for Percy's actor is how a hosted rc —
- * the collie's badge, a surface that is not Priya — comes to answer for him.
+ * a badge of its own, a surface that is not Priya — comes to answer for him.
  * The desk already allows exactly that and refuses anything else with
  * `not-your-actor`; what the verb adds is the name on the roster and the
  * words, so these cases read what a person reads and then redeem from a badge
@@ -248,7 +247,7 @@ describe("isocan pass --agent — a pass that arrives as the agent", () => {
   });
 
   async function enrolPercy(): Promise<{ id: string; name: string }> {
-    const enrolled = await atHome("rc", "add", "Percy", "--harness", "sheep", "--json");
+    const enrolled = await atHome("rc", "add", "Percy", "--harness", "pi", "--json");
     expect(enrolled.code, enrolled.stderr).toBe(0);
     return (JSON.parse(enrolled.stdout) as { enrolled: { id: string; name: string } }).enrolled;
   }
@@ -263,7 +262,7 @@ describe("isocan pass --agent — a pass that arrives as the agent", () => {
     expect(identity?.replace(/^identity\s+/, "")).toBe(
       `${percy.name} (${percy.id}) — an agent: whoever redeems this arrives as Percy, not as you`,
     );
-    expect(minted.stdout).toContain("Paste this where Percy's new host asks for a pass (`collie new --pass`");
+    expect(minted.stdout).toContain("Paste this where Percy's new host asks for a pass:");
     const pasted = minted.stdout.split("\n").filter((line) => line.startsWith("  ")).map((line) => line.trim());
     expect(pasted).toHaveLength(1);
     expect(pasted[0]!.startsWith(`${canvasUrl(home, canvasId)}#pss_`)).toBe(true);
@@ -286,7 +285,7 @@ describe("isocan pass --agent — a pass that arrives as the agent", () => {
     expect(out.agent).toBe(true);
     const token = out.address.split("#")[1]!;
 
-    // The collie's badge, say: a surface that has never been anyone.
+    // The new host's badge: a surface that has never been anyone.
     const host = await mintTestBadge(`http://127.0.0.1:${homePort}`);
     const before = await post(host, "/api/ops", { canvasId, actor: percy, op: addItem("itm_before") });
     expect(before.status).toBe(400);

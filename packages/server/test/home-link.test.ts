@@ -939,8 +939,8 @@ describe("the rc's liveness and the web's ask, carried across the link", () => {
     expect(held.asks).toMatchObject([{ askId, name: "Sian", from: { id: "usr_home" } }]);
   }, 20_000);
 
-  /** An rc holding directly AT the home, on the home's own badge — sheep's
-   * collie in a Durable Object, or any rc that is not behind a member daemon. */
+  /** An rc holding directly AT the home, on the home's own badge — a hosted rc,
+   * or any rc that is not behind a member daemon. */
   function holdAtH(actorIds: string[], waitMs = 12_000, says: Record<string, unknown> = {}) {
     const aborter = new AbortController();
     const done = fetch(`${H.base}/api/rc/hold`, {

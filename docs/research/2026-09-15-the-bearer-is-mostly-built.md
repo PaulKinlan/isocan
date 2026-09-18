@@ -1,9 +1,10 @@
 ---
-status: built
+status: superseded
 since: 2026-09-15
 issue: 309
 see: bench, sheep-harness, standing-agents, on-demand, agent-custody, room, embed
-note: measured, decided AND built 15 Sep 2026 — a dedicated agent badge minted once per rc row, labelled `cell (<agent>'s sheep)` in `isocan badges`, and revoked with the agent on withdrawal (leaving public repo CI credentials deliberately separate under #206).
+supersededBy: nothing yet — removed 18 Sep 2026; running an agent off the laptop is expected back in another form
+note: removed from isocan 18 Sep 2026: the hosted-rc experiment was shut down and the sheep harness was taken out of the CLI and the rc with it. The dedicated cell badge this note measured and built (15 Sep 2026) went with the harness; `GET …/passes/:passId` stays as the minter's read of its own pass.
 ---
 
 # The bearer is mostly built

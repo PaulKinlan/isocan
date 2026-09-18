@@ -415,9 +415,8 @@ describe("a pass is single-use and short-lived, and says which it was", () => {
 });
 
 /**
- * **Reading a pass back** (sheep-harness phase 2). An rc mints a pass for a
- * sheep's cell, and when the agent is withdrawn it has to end the badge that
- * pass made. `redeemedBy` names that badge exactly; this is the one read of
+ * **Reading a pass back.** A minter that hands a pass to another surface may
+ * later have to end the badge that pass made. `redeemedBy` names that badge exactly; this is the one read of
  * it, and it answers only the badge that minted the pass.
  */
 describe("the minter can read its pass back, and nobody else can", () => {
@@ -699,7 +698,7 @@ describe("on a replica", () => {
 
       // And the replica's CLI can read it back: the read forwards to the
       // home, where the minter was this daemon's badge, and names the badge
-      // the pass made (sheep-harness phase 2).
+      // the pass made.
       const read = await fetch(`${replicaBase}${passRoute(CANVAS, pass.id)}`, { headers: cli.headers });
       expect(read.status, await read.clone().text()).toBe(200);
       expect((await body<PassResponse>(read)).pass.redeemedBy).toBe(cell.badgeId);

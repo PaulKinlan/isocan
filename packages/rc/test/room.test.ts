@@ -348,7 +348,6 @@ function roomOver(
 ) {
   const lines: string[] = [];
   const turns: Turn[] = [];
-  const ended: RcAgentRow[] = [];
   const routes = home.routes();
   const rows: RcAgentRow[] = options.rows ?? [
     { canvasId: CANVAS.id, actorId: PERCY.id, name: PERCY.name, harness: "claude-code", cwd: "/acme/percy", sessionId: null },
@@ -378,10 +377,6 @@ function roomOver(
         close: () => {},
       }),
     }),
-    endSession: async (row) => {
-      ended.push(row);
-    },
-    whereOf: async () => null,
     enrol: async () => {},
     agentKey: options.agentKey ?? (async (name) => machineKey(name)),
     narrate: (line) => lines.push(line),
@@ -390,7 +385,7 @@ function roomOver(
     clock: { now: () => clock.now },
     sleep: clock.sleep,
   };
-  return { deps, lines, turns, rows, ended };
+  return { deps, lines, turns, rows };
 }
 
 describe("the room over in-memory deps", () => {
@@ -431,7 +426,7 @@ describe("the room over in-memory deps", () => {
   });
 
   /**
-   * **The startup window, from both sides** (sheep-harness phase 2). The room
+   * **The startup window, from both sides.** The room
    * reads its opening roster, then its start tip; an enrolment or a
    * withdrawal landing between the two is absent from the opening roster and
    * at or below the tip, so neither the reconcile nor the lap's enrol and
@@ -464,26 +459,23 @@ describe("the room over in-memory deps", () => {
     await room.done;
   });
 
-  it("a withdrawal landing between the opening roster and the start tip is reaped, and its session ended", async () => {
+  it("a withdrawal landing between the opening roster and the start tip is reaped", async () => {
     const clock = new HandClock();
     const home = new AcmeHome(clock);
     home.enrol(PERCY);
     home.beforeStartTip = () => home.withdraw(PERCY);
-    const sheepRow: RcAgentRow = {
+    const percyRow: RcAgentRow = {
       canvasId: CANVAS.id,
       actorId: PERCY.id,
       name: PERCY.name,
-      harness: "sheep",
+      harness: "claude-code",
       cwd: "/acme/percy",
-      sessionId: "sheep_percy",
-      sheep: { kennel: "/acme/.sheep", home: "https://sheep.acme.invalid" },
+      sessionId: "ses_percy",
     };
-    const { deps, lines, rows, ended } = roomOver(home, clock, { rows: [sheepRow] });
+    const { deps, rows } = roomOver(home, clock, { rows: [percyRow] });
     const room = runRoom(deps);
     await clock.advance(60_000);
     expect(rows).toEqual([]);
-    expect(ended.map((r) => r.sessionId)).toEqual(["sheep_percy"]);
-    expect(lines).toContain("Percy was withdrawn as this rc started — ending what it left");
     await room.stop();
     await room.done;
   });

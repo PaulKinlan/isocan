@@ -5036,11 +5036,10 @@ export function registerRoutes(
   });
 
   /**
-   * Read one back — **for the badge that minted it, and nobody else**
-   * (sheep-harness phase 2). The row without its secret, so the minter learns
+   * Read one back — **for the badge that minted it, and nobody else.**
+   * The row without its secret, so the minter learns
    * whether its pass was spent and by which badge (`redeemedBy`): the exact
-   * surface the pass made. An rc that minted a pass for a sheep's cell uses
-   * it to end that cell's badge when the agent is withdrawn.
+   * surface the pass made, which is what ending that badge needs.
    *
    * Another badge's pass, a pass for another canvas, and no pass at all
    * answer the same `unknown-pass`, so this is no oracle over passes the
@@ -5624,7 +5623,7 @@ export function registerRoutes(
     });
     // The response, not the request: a POST's IncomingMessage has already
     // closed once its body was read, so a listener there never hears the
-    // socket go (collie's walk, 14 Sep 2026: a dead rc stayed answerable for
+    // socket go (measured 14 Sep 2026: a dead rc stayed answerable for
     // its whole waitMs). The response closes with the socket, and one whose
     // client left during the awaits above is already destroyed.
     if (reply.raw.destroyed) hold.release();

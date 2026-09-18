@@ -1,8 +1,9 @@
 ---
-status: built
+status: superseded
 since: 2026-09-10
 see: sheep-harness, on-demand, standing-agents, agent-custody, harnesses
-note: phases 0–2.5 closed 10–11 Sep 2026 — sheep is a harness found by scan, its home carried on the rc row, a forgotten sheep resumed from its pasture's herd, tool beats on the face from the transcript; a birth mints the sheep with the pass as its own secret and spends no turn; withdrawal ends the sheep and the badge its cell redeemed, and keeps the pasture. Journeys 1, 2 and 4 walked on the deployed station and a local sheep home against dev.isocan.io, journey 3's credential rule holds, journey 5's refusals are in the suite. Closed at phase 2.5 on 11 Sep; phase 3 retired, since a week of use is use. The install on every cold turn stays until sheep#2 lands. Phase 2.7 (12 Sep) took up the sheep side as it landed: the face's beats come from `sheep attach`'s own stream and no `sheep log` runs beside it (sheep#7), the home says when setup is running and the rc's clock guess is gone (sheep#4), and the badge lives in a `~` the home keeps, with the workspace link made only for a home or a sheep from before (sheep#6). sheep#2's cache is never kept from a setup holding a sheep's own secret, so the cold install stays; the choice is a door in design.md.
+supersededBy: nothing yet — removed 18 Sep 2026; running an agent off the laptop is expected back in another form
+note: removed from isocan 18 Sep 2026: the hosted-rc experiment was shut down and the sheep harness was taken out of the CLI and the rc with it. Was built and walked (phases 0–2.7, 10–12 Sep 2026); this directory is the record of that, and nothing it describes exists on main.
 ---
 # The sheep harness — the journeys
 

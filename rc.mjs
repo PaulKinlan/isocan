@@ -38,16 +38,6 @@ export const {
   // room.ts — the room itself, over what a host hands it
   mapState,
   runRoom,
-  // sheep.ts — the sheep's policy, over the commands a host speaks to a sheep home
-  SHEEP_HARNESS,
-  SheepAgent,
-  assistantText,
-  cellProblemFor,
-  endSheep,
-  isExpiredPassSetup,
-  pastureFor,
-  toolCalls,
-  toolTitle,
   // skill.ts — the collab skill's text, generated
   COLLAB_SKILL,
 } = rc;

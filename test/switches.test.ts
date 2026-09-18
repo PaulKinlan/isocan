@@ -17,8 +17,7 @@ import { CI_SWITCHES, SWITCHES, ciEnv, enforcedLines } from "../scripts/switches
  * So `scripts/switches.mjs` holds it, `npm run test:ci` sets it, and both
  * workflows run that. These cases keep that arrangement from quietly coming
  * apart: a workflow that goes back to setting one by hand, a switch nobody
- * reads, a variable in the tree with no entry. The last is the one sheep's
- * `RING_ON_CI` is really about — silence must not be able to add a switch, or
+ * reads, a variable in the tree with no entry. The last is the one that matters most — silence must not be able to add a switch, or
  * to leave one off CI.
  */
 const repo = fileURLToPath(new URL("..", import.meta.url));

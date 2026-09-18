@@ -9,7 +9,7 @@ import { actorColorIn } from "../src/lib/colors.ts";
  *
  * `docs/research/2026-09-15-reading-the-facepile.md`. The pile used to answer
  * one question — who is this — and a canvas holding two people, four agents,
- * two rcs and a sheep drew a row of near-identical discs. The two questions it
+ * and two rcs drew a row of near-identical discs. The two questions it
  * could not answer are *"is that a human?"* and *"whose agent is that?"*, and
  * one field answers both: a face with an owner is an agent, and the owner is
  * whose it is.

@@ -4,9 +4,8 @@ import * as api from "../../api/src/index.ts";
 import { canvasUrlWithPass, isLoopbackBase, parseCanvasAddress, type CanvasAddress } from "../src/index.ts";
 
 /**
- * **The address helpers, from `isocan/rc` and from `isocan`** (sheep's collie,
- * phase 2). The collie's Worker composes and parses pass addresses and its
- * command refuses a loopback canvas home before minting; with neither entry
+ * **The address helpers, from `isocan/rc` and from `isocan`.** A Worker
+ * host composes and parses pass addresses and its command refuses a loopback canvas home before minting; with neither entry
  * exporting core's helpers it wrote each again. Both entries now hand over
  * core's own functions — the same function objects, not copies — so there is
  * still one spelling of an address. The boundary test holds that `isocan/rc`

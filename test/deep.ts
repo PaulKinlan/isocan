@@ -91,7 +91,6 @@ export const DEEP: readonly DeepFile[] = [
   { file: "packages/cli/test/prune.test.ts", secs: 63 },
   { file: "packages/cli/test/session-identity.test.ts", secs: 64 },
   { file: "packages/cli/test/shelf.test.ts", secs: 59 },
-  { file: "packages/cli/test/rc-sheep-withdrawal.test.ts", secs: 57 },
   { file: "packages/cli/test/pass.test.ts", secs: 56 },
   { file: "packages/cli/test/share.test.ts", secs: 55 },
   { file: "packages/cli/test/space.test.ts", secs: 51 },
@@ -102,7 +101,6 @@ export const DEEP: readonly DeepFile[] = [
   { file: "packages/cli/test/park.test.ts", secs: 31 },
   { file: "packages/modules/design-competition/test/bout.test.ts", secs: 24 },
   { file: "packages/cli/test/acp.test.ts", secs: 25 },
-  { file: "packages/cli/test/rc-sheep.test.ts", secs: 25 },
   { file: "packages/cli/test/setup-npx.test.ts", secs: 39 },
   { file: "packages/cli/test/binding.test.ts", secs: 24 },
   { file: "packages/cli/test/restart.test.ts", secs: 31 },
@@ -192,8 +190,7 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
  * not read as taking one. Block comments go whole; of line comments only
  * those that are the whole line, so a `https://…` inside a string survives.
  *
- * Borrowed from sheep's `scripts/rings.mjs`, which learned it the way this
- * file did: its guard caught itself on the first run, because its own header
+ * Learned the way guards usually learn it: this file's guard caught itself on the first run, because its own header
  * named the function it was looking for. Three files here name the binary
  * only in their comments — `packages/server/test/build.test.ts`,
  * `packages/web/test/shot.test.ts` and `test/skills.test.ts` — and stripping

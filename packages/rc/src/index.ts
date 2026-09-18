@@ -8,9 +8,8 @@
  * browser platform. A host with `fetch`, a key-value store and a timer is the
  * audience; the laptop's `isocan rc` is one host of it.
  *
- * **And the client a host speaks to the daemon with** (sheep's collie, phase
- * 1): `DaemonRoutes`, the typed route surface the CLI's `DaemonClient`
- * extends, re-exported from `@isocan/api/routes` rather than written again.
+ * **And the client a host speaks to the daemon with**: `DaemonRoutes`, the
+ * typed route surface the CLI's `DaemonClient` extends, re-exported from `@isocan/api/routes` rather than written again.
  * It satisfies `RoomRoutes`, and it carries the calls a host makes around the
  * room — `redeemPass`, `mintPass`, `killBadge`, `badges`, `snapshot`. A host
  * constructs it over a base URL and a `BadgeStore` of its own; requests go
@@ -20,15 +19,14 @@
 export { ApiError, DaemonRoutes } from "@isocan/api/routes";
 export type { BadgeStore, StoredBadge } from "@isocan/core";
 /**
- * **The address helpers a host composes and refuses with** (sheep's collie,
- * phase 2). A Worker that parses a pass address and builds one, and a command
- * that refuses a loopback home before minting, would otherwise write core's
+ * **The address helpers a host composes and refuses with.** A Worker that
+ * parses a pass address and builds one, and a command that refuses a loopback home before minting, would otherwise write core's
  * spelling again — the drift `@isocan/core`'s address module exists to end. Core is
  * already what this entry reaches, so the boundary does not move.
  */
 export { canvasUrlWithPass, isLoopbackBase, parseCanvasAddress, type CanvasAddress } from "@isocan/core";
 export { gateTurn, type GuardLimits, type GuardState, type GuardVerdict } from "./guards.ts";
-export type { RcAgentRow, SheepPlace } from "./rows.ts";
+export type { RcAgentRow } from "./rows.ts";
 export { actorNamesOn, itemCenter, nameResolver, summonsPrompt, threadLocus } from "./helpers.ts";
 export {
   mapState,
@@ -43,21 +41,4 @@ export {
   type RoomTurn,
   type RoomTurnEvent,
 } from "./room.ts";
-export {
-  SHEEP_HARNESS,
-  SheepAgent,
-  assistantText,
-  cellProblemFor,
-  endSheep,
-  isExpiredPassSetup,
-  pastureFor,
-  toolCalls,
-  toolTitle,
-  type RmAnswer,
-  type SheepBirth,
-  type SheepCommands,
-  type SheepEntry,
-  type SheepReply,
-  type SheepRow,
-} from "./sheep.ts";
 export { COLLAB_SKILL } from "./skill.ts";

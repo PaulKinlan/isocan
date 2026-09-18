@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "@isocan/api";
-import type { RcAgentRow, RoomRows, SheepPlace } from "@isocan/rc";
+import type { RcAgentRow, RoomRows } from "@isocan/rc";
 
 /**
  * **The enrolment record's rc half** (agents-on-demand phase 2).
@@ -136,9 +136,7 @@ export async function adoptRcAgent(home: string, row: RcAgentRow): Promise<boole
 
 /** The resume handle, once a session exists (phase 3). Best-effort by the
  * spike's finding: a stored id that fails to load twice is replaced by a
- * fresh session, and this row is what records the replacement. A sheep's
- * birth hands its pass too; a different sheep arriving without one (found
- * in the herd) drops the old sheep's, which named another cell's badge.
+ * fresh session, and this row is what records the replacement.
  * Returns whether the row was there to write — a row withdrawn mid-summons
  * is not. */
 export async function setRcSessionId(
@@ -146,34 +144,13 @@ export async function setRcSessionId(
   canvasId: string,
   actorId: string,
   sessionId: string,
-  sheep?: SheepPlace,
-  cellPass?: RcAgentRow["cellPass"],
 ): Promise<boolean> {
   return updateRcAgents(home, (rows) => {
     const row = rows.find((r) => r.canvasId === canvasId && r.actorId === actorId);
     if (!row) return false;
     delete row.preparationId;
-    if (cellPass) row.cellPass = cellPass;
-    else if (row.sessionId !== sessionId) delete row.cellPass;
     row.sessionId = sessionId;
-    if (sheep) row.sheep = sheep;
     return true;
-  });
-}
-
-/** Hand a sheep's pass to another row naming the same sheep — the survivor,
- * when the row that held it is withdrawn and the sheep stays. */
-export async function setRcCellPass(
-  home: string,
-  canvasId: string,
-  actorId: string,
-  cellPass: NonNullable<RcAgentRow["cellPass"]>,
-): Promise<void> {
-  return updateRcAgents(home, (rows) => {
-    const row = rows.find((r) => r.canvasId === canvasId && r.actorId === actorId);
-    if (!row) return;
-    delete row.preparationId;
-    row.cellPass = cellPass;
   });
 }
 
@@ -196,7 +173,6 @@ export function fileRcRows(home: string): RoomRows {
     list: () => readRcAgents(home),
     adopt: (row) => adoptRcAgent(home, row),
     remove: (canvasId, actorId) => removeRcAgent(home, canvasId, actorId),
-    setSessionId: (canvasId, actorId, sessionId, place, cellPass) =>
-      setRcSessionId(home, canvasId, actorId, sessionId, place, cellPass),
+    setSessionId: (canvasId, actorId, sessionId) => setRcSessionId(home, canvasId, actorId, sessionId),
   };
 }

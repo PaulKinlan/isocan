@@ -13,7 +13,7 @@ import { DEEP, FAST_SPAWNERS, audit, filteredRun, runningDeep, skippedLine, walk
  * the reader sees a green run. That is the first direction, and it was all
  * this file used to check.
  *
- * The second direction is the one sheep's `rings.test.ts` taught: a file that
+ * The second direction: a file that
  * GROWS a walk does not add itself, and until something reads the source and
  * asks the question independently, silence means "fast" for every file nobody
  * thought about. `walksBinary` is that reading, `FAST_SPAWNERS` is the answer

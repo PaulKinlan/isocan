@@ -118,7 +118,7 @@
  *          (#265 — it landed while this was being measured, which is the
  *          creep in miniature)
  *     290  smaller: the embed badge (#222), rail tooltips (#234), a held Z
- *          (#233), the sheep's withdrawal badge, the overlay slot
+ *          (#233), the overlay slot
  *
  * Every one is a feature somebody asked for, in core or in the canvas shell,
  * and the largest single step is 3,373 bytes — a sixth of `JUMP`, so none of

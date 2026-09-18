@@ -21,6 +21,10 @@ notice. A what's-new with an entry every day is one nobody believes by the
 second week.
 
 
+## 18 September 2026
+
+- `--harness sheep` is gone. Agents whose sessions ran in a cell at a sheep home were an experiment, and it has ended: `isocan harness` no longer lists `sheep`, and an agent enrolled with `--harness sheep` has nothing to run on. One already enrolled that way stops answering — a summons fails saying no adapter is known for `sheep` — until you re-enrol it on another harness — `isocan rc add <name> --harness claude-code`, say — which keeps its name, its history and whom it listens to. Its sheep and the badge its cell held are not ended for you: `sheep` ends the one, `isocan badges --kill <badge>` the other.
+
 ## 15 September 2026
 
 - Open **Optional craft guidance** on a design task for advice adapted from

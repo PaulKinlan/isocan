@@ -232,8 +232,8 @@ describe("installable straight from git", () => {
       const helpers = await fs.readFile(path.join(out, "rc/src/helpers.d.ts"), "utf8");
       expect(helpers).not.toMatch(/"@isocan\//);
       expect(helpers).toContain('"../../core/src/index.js"');
-      // The entry re-exports the route surface a host constructs (sheep's
-      // collie, phase 1) by a workspace subpath an install cannot resolve, so
+      // The entry re-exports the route surface a host constructs by a
+      // workspace subpath an install cannot resolve, so
       // the emit must have rewritten it into the tree, at a file that exists.
       const index = await fs.readFile(path.join(out, "rc/src/index.d.ts"), "utf8");
       expect(index).not.toMatch(/"@isocan\//);
@@ -254,8 +254,7 @@ describe("installable straight from git", () => {
           await expect(fs.access(target), `${file}: ${match[1]} has no declaration`).resolves.toBeUndefined();
         }
       }
-      // And both entries hand over core's address helpers (sheep's collie,
-      // phase 2), re-exported from core's own declarations inside the tree.
+      // And both entries hand over core's address helpers, re-exported from core's own declarations inside the tree.
       const apiIndex = await fs.readFile(path.join(out, "api/src/index.d.ts"), "utf8");
       for (const declared of [index, apiIndex]) {
         expect(declared).toMatch(/export \{[^}]*canvasUrlWithPass[^}]*isLoopbackBase[^}]*parseCanvasAddress[^}]*\} from "\.\.\/\.\.\/core\/src\/index\.js"/);
@@ -334,11 +333,10 @@ describe("installable straight from git", () => {
       const source = await import("../packages/rc/src/index.ts");
       expect(Object.keys(surface).sort()).toEqual(Object.keys(source).sort());
       expect(typeof surface.runRoom).toBe("function");
-      expect(typeof surface.SheepAgent).toBe("function");
-      // And the client a host constructs (sheep's collie, phase 1), inlined
+      // And the client a host constructs, inlined
       // into the same node-free bundle rather than left to a Node entry.
       expect(typeof surface.DaemonRoutes).toBe("function");
-      // And core's address helpers (sheep's collie, phase 2), in the same bundle.
+      // And core's address helpers, in the same bundle.
       expect(surface.parseCanvasAddress("https://acme.example/p/prj_acme#pas_acme.s3cret")).toEqual({
         origin: "https://acme.example",
         canvasId: "prj_acme",
