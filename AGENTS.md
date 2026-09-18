@@ -239,6 +239,21 @@ opinion about anything.
   deploys** — so a commit that is green on your laptop and red on CI never
   reaches the dogfood home (phase 10.5). Three refs, three jobs: main is the
   source, `green` is the tested source, `release` is the shipped CLI.
+- **This checkout is shared, and `main` is where everybody works — so your
+  uncommitted work here is not yours alone.** Several lanes run against
+  `~/isocan` at once, and one lane's recovery command silently rewrites every
+  other lane's working tree. On 2026-09-18 a `git reset` at 12:19:55 followed by
+  a fast-forward merge at 12:20:08 discarded another lane's uncommitted edit to
+  `scripts/measure.mjs`, which then shipped a persona goal pointing at a metric
+  that did not exist. The signature is worth knowing, because it looks like
+  nothing happened: **untracked files survive and modified tracked files quietly
+  lose their edits**, which is `reset --hard` rather than `--mixed`. So — write in
+  your own worktree (`git worktree add`, there are dozens already), and never run
+  `reset --hard`, `clean`, `stash` or `checkout -- <path>` against the shared
+  tree. If work does vanish, find the window before bisecting:
+  `git reflog --date=iso | grep -E "reset:|checkout: moving"` names the command
+  and the second, which beats twenty minutes of re-running tests that were never
+  the cause.
 - **Show a regression test red before it closes anything — and read why it is
   red.** A test named after a bug is not evidence the bug is fixed, because the
   name is free and the assertion may be too loose to catch it. So the fix is
