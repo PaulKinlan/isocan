@@ -80,6 +80,29 @@ describe("the talk module declares the door, the dialog and the floating mic", (
     const web = readFileSync(fileURLToPath(new URL("../src/web.tsx", import.meta.url)), "utf8");
     expect(web).not.toMatch(/useCanvasStore|useUiStore/);
   });
+
+  /**
+   * **isocan-xsh.8.5, the browser half.** The microphone used to send on
+   * `readyState === OPEN` alone — the same defect the harness had, in the second
+   * place audio leaves the machine. This is a SOURCE assertion in this file's own
+   * idiom (there is no DOM/WebSocket harness here), so it holds the shape of the
+   * fix, not a measured browser run: the capture callback must consult
+   * `providerReady` before it consults `readyState`, and `providerReady` must be
+   * set by `setupComplete`. A behavioural browser capture is isocan-xsh.6's job.
+   */
+  it("gates the microphone on the provider's setupComplete, not on the socket being open", () => {
+    const web = readFileSync(fileURLToPath(new URL("../src/web.tsx", import.meta.url)), "utf8");
+    const gateAt = web.indexOf("if (!providerReady) {");
+    const openAt = web.indexOf("if (socket.readyState === WebSocket.OPEN) {", gateAt);
+    expect(gateAt, "the capture callback no longer checks providerReady").toBeGreaterThan(-1);
+    expect(openAt, "the readyState check moved out of the capture callback").toBeGreaterThan(gateAt);
+    // The flag is the provider's own acknowledgement, and nothing else sets it.
+    expect(web).toMatch(/if \(message\.setupComplete\) \{\s*providerReady = true;/);
+    expect(web.match(/providerReady = true/g)).toHaveLength(1);
+    // A dropped frame is counted and said, not discarded in silence.
+    expect(web).toMatch(/gatedFrames\+\+/);
+    expect(web).toContain("dropped before the provider was ready");
+  });
 });
 
 describe("a WebSocket frame is decoded whatever the browser makes of it", () => {
