@@ -137,3 +137,18 @@ describe("what the page says, and in what order", () => {
     expect(path).not.toContain("?");
   });
 });
+
+describe("the hand-over needs a press (isocan-xsh.8.20)", () => {
+  it("never hands the token over on load, and the press is named in words", async () => {
+    // A GET of this address — a session restore, an accidental paste — must
+    // never complete the hand-over. The token moves only on an explicit press
+    // of a control whose words say what it does.
+    const { promises } = await import("node:fs");
+    const source = await promises.readFile(
+      new URL("../src/pages/OperatorProvePage.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain("form.current?.submit()");
+    expect(source).toContain("Hand the proof to your terminal");
+  });
+});

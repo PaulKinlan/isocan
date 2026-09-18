@@ -143,19 +143,6 @@ function Prove({ handoff }: { handoff: OperatorHandoff }) {
     };
   }, []);
 
-  /**
-   * And the hand-over, the moment there is something to hand over.
-   *
-   * Automatic because the person has already read the act and chosen to sign
-   * in for it; making them press a second button would be asking the same
-   * question twice. The button below is still rendered and still works — it is
-   * what happens when this submit is blocked, and it is the only control on
-   * the page if scripting is off.
-   */
-  useEffect(() => {
-    if (token) form.current?.submit();
-  }, [token]);
-
   const ask = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
@@ -193,11 +180,14 @@ function Prove({ handoff }: { handoff: OperatorHandoff }) {
 
       {token ? (
         <>
-          <p>Signed in. Handing the proof to your terminal…</p>
+          <p>
+            Signed in. One press hands the proof to your terminal — the act above is what it
+            confirms.
+          </p>
           <form ref={form} method="post" action={handoff.to}>
             <input type="hidden" name="idToken" value={token} />
             <input type="hidden" name="state" value={handoff.state} />
-            <button type="submit">Hand it over</button>
+            <button type="submit">Hand the proof to your terminal</button>
           </form>
         </>
       ) : sent ? (

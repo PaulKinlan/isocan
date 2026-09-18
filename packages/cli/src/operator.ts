@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { openInBrowser } from "./browser.ts";
 import { randomBytes } from "node:crypto";
 import { AddressInfo } from "node:net";
 import { provePath, type OperatorHandoff } from "@isocan/core";
@@ -72,9 +71,6 @@ export interface ProveOptions {
   timeoutMs?: number;
   /** Where to write the address, for the person whose browser did not open. */
   say?: (line: string) => void;
-  /** Opening a browser is spawned rather than injected everywhere else in this
-   * CLI; injectable here so a test can prove the whole dance without one. */
-  open?: (url: string) => void;
 }
 
 /**
@@ -141,16 +137,15 @@ export async function proveInBrowser(options: ProveOptions): Promise<OperatorPro
     };
     const url = `${options.home.replace(/\/+$/, "")}${provePath(handoff)}`;
     /**
-     * Printed as well as opened, always. A browser that does not open — a
-     * remote shell, a machine with no session — must not leave a person
-     * looking at a silent terminal, and the address is the whole of what they
-     * need. It is also what makes the flow inspectable: the summary is in the
-     * link, so anybody can read what this terminal is about to ask for before
-     * they go there.
+     * Printed, never auto-opened (isocan-xsh.8.20): a background ask must not
+     * take the foreground of whatever the person was doing. The address is
+     * the whole of what they need — it is also what makes the flow
+     * inspectable: the summary is in the link, so anybody can read what this
+     * terminal is about to ask for before they go there. Nothing is spawned:
+     * the person opens the link when they are ready.
      */
     say(`open this to prove you run ${options.home}:`);
     say(`  ${url}`);
-    (options.open ?? openInBrowser)(url);
     return await Promise.race([
       handed,
       timeout(options.timeoutMs ?? 5 * 60_000, fail!),

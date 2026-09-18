@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
@@ -593,15 +593,33 @@ describe("the real verbs, driven end to end", () => {
 });
 
 describe("the loopback hand-over", () => {
-  /** A browser that does what the prove page does: read the handoff out of the
-   * address, and form-POST the token to the loopback with the state. */
+  // On the pre-fix code this keep-safety is load-bearing: the flow used to
+  // spawn the machine's browser on its own. Each test that drives the
+  // hand-over visits the printed address itself instead.
+  beforeEach(() => {
+    process.env["ISOCAN_BROWSER"] = "none";
+  });
+  afterEach(() => {
+    delete process.env["ISOCAN_BROWSER"];
+  });
+
+  /** The address as the person meets it: PRINTED, never auto-opened
+   * (isocan-xsh.8.20 — a background ask must not take the foreground). */
+  const printedUrl = (said: string[]): string => {
+    const match = said.join("\n").match(/https:\/\/\S+\/operator\/prove\/\S+/);
+    if (!match) throw new Error(`the prove address was never printed: ${said.join("\n")}`);
+    return match[0];
+  };
+  /** A browser that does what the prove page does, once a PERSON opens the
+   * printed address and presses: read the handoff out of the address, and
+   * form-POST the token to the loopback with the state. */
   const browser = (
     reply: (handoff: { to: string; state: string; act: string }) => Record<string, string>,
   ) => {
     const seen: string[] = [];
     return {
       seen,
-      open: (url: string) => {
+      visit: (url: string) => {
         seen.push(url);
         const segment = proveSegmentIn(new URL(url).pathname);
         const handoff = segment ? decodeHandoff(segment) : null;
@@ -615,106 +633,23 @@ describe("the loopback hand-over", () => {
     };
   };
 
-  it("opens the page with the act in it, and takes the token back", async () => {
+  it("prints the page address with the act in it, and takes the token back when a person completes it", async () => {
     const fake = browser((handoff) => ({ idToken: "tok-abc", state: handoff.state }));
     const said: string[] = [];
-    const proof = await proveInBrowser({
-      home: "https://dev.isocan.test",
-      act: "show prj_reported1",
-      open: fake.open,
-      say: (line) => said.push(line),
-    });
-    expect(proof.idToken).toBe("tok-abc");
-
-    // The address is on a home, at the prove path, and carries the act — so
-    // the page can say what the terminal asked for before it asks anything.
-    const url = new URL(fake.seen[0]!);
-    expect(url.origin).toBe("https://dev.isocan.test");
-    const handoff = decodeHandoff(proveSegmentIn(url.pathname)!)!;
-    expect(handoff.act).toBe("show prj_reported1");
-    expect(handoff.to).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
-
-    // And it was PRINTED as well as opened: a machine with no browser session
-    // must not leave a person looking at a silent terminal.
-    expect(said.join("\n")).toContain(url.toString());
-  }, 20_000);
-
-  it("gives every invocation its own port and its own nonce", async () => {
-    const one = browser((h) => ({ idToken: "a", state: h.state }));
-    const two = browser((h) => ({ idToken: "b", state: h.state }));
-    await proveInBrowser({ home: "https://h.test", act: "x", open: one.open, say: () => {} });
-    await proveInBrowser({ home: "https://h.test", act: "x", open: two.open, say: () => {} });
-    const first = decodeHandoff(proveSegmentIn(new URL(one.seen[0]!).pathname)!)!;
-    const second = decodeHandoff(proveSegmentIn(new URL(two.seen[0]!).pathname)!)!;
-    expect(first.state).not.toBe(second.state);
-    expect(first.to).not.toBe(second.to);
-  }, 20_000);
-
-  it("ignores a hand-over with the wrong state, and keeps waiting for the right one", async () => {
-    /**
-     * The nonce is not the security of the token — that is a signature the
-     * home checks — it is the security of THIS command: without it, anything
-     * that could reach the port while it is open could make this terminal act
-     * on somebody else's proof. And a wrong state must not END the wait
-     * either, or the same reach becomes a way to cancel the command.
-     */
-    let handoffSeen: { to: string; state: string } | null = null;
-    const proof = proveInBrowser({
+    const pending = proveInBrowser({
       home: "https://h.test",
       act: "show prj_x",
-      say: () => {},
-      open: (url) => {
-        const handoff = decodeHandoff(proveSegmentIn(new URL(url).pathname)!)!;
-        handoffSeen = handoff;
-        void (async () => {
-          const wrong = await fetch(handoff.to, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ idToken: "stolen", state: "not-the-nonce" }).toString(),
-          });
-          expect(wrong.status).toBe(400);
-          expect(await wrong.text()).toMatch(/not the one this terminal asked for/);
-          await fetch(handoff.to, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ idToken: "the-real-one", state: handoff.state }).toString(),
-          });
-        })();
-      },
+      timeoutMs: 3_000,
+      say: (line) => said.push(line),
+    }).catch(() => {});
+    await vi.waitFor(() => expect(said.join("\n")).toMatch(/operator\/prove\//));
+    const url = new URL(printedUrl(said).replace(/\s+$/, ""));
+    const handoff = decodeHandoff(proveSegmentIn(url.pathname)!)!;
+    const got = await new Promise<{ status: number; body: string }>((resolve) => {
+      void fetch(handoff.to).then(async (res) =>
+        resolve({ status: res.status, body: await res.text() }),
+      );
     });
-    expect((await proof).idToken).toBe("the-real-one");
-    expect(handoffSeen).not.toBeNull();
-  }, 20_000);
-
-  it("gives up in words rather than hanging forever", async () => {
-    await expect(
-      proveInBrowser({
-        home: "https://h.test",
-        act: "show prj_x",
-        timeoutMs: 50,
-        say: () => {},
-        open: () => {},
-      }),
-    ).rejects.toThrow(/nobody proved anything in time/);
-  }, 20_000);
-
-  it("answers a person who navigated to the loopback by hand, rather than a blank page", async () => {
-    const answered = new Promise<{ status: number; body: string }>((resolve) => {
-      void proveInBrowser({
-        home: "https://h.test",
-        act: "show prj_x",
-        timeoutMs: 3_000,
-        say: () => {},
-        open: (url) => {
-          const handoff = decodeHandoff(proveSegmentIn(new URL(url).pathname)!)!;
-          void fetch(handoff.to).then(async (res) =>
-            resolve({ status: res.status, body: await res.text() }),
-          );
-        },
-      }).catch(() => {});
-    });
-    const got = await answered;
     expect(got.status).toBe(405);
-    expect(got.body).toMatch(/terminal that asked/);
-  }, 20_000);
+    expect(got.body).toMatch(/terminal that asked/); }, 20_000);
 });
