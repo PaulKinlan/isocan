@@ -149,3 +149,4 @@ read.
 | "no directory is bound" | bind one (step 7) — the canvas works fine without |
 | an agent seems asleep | it is parked; say something that names it |
 | you broke something | <kbd>⌘Z</kbd> — undo is per-person, never a collaborator's |
+| the roadmap canvas stops syncing | it is this machine's timer — read [the runbook](projects/roadmap-canvas/runbook.md), and never follow the old `--name` advice its log prints |

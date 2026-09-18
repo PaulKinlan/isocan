@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-read isocan's docs/ROADMAP.md, and the documents it links, onto the Roadmap Test canvas
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/isocan-roadmap
+Environment=PATH=%h/.local/share/mise/installs/node/lts/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node %h/isocan-roadmap/sync.mjs
