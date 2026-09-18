@@ -1606,6 +1606,28 @@ export interface LiveSession {
   sendText(text: string): void;
   close(): void;
   readonly ready: Promise<boolean>;
+  /**
+   * **What crossed the wire, and what did not.** Three numbers on the way up
+   * because "sent" was doing two jobs at once: a frame handed to a socket that
+   * had not finished setting up, and a frame the provider actually took. The
+   * distinction is the whole of a readiness contract — without it, 48 dropped
+   * page frames and 128 premature ones are the same silence (isocan-xsh.8.4).
+   * `messagesIn` counts every provider message parsed, separately from the
+   * audio parts inside them, so a provider that keeps talking but stops sending
+   * audio is distinguishable from one that has gone quiet.
+   */
+  stats(): {
+    /** Frames the provider socket accepted — `send` returned. */
+    audioUpFrames: number;
+    /** Frames refused because `setupComplete` had not arrived yet. */
+    audioUpGatedFrames: number;
+    /** Frames refused by a socket that was not open, or whose `send` threw. */
+    audioUpLostFrames: number;
+    /** Audio parts the provider sent down. */
+    audioDownFrames: number;
+    /** Provider messages parsed, of any kind. */
+    messagesIn: number;
+  };
 }
 
 /**
@@ -1636,7 +1658,17 @@ export function startLiveSession(options: {
   let settled = false;
   let settle: (value: boolean) => void = () => {};
   let audioUpFrames = 0;
+  let audioUpGatedFrames = 0;
+  let audioUpLostFrames = 0;
   let audioDownFrames = 0;
+  let messagesIn = 0;
+  /**
+   * The provider's own acknowledgement that it is ready for audio. An OPEN
+   * socket is not this: the wire measurement that filed isocan-xsh.8.5 sent 192
+   * of 208 frames before `setupComplete` keyless, and 128 before acknowledgement
+   * on a real key.
+   */
+  let setupDone = false;
 
   callbacks.onEvent?.("socket_opening", { url: url.split("?")[0] });
 
@@ -1658,7 +1690,7 @@ export function startLiveSession(options: {
     socket.onclose = (event: any) => {
       const code = event?.code;
       const reason = event?.reason ? String(event.reason) : "";
-      callbacks.onEvent?.("socket_closed", { code, reason, audioUpFrames, audioDownFrames });
+      callbacks.onEvent?.("socket_closed", { code, reason, ...stats() });
       if (code && code !== 1000) {
         const closeMsg = `provider closed socket: code ${code}${reason ? ` — ${reason}` : ""}`;
         callbacks.onState?.(closeMsg, true);
@@ -1686,6 +1718,10 @@ export function startLiveSession(options: {
     } catch {
       return;
     }
+    // Every message, before any branching on what it turned out to be: the
+    // audio-part counter alone cannot tell "the provider stopped sending audio"
+    // from "the provider stopped answering".
+    messagesIn++;
     if (message.error) {
       // The provider's own words, verbatim: it is the judge of the key, the
       // model and the quota, and a paraphrase here is how a real key came to
@@ -1695,6 +1731,7 @@ export function startLiveSession(options: {
       return;
     }
     if (message.setupComplete) {
+      setupDone = true;
       callbacks.onEvent?.("setup_complete", {});
       callbacks.onState?.("live", false);
       settle(true);
@@ -1741,18 +1778,43 @@ export function startLiveSession(options: {
     }
   }
 
+  function stats() {
+    return { audioUpFrames, audioUpGatedFrames, audioUpLostFrames, audioDownFrames, messagesIn };
+  }
+
   return {
     send(pcm) {
-      if (socket.readyState !== 1) return;
+      // **Gate on the provider's acknowledgement, not on the socket being open.**
+      // Until `setupComplete` the provider is still setting up, and a frame sent
+      // into that window is a frame it never heard — which is what made a silent
+      // turn and a slow one look identical. Dropped rather than buffered: the
+      // bead that filed this asked for readiness handling "without replaying
+      // stale effects", and audio from four seconds ago is stale by the time the
+      // provider can use it.
+      if (!setupDone) {
+        audioUpGatedFrames++;
+        return;
+      }
+      if (socket.readyState !== 1) {
+        audioUpLostFrames++;
+        return;
+      }
+      try {
+        socket.send(
+          JSON.stringify({
+            // `realtimeInput.audio` is the current field. `mediaChunks` is marked
+            // "DEPRECATED: Use one of `audio`, `video`, or `text` instead" in
+            // ai.google.dev/api/live, and this tree once carried it by accident.
+            realtimeInput: { audio: { data: Buffer.from(pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } },
+          }),
+        );
+      } catch {
+        // A throw out of `send` used to travel up into the page's audio pump.
+        // Counted as lost, because this counter means "the provider took it".
+        audioUpLostFrames++;
+        return;
+      }
       audioUpFrames++;
-      socket.send(
-        JSON.stringify({
-          // `realtimeInput.audio` is the current field. `mediaChunks` is marked
-          // "DEPRECATED: Use one of `audio`, `video`, or `text` instead" in
-          // ai.google.dev/api/live, and this tree once carried it by accident.
-          realtimeInput: { audio: { data: Buffer.from(pcm).toString("base64"), mimeType: "audio/pcm;rate=16000" } },
-        }),
-      );
     },
     sendText(text) {
       if (socket.readyState !== 1 || !text.trim()) return;
@@ -1766,6 +1828,7 @@ export function startLiveSession(options: {
       }
     },
     ready,
+    stats,
   };
 }
 
@@ -2260,7 +2323,6 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   let audioStatsTimer: NodeJS.Timeout | null = null;
   let pageAudioInBytes = 0;
   let pageAudioInFrames = 0;
-  let providerAudioOutFrames = 0;
   let providerAudioInFrames = 0;
   let pageAudioOutBytes = 0;
   let daemonOpsSent = 0;
@@ -3916,7 +3978,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
     });
     page.on("message", (data: Buffer, isBinary: boolean) => {
       if (!isBinary && String(data) === "broker:ping") say({ broker: "ready" });
-      else if (isBinary && sessionState !== "muted") pageSession?.send(new Uint8Array(data));
+      else if (isBinary && sessionState !== "muted") {
+        // What the page handed over. Whether the provider took it is the
+        // session's number, reported beside this one — the gap between the two
+        // is the setup gate, and it used to be invisible.
+        pageAudioInFrames++;
+        pageAudioInBytes += data.byteLength;
+        pageSession?.send(new Uint8Array(data));
+      }
     });
     say({ broker: "ready" });
     // This door restores page capabilities only: no key read, model lookup,
@@ -4009,7 +4078,14 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
             });
           },
           onAudio: (pcm: Uint8Array) => {
-            if (page.readyState === page.OPEN) page.send(pcm);
+            // Counted on receipt, not on delivery: this is what the provider
+            // sent. What reached the page is the byte count below, and a page
+            // that closed mid-turn is the difference between them.
+            providerAudioInFrames++;
+            if (page.readyState === page.OPEN) {
+              page.send(pcm);
+              pageAudioOutBytes += pcm.byteLength;
+            }
           },
           onToolCall: async (name, args) => {
             const { canvas: snapCanvas } = await target.canvas.ctx.client.snapshot(target.canvas.id);
@@ -4734,11 +4810,19 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
 
   audioStatsTimer = setInterval(() => {
     if (sessionState === "live") {
+      // Asked of the session that did the sending, never kept as a second copy:
+      // these five fields were declared, printed every three seconds, and never
+      // incremented anywhere, so a real provider control that moved 3904 frames
+      // up and 17 parts down reported all zeros (isocan-xsh.8.4).
+      const wire = activeLiveSession?.stats();
       logLine("audio-stats", "live streaming throughput", {
         inFromPage: `${pageAudioInFrames} frames (${pageAudioInBytes}B)`,
-        outToProvider: `${providerAudioOutFrames} frames`,
+        outToProvider: `${wire?.audioUpFrames ?? 0} frames`,
+        gatedBeforeSetup: `${wire?.audioUpGatedFrames ?? 0} frames`,
+        lostAtSocket: `${wire?.audioUpLostFrames ?? 0} frames`,
         inFromProvider: `${providerAudioInFrames} frames`,
         outToPage: `${pageAudioOutBytes}B`,
+        messagesFromProvider: `${wire?.messagesIn ?? 0}`,
         totalDaemonOpsAck: daemonOpsAck,
       });
     }
