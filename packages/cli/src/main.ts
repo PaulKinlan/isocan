@@ -5477,7 +5477,10 @@ program
         if (arrival?.pass && daemonUp) {
           const answer = await client.redeemPass(arrival.pass, arrival.origin, !direct);
           if (!answer.actor) {
-            report.identity = "admitted — this pass carried no identity, so name yourself here";
+            report.identity =
+              "admitted — this pass carried no identity, so this machine has no person yet: " +
+              "`isocan identity --home --name \"You\"` names one here, or redeem a pass minted as you " +
+              "(the app's \"Bring your own agent\" line, or `isocan pass` on a machine that already is you)";
           } else {
             // The daemon owns replica setup's identity write alongside its
             // home badges. Direct setup's badge writer is this process.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,26 @@ describe("the browser is opened in one place, and can be told not to", () => {
     // If this spawned, the run would show it: `open` on a bad URL is still a
     // window. The assertion is that the call returns having done nothing.
     expect(() => openInBrowser("https://example.test/should-not-open")).not.toThrow();
+  });
+
+  it("says so on stderr, and does not throw, when the opener is not on this machine", async () => {
+    // A Codespace has no `xdg-open`; the spawn's `error` event used to be
+    // unhandled and took `isocan setup` down after its report (17 Sep 2026).
+    const before = process.env["ISOCAN_BROWSER"];
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    process.env["ISOCAN_BROWSER"] = "/nonexistent/isocan-test-opener";
+    try {
+      expect(() => openInBrowser("https://example.test/no-opener")).not.toThrow();
+      await vi.waitFor(() => expect(lines).toHaveLength(1));
+      expect(lines[0]).toContain("could not open a browser here (no `/nonexistent/isocan-test-opener` on this machine)");
+      expect(lines[0]).toContain("ISOCAN_BROWSER=none stops the attempt");
+    } finally {
+      process.env["ISOCAN_BROWSER"] = before;
+      spy.mockRestore();
+    }
   });
 
   it("is the only place that knows how to open one", async () => {

@@ -35,5 +35,18 @@ export function openInBrowser(url: string): void {
   const chosen = process.env["ISOCAN_BROWSER"]?.trim();
   if (chosen === "none") return;
   const opener = chosen || (process.platform === "darwin" ? "open" : "xdg-open");
-  spawn(opener, [url], { stdio: "ignore", detached: true }).unref();
+  /**
+   * **A machine with no opener is a report line, not a crash** (17 Sep 2026).
+   * A Codespace has no `xdg-open`, and `spawn` reports that as an `error`
+   * event on the child — unhandled, it took `isocan setup` down after the
+   * report was printed, with a stack trace where the next step should be.
+   * The callers already print the address, so the address is not lost; what
+   * is said here is why no window came, and the switch that stops the try.
+   */
+  const child = spawn(opener, [url], { stdio: "ignore", detached: true });
+  child.on("error", (err: NodeJS.ErrnoException) => {
+    const why = err.code === "ENOENT" ? `no \`${opener}\` on this machine` : err.message;
+    console.error(`could not open a browser here (${why}) — the address is printed above; ISOCAN_BROWSER=none stops the attempt`);
+  });
+  child.unref();
 }
