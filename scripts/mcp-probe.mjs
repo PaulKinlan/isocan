@@ -78,5 +78,9 @@ out.checks.waitAnnotation = (list?.result?.tools ?? []).find((t) => t.name === "
 out.checks.toolCount = (list?.result?.tools ?? []).length;
 
 console.log(JSON.stringify(out, null, 1));
-child.kill("SIGKILL");
+// The CLI can be gone before this runs: it exits when its stdin closes, and an
+// earlier failed call can end it. Killing a terminated child throws, which used
+// to flip a completed probe run to exit 1 with the output already printed —
+// the false-red family found in the cthe harness (chrome-agent-platform-hhh8).
+try { child.kill("SIGKILL"); } catch { /* already gone */ }
 process.exit(0);
