@@ -250,6 +250,83 @@ that already exists; the summons brief is a string; and what the asker sees
 is derived rather than stored, which `summons.ts` argues for at length — *a
 receipt is what the person who asked can see, not a fact the canvas holds.*
 
+## The privilege path, measured (18 September)
+
+`isocan-r8h` asked whether spending power rides the badge, and whether a local
+agent therefore holds its owner's. `scripts/spike-agent-authority.sh` is that
+question measured instead of argued: a throwaway home and a throwaway daemon, no
+network, nothing of the reader's touched, and no secret VALUE printed — the
+spend half prints variable names, which are not credentials. Run twice on
+`a770255c`, identical both times.
+
+| Question | Answer | What it showed |
+| --- | --- | --- |
+| Owner and agent are distinct actors | yes | `usr_zMhl…` vs `usr_3VRD…`, one badge |
+| The home records the agent as an agent | yes | registry `harnesses[id] = "agent"`, and `isAgentHarness` says agent |
+| Agent changed the link grant (own-gated) | **yes** | `capability=edit (absent)` → `read`, a new grant id |
+| Agent turned the link grant OFF (expels) | **yes** | the link row is gone, so every badge that came in on it is expelled |
+| Agent wrote an item (edit-gated) | yes | `wrote itm_… at 0,0` |
+| The write is recorded as the agent | yes | `createdBy: {id: usr_3VRD…, name: "Acme Agent"}` |
+| An HTTP route mints or returns a provider key | **no** | none of 63 routes match token/mint/apikey/credential/secret |
+
+The first two rows and the last one are the finding. **Identity is honest and
+authority does not read it**: the home knows perfectly well that `Acme Agent` is
+an agent, and that knowledge gates faces, counts and personal canvases
+(`server/src/personal.ts`) — and nothing about rungs. So the agent above changed
+who may enter its owner's canvas, and then expelled everybody who had, on a
+canvas it does not own.
+
+The mechanism is two lines. `capabilityIn(badge, canvasId)` reads the badge's
+ADMISSION and never an actor, and `rungOfAdmission` returns `own` for a
+`created` admission whatever the field says. `heldRung` does take an `asActor`,
+but its narrowing applies only to the FLOOR that raises a non-own admission to
+`own` — so on a canvas this machine created, the answer is already `own` on the
+first line and the actor is never consulted. That is the sentence this note
+already had: *an agent holds what the badge that enrolled it holds.*
+
+**Three corrections to `isocan-r8h`'s premises, which were read at `ed8efe0c`.**
+
+1. **Spending power does not ride the badge.** Two channels, and only one of
+   them is the badge's. Authority rides the admission rung, above. Spend rides
+   the summons ENVIRONMENT: `adapterEnv`'s passed prefixes hand the adapter
+   `ANTHROPIC_`, `CLAUDE_`, `OPENAI_`, `CODEX_`, `GEMINI_`, `GOOGLE_API_` and
+   `PI_` — measured, a synthetic `GEMINI_API_KEY` passes and a synthetic
+   `AWS_SECRET_ACCESS_KEY` does not, which is layer 1 doing exactly what it was
+   built for. No badge can reach a provider credential over HTTP at all: there
+   is no mint route, and the voice key is a `0600` file the harness holds while
+   "the page only ever sends audio to loopback". A badge cookie authorises; an
+   environment variable spends. Conflating them makes the hole larger than it is
+   in one place and smaller in the other.
+2. **`PERSON_HARNESSES` including `cli` does not make local agents persons.**
+   `adapterEnv` deletes every harness variable and sets `ISOCAN_HARNESS=agent`,
+   and `agent` is not in the set — so an enrolled agent classifies as an agent.
+   `cli` is the harness of a *person driving the CLI*, which is what the list is
+   for.
+3. **The impersonation half is closed.** Since room phase 3.5 an agent's session
+   key is `agent:<mac>`, an HMAC-SHA256 over its name keyed by
+   `~/.isocan/agent-secret` (`0600`, never printed or sent), so "any badge could
+   present `agent:Percy` with Percy's actor id and become a second holder" no
+   longer holds. What the badge shares is AUTHORITY, not identity.
+
+And the harm this note's recommendation was measured against is closed by a
+different lever than the one `isocan-r8h` proposes: #238's owner-only summons
+bounds who may START a turn, in `inbox.ts`'s own sentence — *the canvas may
+narrow; it may never spend.* Extending `content-auth.ts`'s HMAC to actor
+requests (the bead's ask (b)) would add a per-request signature to a channel
+that carries no spend, and would not change a rung.
+
+**What the measurement leaves standing, and it is not nothing.** An enrolled
+agent holds `own` on every canvas its machine created, and `own` is the rung
+that changes who may enter, expels whoever is already in, and deletes the
+canvas. Nothing distinguishes that from the owner's own hand except the actor
+name on the op — which is honest, and is not a control. The levers that exist
+are the two this note already named: the fence (`rc --sandbox`, opt-in by
+decision D1), and who may start a turn (#238, built). A third — making an
+`own`-gated act ask whether the ACTOR is a person, the way `personal.ts`
+already does — is one comparison in `heldRung` and no new cryptography, but it
+is a rung change for every agent on every canvas, which is ask (a) and is a
+decision rather than a fix. Neither trigger named below has fired.
+
 ## Open decisions
 
 - **Dion.** Does the #272 panel show a *what* section at all? The
