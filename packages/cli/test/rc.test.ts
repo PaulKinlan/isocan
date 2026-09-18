@@ -3,19 +3,8 @@ import { adoptRcAgent, type RcAgentRow } from "../src/rc.ts";
 import { agentSessionOf, machineAgentKey } from "../src/agent-key.ts";
 import { describe, expect, it, vi } from "vitest";
 
-// The suites in this file spawn a real `bin/isocan.js` CLI and test daemon across
-// 26 multi-step tests. Under parallel load, sequential spawns require a 60s
-// liveness bound to prevent wall-clock starvation while still failing loudly
-// on any genuine hang (isocan-7r8).
-// **No test in this file carries its own timeout argument, on purpose**
-// (isocan-swf). `it(name, fn, 30_000)` OVERRIDES the line above, so a literal at
-// the end of a test body is a second, competing bound that silently wins. This
-// file had eleven of them — seven at 30_000, two at 40_000, one at 60_000 and one
-// at 20_000, that last being TIGHTER than the 30s repo default, so for that test
-// isocan-7r8's calibration moved the bound the opposite way from its intent. All
-// eleven are gone and this file has one bound. If a test genuinely needs a
-// different one, say why beside it rather than leaving it implicit.
-vi.setConfig({ testTimeout: 60_000 });
+// (The global 60s `testTimeout` in vitest.config.ts governs these multi-step
+// CLI suites without per-file or per-test overrides, isocan-ril.)
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
