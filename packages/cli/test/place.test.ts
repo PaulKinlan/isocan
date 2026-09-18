@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { withoutNodeRuntimeWarnings } from "./node-runtime-noise";
 import { promises as fs } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -8,27 +8,14 @@ import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
 
-// The test in this file executes 24 sequential `bin/isocan.js` CLI spawns.
-// On an idle machine this takes ~11s (450ms/spawn); under parallel load with
-// competing worker forks, sequential spawns require a 60s liveness bound
-// (2.5s/spawn) to prevent wall-clock starvation while still failing loudly on
-// any genuine hang (isocan-7r8).
-//
-// **No test in this file carries its own timeout argument, on purpose**
-// (isocan-swf). `it(name, fn, 40_000)` OVERRIDES this line, so a literal at the
-// end of a long test body is a second, competing bound that silently wins — and
-// it is 126 lines away from the one that reads as though it governs. That is
-// exactly how the 60s bound landed inert: this file's only test closed with
-// `}, 40_000)` and failed under load at `Test timed out in 40000ms`, never
-// reaching the bound its own header comment claimed. One bound per file, here.
-// If a test genuinely needs a different one, say why beside it.
-vi.setConfig({ testTimeout: 60_000 });
-
 /**
  * **A canvas placed on a canvas, over the wire** (inception phase 0). Placed
  * by title prefix and by address; the item wears kind=canvas, the target's
  * id and its address; `ls --kind canvas` lists it; a canvas refuses itself;
  * and it lands inside a sheet like anything else.
+ *
+ * (The global 60s `testTimeout` in vitest.config.ts governs this multi-spawn
+ * test without per-file or per-test overrides, isocan-ril.)
  */
 
 const cliBin = fileURLToPath(new URL("../bin/isocan.js", import.meta.url));
