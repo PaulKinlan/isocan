@@ -20,7 +20,33 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import os from "node:os";
 
+/**
+ * Compute the number of synthetic CPU burners to spawn based on ambient load.
+ * Target saturation is ~12-16 active threads (half of CPU capacity on 32-core box).
+ * If ambient load is already >= targetPressure, returns workerCount = 0 to avoid
+ * compounding already-high load (e.g. multi-agent fleet running at load 30-76).
+ */
+export function computeBurnerCount(ambientLoad: number, cpus = os.cpus().length): { workerCount: number; targetPressure: number } {
+  const targetPressure = Math.min(16, Math.max(4, Math.floor(cpus / 2)));
+  const workerCount = ambientLoad >= targetPressure
+    ? 0 // Ambient machine load already provides the required saturation
+    : Math.min(8, Math.max(2, Math.round(targetPressure - ambientLoad)));
+  return { workerCount, targetPressure };
+}
+
 describe("isocan-7r8: CLI flake isolation under controlled saturation", () => {
+  it("burner count computation correctly branches on ambient load", () => {
+    // Branch A: Machine already saturated (ambientLoad >= targetPressure) -> workerCount = 0
+    expect(computeBurnerCount(76.5, 32).workerCount).toBe(0);
+    expect(computeBurnerCount(33.0, 32).workerCount).toBe(0);
+    expect(computeBurnerCount(16.0, 32).workerCount).toBe(0);
+
+    // Branch B: Machine quiet -> scales synthetic burners up to cap (8)
+    expect(computeBurnerCount(2.0, 32).workerCount).toBe(8);
+    expect(computeBurnerCount(10.0, 32).workerCount).toBe(6);
+    expect(computeBurnerCount(14.0, 32).workerCount).toBe(2);
+  });
+
   it("direction 1: place.test.ts passes cleanly under controlled CPU saturation", async () => {
     // Controlled saturation: target saturation is ~12-16 active threads.
     // If the machine already has high ambient load (e.g. multi-agent fleet running,
@@ -28,10 +54,7 @@ describe("isocan-7r8: CLI flake isolation under controlled saturation", () => {
     // oversubscription (load > 75). Instead, dynamically scale synthetic burners
     // based on ambient load so total pressure is controlled and bounded.
     const ambientLoad = os.loadavg()[0];
-    const targetPressure = Math.min(16, Math.max(4, Math.floor(os.cpus().length / 2)));
-    const workerCount = ambientLoad >= targetPressure
-      ? 0 // Ambient machine load already provides the required saturation
-      : Math.min(8, Math.max(2, Math.round(targetPressure - ambientLoad)));
+    const { workerCount, targetPressure } = computeBurnerCount(ambientLoad);
 
     const workers: Worker[] = [];
     for (let i = 0; i < workerCount; i++) {
@@ -39,7 +62,10 @@ describe("isocan-7r8: CLI flake isolation under controlled saturation", () => {
     }
 
     try {
-      // Run place.test.ts using npx vitest run
+      // Timeout trade: 120s child process timeout (and 150s test timeout) provides
+      // adequate headroom for nested Vitest initialization, on-the-fly TSX
+      // compilation, and the 60s test liveness bound under heavy saturation,
+      // without prematurely cutting off via execFileSync's wrapper.
       const result = execFileSync(
         process.execPath,
         ["./node_modules/vitest/vitest.mjs", "run", "packages/cli/test/place.test.ts"],
