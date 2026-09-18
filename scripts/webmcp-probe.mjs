@@ -1,6 +1,9 @@
 // webmcp-probe.mjs — the revision's executable evidence, on real browsers.
 //
-//   node scripts/webmcp-probe.mjs <chromePath> [--enable-features=WebMCP] [mode]
+//   node scripts/webmcp-probe.mjs <chromePath> [chromeFlag...] [mode]
+//
+// Both `<binary> annotations` and `<binary> --enable-features=WebMCP annotations` work:
+// flags are recognised by their leading dashes, not by position (isocan-7rf).
 //
 // The binary comes FIRST; `mode` defaults to `annotations` and is the only mode
 // here. The frame-protocol conditions live in scripts/webmcp-frames.mjs, which
@@ -20,10 +23,21 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const WebSocket = require("ws");
 
-const BIN = process.argv[2];
-const FLAG = process.argv[3] ?? "";
-const MODE = process.argv[4] ?? "annotations";
+// Argument parsing is positional-INDEPENDENT on purpose (isocan-7rf): the flag
+// is optional, so a positional parse of argv[3]/argv[4] made
+// `<binary> annotations` (the documented flagless form) pass "annotations" to
+// Chrome as a target and die with "Multiple targets are not supported in
+// headless mode". Now: the binary is the first existing path, anything starting
+// with `-` is a Chrome flag, and the first remaining non-empty word is the mode.
+// An empty-string placeholder (`<binary> '' annotations`) still works, and
+// extra positionals after the mode are passed through to Chrome.
+const argv = process.argv.slice(2);
+const BIN = argv.find((a) => !a.startsWith("-") && existsSync(a)) ?? argv[0];
 if (!BIN || !existsSync(BIN)) throw new Error(`chrome not found: ${BIN}`);
+const FLAGS = argv.filter((a) => a !== BIN && a.startsWith("-"));
+const POSITIONAL = argv.filter((a) => a !== BIN && !a.startsWith("-") && a !== "");
+const MODE = POSITIONAL[0] ?? "annotations";
+const EXTRA_CHROME_ARGS = POSITIONAL.slice(1);
 const CHILD_ORIGIN = "http://127.0.0.1:8941";
 const PARENT_ORIGIN = "http://127.0.0.1:8942";
 
@@ -34,7 +48,8 @@ async function launch() {
   const proc = spawn(BIN, [
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${dir}`,
     "--no-first-run", "--disable-gpu",
-    ...(FLAG ? [FLAG] : []),
+    ...FLAGS,
+    ...EXTRA_CHROME_ARGS,
     "about:blank",
   ], { stdio: "ignore" });
   const file = path.join(dir, "DevToolsActivePort");
