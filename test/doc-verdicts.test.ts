@@ -37,7 +37,10 @@ describe("a project doc's own prose does not contradict its front matter", () =>
   });
 
   const tmp = mkdtempSync(path.join(os.tmpdir(), "isocan-doc-verdicts-"));
-  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+  // `maxRetries` is not optional here: `test/teardown.test.ts` scans the suite for
+  // a recursive rm without it, because a scratch directory removed while a
+  // spawned child is still writing loses the race and takes the next test with it.
+  afterAll(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   /** One fixture project: an authority doc carrying the status, and a phases doc carrying the prose. */
   const project = (name: string, status: string, prose: string) => {
