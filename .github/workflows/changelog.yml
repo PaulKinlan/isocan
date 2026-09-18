@@ -109,10 +109,24 @@ jobs:
         run: |
           git config user.name "isocan changelog"
           git config user.email "noreply@github.com"
-          git checkout -b "changelog/$DAY"
-          git add docs/changelog
-          git commit -m "Changelog: $DAY"
-          git push -u origin "changelog/$DAY"
-          gh pr create --base main --head "changelog/$DAY" \
+          # A same-day retry must reuse the PR and must not overwrite a writer's
+          # edits, and it must not red-run trying. If the branch is already on
+          # the remote then the day is already drafted, so this run leaves it
+          # alone and says so; if an earlier run died between the push and the
+          # PR, the PR is opened below against the branch that is already there.
+          # No `--force` here, where `grades/` has one: these pages are authored,
+          # and a blanket force over an authored draft is what isocan-v1d R3
+          # ruled out. A generated page can be rebuilt; a writer's sentence
+          # cannot.
+          if git ls-remote --exit-code --heads origin "changelog/$DAY" >/dev/null 2>&1; then
+            echo "changelog/$DAY is already on the remote — leaving the draft, and any edits to it, alone"
+          else
+            git checkout -b "changelog/$DAY"
+            git add docs/changelog
+            git commit -m "Changelog: $DAY"
+            git push -u origin "changelog/$DAY"
+          fi
+          gh pr list --head "changelog/$DAY" --json number --jq '.[0].number' | grep -q . || \
+            gh pr create --base main --head "changelog/$DAY" \
             --title "Changelog: $DAY" \
             --body "Written from the day's commits by \`scripts/changelog-day.mjs\`. Read it before merging — the summary is a judgement, and judgements are the part worth checking."

@@ -121,10 +121,22 @@ Three bounds hold all of them:
 - **A workflow touches only its own branches** (`changelog/`, `grades/`,
   `personas/`) — never another workflow's PRs, never a person's.
 - **A merge is checked, not trusted — and the check has to be run, not
-  awaited.** PRs opened by `GITHUB_TOKEN` fire no `pull_request` workflows, so
-  no machine PR has ever carried a suite check — including the persona PRs
-  that merge themselves. The merge step runs the suite against the branch
-  itself; a red suite leaves the PR for a person.
+  awaited.** A PR opened with `GITHUB_TOKEN` *does* fire `pull_request` for the
+  `opened`, `synchronize` and `reopened` activity types — but GitHub puts those
+  runs in an **approval-required** state, where they sit until someone with
+  write access selects *Approve workflows to run*. So nothing checks a machine PR
+  at three in the morning, and no machine PR has ever carried a suite check on
+  its own, including the persona PRs that merge themselves. This sentence used
+  to say the blunter and wrong thing — that such PRs "fire no `pull_request`
+  workflows" — and the difference matters, because the runs exist and could be
+  approved. GitHub's own words, read 18 Sep 2026: "the resulting `pull_request`
+  event creates workflow runs in an approval-required state"
+  ([`GITHUB_TOKEN` → When `GITHUB_TOKEN` triggers workflow runs](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs)).
+  The same page names the way out — a GitHub App installation token or a personal
+  access token instead of `GITHUB_TOKEN` — which this repo has not adopted, so
+  the approval gate stands and the explicit check is not optional. The merge step
+  runs the suite against the branch itself; a red suite leaves the PR for a
+  person.
 - **Closing is reversible.** Supersede closes the PR, keeps the branch, and
   the closing comment says how to recover it.
 
