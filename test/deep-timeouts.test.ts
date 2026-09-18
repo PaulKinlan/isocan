@@ -47,10 +47,26 @@ export const KNOWN_FILES_WITH_TIGHTER_LITERALS = new Set([
 
 /**
  * Historical ceiling of tighter-than-60s literals across DEEP files.
- * Reconciled exactly against qwen2's census instrument (deep-timeout-census.mjs):
- * 13× 20000, 3× 25000, 70× 30000, 32× 40000, 1× 45000 = 119 total.
+ *
+ * **114, measured — not the 119 this landed with.** The first value came from the
+ * verifier's census instrument counting 70 "DEEP files": it matched every
+ * `file: "…"` in the *text* of `test/deep.ts`, which exports TWO lists — `DEEP`
+ * (46 files) and `FAST_SPAWNERS` (24). This guard imports `DEEP`, so it scans 46
+ * files and finds 114. A ceiling five above the population it measures is five
+ * regressions wide before it fires, which is the one direction a ratchet must
+ * never be wrong in.
+ *
+ * Counted by `scanTighterLiterals(DEEP)` on `8ba87b46`, and cross-checked by the
+ * corrected census: 12× 20000, 3× 25000, 66× 30000, 32× 40000, 1× 45000 = **114**,
+ * across 16 files. (The superseded breakdown read 13/3/70/32/1 = 119 over 70 files.)
+ *
+ * The general rule this cost a landing to learn: **a census that parses source text
+ * is not a census of what the code does.** The guard imports `DEEP`; anything that
+ * measures the guard's population has to count the same one. One runtime probe —
+ * printing `DEEP.length` — settles it, and is cheaper than reconciling two
+ * instruments afterwards.
  */
-export const TIGHTER_LITERALS_CEILING = 119;
+export const TIGHTER_LITERALS_CEILING = 114;
 
 export interface TimeoutLiteralHit {
   file: string;
