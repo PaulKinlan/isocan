@@ -3,17 +3,32 @@
 // Invariant: No DEEP test file may introduce a new per-test timeout literal
 // tighter than the global 60s floor (`vitest.config.ts`).
 //
+// Population & Scope:
+// This ratchet polices the 46 files declared in `DEEP` (test/deep.ts).
+//
+// KNOWN GAP (FAST_SPAWNERS):
+// The 24 CLI-spawning test files in `FAST_SPAWNERS` (test/deep.ts) run in the
+// fast lane (`npm test`) rather than the deep lane (`npm run test:deep`).
+// They currently carry 5 tighter literals across 2 files:
+//   - packages/cli/test/rehome.test.ts (4)
+//   - packages/cli/test/operator-revoke.test.ts (1)
+// Note that `packages/cli/test/grid.test.ts` (the file whose timeout failure
+// prompted isocan-ril) belongs to FAST_SPAWNERS and currently has 0 literals
+// (relying on the 60s floor). FAST_SPAWNERS are NOT scanned by this DEEP-only
+// ratchet; expanding ratchet coverage to FAST_SPAWNERS is tracked as a follow-up.
+//
 // Background (isocan-7r8, isocan-swf, isocan-ril):
 // A per-test literal (e.g. `}, 30_000)` or `}, 20_000)`) outranks file-level
 // config in Vitest. When the global timeout was raised to 60s for multi-spawn
-// CLI suites, 119 tighter literals in 41 files silently superseded the global bound.
+// CLI suites, tighter literals silently superseded the global bound.
 //
-// This guard ratchets the existing tighter literals (currently 120 across 19 files)
+// This guard ratchets the existing tighter literals across DEEP files
 // so the direction is strictly monotone: new files cannot introduce tighter literals,
 // and existing ones can only decrease as they are individually reviewed.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEEP } from "./deep.ts";
@@ -21,8 +36,15 @@ import { DEEP } from "./deep.ts";
 const repo = fileURLToPath(new URL("..", import.meta.url));
 
 /**
- * The known 18 DEEP files that historically carry per-test literals tighter than 60s.
+ * The known 16 DEEP files that historically carry per-test literals tighter than 60s.
  * No NEW file may be added to this set.
+ *
+ * Reconciled from 18 to 16 files:
+ * `packages/cli/test/operator-revoke.test.ts` (1 literal) and
+ * `packages/cli/test/rehome.test.ts` (4 literals) belong to `FAST_SPAWNERS`,
+ * not `DEEP`. They were originally listed here when census summed both lists;
+ * they are now removed from this DEEP-only allowlist and documented above under
+ * the FAST_SPAWNERS known gap.
  */
 export const KNOWN_FILES_WITH_TIGHTER_LITERALS = new Set([
   "packages/cli/test/acp.test.ts",
@@ -32,12 +54,10 @@ export const KNOWN_FILES_WITH_TIGHTER_LITERALS = new Set([
   "packages/cli/test/direct.test.ts",
   "packages/cli/test/dispatch.test.ts",
   "packages/cli/test/home.test.ts",
-  "packages/cli/test/operator-revoke.test.ts",
   "packages/cli/test/operator.test.ts",
   "packages/cli/test/park.test.ts",
   "packages/cli/test/rc-sheep-withdrawal.test.ts",
   "packages/cli/test/rc-sheep.test.ts",
-  "packages/cli/test/rehome.test.ts",
   "packages/cli/test/restart.test.ts",
   "packages/cli/test/session-identity.test.ts",
   "packages/cli/test/wait-cursor.test.ts",
@@ -46,11 +66,12 @@ export const KNOWN_FILES_WITH_TIGHTER_LITERALS = new Set([
 ]);
 
 /**
- * Historical ceiling of tighter-than-60s literals across DEEP files.
+ * Historical ceiling of tighter-than-60s literals across the 46 DEEP files.
  * Reconciled exactly against qwen2's census instrument (deep-timeout-census.mjs):
- * 13× 20000, 3× 25000, 70× 30000, 32× 40000, 1× 45000 = 119 total.
+ * 114 total across 16 DEEP files.
+ * (Note: 114 in DEEP + 5 in FAST_SPAWNERS = 119 total across both lists).
  */
-export const TIGHTER_LITERALS_CEILING = 119;
+export const TIGHTER_LITERALS_CEILING = 114;
 
 export interface TimeoutLiteralHit {
   file: string;
@@ -116,15 +137,26 @@ describe("deep lane timeout literal ratchet (isocan-ril Option 3)", () => {
   });
 
   it("falsification: catches an unlisted file introducing a tighter literal", () => {
-    const mockFiles = [
-      { file: "packages/cli/test/place.test.ts" }, // place.test.ts has 0 literals on main
-    ];
-    // Scanner on a synthetic content with a 40s literal
-    const mockHits = [
-      { file: "packages/cli/test/place.test.ts", line: 142, ms: 40_000, text: "}, 40_000);" },
-    ];
-    const unlisted = mockHits.filter((h) => !KNOWN_FILES_WITH_TIGHTER_LITERALS.has(h.file));
-    expect(unlisted.length).toBe(1);
-    expect(unlisted[0].ms).toBe(40_000);
+    const tempDir = mkdtempSync(path.join(tmpdir(), "isocan-ril-falsify-"));
+    try {
+      const relPath = "packages/cli/test/unlisted-sample.test.ts";
+      const fullPath = path.join(tempDir, relPath);
+      mkdirSync(path.dirname(fullPath), { recursive: true });
+      writeFileSync(
+        fullPath,
+        `import { it } from "vitest";\nit("sample case", async () => {\n  // do work\n}, 40_000);\n`,
+        "utf8",
+      );
+
+      const hits = scanTighterLiterals([{ file: relPath }], tempDir);
+      expect(hits.length, "scanner must detect the 40s literal in the file").toBe(1);
+      expect(hits[0].ms).toBe(40_000);
+
+      const unlisted = hits.filter((h) => !KNOWN_FILES_WITH_TIGHTER_LITERALS.has(h.file));
+      expect(unlisted.length, "unlisted file must be flagged as a violation").toBe(1);
+      expect(unlisted[0].file).toBe(relPath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
