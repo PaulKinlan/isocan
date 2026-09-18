@@ -33,6 +33,7 @@ import { useWebHost } from "../lib/modulehost.ts";
  */
 export function ModuleOverlays({ canvasId, actor }: { canvasId: string; actor: Actor }) {
   const canvas = useCanvasStore((s) => s.canvas);
+  const project = useCanvasStore((s) => s.project);
   // Re-render when a runtime module arrives, and when an experiment is
   // switched on — `modules()` is a function for exactly these two reasons.
   useUiStore((s) => s.modulesGeneration);
@@ -64,7 +65,7 @@ export function ModuleOverlays({ canvasId, actor }: { canvasId: string; actor: A
                   className="module-overlay floats"
                   aria-label={overlay.label}
                 >
-                  <Body canvasId={canvasId} canvas={canvas} host={host} />
+                  <Body canvasId={canvasId} canvas={canvas} host={host} groupMode={project?.groupMode ?? "legacy"} />
                 </div>
               );
             })}

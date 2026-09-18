@@ -15,6 +15,7 @@
  */
 import {
   BROWSER_MIME,
+  DEFAULT_COMMAND_CATALOGUE,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
   drawingSvg,
@@ -38,10 +39,20 @@ import type { ListedItem } from "@isocan/api";
  * and the text in the session can be the same text.
  */
 export const VOICE_RULES =
-  "You are Voice, an enrolled agent on an isocan canvas, talking out loud with the collaborator who owns it. " +
+  "You are Voice, an agent on an isocan canvas, talking out loud with the collaborator who owns it. " +
+  "You get things done, not described: you work the task yourself. " +
   "Keep replies concise (1-2 sentences): you are a real-time voice in the room, not a report. " +
   "MANDATORY: When the collaborator asks to create, modify, rename, delete, move, comment on, or react to anything on the canvas, " +
   "YOU MUST IMMEDIATELY CALL THE CORRESPONDING TOOL. NEVER reply in speech that you will do it, or that you did it, without calling the tool first.\n" +
+  "ACT LIKE AN AGENT:\n" +
+  "- Decompose multi-step requests and run the steps yourself, calling tools in sequence. " +
+  "Check the canvas between steps with read_canvas when you need its current state.\n" +
+  "- Do everything your tools can do directly on the canvas.\n" +
+  "- Ask ONE clarifying question only when the task truly cannot proceed without the answer; " +
+  "otherwise choose the most reasonable reading, act, and say what you did.\n" +
+  "- When the work needs an agent or a command — generating code, slides, decks, audits, assets — " +
+  "issue the command yourself: post it to the canvas Chat with `say` (for example, say \"/build a calculator app\"). " +
+  "The agents there execute it and report back. Never tell the person to do it themselves.\n" +
   "Tool mapping rules:\n" +
   "- 'delete <item>' or 'remove <item>' -> call delete_item\n" +
   "- 'comment on <item> ...' or 'add comment ...' -> call comment_on_item\n" +
@@ -51,8 +62,6 @@ export const VOICE_RULES =
   "- 'draw ...' or 'sketch ...' -> call drawing_add\n" +
   "The tools are the canvas's own operations, they are instant, and every one of them is undoable. " +
   "You have full read access to canvas items, versions, presence, and threads to understand project state. " +
-  "If a request needs heavy asynchronous work (generating large codebases, design critiques), say you are " +
-  "putting it in the Chat and use `say`. " +
   "If you cannot tell which item they mean, use `read_canvas` first or ask.";
 
 /* ---- voiceInstruction ---- */
@@ -126,14 +135,16 @@ export const LIVE_TOOLS = [
     description:
       "Add something to the canvas. A note: title + text. A live web page: pass url (e.g. 'add a web page', " +
       "'put localhost:3000 on the canvas', 'show me example.com'). A page is an ordinary item whose content is a " +
-      "text/uri-list, so it renders as a live site.",
+      "text/uri-list, so it renders as a live site." +
+      "A page YOU build: pass kind 'html' and the full HTML in text (e.g. 'build a calculator as html') — it embeds on the canvas " +
+      "as an interactive page.",
     parameters: {
       type: "OBJECT",
       properties: {
         title: { type: "STRING", description: "The title of the new item." },
         text: { type: "STRING", description: "The note's markdown or text content." },
         url: { type: "STRING", description: "A web address to add as a live page (http(s) or host:port)." },
-        kind: { type: "STRING", description: "What kind of item: 'note' (default) or 'site'." },
+        kind: { type: "STRING", description: "What kind of item: 'note' (default), 'site' (a URL to embed), or 'html' (you write the markup; it embeds as a page)." },
         x: { type: "NUMBER", description: "Optional x position on canvas." },
         y: { type: "NUMBER", description: "Optional y position on canvas." },
       },
@@ -722,6 +733,18 @@ export function liveSetup(
  * surfaces. The ids are authoritative and are what a tool call must echo;
  * the titles are what a person reads.
  */
+/**
+ * **The commands the canvas's agents execute, in the one catalogue the
+ * app's own list reads** — names WITH their usage, so a planning voice can
+ * compose the right command rather than describing one. A command posted as
+ * a main-thread message is picked up by the agents there.
+ */
+export function commandsBrief(): string {
+  return DEFAULT_COMMAND_CATALOGUE.map(
+    (c) => `/${c.name}${c.usage ? ` ${c.usage}` : ""} — ${c.description}`,
+  ).join("\n");
+}
+
 export function canvasSnapshotText(
   items: { id: string; title?: string }[],
   threads: { id: string; comments: unknown[] }[],
@@ -764,6 +787,31 @@ export function planForCall(name: string, args: Record<string, unknown>): { plan
                 y: args.y !== undefined ? Number(args.y) : undefined,
               },
               said: `add "${title}" as a web page`,
+            },
+          ],
+        };
+      }
+      if (args.kind === "html") {
+        // The voice writes the page itself and it embeds on the canvas as an
+        // interactive item — the same shape `isocan add index.html` makes.
+        const html = String(args.text ?? "");
+        if (!html.trim()) {
+          return { plans: [], what: "building a page needs its markup — put the full HTML in `text`" };
+        }
+        const title = String(args.title ?? "Page");
+        return {
+          plans: [
+            {
+              op: {
+                type: "item.add",
+                title,
+                text: html,
+                mime: "text/html",
+                filename: "index.html",
+                x: args.x !== undefined ? Number(args.x) : undefined,
+                y: args.y !== undefined ? Number(args.y) : undefined,
+              },
+              said: `built "${title}" as an embedded page`,
             },
           ],
         };

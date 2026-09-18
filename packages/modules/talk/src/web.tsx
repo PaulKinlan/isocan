@@ -14,7 +14,7 @@ import {
   type WebModule,
 } from "@isocan/core";
 import { LevelMeter, Playback, capture, fromBytes, type Capture } from "./audio.ts";
-import { LIVE_MODEL, canvasSnapshotText, liveSetup, liveUrl, planForCall } from "./live.ts";
+import { LIVE_MODEL, canvasSnapshotText, commandsBrief, liveSetup, liveUrl, planForCall } from "./live.ts";
 import { voiceCore } from "./core.ts";
 
 /**
@@ -194,7 +194,11 @@ export async function runTool(
       const mime = String(op.mime ?? "text/markdown");
       // A drawing is an SVG file; a note is markdown. The mime says which.
       const filename = String(
-        op.filename ?? (mime === "image/svg+xml" ? "sketch.svg" : mime === "text/markdown" ? "note.md" : "note.txt"),
+        op.filename ??
+          (mime === "image/svg+xml" ? "sketch.svg"
+          : mime === "text/markdown" ? "note.md"
+          : mime === "text/html" ? "index.html"
+          : "note.txt"),
       );
       // The blob carries its declared type, so the daemon stores it under the
       // mime the op announces — an untyped blob uploads as octet-stream and
@@ -383,6 +387,15 @@ function useTalkSession(facts: PanelFacts, autoStart = false) {
     say("system", "opening the live session…");
     const socket = new WebSocket(liveUrl(key.trim()));
     socketRef.current = socket;
+    /**
+     * The provider's own acknowledgement that it is ready for audio. An OPEN
+     * socket is not that: the harness sent 192 of 208 frames before
+     * `setupComplete` on a keyless run and 128 before acknowledgement on a real
+     * key (isocan-xsh.8.5). A local, not React state — the capture callback
+     * below closes over this scope, and state read from a closure is stale.
+     */
+    let providerReady = false;
+    let gatedFrames = 0;
     const playback = new Playback();
     playbackRef.current = playback;
 
@@ -395,7 +408,8 @@ function useTalkSession(facts: PanelFacts, autoStart = false) {
         Object.values(factsRef.current.canvas.items ?? {}).map((i) => ({ id: i.id, title: i.title })),
         Object.values(factsRef.current.canvas.threads ?? {}).map((t) => ({ id: t.id, comments: t.comments })),
       );
-      socket.send(JSON.stringify(liveSetup(model.trim(), { source: "canvas", text: snapshot })));
+      const instructions = { source: "canvas", text: [commandsBrief(), snapshot].join("\n\n") };
+      socket.send(JSON.stringify(liveSetup(model.trim(), instructions)));
     };
     socket.onclose = (event: CloseEvent) => {
       captureRef.current?.stop();
@@ -423,8 +437,14 @@ function useTalkSession(facts: PanelFacts, autoStart = false) {
         return;
       }
       if (message.setupComplete) {
+        providerReady = true;
         setState("live");
         say("system", "listening — talk, or press the mic to end");
+        // Dropped rather than buffered: audio from before the provider was
+        // ready is stale by the time it could use it, and the bead that filed
+        // this asked for readiness handling without replaying stale effects.
+        // Said, because a count nobody can see is the same silence.
+        if (gatedFrames > 0) say("system", `${gatedFrames} microphone frame${gatedFrames === 1 ? "" : "s"} dropped before the provider was ready`);
       }      const content = message.serverContent as Record<string, unknown> | undefined;
       if (content) {
         if (content.inputTranscription && (content.inputTranscription as { text?: string }).text)
@@ -475,6 +495,10 @@ function useTalkSession(facts: PanelFacts, autoStart = false) {
       const captureHandle = await capture(
         (pcm) => {
           inMeter.current.feed(pcm);
+          if (!providerReady) {
+            gatedFrames++;
+            return;
+          }
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(
               JSON.stringify({
@@ -564,14 +588,12 @@ function CaptionToast({ lines }: { lines: Line[] }) {
  *  pulse, the bars, the last words — floats with it and is gone when the
  *  turn is. The config panel only opens when there is no key yet; with a
  *  key, a press is the whole gesture. */
-function MicOverlay({ canvasId, canvas, host }: OverlayFacts) {
+function MicOverlay({ canvasId, canvas, host, groupMode }: OverlayFacts) {
   const session = useTalkSession({
     canvasId,
     canvas,
     canEdit: true,
-    // OverlayFacts does not carry the canvas mode, so the overlay assumes
-    // the groups default — canvases born today.
-    groupMode: "groups",
+    groupMode,
     host,
   });
   const [configOpen, setConfigOpen] = useState(false);

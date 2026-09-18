@@ -2696,6 +2696,12 @@ describe("the Live API path", () => {
     expect(setup.model).toBe(LIVE_MODEL);
     expect(setup.generationConfig.responseModalities).toEqual(["AUDIO"]);
 
+    // The provider has to acknowledge the setup before audio means anything:
+    // this test used to send straight into an OPEN-but-unacknowledged socket,
+    // which is the defect isocan-xsh.8.5 filed, so it asserted the bug.
+    socket.emit({ setupComplete: {} });
+    await new Promise((r) => setTimeout(r, 0));
+
     session.send(new Uint8Array([1, 2, 3, 4]));
     const audio = JSON.parse(sent[1] ?? "{}") as { realtimeInput: { audio: { mimeType: string; data: string } } };
     expect(audio.realtimeInput.audio.mimeType).toBe("audio/pcm;rate=16000");
@@ -3267,6 +3273,274 @@ describe("the Live API path", () => {
       await server.close();
     }
   });
+
+  /**
+   * **isocan-xsh.8.5 — the readiness contract.** The socket being OPEN is not
+   * the provider being ready. Measured on the real wire: 192 of 208 frames went
+   * up before `setupComplete` on a keyless run, and 128 before acknowledgement
+   * on a real one, with 48 page frames dropped while the provider transport was
+   * still opening. This asserts the behaviour, not a counter — on unfixed main
+   * it fails because all five frames are on the wire.
+   */
+  it("holds audio until the provider says setupComplete, not until the socket opens", async () => {
+    const sent: string[] = [];
+    let socket!: { emit: (message: unknown) => void };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "AIza-test" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    // OPEN, and the setup message away. The provider has not answered it.
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0] ?? "{}").setup).toBeDefined();
+
+    for (let i = 0; i < 5; i++) session.send(new Uint8Array([i, i, i, i]));
+    expect(sent).toHaveLength(1);
+
+    socket.emit({ setupComplete: {} });
+    await new Promise((r) => setTimeout(r, 0));
+    session.send(new Uint8Array([9, 9, 9, 9]));
+    session.send(new Uint8Array([8, 8, 8, 8]));
+    expect(sent).toHaveLength(3);
+    expect(JSON.parse(sent[1] ?? "{}").realtimeInput.audio.mimeType).toBe("audio/pcm;rate=16000");
+  });
+
+  /**
+   * **isocan-xsh.8.4 — the frames the hold refused are a fact, not silence.**
+   * Gating without counting is how 48 dropped page frames went unmeasured: the
+   * gate and the counter are the same two lines, so they are fixed together.
+   */
+  it("counts what the setupComplete gate refused, and keeps that count after the gate opens", async () => {
+    const sent: string[] = [];
+    let socket!: { emit: (message: unknown) => void };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "AIza-test" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 5; i++) session.send(new Uint8Array([i]));
+    expect(session.stats().audioUpGatedFrames).toBe(5);
+    expect(session.stats().audioUpFrames).toBe(0);
+
+    socket.emit({ setupComplete: {} });
+    await new Promise((r) => setTimeout(r, 0));
+    session.send(new Uint8Array([9]));
+    const after = session.stats();
+    expect(after.audioUpFrames).toBe(1);
+    expect(after.audioUpGatedFrames).toBe(5);
+  });
+
+  /** isocan-xsh.8.4 — "sent" means the socket took it, not that we handed it over. */
+  it("counts a frame as sent only when the provider socket accepted it", async () => {
+    const sent: string[] = [];
+    let refuseNext = false;
+    let socket!: { emit: (message: unknown) => void; readyState: number };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        if (refuseNext) {
+          refuseNext = false;
+          throw new Error("provider transport still opening");
+        }
+        sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "AIza-test" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    socket.emit({ setupComplete: {} });
+    await new Promise((r) => setTimeout(r, 0));
+
+    session.send(new Uint8Array([1]));
+    refuseNext = true;
+    session.send(new Uint8Array([2]));
+    session.send(new Uint8Array([3]));
+    expect(session.stats().audioUpFrames).toBe(2);
+    expect(session.stats().audioUpLostFrames).toBe(1);
+
+    // A socket that is not open loses the frame rather than pretending to send it.
+    socket.readyState = 0;
+    session.send(new Uint8Array([4]));
+    expect(session.stats().audioUpFrames).toBe(2);
+    expect(session.stats().audioUpLostFrames).toBe(2);
+  });
+
+  /**
+   * isocan-xsh.8.4 — "preserve incoming message counts separately from audio
+   * counts". The real control saw 17 parts down and no way to ask how many
+   * messages carried them, so a provider that stopped sending audio but kept
+   * sending text looked identical to one that had gone quiet.
+   */
+  it("counts every provider message separately from the audio parts inside them", async () => {
+    let socket!: { emit: (message: unknown) => void };
+    class FakeSocket {
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        socket = this as unknown as typeof socket;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send() {}
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const session = startLiveSession({
+      key: { provider: "gemini", key: "AIza-test" },
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    socket.emit({ setupComplete: {} });
+    socket.emit({ serverContent: { outputTranscription: { text: "hello" } } });
+    socket.emit({
+      serverContent: {
+        modelTurn: {
+          parts: [
+            { inlineData: { data: Buffer.from([1, 2]).toString("base64") } },
+            { inlineData: { data: Buffer.from([3, 4]).toString("base64") } },
+          ],
+        },
+      },
+    });
+    socket.emit({ serverContent: { turnComplete: true } });
+    await new Promise((r) => setTimeout(r, 0));
+    const stats = session.stats();
+    expect(stats.messagesIn).toBe(4);
+    expect(stats.audioDownFrames).toBe(2);
+  });
+
+  /**
+   * **isocan-xsh.8.4 — the headline symptom.** The real-provider control moved
+   * 3904 frames up and 17 parts down while every periodic audio-stats field
+   * read zero. At source the cause is plain: `pageAudioInFrames`,
+   * `pageAudioInBytes`, `providerAudioOutFrames`, `providerAudioInFrames` and
+   * `pageAudioOutBytes` are declared, printed every three seconds, and never
+   * incremented anywhere. This drives one real round trip through the server and
+   * waits for one periodic line.
+   */
+  it("reports the audio it actually moved on the periodic line, not zeros", async () => {
+    await writeVoiceKey(home, { provider: "gemini", key: "AIza-live-test" });
+    const statsLines: string[] = [];
+    let providerSocket!: { emit: (message: unknown) => void; sent: string[] };
+    class FakeLiveSocket {
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor(readonly url: string) {
+        providerSocket = this;
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {}
+      emit(message: unknown) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }
+    const server = await startVoiceServer({
+      home,
+      port: 0,
+      identity: await identityFor(),
+      canvas: "prj_1",
+      daemonPort: Number(new URL(base).port),
+      confirmTimeoutMs: 2000,
+      onLine: (line: string) => {
+        if (line.includes("[audio-stats]")) statsLines.push(line);
+      },
+      WebSocketImpl: FakeLiveSocket as unknown as typeof WebSocket,
+    });
+    let clientWs: import("ws").WebSocket | null = null;
+    try {
+      const { WebSocket: WsClient } = await import("ws");
+      clientWs = new WsClient(`${server.state.url.replace("http://", "ws://")}live`);
+      await new Promise<void>((resolve) => clientWs!.on("open", () => resolve()));
+      while (!providerSocket) await sleep(10);
+      providerSocket.emit({ setupComplete: {} });
+      await sleep(50);
+
+      // Up: two frames of the page's microphone. Down: one audio part.
+      clientWs.send(Buffer.from([1, 2, 3, 4]));
+      clientWs.send(Buffer.from([5, 6, 7, 8]));
+      providerSocket.emit({
+        serverContent: { modelTurn: { parts: [{ inlineData: { data: Buffer.from([9, 9, 9]).toString("base64") } }] } },
+      });
+      await sleep(50);
+
+      const deadline = Date.now() + 5000;
+      while (statsLines.length === 0 && Date.now() < deadline) await sleep(100);
+      expect(statsLines.length, "the periodic audio-stats line never fired").toBeGreaterThan(0);
+      const line = statsLines.at(-1) ?? "";
+      expect(line).toContain('"inFromPage":"2 frames (8B)"');
+      expect(line).toContain('"outToProvider":"2 frames"');
+      expect(line).toContain('"inFromProvider":"1 frames"');
+      expect(line).toContain('"outToPage":"3B"');
+    } finally {
+      // The page socket has to go first: an open ws holds the HTTP server open
+      // and `server.close()` waits for it, so a failed assertion above would
+      // otherwise turn into a hung test instead of a red one.
+      clientWs?.close();
+      await sleep(20);
+      await server.close();
+    }
+  }, 20000);
 });
 
 describe("the harness as the rc's adapter", () => {
