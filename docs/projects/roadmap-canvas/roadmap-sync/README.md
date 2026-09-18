@@ -26,8 +26,10 @@ ever written back to the repository: this is the manual form of
   "cron:roadmap-sync"` means the claim sits on a badge this machine no longer
   holds, not that the identity was never made. **Never run the `--name` gesture
   the old message prints**: it mints a second `Roadmap Sync` and splits every
-  later version and per-actor undo. See the stranded actor first, then come back
-  under the same session key:
+  later version and per-actor undo. (The trap is only reachable while the claim
+  is actually stranded; after a recovery, `--name` merely re-asserts the same
+  actor — a passing `--name` does not mean the trap is gone.) See the stranded
+  actor first, then come back under the same session key:
 
       ISOCAN_HARNESS=cron ISOCAN_SESSION_ID=roadmap-sync isocan whoami
       cd ~/isocan-roadmap \

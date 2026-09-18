@@ -67,6 +67,14 @@ ISOCAN_HARNESS=cron ISOCAN_SESSION_ID=roadmap-sync isocan identity --name "Your 
 **Do not run that.** `--name` mints a SECOND actor wearing the same display name:
 refused as name-taken, or admitted and splitting every later version and every
 per-actor `undo` across two actors. The history the key already has stays behind.
+
+**This trap is only reachable while the claim is actually stranded** (this
+machine's badge is gone). After a successful recovery, re-running the `--name`
+line merely re-asserts the same actor and is harmless — which is why testing the
+trap requires a stranded claim, and why a passing `--name` does not mean the trap
+is gone. Do not conclude the warning is stale because the advice appeared to
+work on a machine that had just recovered.
+
 That message is the reason this runbook exists; the `--as` gesture below is the
 recovery, and the code change that teaches scripts to print it is `isocan-irs`
 commit `c2778610` (`packages/api/src/connect.ts`, `noActorUnderKey`), in review at
