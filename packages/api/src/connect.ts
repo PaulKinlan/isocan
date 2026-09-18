@@ -42,6 +42,7 @@ import {
   newThreadId,
   newVersionId,
   recentActivity,
+  elapsedLabel,
   type ActivityEntry,
   parseSourcePolicyHeader,
   sourcePolicyHeader,
@@ -128,6 +129,52 @@ export interface ConnectOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Why there is no actor under a STATED session key — `noIdentityHere`'s explicit
+ * half, and the same truth told to a script instead of a person at a terminal.
+ *
+ * A key claimed on a badge this machine no longer holds is NOT an unclaimed
+ * key, and the generic gesture is the wrong answer for it: `--name` mints a
+ * stranger who happens to wear the same name, and strands the history the key
+ * already has — the precise mistake `--as` exists to prevent. This refusal used
+ * to be the generic one whatever the desk said, because `connect()` never asked.
+ * Measured 18 Sep on the `cron:roadmap-sync` timer, which had been failing for
+ * eight days on exactly this: its own error printed `--name`, and the honest
+ * answer was `--as usr_AgRvjzUbIN`.
+ *
+ * Asked only about the one key the caller stated, so the answer can never be a
+ * roster. A home that cannot answer is not a reason to say nothing — the lookup
+ * degrades to the generic gesture rather than failing the refusal. Private to
+ * this module on purpose: the API ceiling (`test/entry.test.ts`) is names a
+ * caller outside the package needs, and this one has exactly one, inside it.
+ */
+async function noActorUnderKey(client: DaemonClient, identity: ExplicitIdentity): Promise<string> {
+  const harness = identity.harness ?? "isocan";
+  const key = `${harness}:${identity.session}`;
+  const env = `ISOCAN_HARNESS=${harness} ISOCAN_SESSION_ID=${identity.session}`;
+  let orphaned: Awaited<ReturnType<DaemonClient["orphanedActors"]>> = [];
+  try {
+    orphaned = (await client.orphanedActors([key])) ?? [];
+  } catch {
+    // a daemon that cannot answer is not a reason to say nothing
+  }
+  const mine = orphaned[0];
+  if (!mine) {
+    return (
+      `no actor is claimed under session "${key}" — claim it once: ` +
+      `${env} isocan identity --name "Your Name" --session`
+    );
+  }
+  return (
+    `no actor is claimed under session "${key}" on this machine's badge, but this home has ` +
+    `one on a badge nobody holds any more: ${mine.actor.name} (${mine.actor.id}), claimed ` +
+    `${elapsedLabel(mine.boundAt, new Date().toISOString())} ago. That is this script's own ` +
+    `session key, so if it is yours, come back with ` +
+    `${env} isocan identity --session --as ${mine.actor.id} — ` +
+    "`--name` would make you somebody new and leave that history behind."
+  );
+}
+
 export async function connect(options: ConnectOptions = {}): Promise<Home> {
   const ctx = await resolveCtx({
     interactive: false,
@@ -145,12 +192,9 @@ export async function connect(options: ConnectOptions = {}): Promise<Home> {
     void ctx.actor;
   } catch {
     if (options.identity) {
-      const harness = options.identity.harness ?? "isocan";
-      throw new Error(
-        `no actor is claimed under session "${harness}:${options.identity.session}" — claim it once: ` +
-          `ISOCAN_HARNESS=${harness} ISOCAN_SESSION_ID=${options.identity.session} ` +
-          `isocan identity --name "Your Name" --session`,
-      );
+      // The stated key's own answer, not the generic one: a key claimed on a
+      // badge this machine lost is not unclaimed, and `--name` would strand it.
+      throw new Error(await noActorUnderKey(ctx.client, options.identity));
     }
     throw new Error(await noIdentityHere(ctx.client, ctx.home));
   }

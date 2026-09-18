@@ -84,6 +84,25 @@ describe("connect()", () => {
     ).rejects.toThrow(/isocan identity .*--session/);
   });
 
+  it("an explicit identity claimed on a badge this machine lost is refused with `--as`, never `--name`", async () => {
+    await claim("cron-board", "cron", "Roadmap Sync");
+    const stated = { session: "cron-board", harness: "cron" } as const;
+    const actor = (await connect({ port, identity: stated })).actor;
+    // The machine re-badges. The claim stays on the desk, on a badge nobody
+    // holds any more — the `cron:roadmap-sync` timer's eight-day failure, whose
+    // own error printed the generic `--name` gesture: advice that mints a
+    // stranger wearing the same name and strands the history the key has.
+    await fs.rm(path.join(home, "identity.json"), { force: true });
+    const err: Error | null = await connect({ port, identity: stated }).then(
+      () => null,
+      (thrown: unknown) => thrown as Error,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toContain(`--as ${actor.id}`);
+    expect(err!.message).toContain("Roadmap Sync");
+    expect(err!.message).not.toContain('--name "Your Name"');
+  });
+
   it("an explicit identity resolves to the claimed actor — the same actor the CLI's key resolves", async () => {
     await claim("acme-board", "acme", "Roster");
     const home1 = await connect({ port, identity: { session: "acme-board", harness: "acme" } });
