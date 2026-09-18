@@ -1622,10 +1622,11 @@ export class HomeLink implements HomeConnection {
      */
     if (this.rc) {
       const local = this.rc.answeringLocal(link.canvasId);
-      const agents =
-        (await this.engine.getSnapshot(link.canvasId).catch(() => null))?.canvas.agents ?? {};
       const answerable: string[] = [];
-      for (const actorId of local.actorIds) {
+      if (local.actorIds.length > 0) {
+        const agents =
+          (await this.engine.getSnapshot(link.canvasId).catch(() => null))?.canvas.agents ?? {};
+        for (const actorId of local.actorIds) {
         const record = agents[actorId];
         if (!record) continue;
         const key = `${link.canvasId} ${actorId}`;
@@ -1645,6 +1646,7 @@ export class HomeLink implements HomeConnection {
         if (!ok) continue;
         this.unvouched.delete(key);
         answerable.push(actorId);
+      }
       }
       // **Whose, and whose word** (owner-only summons): the owners of the rcs
       // parked here, vouched the same way the faces are — a policy says

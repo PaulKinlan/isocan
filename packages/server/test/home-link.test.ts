@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1068,6 +1068,36 @@ describe("the rc's liveness and the web's ask, carried across the link", () => {
     expect(asked.status).toBe(403);
     hold.aborter.abort();
     await hold.done.catch(() => {});
+  }, 20_000);
+
+  it("relays rc without reading a canvas snapshot when no local actors are answering (isocan-45z)", async () => {
+    await birthAtA();
+    const snapshots = vi.spyOn(A.daemon.engine, "getSnapshot");
+    const hold = holdAtA([], 8_000);
+    try {
+      await until(() => rcOf(H), (r) => r.parked, "the empty hold to relay up");
+      expect(snapshots.mock.calls.filter(([id]) => id === CANVAS)).toEqual([]);
+    } finally {
+      hold.aborter.abort();
+      await hold.done.catch(() => {});
+    }
+  }, 20_000);
+
+  it("reads a canvas snapshot during rc relay only when local actors are answering (isocan-45z)", async () => {
+    await birthAtA();
+    const sian = { id: "agt_sian_45z", name: "Sian45z" };
+    await A.badge.speakAs(sian);
+    await op(A, priya, { type: "agent.enroll", agent: sian });
+
+    const snapshots = vi.spyOn(A.daemon.engine, "getSnapshot");
+    const hold = holdAtA([sian.id], 8_000);
+    try {
+      await until(() => rcOf(H), (r) => r.actorIds.includes(sian.id), "Sian's hold to relay up");
+      expect(snapshots.mock.calls.filter(([id]) => id === CANVAS).length).toBeGreaterThanOrEqual(1);
+    } finally {
+      hold.aborter.abort();
+      await hold.done.catch(() => {});
+    }
   }, 20_000);
 });
 
