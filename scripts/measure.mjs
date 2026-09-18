@@ -465,6 +465,50 @@ const METRICS = {
         "  return <span>{n}</span>;\n}\n",
     },
   },
+  /**
+   * **A doc's own prose must not contradict its front matter** (`isocan-wy2`).
+   *
+   * Front matter is the single status authority and `core/docStatus` is its one
+   * reader — but `docStatus` cannot see the hand-kept `**Where we are:**` line
+   * that 28 project docs carry beside it. So a doc can say `status: designed`
+   * (core's own words: "written, argued, nothing built") while its prose says
+   * phase 1 is in progress, and `docs/ROADMAP.md` prints the front matter and
+   * nothing objects.
+   *
+   * It happened. `docs/projects/voice-interface/phases.md` said "**Where we are:
+   * PHASE 1 IN PROGRESS (2026-09-11)**" for a week while `packages/voice-agent`
+   * shipped fifteen test files underneath it. Three verdicts in one project,
+   * none of them the truth, and the roadmap faithfully printing the wrong one.
+   * `docs/research/2026-08-26-attaching-a-directory.md` carries the older scar of
+   * the same shape — a second verdict left behind after the first was corrected.
+   *
+   * Deliberately narrow, in the direction `scanExports` argues for: it
+   * UNDER-reports rather than crying wolf, because a guard that reddens on
+   * "the design is complete" is a guard somebody turns off inside a week. Only
+   * two directions are checked, both keyed on a phase/walk/project quantifier
+   * rather than on a verb alone, and `partial` is not checked at all since
+   * "some of it is built, the doc says which part" agrees with any mix.
+   *
+   * **The bound is 0 and was 0 the day it was written** — 28 lines, no
+   * contradictions, the one `designed` doc that carries the line saying "ROADMAP
+   * REGISTERED … specified … defined", which is design language. So this is
+   * strict about the next doc and asks nobody to clean up this one, which is the
+   * condition `reviewer.md` wants: "a ratchet set above its floor is slack
+   * nobody decided to leave."
+   */
+  "doc-verdict-conflicts": {
+    what: "project docs whose hand-kept 'Where we are' prose contradicts their own front matter status",
+    take: () => Number(run("node", ["scripts/doc-verdicts.mjs"])),
+    names: () => run("node", ["scripts/doc-verdicts.mjs", "--names"]).split("\n").filter((l) => l.includes(" — ")),
+    breakIt: {
+      // The exact mutation that shipped: a `designed` doc whose prose claims a
+      // phase is in progress. Verified by hand before it was written here, so
+      // the selftest is confirming a known-good mutation rather than discovering
+      // a broken one.
+      file: "docs/projects/browser-surface/phases.md",
+      apply: (t) => t.replace("**Where we are: ROADMAP REGISTERED", "**Where we are: PHASE 1 IN PROGRESS — ROADMAP REGISTERED"),
+    },
+  },
 };
 
 
