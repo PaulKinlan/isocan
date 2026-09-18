@@ -50,6 +50,29 @@ function rmsDb(pcm: Int16Array): number {
 }
 
 describe("a resampler keeps the signal at every context rate", () => {
+  it.each([44100, 48000])("at %d Hz every DC sample survives two seconds of worklet boundaries", (rate) => {
+    const expected = 8191; // .25 converted with the positive PCM16 scale, then truncated.
+    const pcm = resample(rate, new Float32Array(rate * 2).fill(0.25));
+    // At 44.1 kHz the old epsilon-rounded discard left a negative position:
+    // carry[-1] became undefined -> NaN -> PCM zero at 17600/19040/20480.
+    // One-second sine/RMS checks never reached these boundaries and allowed
+    // rare dropouts, so check every value as well as the aggregate signal.
+    expect.soft(pcm).toHaveLength(32000);
+    expect.soft([...pcm].flatMap((sample, index) => sample === expected ? [] : [index])).toEqual([]);
+    expect.soft(zeroFraction(pcm)).toBe(0);
+    expect.soft(rmsDb(pcm)).toBeCloseTo(20 * Math.log10(expected / 0x8000), 10);
+  });
+
+  it.each([44100, 48000])("at %d Hz a complete 10 ms tail never reads past the buffer", (rate) => {
+    // At 44.1 kHz repeated addition makes the final end 441.0000000000012.
+    // The completion epsilon accepted it, but carry[441] was out of bounds.
+    const pcm = new Resampler(rate / 16000).push(new Float32Array(rate / 100).fill(0.25));
+    expect(pcm).toHaveLength(160);
+    expect([...pcm].every((sample) => sample === 8191)).toBe(true);
+    expect(zeroFraction(pcm)).toBe(0);
+    expect(rmsDb(pcm)).toBeCloseTo(20 * Math.log10(8191 / 0x8000), 10);
+  });
+
   it.each([44100, 48000])("at %d Hz the stream is neither silent nor distorted", (rate) => {
     const pcm = resample(rate, sineAt(rate, -20, rate)); // one second of −20 dBFS
     expect(pcm.length).toBeGreaterThan(16000 * 0.98); // ~one second out

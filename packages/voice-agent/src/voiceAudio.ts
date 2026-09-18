@@ -209,9 +209,9 @@ export class LevelMeter {
  * over `j < ratio`. For a 48,000 Hz context the ratio is exactly 3 and every
  * index lands on a sample; for 44,100 it is 2.75625, every index is a float,
  * every lookup answers `undefined`, and the `?? 0` fallback turned the whole
- * stream into zeros — 98% of the PCM in a real capture. The provider heard
- * silence, so it never opened a turn, and the page looked broken: the
- * silent-turn family, in one line.
+ * stream into zeros — 98% of the PCM in a keyless browser capture. That
+ * proves corrupted input, not the cause of a historical provider session
+ * whose PCM and context rate were not recorded.
  *
  * This walks the input with a window `ratio` samples wide and weights the two
  * samples the window straddles by the fraction it covers — a box average, the
@@ -237,7 +237,9 @@ export class Resampler {
     // A window is complete once its last sample is in the buffer.
     while (this.position + ratio <= this.carry.length + 1e-9) {
       const start = this.position;
-      const end = start + ratio;
+      // The completion tolerance may accept an end just beyond the buffer.
+      // Bound that same end before indexing its final sample.
+      const end = Math.min(start + ratio, this.carry.length);
       const first = Math.floor(start);
       const last = Math.floor(end);
       let sum = 0;
@@ -255,7 +257,9 @@ export class Resampler {
     // sample it is mid-way through stays in the buffer and in the phase.
     const spent = Math.floor(this.position + 1e-9);
     this.carry.splice(0, spent);
-    this.position -= spent;
+    // If epsilon rounded spent up, subtraction can leave a tiny negative
+    // phase. floor(phase) then reads carry[-1], and NaN becomes a PCM zero.
+    this.position = Math.max(0, this.position - spent);
     return Int16Array.from(out);
   }
 }
