@@ -21,33 +21,36 @@ import { DEEP } from "./deep.ts";
 const repo = fileURLToPath(new URL("..", import.meta.url));
 
 /**
- * The known 19 DEEP files that historically carry per-test literals tighter than 60s.
+ * The known 18 DEEP files that historically carry per-test literals tighter than 60s.
  * No NEW file may be added to this set.
  */
 export const KNOWN_FILES_WITH_TIGHTER_LITERALS = new Set([
-  "test/questionnaire-cli.test.ts",
-  "packages/cli/test/dispatch.test.ts",
-  "packages/cli/test/direct.test.ts",
-  "packages/cli/test/session-identity.test.ts",
-  "packages/cli/test/rc-sheep-withdrawal.test.ts",
-  "packages/cli/test/home.test.ts",
-  "packages/cli/test/wait.test.ts",
-  "packages/cli/test/park.test.ts",
   "packages/cli/test/acp.test.ts",
-  "packages/cli/test/rc-sheep.test.ts",
-  "packages/cli/test/binding.test.ts",
-  "packages/cli/test/restart.test.ts",
-  "packages/cli/test/daemon-takeover.test.ts",
-  "packages/cli/test/wait-cursor.test.ts",
-  "packages/cli/test/operator.test.ts",
   "packages/cli/test/agent-key.test.ts",
-  "packages/voice-agent/test/voice-harness.test.ts",
-  "packages/cli/test/rehome.test.ts",
+  "packages/cli/test/binding.test.ts",
+  "packages/cli/test/daemon-takeover.test.ts",
+  "packages/cli/test/direct.test.ts",
+  "packages/cli/test/dispatch.test.ts",
+  "packages/cli/test/home.test.ts",
   "packages/cli/test/operator-revoke.test.ts",
+  "packages/cli/test/operator.test.ts",
+  "packages/cli/test/park.test.ts",
+  "packages/cli/test/rc-sheep-withdrawal.test.ts",
+  "packages/cli/test/rc-sheep.test.ts",
+  "packages/cli/test/rehome.test.ts",
+  "packages/cli/test/restart.test.ts",
+  "packages/cli/test/session-identity.test.ts",
+  "packages/cli/test/wait-cursor.test.ts",
+  "packages/cli/test/wait.test.ts",
+  "packages/voice-agent/test/voice-harness.test.ts",
 ]);
 
-/** Historical ceiling of tighter-than-60s literals across DEEP files. */
-export const TIGHTER_LITERALS_CEILING = 120;
+/**
+ * Historical ceiling of tighter-than-60s literals across DEEP files.
+ * Reconciled exactly against qwen2's census instrument (deep-timeout-census.mjs):
+ * 13× 20000, 3× 25000, 70× 30000, 32× 40000, 1× 45000 = 119 total.
+ */
+export const TIGHTER_LITERALS_CEILING = 119;
 
 export interface TimeoutLiteralHit {
   file: string;
@@ -55,6 +58,9 @@ export interface TimeoutLiteralHit {
   ms: number;
   text: string;
 }
+
+/** Matches `}, 30_000);` anchored to end of test body per qwen2's census definition */
+const LITERAL = /^\s*\}, ([0-9][0-9_]{3,})\);\s*$/;
 
 export function scanTighterLiterals(files: readonly { file: string }[], rootDir = repo): TimeoutLiteralHit[] {
   const hits: TimeoutLiteralHit[] = [];
@@ -64,7 +70,7 @@ export function scanTighterLiterals(files: readonly { file: string }[], rootDir 
     const lines = readFileSync(fullPath, "utf8").split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const m = line.match(/},\s*([0-9_]+)\s*\);/);
+      const m = line.match(LITERAL);
       if (m) {
         const ms = Number(m[1].replace(/_/g, ""));
         if (ms < 60_000) {
