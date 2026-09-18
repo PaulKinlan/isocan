@@ -2,6 +2,12 @@ import { CANVAS_GROUPS_FEATURE, CLIENT_FEATURES_HEADER, formatBadgeToken } from 
 import { adoptRcAgent, type RcAgentRow } from "../src/rc.ts";
 import { agentSessionOf, machineAgentKey } from "../src/agent-key.ts";
 import { describe, expect, it, vi } from "vitest";
+
+// The suites in this file spawn a real `bin/isocan.js` CLI and test daemon across
+// 26 multi-step tests. Under parallel load, sequential spawns require a 60s
+// liveness bound to prevent wall-clock starvation while still failing loudly
+// on any genuine hang (isocan-7r8).
+vi.setConfig({ testTimeout: 60_000 });
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

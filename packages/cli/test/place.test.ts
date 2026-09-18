@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutNodeRuntimeWarnings } from "./node-runtime-noise";
 import { promises as fs } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -7,6 +7,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon, type Daemon } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
+
+// The test in this file executes 24 sequential `bin/isocan.js` CLI spawns.
+// On an idle machine this takes ~11s (450ms/spawn); under parallel load with
+// competing worker forks, sequential spawns require a 60s liveness bound
+// (2.5s/spawn) to prevent wall-clock starvation while still failing loudly on
+// any genuine hang (isocan-7r8).
+vi.setConfig({ testTimeout: 60_000 });
 
 /**
  * **A canvas placed on a canvas, over the wire** (inception phase 0). Placed

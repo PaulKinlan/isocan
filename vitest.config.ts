@@ -1,8 +1,27 @@
 import { defineConfig } from "vitest/config";
+import os from "node:os";
 import { DEEP, runningDeep } from "./test/deep.ts";
+
+const numCpus = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+// Bounded worker pool (isocan-7r8):
+// Tests in this repository spawn real subprocesses (Node + tsx transpilation).
+// On high-core machines (e.g. 32 cores), Vitest's default `cpus - 1` (31 forks)
+// causes massive CPU oversubscription when multiple worker forks run process-spawning
+// test suites simultaneously. This thrashes CPU and drives load >30, stretching cold
+// child process launches from 250ms to 2.5s and causing timeouts across the deep lane.
+// Bounding maxForks ensures worker forks + their child process spawns stay within
+// machine capacity. Can be overridden via VITEST_MAX_FORKS env variable.
+const maxForks = process.env.VITEST_MAX_FORKS
+  ? Number(process.env.VITEST_MAX_FORKS)
+  : Math.min(8, Math.max(1, Math.floor(numCpus / 2)));
 
 export default defineConfig({
   test: {
+    poolOptions: {
+      forks: {
+        maxForks,
+      },
+    },
     include: ["packages/*/test/**/*.test.ts", "packages/modules/*/test/**/*.test.ts", "test/**/*.test.ts"],
     /**
      * **The deep lane, left out unless asked for.** The files in `test/deep.ts`
