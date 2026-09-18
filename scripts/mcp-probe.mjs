@@ -1,9 +1,19 @@
 // mcp-probe.mjs — the revision's MCP-side evidence: the ambient write rule, the
 // claim rule, the title-injection vector, and the wait's read-only footprint.
 //
-//   ISOCAN_HOME=<scratch> ISOCAN_PORT=<port> node mcp-probe.mjs <repoRoot>
+//   ISOCAN_HOME=<scratch home> ISOCAN_PORT=<port> PROBE_CANVAS=<canvasId> \
+//     node scripts/mcp-probe.mjs <repoRoot>
 //
-// Spawns the real CLI's MCP server over stdio, JSON-RPC, no SDK.
+// PROBE_CANVAS is REQUIRED: the probe reads and writes that canvas's oplog at
+// $ISOCAN_HOME/projects/$PROBE_CANVAS/oplog.jsonl, so the daemon must already be
+// running against the same scratch home and the canvas must exist in it. The
+// probe spawns the real CLI's MCP server over stdio (JSON-RPC, no SDK) — it does
+// not start a daemon or create a canvas for you, and it deliberately exercises
+// the oplog path, so run it against an OWNED scratch home only, never a real one.
+//
+// The wait read-only check compares the oplog's line count before and after a
+// `wait_for_feedback` call on a deliberately pre-populated fixture; a canvas
+// with nothing to see leaves it unchanged trivially, which proves nothing.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";

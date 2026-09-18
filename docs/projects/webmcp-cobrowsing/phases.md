@@ -3,7 +3,7 @@ status: designed
 since: 2026-09-18
 issue: isocan-hsr
 see: iso-api, embed
-note: the transport's ground is measured and re-derived after an independent REVISE — phase 0 was executed 18 Sep 2026 and re-run the same day (sixteen MCP tools over a real stdio handshake with the behaviourally-correct eleven/five split; 46 Operation variants, 40 public; document.modelContext on Chrome for Testing 150 and behind --enable-features=WebMCP on stable 152, with the legacy navigator.modelContext still an object on 150; executeTool takes a JSON string on these builds; the consequential/debugging hints do not survive registration, so no phase rests on them). Nothing is built yet
+note: the transport's ground is measured and re-derived after an independent REVISE — phase 0 was executed 18 Sep 2026 and re-run the same day (sixteen MCP tools over a real stdio handshake with the behaviourally-correct eleven/five split; 46 Operation variants, 40 public; document.modelContext on Chrome for Testing 150 and behind --enable-features=WebMCP on stable 152, with the legacy navigator.modelContext still an object on 150; executeTool takes a JSON string on these builds; the consequential/debugging hints are not returned in the getTools() projection, so no phase rests on them). Nothing is built yet
 ---
 
 # WebMCP co-browsing — the walk
@@ -127,8 +127,8 @@ work back and leaves the human's.
 **Falsified by:** a write landing as the person; an anonymous version; a claim
 that happens automatically; the agent's work and the human's mixing in one
 `undo`. **Not in this phase:** any approval story built on `consequentialHint`
-— phase 0 shows that field does not survive registration and no accept/decline
-capability is demonstrated.
+— phase 0 shows that field is not returned in the `getTools()` projection and no
+accept/decline capability is demonstrated.
 
 ## Phase 4 — the tiers, untrusted content, and cancellation
 

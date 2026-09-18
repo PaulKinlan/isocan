@@ -20,7 +20,9 @@ page — the page already IS the session.**
 
 - **`@isocan/mcp`** — the canvas as an MCP server over stdio
   ([embed phase 2](../embed/phases.md)): **sixteen tools** as of 13 Sep 2026 —
-  ten reads and six writes, including a durable agent claim and attributed
+  eleven non-mutating and five mutation/claim — the dated ten/six grouping was
+  superseded by the behavioural census on 18 Sep (see [design.md](design.md));
+  the tools include a durable agent claim and attributed
   item/comment writes. The write half's addressability answer is the embed
   project's settled rule: the person by default, a deliberately claimed
   session when an agent means to stay and be addressed. A real stdio handshake

@@ -1,7 +1,12 @@
 // webmcp-probe.mjs — the revision's executable evidence, on real browsers.
 //
-//   node webmcp-probe.mjs annotations <chromePath> [featureFlag]
-//   node webmcp-probe.mjs frames <chromePath> [featureFlag]
+//   node scripts/webmcp-probe.mjs <chromePath> [--enable-features=WebMCP] [mode]
+//
+// The binary comes FIRST; `mode` defaults to `annotations` and is the only mode
+// here. The frame-protocol conditions live in scripts/webmcp-frames.mjs, which
+// runs the six-condition matrix — this probe's old five-condition `frames` mode
+// was stale (same-origin children never invoke registration, and its case 5 was
+// mislabelled) and is deleted rather than advertised beside the real one.
 //
 // Minimal owned-Chrome CDP driver (the repo's launchChrome does not take
 // feature flags; WebMCP on stable 152 needs --enable-features=WebMCP).
@@ -92,44 +97,6 @@ window.__probe = (async () => {
   return out;
 })();
 </script>`,
-  frames: (origin, childOrigin) => `<!doctype html><meta charset=utf-8><title>frames ${origin}</title><body>ready<script>
-// Register on THIS page for the same-origin conditions; the iframe handles foreign.
-window.__results = [];
-window.__registerHere = async (exposedTo) => {
-  const mc = document.modelContext;
-  if (!mc) return "no-api";
-  try {
-    await mc.registerTool({ name: "probe_local", description: "probe", inputSchema: { type: "object", properties: {} }, execute: async () => "ok" }, exposedTo ? { exposedTo } : undefined);
-    return "registered";
-  } catch (e) { return "rejected: " + String(e); }
-};
-window.__discoverLocal = async () => {
-  const tools = await document.modelContext.getTools();
-  return tools.map((t) => t.name + "@" + (t.origin ?? ""));
-};
-window.__frame = async (src, allow) => {
-  const f = document.createElement("iframe");
-  if (allow) f.setAttribute("allow", allow);
-  f.src = src;
-  document.body.appendChild(f);
-  await new Promise((r) => { f.onload = r; setTimeout(r, 4000); });
-  return true;
-};
-window.__discoverAll = async (fromOrigins) => {
-  const tools = await document.modelContext.getTools(fromOrigins ? { fromOrigins } : undefined);
-  return tools.map((t) => t.name + "@" + (t.origin ?? ""));
-};
-</script>`,
-  child: (origin, parentOrigin) => `<!doctype html><meta charset=utf-8><title>child ${origin}</title><body>ready<script>
-window.__child = (async () => {
-  const mc = document.modelContext;
-  if (!mc) return "no-api";
-  try {
-    await mc.registerTool({ name: "probe_child", description: "probe", inputSchema: { type: "object", properties: {} }, execute: async () => "ok" }, { exposedTo: ["${parentOrigin}"] });
-    return "registered";
-  } catch (e) { return "rejected: " + String(e); }
-})();
-</script>`,
 };
 
 function serve(port, htmlFor) {
@@ -151,24 +118,8 @@ try {
     await chrome.ev(`window.__probe`); // wait for the async probe
     await sleep(500);
     console.log(JSON.stringify(await chrome.ev(`window.__probe`), null, 1));
-  } else if (MODE === "frames") {
-    // Parent origin 8942; child origin 8941. Parent also serves a same-origin child path.
-    servers.push(await serve(8941, (params) => params.get("child") !== null ? PAGES.child(origin(8941), origin(8942)) : PAGES.frames(origin(8941), origin(8942))));
-    servers.push(await serve(8942, () => PAGES.frames(origin(8942), origin(8941))));
-    chrome = await launch();
-    await chrome.goto(`${origin(8942)}/`);
-    const out = { origin, results: [] };
-    // 1. same origin, no allow
-    out.results.push({ name: "same-origin no allow", detail: await chrome.ev(`(async () => { await window.__frame("${origin(8942)}/", null); return { registered: "n/a (same page)", discovered: await window.__discoverLocal() }; })()`) });
-    // 2. same origin, allow="tools"
-    out.results.push({ name: 'same-origin allow="tools"', detail: await chrome.ev(`(async () => { await window.__frame("${origin(8942)}/", "tools"); return { discovered: await window.__discoverLocal() }; })()`) });
-    // 3. same origin, allow="tools 'none'"
-    out.results.push({ name: 'same-origin allow="tools none"', detail: await chrome.ev(`(async () => { await window.__frame("${origin(8942)}/", "tools 'none'"); return { discovered: await window.__discoverLocal() }; })()`) });
-    // 4. foreign, no allow (child exposes to the parent)
-    out.results.push({ name: "foreign no allow, exposed", detail: await chrome.ev(`(async () => { await window.__frame("${origin(8941)}/?child=1", null); return { child: await (async () => { const f = document.querySelector("iframe"); return f?.contentWindow?.__child ?? "n/a"; })() }; })()`) });
-    // 5/6: foreign + allow; exposure decided by the child page (always exposed here; condition 5 covered by 4's policy denial)
-    out.results.push({ name: 'foreign allow="tools", exposed', detail: await chrome.ev(`(async () => { await window.__frame("${origin(8941)}/?child=1", "tools"); const f = document.querySelector("iframe"); const childState = await f?.contentWindow?.__child; const all = await window.__discoverAll(["${origin(8941)}"]); const none = await window.__discoverAll(); return { childState, discoveredWithFromOrigins: all, discoveredWithout: none }; })()`) });
-    console.log(JSON.stringify(out, null, 1));
+  } else {
+    throw new Error(`unknown mode: ${MODE} — this probe measures annotations; the six frame conditions live in scripts/webmcp-frames.mjs`);
   }
 } finally {
   if (chrome) await chrome.close().catch(() => {});

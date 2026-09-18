@@ -146,15 +146,17 @@ determined, the design says so rather than inventing a rule.
 
 This design makes a **stricter** choice than the existing MCP surface, and says
 so: existing MCP clients may write as the ambient person (measured above),
-while this page registers its five mutation/claim tools only for an explicitly
-claimed agent session. The reasons are addressability and co-presence, not
-permission — an agent writing as the person cannot be @-addressed, wakes
-nobody, and mixes its work into the human's history and `undo`.
+while this page registers its mutation tools only for an explicitly claimed
+agent session. Four of the five mutation/claim tools wait for that session;
+the fifth, `claim_agent`, is the bootstrap that creates it. The reasons are
+addressability and co-presence, not permission — an agent writing as the person
+cannot be @-addressed, wakes nobody, and mixes its work into the human's
+history and `undo`.
 
 - **The page's rule.** Read tools ride the tab's own session — the person
   looking at their canvas is reading it, and asking them to name themselves to
-  read is a gate the CLI never had. The **five** mutation/claim tools
-  (`create_item`, `edit_item`, `post_comment`, `reply_comment`, `claim_agent`)
+  read is a gate the CLI never had. The **four** mutation tools
+  (`create_item`, `edit_item`, `post_comment`, `reply_comment`)
   are registered only when the page holds an explicitly claimed agent session.
 - **The claim bootstrap is `claim_agent` itself.** The page registers
   `claim_agent` unconditionally — it is the one tool whose job is to create
@@ -220,9 +222,10 @@ The hints are a plan for what the page *declares*, on the behaviour measured in
   text. Structural is not trusted. It is still only a **signal**: an annotation
   is not enforcement, and phase 4 carries a title-injection case whose evidence
   is the chosen client's own tool-call trace.
-- **`consequentialHint`** is not used in the safety argument: it does not
-  survive registration on either measured build, and no accept/decline
-  capability has been demonstrated. If it is set at all it is set as intent,
+- **`consequentialHint`** is not used in the safety argument: it is **not
+  returned in the `getTools()` projection** on either measured build (whether
+  registration discards it internally is undetermined, as §3 says), and no
+  accept/decline capability has been demonstrated. If it is set at all it is set as intent,
   and no phase may close on it. The real approval line is the product's own —
   a personal-context consent, a claim, a Share — plus the observation that the
   exposed sixteen tools contain no `trash.empty`, no `project.delete` and no

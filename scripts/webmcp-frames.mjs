@@ -5,7 +5,9 @@
 // Parent origin: http://127.0.0.1:8942.  Child origin: http://127.0.0.1:8941.
 // Six conditions, each in a fresh iframe, registration awaited, discovery
 // sampled three times (no race): the same-origin positives, an explicit policy
-// DENIAL, and the three cross-origin policy/exposure combinations.
+// DENIAL, and the three cross-origin policy/exposure combinations. Each result
+// carries `scope`, the scope its samples were actually read with — `default`
+// for the same-origin conditions, `fromOrigins` for the foreign ones.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -123,10 +125,17 @@ try {
   ];
   const results = [];
   for (const [name, src, allow, fromOrigins] of conditions) {
-    const detail = await chrome.ev(`window.__run(${JSON.stringify(src)}, ${JSON.stringify(allow)}, ${src.startsWith(origin(C)) ? JSON.stringify([origin(C)]) : "undefined"})`);
-    // discovery scope: no fromOrigins (default) for same-origin; with for foreign
-    const discovered = await chrome.ev(`window.__discover(${src.startsWith(origin(C)) ? JSON.stringify([origin(C)]) : "undefined"})`);
-    results.push({ name, child: detail.state, discoveredDefault: detail.samples, discoveredScoped: discovered });
+    const foreign = src.startsWith(origin(C));
+    const scope = foreign ? [origin(C)] : null;
+    const detail = await chrome.ev(`window.__run(${JSON.stringify(src)}, ${JSON.stringify(allow)}, ${scope ? JSON.stringify(scope) : "undefined"})`);
+    // Label each sample by the read that ACTUALLY happened: the same-origin
+    // conditions read with the default scope, the foreign ones scoped to the
+    // child origin. There is no paired read of the other scope, and a read
+    // taken after __run removes the iframe returns [] for every case — so
+    // neither is emitted. (The first version of this probe printed the scoped
+    // samples under `discoveredDefault` and paired them with an always-empty
+    // post-removal `discoveredScoped`.)
+    results.push({ name, child: detail.state, scope: scope ? "fromOrigins" : "default", samples: detail.samples });
   }
   console.log(JSON.stringify({ parent: origin(P), child: origin(C), results }, null, 1));
 } finally {
