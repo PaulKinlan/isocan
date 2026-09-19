@@ -182,10 +182,20 @@ describe("installable straight from git", () => {
     // `buildCliBundle` writes, and this asserts the two halves of that are
     // one: the manifest names the file the builder produces
     // (`docs/projects/first-minute/design.md`).
-    const { CLI_BUNDLE } = await import("../scripts/release.mjs");
+    const { CLI_BUNDLE, RELEASE_DEPENDENCIES } = await import("../scripts/release.mjs");
     expect(released.bin).toEqual({ isocan: CLI_BUNDLE });
     expect(pkg.bin.isocan).toBe("packages/cli/bin/isocan.js");
-    expect(released.dependencies).toEqual(pkg.dependencies);
+
+    // And the deps are NOT main's either, since phase 2: they are inlined
+    // into that bundle, so a git install resolves nothing. What survives is
+    // named one by one in `RELEASE_DEPENDENCIES` with the reason — the test
+    // above ("the root package is the CLI") still holds main's manifest to
+    // carrying everything a workspace needs at runtime, which is what the
+    // bundler reads.
+    expect(Object.keys(released.dependencies)).toEqual(Object.keys(RELEASE_DEPENDENCIES));
+    for (const [name, range] of Object.entries(released.dependencies)) {
+      expect(range, `${name} must be the range main declares`).toBe(pkg.dependencies[name]);
+    }
     expect(released["//"]).toContain("abc1234");
   });
 

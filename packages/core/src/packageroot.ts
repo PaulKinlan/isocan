@@ -9,11 +9,11 @@ import { fileURLToPath } from "node:url";
  * Six files used to count directories up from their own source — `myRoot()` in
  * the CLI, `root` in the server's build stamp, the web app's `dist`, the
  * daemon bin the API spawns — and every one of them was right only because
- * the file it was written in never moved. The release CLI is now one bundled
- * file at `packages/cli/dist/isocan.mjs`, so `import.meta.url` inside it is
- * the bundle's, not the source's, and `../../..` means something different
- * for every module that was folded into it. Counting directories cannot
- * survive that; asking the filesystem can.
+ * the file it was written in never moved. The release CLI is now bundled into
+ * `packages/cli/dist`, so `import.meta.url` inside it is a chunk's and not the
+ * source's, and `../../..` means something different for every module folded
+ * into it. Counting directories cannot survive that; asking the filesystem
+ * can.
  *
  * So: walk up from wherever the caller is until a `package.json` says its name
  * is `isocan`. That is true in a checkout, in the bundle, in `npm i -g`'s
@@ -30,21 +30,22 @@ let cached: string | null = null;
 /** How far up to look before giving up — a checkout is 3 deep, an install 4. */
 const CEILING = 12;
 
+/**
+ * **This copy's root**, cached, since every command asks and the answer
+ * cannot change while a process runs. `from` exists so a caller in another
+ * tree can ask about that one; the default is this module's own location,
+ * which in the bundle is the bundle's.
+ */
 export function packageRoot(from: string = import.meta.url): string {
   if (cached) return cached;
-  cached = findPackageRoot(from);
-  return cached;
-}
-
-/** The search itself, uncached, so a test can ask about a tree that is not ours. */
-export function findPackageRoot(from: string): string {
   let dir = from.startsWith("file:") ? path.dirname(fileURLToPath(from)) : path.resolve(from);
   for (let up = 0; up < CEILING; up++) {
     const manifest = path.join(dir, "package.json");
     if (existsSync(manifest)) {
       try {
         if ((JSON.parse(readFileSync(manifest, "utf8")) as { name?: string }).name === "isocan") {
-          return dir;
+          cached = dir;
+          return cached;
         }
       } catch {
         // A package.json we cannot parse is not ours; keep walking rather than
@@ -65,6 +66,9 @@ export function packagePath(...parts: string[]): string {
   return path.join(packageRoot(), ...parts);
 }
 
+/** Where a checkout keeps its bin, for a tree whose manifest will not parse. */
+const SOURCE_BIN = "packages/cli/bin/isocan.js";
+
 /**
  * **The executable a copy of isocan declares**, for the two places that spawn
  * one — the API starting a daemon, and `restart` reaching an older install.
@@ -78,8 +82,6 @@ export function packagePath(...parts: string[]): string {
  * The fallback is the checkout's, for a tree whose manifest cannot be read;
  * an ENOENT from the spawn is a better error than one from here.
  */
-const SOURCE_BIN = "packages/cli/bin/isocan.js";
-
 export function packageBin(root: string = packageRoot()): string {
   try {
     const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {

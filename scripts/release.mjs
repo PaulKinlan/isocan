@@ -41,6 +41,81 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 
+/**
+ * **The only dependencies the release branch declares**, each with the reason
+ * it survived the bundling (phase 2 of `docs/projects/first-minute`).
+ *
+ * Everything else — fastify, the MCP SDK, zod, the remark stack, css-tree,
+ * parse5, undici, ws, nanoid, commander, and tsx, which was only ever there
+ * because the CLI shipped as source — is inside `packages/cli/dist`. A git
+ * install used to resolve 19 declared dependencies into 227 packages; this
+ * makes it two.
+ *
+ * A name here that main does not depend on fails the build rather than
+ * shipping a manifest that asks for something nobody declares.
+ */
+export const RELEASE_DEPENDENCIES = {
+  "@types/node": "not code: the types an editor needs to read what `connect()` returns, beside the declarations in types/",
+};
+
+/**
+ * **The scripts an installed copy can still spawn.** `isocan shot` and the
+ * deck's `export` run these through `process.execPath`, guarded by an
+ * `existsSync` and a sentence; the other forty under `scripts/` import a
+ * package's `src` directly and would be broken files on a branch that ships
+ * no sources, so they go.
+ */
+const RELEASE_SCRIPTS = ["scripts/canvas-shot.mjs", "scripts/deck-export.mjs", "scripts/lib/browser.mjs"];
+
+/**
+ * **What the release tree drops**, as git pathspecs — one entry per `git rm
+ * -r --cached` call, so an entry can carry its own exclusions.
+ */
+export const RELEASE_DROPS = [
+  ["docs"],
+  ["test"],
+  [":(glob)packages/**/test/**"],
+  // The web app's build inputs. `dist` is what a daemon serves; `public/` is
+  // what vite copied into it, 1.4 MB of the same pictures twice.
+  ["packages/web/public", "packages/web/src", "packages/web/index.html", "packages/web/vite.config.ts"],
+  // This repository's own workings. The image is built from `green`, never
+  // from here — `cloudbuild.yaml` says so itself — so the deploy files are as
+  // inert on this branch as the personas and the eval corpus.
+  [".claude", "AGENTS.md", "evals", "scratch", "infra", "Dockerfile", "cloudbuild.yaml", ".dockerignore"],
+  // Configuration for tools an install does not have: the linter, the suite,
+  // the TypeScript project files. `types/` is what an editor resolves, and it
+  // stays.
+  ["eslint.config.js", "vitest.config.ts", "tsconfig.base.json", "md.d.ts", ":(glob)packages/**/tsconfig.json"],
+  // A lock for 227 packages this manifest no longer asks for. npm resolves a
+  // git dependency against the consumer's tree, never the package's own lock,
+  // so this was always inert — and now it would also be untrue.
+  ["package-lock.json"],
+  // The sources themselves, now that nothing resolves them. `.md` beside them
+  // survives the glob, which is how the modules keep their guides.
+  [":(glob)packages/**/src/**/*.ts", ":(glob)packages/**/src/**/*.tsx"],
+  // The tsx launcher and the loader it registered: main's way in, and dead on
+  // a branch whose `bin` is a bundle.
+  ["packages/cli/bin"],
+  ["scripts", ...RELEASE_SCRIPTS.map((file) => `:(exclude)${file}`)],
+];
+
+/**
+ * The survivors, at the ranges main declares. A name here that main does not
+ * depend on fails the build rather than shipping a manifest asking for
+ * something nobody declares — unless the caller passed no dependencies at
+ * all, which is a stub manifest in a test and has nothing to be wrong about.
+ */
+export function releaseDependencies(declared) {
+  if (!declared) return {};
+  return Object.fromEntries(
+    Object.entries(RELEASE_DEPENDENCIES).map(([name, why]) => {
+      const range = declared[name];
+      if (!range) throw new Error(`${name} is a release dependency (${why}) but main does not declare it`);
+      return [name, range];
+    }),
+  );
+}
+
 /** The keys pacote reads as "this package must be built before it can be used". */
 export const PREPARATION_KEYS = [
   "workspaces",
@@ -111,10 +186,21 @@ export function releaseManifest(pkg, sourceCommit = "", builtAt = "") {
    * layout, so a daemon spawned from an install starts the file that install
    * actually has.
    */
+  /**
+   * **And the release resolves nothing** (phase 2). Every npm dependency is
+   * inlined into the bundles above, so declaring them would make an install
+   * fetch 227 packages and 75 MB it never opens — 35 s in the sandbox of
+   * #332, and the single largest thing between an agent and her first reply.
+   *
+   * `RELEASE_DEPENDENCIES` names the survivors and why each one survived, and
+   * it is a list rather than a filter because "which of these is still real"
+   * is a question somebody has to answer on purpose.
+   */
   return {
     ...rest,
     ...(exportsMap ? { exports: exportsMap } : {}),
     bin: { isocan: CLI_BUNDLE },
+    dependencies: releaseDependencies(pkg.dependencies),
     /**
      * **What an installed copy knows about itself.** The tree npm hands out has
      * no `.git`, so without this a daemon on somebody's laptop cannot say which
@@ -215,6 +301,26 @@ export const CLI_BUNDLE = "./packages/cli/dist/isocan.mjs";
 export const CLI_BUNDLE_DIR = "./packages/cli/dist";
 
 /**
+ * **The other two entries the release has to build** (phase 2), and why they
+ * are here rather than left alone.
+ *
+ * `index.mjs` and `rc.mjs` at the repo root are `import { connect } from
+ * "isocan"` and `from "isocan/rc"`. On main each registers tsx and the
+ * workspace loader and then imports `@isocan/api` from SOURCE — which worked
+ * only because the release branch shipped the sources. Phase 2 drops them, so
+ * those two entries would have become imports of files that are not there.
+ *
+ * They are built in the same esbuild invocation as the CLI so that all three
+ * share one set of chunks: built separately they would each inline core and
+ * the api again, three copies of the same megabytes. The root `index.mjs` and
+ * `rc.mjs` the release commits are then one line each, re-exporting these.
+ */
+export const RELEASE_NODE_ENTRIES = {
+  "index.mjs": { entry: "packages/api/src/index.ts", out: "api" },
+  "rc.mjs": { entry: "packages/rc/src/index.ts", out: "rc" },
+};
+
+/**
  * **What a bundle must not swallow.** `@isocan/cloudstore` is reached by
  * `import("@isocan/cloudstore")` inside `daemon.ts` precisely so that its 156
  * packages and 43 MiB never touch a CLI install (`test/packaging.test.ts`
@@ -226,13 +332,33 @@ export const CLI_BUNDLE_DIR = "./packages/cli/dist";
 export const CLI_BUNDLE_EXTERNAL = ["@isocan/cloudstore"];
 
 /**
+ * **A `require` for the CommonJS half of the dependency tree** (phase 2).
+ *
+ * fastify, avvio, ajv and the remark stack are CJS. esbuild rewrites their
+ * `require()` calls into its own shim, and that shim falls back to a real
+ * `require` for anything it could not resolve at build time — `require("node:events")`
+ * among them. In an ESM output there is no `require` to fall back to, so the
+ * first fully-inlined bundle died on its first command with *Dynamic require
+ * of "node:events" is not supported*. `createRequire` gives it one.
+ *
+ * It goes on every chunk, because any chunk may hold a CJS module, and a
+ * const at module scope in each is harmless.
+ */
+const CJS_SHIM = [
+  'import { createRequire as __isocanCreateRequire } from "node:module";',
+  "const require = __isocanCreateRequire(import.meta.url);",
+].join("\n");
+
+/**
  * **Build the release CLI bundle** into `out` (the repo root by default).
  *
  * node platform, ESM, not minified: these files are read by people debugging
  * an install, and the win being chased is file opens, not bytes. npm
- * dependencies stay external here — the install still resolves them, which is
- * phase 2's job — so what this removes is the 297 `.ts` files tsx transpiled
- * or cache-checked on every single command.
+ * **Nothing is external but `@isocan/cloudstore`** (phase 2). The npm
+ * dependencies are inlined, so the release manifest declares none of them and
+ * an install has nothing to resolve: 227 packages became two. The cost is one
+ * banner — see CJS_SHIM — because half the dependency tree is CommonJS and
+ * esbuild's `require` shim needs a real `require` to fall back to.
  *
  * **Split, not one file, and the number says why.** Bundled into a single
  * output `isocan --version` loaded 538 modules — MORE than source mode's 437.
@@ -262,7 +388,13 @@ export async function buildCliBundle(out = root) {
     absWorkingDir: root,
     // Named, so the entry is `isocan.mjs` and not `main.mjs` — the manifest's
     // `bin` points at it and a person reading `ps` should see the CLI's name.
-    entryPoints: [{ in: path.join(root, "packages/cli/src/main.ts"), out: "isocan" }],
+    entryPoints: [
+      { in: path.join(root, "packages/cli/src/main.ts"), out: "isocan" },
+      ...Object.values(RELEASE_NODE_ENTRIES).map(({ entry, out: name }) => ({
+        in: path.join(root, entry),
+        out: name,
+      })),
+    ],
     outdir,
     outExtension: { ".js": ".mjs" },
     bundle: true,
@@ -270,10 +402,8 @@ export async function buildCliBundle(out = root) {
     platform: "node",
     format: "esm",
     target: "node22",
-    external: [
-      ...Object.keys(pkg.dependencies ?? {}).filter((name) => !name.startsWith("@types/")),
-      ...CLI_BUNDLE_EXTERNAL,
-    ],
+    external: CLI_BUNDLE_EXTERNAL,
+    banner: { js: CJS_SHIM },
     loader: { ".md": "text" },
     minify: false,
     sourcemap: false,
@@ -293,12 +423,26 @@ export async function buildCliBundle(out = root) {
       },
     ],
   });
-  // The shebang goes on the entry alone; esbuild's `banner` would put one at
-  // the top of all thirty-five chunks, where it means nothing.
+  // The shebang goes on the CLI entry alone; esbuild's `banner` would put one
+  // at the top of all forty chunks, where it means nothing.
   const entry = await fs.readFile(outfile, "utf8");
   await fs.writeFile(outfile, `#!/usr/bin/env node\n${entry}`);
   await fs.chmod(outfile, 0o755);
   return { outfile, outdir, metafile: result.metafile };
+}
+
+/**
+ * **What the release's `index.mjs` and `rc.mjs` say**: one line each, pointing
+ * at the bundle built beside the CLI. `export *` rather than main's named list
+ * because there is no loader to register first and therefore nothing to defer
+ * — the reason that list exists at all.
+ */
+export function nodeEntrySource(out) {
+  return (
+    "// GENERATED by scripts/release.mjs. main's entry of this name registers\n" +
+    "// tsx and imports the sources, which the release branch no longer ships.\n" +
+    `export * from "${CLI_BUNDLE_DIR}/${out}.mjs";\n`
+  );
 }
 
 /**
@@ -504,6 +648,31 @@ async function main() {
      * is why this is a fix and not a hope.
      */
     git("rm", "-r", "--cached", "--ignore-unmatch", "-q", ".github", { env });
+
+    /**
+     * **And everything else an install never runs** (phase 2).
+     *
+     * `docs/` alone is 15 MB of the 40 the branch carried, and `npm i -g`
+     * writes every byte of it to a sandbox's cold disk. The sources go for a
+     * stronger reason than size: after the bundling above nothing resolves
+     * them, so a `.ts` file on the release branch is a second copy of the CLI
+     * that can silently disagree with the one that runs.
+     *
+     * What stays is what something reaches for: `packages/web/dist` (the app
+     * a daemon serves), `packages/rc/dist` and `packages/cli/dist` (the
+     * bundles), `types/` (what an editor resolves), the modules' `assets/`
+     * and `agent-guide.md`, `.agents/skills` (which `isocan setup` copies out),
+     * `WHATSNEW.md`, and the three scripts a CLI verb can spawn.
+     */
+    for (const spec of RELEASE_DROPS) {
+      git("rm", "-r", "--cached", "--ignore-unmatch", "-q", ...spec, { env });
+    }
+    for (const [file, { out: name }] of Object.entries(RELEASE_NODE_ENTRIES)) {
+      const generated = path.join(tmp, path.basename(file));
+      await fs.writeFile(generated, nodeEntrySource(name));
+      const hash = git("hash-object", "-w", "--path", file, generated, { env });
+      git("update-index", "--add", "--cacheinfo", `100644,${hash},${file}`, { env });
+    }
 
     // From HEAD, not from disk: a release is of a commit, so nothing an
     // install left lying in the working tree can end up in the manifest.

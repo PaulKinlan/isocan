@@ -5,7 +5,7 @@ Each phase ends with **Trajectory**: only what the phase discovered
 that changes the project's course. A phase that went as planned leaves
 it empty.
 
-**Where we are: phases 0 and 1 are done; phase 2 is next.** Seven phases. Phases 0 to 3
+**Where we are: phases 0 to 2 are done; phase 3 is next.** Seven phases. Phases 0 to 3
 need no person. Phases 4 and 5 each open with a decision that is Dimitri's
 (design.md, "Open doors") and stop there until it is made. Phase 6 is the
 walk in the sandbox #332 was measured in, which lives in
@@ -87,7 +87,12 @@ such file; `packageBin()` reads the tree's own manifest instead.
 
 ## Phase 2 — The install resolves nothing
 
-**Status: NOT STARTED.**
+**Status: DONE, 18 Sep 2026.** `RELEASE_DEPENDENCIES` and `RELEASE_DROPS` in
+`scripts/release.mjs`; the two module entries built beside the CLI. In phase
+0's sandbox: **install 3.9 s for 3 packages and 22 MB**, against 14.2 s for
+227 and 115 MB. `--version` is 0.12 s and opens 49 files. Proof in
+`test/cli-bundle.test.ts`, which now runs the daemon from a tree that has no
+`node_modules` at all and asks it for `/healthz` and the page.
 
 **Outcome:** dependencies are inlined into the bundle; the release manifest
 declares only what would not bundle, plus `@types/node`, and each survivor
@@ -101,7 +106,22 @@ started from the installed copy serves the app.
 `isocan serve` from the installed copy answers `/healthz` and serves
 `index.html`. Phase 0's script: install under 5 s.
 
-**Trajectory:**
+**Trajectory:** two things the design had not accounted for, both found by
+running it. Half the dependency tree is CommonJS, and esbuild's `require`
+shim needs a real `require` to fall back to — the first fully-inlined bundle
+died on its first command with *Dynamic require of "node:events" is not
+supported*, and a `createRequire` banner on every chunk fixes it. And
+`index.mjs` / `rc.mjs` — `import { connect } from "isocan"` — register tsx and
+import the API from SOURCE, so dropping the sources would have broken the
+package's own module entries. They are built in the same esbuild invocation as
+the CLI, sharing its chunks, and the release commits one line for each.
+
+The tree dropped more than the three directories named: the web app's build
+inputs (`public/` is 1.4 MB of the same pictures `dist` already has), this
+repository's own workings, the tool configuration, and `package-lock.json`,
+which listed 227 packages the manifest no longer asks for. Of `scripts/`, only
+the three files a CLI verb can spawn survive; the other forty import a
+package's `src` and would be broken files on a branch that ships none.
 
 ## Phase 3 — Lazy loading
 

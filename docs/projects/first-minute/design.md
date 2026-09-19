@@ -24,12 +24,12 @@ installs today's `release` into a container with four cores, Node 22, a cold
 disk and no tsx cache, and takes three numbers. Run 18 Sep 2026 against
 `release` built from 61f7616a:
 
-| | before (61f7616a) | after phase 1 (328197a) |
-| --- | --- | --- |
-| `npm install -g …#release` | 14.2 s, 227 packages, 115 MB | 10.3 s, 227 packages, 118 MB |
-| `isocan --version` | 1.12 s cold, 1.07 s warm | **0.14 s cold and warm** |
-| `node -e ''` in the same container | 0.04 s | 0.05 s |
-| files `isocan --version` opens | 4397 `openat`, 1396 found | **474 `openat`, 429 found** |
+| | before (61f7616a) | after phase 1 | after phase 2 |
+| --- | --- | --- | --- |
+| `npm install -g …#release` | 14.2 s, 227 packages, 115 MB | 10.3 s, 227 packages, 118 MB | **3.9 s, 3 packages, 22 MB** |
+| `isocan --version` | 1.12 s cold, 1.07 s warm | 0.14 s | **0.12 s cold, 0.11 s warm** |
+| `node -e ''` in the same container | 0.04 s | 0.05 s | 0.03 s |
+| files `isocan --version` opens | 4397 `openat`, 1396 found | 474 `openat`, 429 found | **49 `openat`, 44 found** |
 
 A plain container reproduces seconds-per-command — 1.1 s against the laptop's
 0.29 s — so the script did not need gVisor, which is as well: `runsc` is not
@@ -46,12 +46,15 @@ The install is 14.2 s here against #332's 35 s, for the same 227 packages; the
 difference is a laptop's network and CPU. 115 MB is what those packages plus
 the 40 MB tree cost once unpacked.
 
-**The "after" column is phase 1, measured the same way** (`--local`, which
+**The "after" columns are measured the same way** (`--local`, which
 installs this machine's `release` through a temporary bare clone). A command
 went from 1.12 s to 0.14 s in the sandbox and from 4397 file opens to 474 —
 past the journeys' 0.5 s target for `--version` before phase 3 has begun. The
-install did not move, and will not until phase 2: it is the same 227 packages
-and the same 40 MB tree, one of which is now a bundle.
+install did not move until phase 2, which took it to 3.9 s and three
+packages: `@types/node`, the one thing it declares, plus its own dependency
+and isocan itself. The three packages are not code — every dependency is
+inside the bundle — and the 22 MB is `packages/web/dist` and
+`packages/cli/dist` in about equal halves.
 
 **Every command loads everything.** Counted with a `load` hook,
 `isocan --version` loads 456 modules:
@@ -145,10 +148,27 @@ fastify and the MCP SDK bundle cleanly is phase 2's first question; anything
 that does not stays a declared dependency, and the count is still far under
 227.
 
+**Built, phase 2.** They all bundled, so `@types/node` is the only survivor
+and an install is three packages. Two things the paragraph above did not
+know. Half the tree is CommonJS and esbuild's `require` shim needs a real
+`require` to fall back to, so every chunk carries a `createRequire` banner —
+without it the first command died on *Dynamic require of "node:events" is not
+supported*. And `index.mjs` / `rc.mjs`, the package's own module entries,
+registered tsx and imported the API from source; they are built beside the
+CLI now, sharing its chunks, and the release commits one re-export line for
+each.
+
 The release tree drops what an install never runs: `docs/`, `test/`, and,
 once the bundle exists, the `.ts` sources of the bundled packages.
 `release.mjs` already removes `.github/` from the tree, so this is more of
 the same filter. `WHATSNEW.md` and `packages/web/dist` stay.
+
+`RELEASE_DROPS` is that filter, and it names more than three things: the web
+app's build inputs, this repository's own workings (the personas, the eval
+corpus, the deploy files — the image is built from `green`, never from here),
+the tool configuration, and `package-lock.json`, which listed 227 packages the
+manifest no longer asks for. Of `scripts/`, three files survive: the two a CLI
+verb can spawn and the browser helper they share. 40 MB became 17.
 
 ### 3. Lazy loading inside the bundle
 

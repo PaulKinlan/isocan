@@ -1,10 +1,17 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync, cpSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, mkdirSync, cpSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildCliBundle, CLI_BUNDLE, releaseManifest } from "../scripts/release.mjs";
+import {
+  buildCliBundle,
+  CLI_BUNDLE,
+  RELEASE_DEPENDENCIES,
+  RELEASE_DROPS,
+  nodeEntrySource,
+  releaseManifest,
+} from "../scripts/release.mjs";
 
 /**
  * **The release CLI is a bundle, and these are the two things that has to be
@@ -31,6 +38,16 @@ import { buildCliBundle, CLI_BUNDLE, releaseManifest } from "../scripts/release.
 const repo = fileURLToPath(new URL("..", import.meta.url));
 const bundle = path.join(repo, CLI_BUNDLE);
 
+/** Poll until it answers, or give up — a daemon takes a moment to bind. */
+async function until<T>(ask: () => Promise<T | null>, tries = 60): Promise<T | null> {
+  for (let i = 0; i < tries; i++) {
+    const got = await ask();
+    if (got) return got;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return null;
+}
+
 /** What one command loads, by URL, through a hook on the module loader. */
 function modulesLoadedBy(entry: string, args: string[]): string[] {
   const log = path.join(mkdtempSync(path.join(os.tmpdir(), "isocan-modules-")), "log");
@@ -50,12 +67,13 @@ describe("the release CLI is a bundle", () => {
     await buildCliBundle();
   }, 120_000);
 
-  it("starts from a tree with no sources in it and no tsx to resolve", () => {
-    // The shape an install has: the release manifest, the bundle, and the
-    // dependencies npm would have resolved (a link, so the test is about the
-    // bundle and not about the network). Nothing else — no `packages/*/src`,
-    // no `bin/isocan.js`, no `.ts` file anywhere in the tree.
-    const tree = mkdtempSync(path.join(os.tmpdir(), "isocan-installed-"));
+  it("starts from a tree with no sources in it and no tsx to resolve", async () => {
+    // The shape an install has: the release manifest, the CLI bundle, and the
+    // web app a daemon serves. Nothing else — no sources, no `bin/isocan.js`,
+    // no `node_modules`.
+    // Real path: on macOS `os.tmpdir()` is a symlink into `/private`, and the
+    // daemon reports the root it resolved.
+    const tree = realpathSync(mkdtempSync(path.join(os.tmpdir(), "isocan-installed-")));
     try {
       const pkg = JSON.parse(readFileSync(path.join(repo, "package.json"), "utf8"));
       writeFileSync(
@@ -66,7 +84,11 @@ describe("the release CLI is a bundle", () => {
       cpSync(path.join(repo, "packages/cli/dist"), path.join(tree, "packages/cli/dist"), {
         recursive: true,
       });
-      symlinkSync(path.join(repo, "node_modules"), path.join(tree, "node_modules"), "dir");
+      cpSync(path.join(repo, "packages/web/dist"), path.join(tree, "packages/web/dist"), {
+        recursive: true,
+      });
+      // And NO `node_modules`: the dependencies are inside the bundle, so an
+      // install resolves nothing (phase 2).
 
       const installed = path.join(tree, JSON.parse(readFileSync(path.join(tree, "package.json"), "utf8")).bin.isocan);
       expect(existsSync(installed), "the manifest's bin is not where it says").toBe(true);
@@ -95,6 +117,29 @@ describe("the release CLI is a bundle", () => {
       // the stickers'.
       expect(run("map", "--help")).toContain("Mind maps");
       expect(run("sticker", "--help")).toContain("stickers");
+
+      // And the daemon: the half of the CLI that is fastify, the MCP layer and
+      // the web app, none of which an install resolves any more. A port
+      // nobody holds, a scratch home, and the two things a browser asks for.
+      const home = mkdtempSync(path.join(os.tmpdir(), "isocan-installed-home-"));
+      const port = 34000 + (process.pid % 1000);
+      const daemon = spawn(process.execPath, [installed, "serve", "--foreground", "--force"], {
+        env: { ...process.env, ISOCAN_HOME: home, ISOCAN_PORT: String(port) },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      try {
+        const base = `http://127.0.0.1:${port}`;
+        const health = await until(async () => {
+          const reply = await fetch(`${base}/healthz`).catch(() => null);
+          return reply?.ok ? ((await reply.json()) as { root?: string }) : null;
+        });
+        expect(health?.root, "the daemon knows which copy it is").toBe(tree);
+        const page = await fetch(base).then((r) => r.text());
+        expect(page, "an installed copy serves the app, not a not-built page").toContain("<div id=\"root\">");
+      } finally {
+        daemon.kill("SIGKILL");
+        rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      }
     } finally {
       rmSync(tree, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
@@ -112,4 +157,34 @@ describe("the release CLI is a bundle", () => {
     // stack behind `import()`; until then the ceiling stops it climbing.
     expect(loaded.length, `${loaded.length} modules for --version`).toBeLessThan(150);
   }, 120_000);
+
+  it("declares nothing an install has to resolve, and drops what an install never runs", () => {
+    const pkg = JSON.parse(readFileSync(path.join(repo, "package.json"), "utf8"));
+    const released = releaseManifest(pkg, "deadbee");
+
+    // 19 declared dependencies became 227 installed packages and 35 s in the
+    // sandbox of #332. Every one of them is inside the bundle now, so the
+    // release asks for nothing that is code — and `@types/node` is not code.
+    expect(Object.keys(released.dependencies)).toEqual(Object.keys(RELEASE_DEPENDENCIES));
+    expect(Object.keys(released.dependencies).length).toBeLessThan(5);
+    expect(Object.keys(pkg.dependencies).length).toBeGreaterThan(15);
+    for (const why of Object.values(RELEASE_DEPENDENCIES)) {
+      expect(why.length, "a survivor with no stated reason is a survivor nobody chose").toBeGreaterThan(20);
+    }
+
+    // The tree. `docs/` alone was 15 MB of the 40 the branch carried, and the
+    // sources go because after the bundling nothing resolves them — a `.ts`
+    // file here would be a second copy of the CLI that can disagree with the
+    // one that runs.
+    const dropped = RELEASE_DROPS.flat();
+    for (const spec of ["docs", "test", "packages/cli/bin", "package-lock.json"]) {
+      expect(dropped, `${spec} still ships`).toContain(spec);
+    }
+
+    // And the two module entries, which registered tsx and imported the
+    // sources that just left. Each becomes one line pointing at a bundle
+    // built beside the CLI's.
+    expect(nodeEntrySource("api")).toContain(`export * from "${path.posix.dirname(CLI_BUNDLE)}/api.mjs"`);
+    expect(nodeEntrySource("api"), "nothing is registered at runtime any more").not.toContain("register(");
+  });
 });
