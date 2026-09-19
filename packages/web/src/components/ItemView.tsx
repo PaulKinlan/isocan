@@ -10,6 +10,7 @@ import {
   BROWSER_MIME,
   DOC_MIME,
   googleDocId,
+  isDerivedItem,
   googleDocPreviewUrl,
   memoryOf,
   memoryPatch,
@@ -180,6 +181,7 @@ function ItemViewInner({
   const scale = useUiStore((s) => s.viewport.scale);
   const commentMode = useUiStore((s) => s.commentMode);
   const canEdit = useCanEdit();
+  const canRename = canEdit && !isDerivedItem(item);
   /**
    * **Arrival motion** (motion note, recommendation 2): an item that
    * appears from somebody else comes in over a few frames rather than
@@ -479,7 +481,7 @@ function ItemViewInner({
     // that follow to the frame — the label would never hear its own event.
     // The count is kept by hand: a pointerdown carries no click count (detail
     // is 0 on pointer events), so the pair has to be recognized by the clock.
-    if (canEdit && target.closest(".item-titlebar")) {
+    if (canRename && target.closest(".item-titlebar")) {
       const labelCanvas = useCanvasStore.getState().canvas;
       if (!labelCanvas || groupScopedRoot(labelCanvas, item.id, ui.activeGroupId) === item.id) {
       const now = Date.now();
@@ -1021,14 +1023,14 @@ function ItemViewInner({
             {SLIDE_EMOJI}
           </span>
         )}
-        {renaming ? (
+        {renaming && canRename ? (
           <NameInput title={item.title} onDone={rename} />
         ) : row.name ? (
           <span
             className="name"
             // Under a sprint's vote curtain the byline goes too: not knowing
             // who drew what while you vote is the method (core/sprint.ts).
-            title={`${item.title} (${current.filename}) — ${kindNoun(kind)} · double-click to rename${
+            title={`${item.title} (${current.filename}) — ${kindNoun(kind)} · ${isDerivedItem(item) ? "derived, read-only — open its source" : "double-click to rename"}${
               votesHidden ? "" : ` · last edit by ${actorNameIn(names, item.updatedBy)}`
             }`}
           >

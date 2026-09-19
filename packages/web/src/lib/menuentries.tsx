@@ -1,6 +1,6 @@
 import { selectCreatedItems } from "./groupplacement.ts";
 import type { Actor, CanvasCursor, CanvasTheme, Item, ThemeAnchor } from "@isocan/core";
-import { CURSORS, cursorLabel, contextMark, isGroupItem, isNote, isSlide, itemKind, itemPath, markPatch, newGroupId, noteFor, THEMES, themeLabel, ALIGN_EDGES, alignLabel, slideIntent, slidePatch, workbenchItemPath, keyFor, SLIDE_EMOJI, sprintState } from "@isocan/core";
+import { isDerivedItem, CURSORS, cursorLabel, contextMark, isGroupItem, isNote, isSlide, itemKind, itemPath, markPatch, newGroupId, noteFor, THEMES, themeLabel, ALIGN_EDGES, alignLabel, slideIntent, slidePatch, workbenchItemPath, keyFor, SLIDE_EMOJI, sprintState } from "@isocan/core";
 import type { ReactNode } from "react";
 import type { MenuEntry } from "../components/ContextMenu.tsx";
 import {
@@ -197,8 +197,8 @@ export function itemMenu(items: Item[], ctx: MenuContext): MenuEntry[] {
       label: "Rename",
       shortcutFor: "Rename",
       writes: true,
-      disabled: !one,
-      run: () => one && useUiStore.getState().setRenaming(one.id),
+      disabled: !one || isDerivedItem(one),
+      run: () => one && !isDerivedItem(one) && useUiStore.getState().setRenaming(one.id),
     },
     {
       label: "Version history",

@@ -1,5 +1,6 @@
 import { validateDesignRepairCanonical } from "./design-repair-state.ts";
 import { validateTextAnchor } from "./text-anchor.ts";
+import { validateDerivedReadings } from "./derived.ts";
 import { validateContextManifest } from "./canvas-group-context.ts";
 import type {
   Actor,
@@ -57,6 +58,7 @@ function applyValidatedOperation(state: CanvasState | null, envelope: OpEnvelope
     validateContextManifest(context, state.project.id);
   }
   const next = reduceOperation(state, envelope);
+  if (state && next) validateDerivedReadings(state.canvas, next.canvas);
   // Historical area canvases keep their original reduction. Explicit group
   // state is validated after EVERY operation, including ordinary inverses.
   if (next?.project.groupMode === "groups") validateGroupForest(next);

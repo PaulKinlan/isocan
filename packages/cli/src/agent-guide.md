@@ -2938,6 +2938,15 @@ semantics and are not retrospectively branded a completed shared review.
 
 ## Quick reference of the whole surface
 
+`roadmap add <owner/repository> [--at x,y]` — derive `docs/ROADMAP.md` on the
+repository's default branch; a GitHub `/blob/<ref>/<path>.md` address selects
+another file/ref. The same address works in `add` and the app's Add popover.
+Public repositories need no token. The summary, section headings and row cards
+name their commit and read time; every row opens its document at that commit,
+and only a row naming an issue has an issue link. These are read-only readings:
+change front matter in the source repository, not the canvas copy. One undo
+removes the entire import. Automatic refresh is not part of this first slice.
+
 **Canvas membership (new canvases use groups):** `canvas group new <title> [--at x,y] [--size WxH] [--note text]`,
 `canvas group wrap <items...> --title <title> [--note text]`,
 `canvas group ls`, `canvas group show <group> [--recursive]`,

@@ -1,5 +1,6 @@
 import { parseCanvasAddress } from "./address.ts";
 import { googleDocId, googleDocUrl } from "./googledoc.ts";
+import { roadmapSource } from "./roadmapsource.ts";
 import { normalizeSiteUrl, siteLabel } from "./browseritem.ts";
 
 /**
@@ -18,9 +19,10 @@ import { normalizeSiteUrl, siteLabel } from "./browseritem.ts";
  * scheme, no dot): "Lake House" is a canvas, "lakehouse.io" is a site. Any
  * other address is a site. Anything else is words to search canvases with.
  */
-export type AddKind = "file" | "site" | "doc" | "canvas";
+export type AddKind = "file" | "site" | "doc" | "canvas" | "roadmap";
 
 export type Addable =
+  | { kind: "roadmap"; url: string }
   | { kind: "doc"; id: string; url: string }
   | { kind: "canvas"; canvasId: string; origin: string | null; title: string | null }
   | { kind: "site"; url: string }
@@ -45,6 +47,8 @@ export function classifyAddable(
   if (!s) return { kind: "empty" };
   const doc = googleDocId(s);
   if (doc) return { kind: "doc", id: doc, url: googleDocUrl(doc) };
+  const roadmap = roadmapSource(s);
+  if (roadmap) return { kind: "roadmap", url: roadmap.url };
   const address = parseCanvasAddress(s);
   if (address) {
     const known = canvases.find((c) => c.id === address.canvasId);
@@ -94,6 +98,8 @@ export function addableKind(a: Addable): AddKind | null {
 
 export function addableWords(a: Addable): string | null {
   switch (a.kind) {
+    case "roadmap":
+      return "Derive the repository roadmap — read-only cards linked to their source commit";
     case "doc":
       return "Add as a document — its words, with a ↗ to the doc";
     case "canvas":

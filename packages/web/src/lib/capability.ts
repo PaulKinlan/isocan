@@ -70,7 +70,7 @@ export const HIDDEN_WRITES: readonly { what: string; file: string; gate: string 
   {
     what: "renaming an item — the second press on its label, and F2",
     file: "components/ItemView.tsx",
-    gate: "if (canEdit && target.closest(\".item-titlebar\"))",
+    gate: "if (canRename && target.closest(\".item-titlebar\"))",
   },
   {
     what: "the text composer — the text tool, and double-clicking a text node",
@@ -80,7 +80,7 @@ export const HIDDEN_WRITES: readonly { what: string; file: string; gate: string 
   {
     what: "the stage composer — the editor pane, and editing a text node",
     file: "components/ArtifactStage.tsx",
-    gate: "const editable = editableText(current.mimeType) && canEdit && !current.designRecord;",
+    gate: "const editable = editableText(current.mimeType) && canEdit && !current.designRecord && !isDerivedItem(item);",
   },
   {
     what: "the comment composer — a new thread",

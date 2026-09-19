@@ -6461,7 +6461,7 @@ function sizeFor(
 program
   .command("add <thing>")
   .description("Bring something onto the canvas — a file from disk, a live site, a Google Doc, or a canvas — read from what you give it")
-  .option("--as <kind>", "read the thing as this kind: file, site, doc, or canvas (default: what it looks like)")
+  .option("--as <kind>", "read the thing as this kind: file, site, doc, roadmap, or canvas (default: what it looks like)")
   .option("--at <x,y>", "place at world coordinates")
   .option("--anchor <item>", "place to the left of this item")
   .option("--in <group>", "insert into this group; legacy canvases use the existing area")
@@ -6509,15 +6509,16 @@ program
          * same acts by their older names.
          */
         const as = opts.as as AddKind | undefined;
-        if (as !== undefined && !["file", "site", "doc", "canvas"].includes(as)) {
-          throw new Error(`--as expects file, site, doc or canvas — not ${opts.as}`);
+        if (as !== undefined && !["file", "site", "doc", "roadmap", "canvas"].includes(as)) {
+          throw new Error(`--as expects file, site, doc, roadmap or canvas — not ${opts.as}`);
         }
         const isFile = as === "file" || (as === undefined && existsSync(file));
         if (!isFile) {
           const canvases = await ctx.client.listCanvases();
           const here = await resolveCanvas(ctx).catch(() => null);
           const read = classifyAddable(file, canvases, here?.id);
-          const kind = as ?? (read.kind === "doc" || read.kind === "site" || read.kind === "canvas" ? read.kind : null);
+          const kind = as ?? (read.kind === "doc" || read.kind === "site" || read.kind === "canvas" || read.kind === "roadmap" ? read.kind : null);
+          if (kind === "roadmap") return addRoadmap(ctx, file, opts);
           if (kind === "doc") {
             const id = googleDocId(file);
             if (!id) throw new Error(`not a Google Doc address: ${file}`);
@@ -6528,7 +6529,7 @@ program
           throw new Error(
             `nothing to add: "${file}" is not a file here, not an address, and not one of this home's canvases` +
               (read.kind === "search" ? " (several canvases start with it — say more of the name, or its id)" : "") +
-              ". `isocan add --as file|site|doc|canvas <thing>` says which you meant.",
+              ". `isocan add --as file|site|doc|roadmap|canvas <thing>` says which you meant.",
           );
         }
         // `add` can start an empty canvas, so it may bind this directory to
@@ -7711,6 +7712,33 @@ async function addGoogleDocItem(
   console.log(`added "${title}" (${itemId}) at ${placed.x},${placed.y}${doc.via === "drive" ? " — read with this machine's Drive token" : ""} — its ↗ opens ${doc.source}; \`isocan gdoc sync\` refreshes it`);
   console.log("note: the words are on the canvas now, readable by everyone admitted to it");
 }
+
+async function addRoadmap(ctx: Ctx, input: string, opts: { at?: string; anchor?: string; in?: string; cell?: string; title?: string }) {
+  if (opts.in || opts.cell) throw new Error("Add the roadmap at the canvas root; its sections carry their own layout");
+  if (opts.title) throw new Error("A derived roadmap keeps the repository's titles; change the source instead");
+  const { readRoadmap, roadmapCards, landRoadmap } = await import("@isocan/core/roadmap");
+  const reading = await readRoadmap(input);
+  const { canvas: p, snapshot } = await canvasAndSnapshot(ctx, { create: true });
+  const cards = roadmapCards(reading);
+  const width = Math.max(...cards.map(card => card.x + card.width));
+  const height = Math.max(...cards.map(card => card.y + card.height));
+  const placement = placementFor(snapshot, opts, { width, height });
+  const at = resolvePlacement(snapshot.canvas, placement, width, height, "chosen" in placement && !!placement.chosen);
+  const itemIds = await landRoadmap(reading, at, {
+    upload: (body, filename) => ctx.client.uploadBlob(p.id, Buffer.from(body), DOC_MIME, filename),
+    send: (op, group) => sendOp(ctx, p.id, op, group),
+  });
+  const receipt = { itemIds, source: reading.source.url, commit: reading.commit, blobSha: reading.blobSha, readAt: reading.readAt, rows: reading.roadmap.sections.reduce((n, section) => n + section.rows.length, 0) };
+  if (ctx.json) return printJson(receipt);
+  console.log(`derived ${receipt.rows} rows into ${itemIds.length} cards from ${receipt.source} at commit ${receipt.commit} — read ${receipt.readAt}`);
+  console.log("Read-only reading; every card opens its source. One undo removes this reading.");
+}
+
+program.command("roadmap").description("Read a public repository's roadmap as source-linked, read-only canvas cards")
+  .command("add <repository>")
+  .description("Derive docs/ROADMAP.md from owner/repository, or a GitHub blob URL, pinned to the commit read")
+  .option("--at <x,y>", "place the reading at world coordinates")
+  .action(run(async (repository: string, opts: { at?: string }, cmd: Command) => addRoadmap(await ctxOf(cmd), repository, opts)));
 
 const gdocCmd = program
   .command("gdoc")

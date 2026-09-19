@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { Actor } from "@isocan/core";
 import type { Backing } from "@isocan/core";
-import { automaticCanvasTarget, sourceOf, backingOf, deckStep, editableText, isDesignSystem, isTextItem, sourceFaceOf, visualFaceOf } from "@isocan/core";
+import { isDerivedItem, automaticCanvasTarget, sourceOf, backingOf, deckStep, editableText, isDesignSystem, isTextItem, sourceFaceOf, visualFaceOf } from "@isocan/core";
 import { homeAnswered, writeItem } from "../lib/api.ts";
 import { loadBacking, useCanvasStore } from "../stores/canvasStore.ts";
 import { VersionContent } from "./ItemView.tsx";
@@ -239,7 +239,7 @@ function OrdinaryArtifactStage({
 
   const current = item.versions.find((v) => v.id === item.currentVersionId) ?? item.versions[0]!;
   const hasVisual = current.visual !== undefined;
-  const editable = editableText(current.mimeType) && canEdit && !current.designRecord;
+  const editable = editableText(current.mimeType) && canEdit && !current.designRecord && !isDerivedItem(item);
   // Not a hook — a derivation, so it may live where it is used.
   const backing = backingOf(item, disk.bound, (path) => disk.onDisk[path] ?? null);
 

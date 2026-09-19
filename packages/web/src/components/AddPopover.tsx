@@ -15,11 +15,12 @@ import {
   ago,
   docFilenameFrom,
   googleDocId,
+  roadmapSource,
   normalizeSiteUrl,
   opWords,
   siteLabel,
 } from "@isocan/core";
-import { checkFrameable, exportDoc, listCanvases } from "../lib/api.ts";
+import { checkFrameable, exportDoc, listCanvases, uploadBlob } from "../lib/api.ts";
 import { classifyAddableDraft, siteDraftWords } from "../lib/adddraft.ts";
 import { BROWSER_SIZE, addAreaItem, addBrowserItem, addCanvasItem, addDocumentItem } from "../lib/upload.ts";
 import { placeableArea, spotInView } from "../lib/spot.ts";
@@ -50,6 +51,7 @@ const PLACEHOLDER: Record<AddKind | "any", string> = {
   file: "Choosing files…",
   site: "localhost:5173, or any site that allows framing",
   doc: "A Google Doc's address",
+  roadmap: "owner/repository, or a GitHub roadmap file address",
   canvas: "Search your canvases, or paste an address",
 };
 
@@ -60,6 +62,7 @@ const ARIA_LABEL: Record<AddKind | "any", string> = {
   file: "Files to add",
   site: "Site address",
   doc: "Google Doc address",
+  roadmap: "Repository roadmap address",
   canvas: "Canvas name or address",
 };
 
@@ -118,6 +121,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
   const pinned: Addable = useMemo(() => {
     const s = query.trim();
     if (adding === "site") return s ? { kind: "site", url: s } : { kind: "empty" };
+    if (adding === "roadmap") return roadmapSource(s) ? { kind: "roadmap", url: s } : s ? { kind: "search", query: s } : { kind: "empty" };
     if (adding === "doc") {
       const id = googleDocId(s);
       return id ? guess : s ? { kind: "search", query: s } : { kind: "empty" };
@@ -135,7 +139,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, 8);
   }, [canvases, canvasId, needle]);
-  const showList = adding === "canvas" || pinned.kind === "search" || (pinned.kind === "empty" && adding !== "site" && adding !== "doc");
+  const showList = adding === "canvas" || (pinned.kind === "search" && adding !== "roadmap") || (pinned.kind === "empty" && adding !== "site" && adding !== "doc" && adding !== "roadmap");
 
   function spotFor(width: number, height: number) {
     return spotInView(useUiStore.getState().viewport, Object.values(canvas?.items ?? {}), width, height, placeableArea());
@@ -191,7 +195,18 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
     const destination = creationDestination();
     try {
       const what = pinned;
-      if (what.kind === "doc") {
+      if (what.kind === "roadmap") {
+        if (destination.containerId) throw new Error("Add the roadmap at the canvas root; its sections carry their own layout");
+        const { readRoadmap, roadmapCards, landRoadmap } = await import("@isocan/core/roadmap");
+        const reading = await readRoadmap(what.url);
+        const cards = roadmapCards(reading);
+        const at = spotFor(cards[0]!.width, cards[0]!.height);
+        const ids = await landRoadmap(reading, at, {
+          upload: (markdown, filename) => uploadBlob(canvasId, new Blob([markdown], { type: "text/markdown" }), filename),
+          send: (op, group) => sendEchoed(canvasId, actor, op, group),
+        });
+        done(ids[0]!);
+      } else if (what.kind === "doc") {
         const at = spotFor(640, 800);
         const doc = await exportDoc(what.url);
         done(
@@ -259,6 +274,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
     { kind: "file", label: "Files" },
     { kind: "site", label: "Site" },
     { kind: "doc", label: "Google Doc" },
+    { kind: "roadmap", label: "Roadmap" },
     { kind: "canvas", label: "Canvas" },
   ];
 
@@ -314,7 +330,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
                   setError(null);
                 }}
               >
-                <KindIcon className="kind-icon" kind={row.kind === "file" ? "document" : row.kind === "doc" ? "document" : row.kind} />
+                <KindIcon className="kind-icon" kind={row.kind === "file" || row.kind === "doc" || row.kind === "roadmap" ? "document" : row.kind} />
                 <span>{row.label}</span>
               </button>
             ))}
@@ -343,7 +359,7 @@ export function AddPopover({ canvasId, actor, onFiles }: { canvasId: string; act
             </div>
           )}
           <button className="btn primary" type="submit" disabled={busy || queued || pinned.kind === "empty" || (pinned.kind === "search" && !matches[0])}>
-            {pinned.kind === "doc" ? "Add document" : pinned.kind === "site" ? "Add site" : pinned.kind === "canvas" || pinned.kind === "search" ? "Place canvas" : "Add"}
+            {pinned.kind === "roadmap" ? "Derive roadmap" : pinned.kind === "doc" ? "Add document" : pinned.kind === "site" ? "Add site" : pinned.kind === "canvas" || pinned.kind === "search" ? "Place canvas" : "Add"}
           </button>
           {error && <div className="site-error" id={errorId} role="alert">{error}</div>}
         </form>

@@ -1,6 +1,6 @@
 import { selectCreatedItems } from "../lib/groupplacement.ts";
 import { createGroupNudger } from "../lib/groupgestures.ts";
-import { groupAncestors, groupScopeRoots, isGroupItem } from "@isocan/core";
+import { isDerivedItem, groupAncestors, groupScopeRoots, isGroupItem } from "@isocan/core";
 import { enterCanvasGroup, leaveCanvasGroup, openGroupCreation, changeCanvasGroup, groupsEnabled, groupTask } from "../lib/canvasgroups.ts";
 import { CanvasGroupScope } from "../components/CanvasGroupScope.tsx";
 import { presentedCanvas, presentedLocus } from "../lib/presentation.ts";
@@ -763,7 +763,8 @@ function CanvasSurface({
         const ids = ui.selectedItemIds;
         if (ids.length === 1) {
           e.preventDefault();
-          ui.setRenaming(ids[0]!);
+          const item = useCanvasStore.getState().canvas?.items[ids[0]!];
+          if (item && !isDerivedItem(item)) ui.setRenaming(item.id);
         }
       } else if (e.key === "Enter" && ui.selectedItemIds.length === 1) {
         // Enter opens the selection full screen. It is a NAVIGATION, not a

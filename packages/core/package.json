@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./markdown": "./src/markdown-text.ts",
+    "./roadmap": "./src/roadmap.ts",
     "./packageroot": "./src/packageroot.ts",
     "./design-audit": "./src/designaudit.ts",
     "./design-partner": "./src/design-partner.ts",

@@ -166,6 +166,12 @@ That parity is a house rule with a test behind it: see AGENTS.md.
   `link`, `unlink`, `allow`, `revoke` and `read` subcommands. The project's
   design still governs, and exporting the project does not copy the private
   source's contents.
+- **Repository roadmaps**: `isocan roadmap add owner/repository`, or paste a
+  public GitHub repository into Add. Derives `docs/ROADMAP.md` into a summary,
+  section headings and read-only row cards, with the actual commit and read time.
+  Each row links to its document at that commit and to its issue when named.
+  A GitHub file URL selects another ref/path. No token or new item kind;
+  one undo removes the reading. Automatic refresh is not built yet.
 - **Markdown reading**: Read / select text mode, a heading outline, and live
   shared text selections. `isocan session select <item> --quote "words"` points
   agents to the same saved passage without changing the document. Select words
