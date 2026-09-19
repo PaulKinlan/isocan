@@ -37,6 +37,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The merge gate runs the suite inside a scratch worktree of the
+          # branch, and the suite reads git history. A depth-1 checkout makes
+          # that gate fail for a reason that is not the branch.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -108,8 +113,16 @@ jobs:
           # backstop if `persona-run.mjs` ever writes somewhere it should not.
           CHANGED="$(gh pr diff --name-only "personas/$DAY" || true)"
           if [ -n "$CHANGED" ] && ! printf '%s\n' "$CHANGED" | grep -qv '^docs/reviews/'; then
-            gh pr merge --squash --delete-branch "personas/$DAY" \
-              || echo "could not merge automatically — left for a person"
+            # The check is RUN, not awaited: this PR's own `pull_request` run
+            # exists but sits approval-required, so nothing has tested the
+            # branch by the time it merges itself. The gate lives in
+            # `scripts/nightly-prs.mjs` with the other two workflows'.
+            if node scripts/nightly-prs.mjs --gate "personas/$DAY"; then
+              gh pr merge --squash --delete-branch "personas/$DAY" \
+                || echo "could not merge automatically — left for a person"
+            else
+              echo "the merge gate is red — left for a person"
+            fi
           else
             echo "touches more than docs/reviews/ — left for a person"
           fi

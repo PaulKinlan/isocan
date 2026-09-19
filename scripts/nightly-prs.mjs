@@ -49,6 +49,7 @@ const cwd = process.cwd();
 export const DRAFT_WINDOW_HOURS = 72;
 
 const CHANGELOG_DIR = "docs/changelog/";
+const GRADES_DIR = "docs/grades/";
 const MAIN = "refs/remotes/origin/main";
 
 /** Output caps. `execFileSync` buffers, and a full suite is louder than the
@@ -575,6 +576,94 @@ export function drainChangelogPRs() {
   return true;
 }
 
+/**
+ * Drain the grades queue, oldest first — the run's own PR included, because
+ * "the run merges its own PR" is only true if something in the run does it.
+ *
+ * Merging is the default and superseding is the exception, because these pages
+ * are a time series: yesterday's readings are yesterday's, not stale. A merge
+ * that FAILS is not proof that anything replaced it — `main` moved under the
+ * branch, which needs a rebase — so a close happens only when that day's page
+ * has landed anyway, and then the comment names the commit that carries it.
+ * `isocan-v1d` R2 is the reason: a real conflict on a unique, unpublished
+ * grade day would otherwise be called superseded, and a day's readings
+ * quietly gone.
+ */
+export function drainGradePRs() {
+  const prs = openPRs("grades/");
+  if (prs === null) return false;
+  if (prs.length === 0) {
+    log("no open grades pull requests");
+    return true;
+  }
+  gitTry(["fetch", "--quiet", "origin", "main"]);
+
+  for (const pr of prs) {
+    const branch = pr.headRefName;
+    const day = branch.slice("grades/".length);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      log(`#${pr.number} (${branch}) is not a day's page — left alone`);
+      continue;
+    }
+    const scope = inScope(pr.number, GRADES_DIR);
+    if (!scope.ok) {
+      log(`#${pr.number} (${branch}) is left for a person: ${scope.said}`);
+      commentOnce(
+        pr.number,
+        OUTSIDE,
+        `Left for a person: ${scope.said}. The nightly machinery merges only its own \`docs/grades/\` pages.`,
+      );
+      continue;
+    }
+
+    const rel = `${GRADES_DIR}${day}.md`;
+    if (mainFile(rel).ok) {
+      supersedeClosed(pr, branch, rel, day, "readings");
+      continue;
+    }
+
+    const gated = withBranch(branch, (dir) => gateIn(dir));
+    if (!gated.ok) {
+      redGate(pr.number, gated.said, "page of readings");
+      continue;
+    }
+
+    if (DRY) {
+      would(`merge grades #${pr.number} (${branch})`);
+      continue;
+    }
+    const merged = ghTry(["pr", "merge", "--squash", "--delete-branch", String(pr.number)]);
+    if (merged.ok) {
+      log(`merged grades #${pr.number} (${branch})`);
+      continue;
+    }
+    if (mainFile(rel).ok) {
+      supersedeClosed(pr, branch, rel, day, "readings");
+      continue;
+    }
+    log(`#${pr.number} (${branch}) could not be merged: ${merged.out}`);
+    gitTry(["fetch", "--quiet", "origin", "main"]);
+    if (mainFile(rel).ok) {
+      supersedeClosed(pr, branch, rel, day, "readings");
+      continue;
+    }
+    commentOnce(
+      pr.number,
+      CONFLICTED,
+      [
+        "Left for a person: the merge failed, and a failed merge is not a supersession — no page for this day is on `main`, so nothing here has been replaced.",
+        "",
+        "```",
+        merged.out,
+        "```",
+        "",
+        recover(branch),
+      ].join("\n"),
+    );
+  }
+  return true;
+}
+
 const argv = process.argv.slice(2);
 DRY = argv.includes("--dry-run");
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -584,7 +673,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const what = argv[drainAt + 1];
     if (DRY) log("dry run: every change below was reported and none was made");
     if (what === "changelog") process.exit(drainChangelogPRs() ? 0 : 1);
-    console.error(`--drain takes changelog here (the grades drain arrives with grade.yml), not ${what ?? "nothing"}`);
+    if (what === "grades") process.exit(drainGradePRs() ? 0 : 1);
+    console.error(`--drain takes changelog or grades, not ${what ?? "nothing"}`);
     process.exit(2);
   }
   if (gateAt >= 0) {

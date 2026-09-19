@@ -398,6 +398,17 @@ describe("nothing is landed on a check that did not run or did not pass", () => 
  * would do nothing, quietly, every night. So the name is asked for at runtime,
  * the way that caller asks for it.
  */
+describe("the grade drain moved without going missing", () => {
+  it("is still reachable through grade-night.mjs, where reviews.mjs imports it", () => {
+    const said = execFileSync(
+      "node",
+      ["-e", 'import("./scripts/grade-night.mjs").then((m) => console.log(typeof m.drainGradePRs))'],
+      { cwd: repo, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    expect(said.trim()).toBe("function");
+  });
+});
+
 describe("a dry run", () => {
   it("reports what it would do and changes nothing", () => {
     const fx = fixture({ variant: "draft" });
@@ -409,6 +420,45 @@ describe("a dry run", () => {
     expect(did(calls, "pr comment")).toBe(false);
     expect(fx.tipMoved(), "and it must not push the index row").toBe(false);
     expect(log, "nothing mutating was asked of gh").not.toContain("pr merge");
+  });
+});
+
+describe("the grades queue", () => {
+  it("merges oldest first", () => {
+    const fx = fixture({ kind: "grades", variant: "plain", days: [DAY, NEXT_DAY] });
+    const { calls } = fx.run({ numbers: [41, 42] });
+
+    const first = calls.findIndex((call) => call.startsWith("pr merge --squash"));
+    const second = calls.findIndex((call, index) => index > first && call.startsWith("pr merge --squash"));
+    expect(calls[first], "the older PR merges first").toContain("41");
+    expect(calls[second], "and the newer one after it").toContain("42");
+    expect(calls.filter((call) => call.startsWith("pr merge")).length).toBe(2);
+  });
+
+  it("closes a PR as superseded when the day's page is already on main", () => {
+    const fx = fixture({ kind: "grades", variant: "plain", pageOnMain: true });
+    const { calls, log } = fx.run({ mergeFails: true });
+
+    expect(did(calls, "pr close 42")).toBe(true);
+    expect(log.slice(log.indexOf("pr close 42")), "the replacement is named").toMatch(/`main` already carries/);
+  });
+
+  it("does NOT close a conflicting PR when nothing replaced it (isocan-v1d R2)", () => {
+    const fx = fixture({ kind: "grades", variant: "plain" });
+    const { calls, log } = fx.run({ mergeFails: true });
+
+    expect(did(calls, "pr close 42"), "a conflict is not a supersession").toBe(false);
+    expect(did(calls, "pr comment 42"), "but it cannot be silent either").toBe(true);
+    expect(log, "the comment has to say nothing replaced it").toContain("not a supersession");
+    expect(fx.tipMoved(), "and the branch is left as it was").toBe(false);
+  });
+
+  it("does not merge past a red gate", () => {
+    const fx = fixture({ kind: "grades", variant: "plain", failsOn: "branch" });
+    const { calls } = fx.run();
+
+    expect(did(calls, "pr merge")).toBe(false);
+    expect(did(calls, "pr comment 42")).toBe(true);
   });
 });
 
@@ -426,6 +476,15 @@ describe("a dry run", () => {
  * day, and a shallow clone answers "nothing landed". A depth-1 gate is a gate
  * that always fails, which is worse than no gate: it blames the branch for a
  * property of the checkout.
+ */
+/**
+ * **The document and the machinery have to say the same thing.**
+ *
+ * `isocan-3aw` found this section describing two changelog behaviours that no
+ * code performed, and nothing could tell: prose about enforcement is not
+ * evidence of it. These two cases are the cheapest half of that guard — the
+ * doc has to name the file that does the work, and the gate it describes has
+ * to be the gate that runs.
  */
 describe("every workflow that runs the nightly machinery", () => {
   const dir = path.join(repo, ".github/workflows");
@@ -460,6 +519,20 @@ describe("every workflow that runs the nightly machinery", () => {
       "steps.gather.outputs.day",
     );
     expect(drain, "a cancelled run drains nothing").toContain("!cancelled()");
+  });
+
+  it("drains the grades queue from the run that opened the PR", () => {
+    const workflow = read("grade.yml");
+    expect(workflow).toContain("node scripts/nightly-prs.mjs --drain grades");
+    expect(workflow.indexOf("--drain grades"), "the run merges its own PR, so the drain comes after it").toBeGreaterThan(
+      workflow.indexOf("gh pr create"),
+    );
+  });
+
+  it("sends the persona self-merge through the same gate", () => {
+    const merge = read("persona.yml").slice(read("persona.yml").indexOf("The reports merge themselves"));
+    expect(merge, "a machine PR that merges itself runs the check first").toContain("nightly-prs.mjs --gate");
+    expect(merge.indexOf("--gate"), "and the check comes before the merge").toBeLessThan(merge.indexOf("gh pr merge"));
   });
 
   it("installs in the worktree, rather than borrowing the caller's modules", () => {

@@ -39,6 +39,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The merge gate runs the suite inside a scratch worktree of the
+          # branch, and the suite reads git history (`changelog.test.ts` drives
+          # `changelog-day.mjs` with the earliest entry). On a depth-1 checkout
+          # the gate would fail for a reason that is not the branch — a gate
+          # that always fails, which is worse than no gate.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -83,3 +90,15 @@ jobs:
             gh pr create --base main --head "grades/$DAY" \
               --title "Grades: $DAY" \
               --body "Deterministic graders over the pages this repo ships. Every check has a right answer a machine can be certain of; nothing here is a judgement and nothing was written to any canvas. A failing check is something to fix, not something to merge past."
+
+      # **The run merges its own PR, in the same run.** Until this step
+      # existed the drain happened only 20 minutes later, when `persona.yml`
+      # called it from `reviews.mjs` — true, but true by coincidence and
+      # invisible to anybody reading this file. It drains oldest first,
+      # today's PR included, and when a merge fails it looks again before
+      # saying anything: a conflict is not a supersession (isocan-v1d R2).
+      - name: Drain the queue, today's PR included
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/nightly-prs.mjs --drain grades
