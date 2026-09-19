@@ -2400,6 +2400,12 @@ export class HomeLink implements HomeConnection {
    * left open is a process that never exits" that phase 4 paid for once.
    */
   private async fetchHome(path: string, init: RequestInit): Promise<Response> {
+    if (this.isSelf) {
+      throw new HomeUnreachableError(
+        this.homeUrl,
+        "cannot fetch home: address points to this daemon itself (isocan-vab)",
+      );
+    }
     try {
       return await fetch(`${this.homeUrl}${path}`, {
         ...init,
