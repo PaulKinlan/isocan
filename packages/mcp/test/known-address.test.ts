@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { CanvasHandle, DaemonClient, Home, harnessVars, type Ctx } from "@isocan/api";
 import { newCanvasId } from "@isocan/core";
-import { startDaemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.ts";

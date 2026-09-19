@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { stopDaemons } from "@isocan/server";
+import { stopDaemons } from "@isocan/server/daemon";
 import { reservePort } from "../../../test/ports.ts";
 import { nodeModulesDir } from "./deps.ts";
 

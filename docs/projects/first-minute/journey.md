@@ -1,9 +1,9 @@
 ---
-status: designed
+status: partial
 since: 2026-09-18
 issue: 332
 see: auto-upgrade, room, iso-api, harnesses
-note: designed 18 Sep 2026 from #332. An agent in a small hosted sandbox (cold disk, slow file system, a proxy for a network, no secret) spends most of a person's minute on isocan itself — 35 s installing 227 packages, 2 to 4 s starting the CLI for every command, 50k tokens of guide. Measured the same day — `isocan --version` loads 456 modules, 297 of them our own `.ts` transpiled by tsx per command; an esbuild bundle of the same CLI starts in 0.17 s against 0.29 s on a laptop that hides the cost. The walk bundles the release CLI, inlines its dependencies, slims the release tree, tiers the guide, and gives an agent with no secret a supported way to say who she is. Three doors are Dimitri's and open — a thin agent-only artifact, how the guide is cut, the shape of the no-secret identity. Nothing built.
+note: designed 18 Sep 2026 from #332 and phases 0 to 3 built the same day. An agent in a small hosted sandbox (cold disk, slow file system, a proxy for a network, no secret) spent most of a person's minute on isocan itself. Measured in a container close to #332's (`node scripts/first-minute.mjs`): install 14.2 s for 227 packages and 115 MB, `isocan --version` 1.12 s, 4397 file opens. Now: **install 4.1 s for 3 packages and 22 MB, `isocan --version` 0.10 s, 49 file opens** — journey 1's targets met. The release CLI is an esbuild bundle with its dependencies inlined (split into chunks, because one file was slower: hoisting external imports out of lazily-loaded modules undid the laziness); the release tree drops everything an install never runs; `packageRoot()` replaced six path counts that a bundle makes meaningless; guides are build-time text constants; and `@isocan/server`'s index no longer re-exports the daemon, which was putting 2.1 MB of fastify into every command. Journeys 2 and 3 are unbuilt: phases 4 and 5 each open with a proposal and wait for Dimitri — how the guide is cut (guide-cut.md: a 6,600-token core against today's 46,700) and the shape of the no-secret identity (no-secret-identity.md: three shapes, environment recommended). The third door, a thin agent-only artifact, is open and now costs more: the CLI is 35 chunks, so it would be a second build
 ---
 # The first minute — the journeys
 

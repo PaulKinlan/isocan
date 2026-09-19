@@ -13,7 +13,8 @@ import {
   type OperatorEndResponse,
 } from "@isocan/core";
 import { harnessVars } from "@isocan/api";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 
 /**
  * **The CLI does not resume an actor after an end by the operator** —

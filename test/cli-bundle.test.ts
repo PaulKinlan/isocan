@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, mkdirSync, cpSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdirSync, cpSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,8 +14,8 @@ import {
 } from "../scripts/release.mjs";
 
 /**
- * **The release CLI is a bundle, and these are the two things that has to be
- * true of it** (`docs/projects/first-minute/phases.md`, phase 1).
+ * **The release CLI is a bundle, and this is what has to stay true of it**
+ * (`docs/projects/first-minute/phases.md`, phases 1 to 3).
  *
  * The debt is #332: an agent in a hosted sandbox waits 2 to 4 seconds for
  * `isocan --version`, because `bin/isocan.js` registers tsx and then imports
@@ -24,15 +24,17 @@ import {
  * there — and no test that runs on a laptop can measure the sandbox's clock.
  * So the two guards here are counts, not seconds:
  *
- * 1. **the bundle starts without the sources.** Run from a tree that has the
- *    release manifest and `packages/cli/dist` and nothing else — no `.ts`
- *    anywhere, no tsx — the CLI still answers `--version`, `--help` and
- *    `--agent-help`, guides and all.
- * 2. **the budget.** `--version` loads fewer than 150 modules; it loaded 456
- *    when this project started, and phase 3 takes it under 40.
+ * 1. **it starts without the sources.** Run from a tree holding the release
+ *    manifest, `packages/cli/dist` and the built app — no `.ts` anywhere, no
+ *    tsx, no `node_modules` — the CLI answers `--version`, `--help`,
+ *    `--agent-help` and a module verb, and its daemon serves the page.
+ * 2. **an install resolves nothing**, and the tree carries nothing it never
+ *    runs.
+ * 3. **the budgets**: how many modules one command loads, and how many bytes
+ *    of JavaScript it reads. 456 modules and 5.8 MB when this started.
  *
- * Both need the bundle built, which is esbuild over the whole CLI closure and
- * the reason this file is in the deep lane.
+ * They need the bundle built, which is esbuild over the whole CLI closure and
+ * the reason this file spawns as much as it does.
  */
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
@@ -145,17 +147,38 @@ describe("the release CLI is a bundle", () => {
     }
   }, 120_000);
 
-  it("loads under 150 modules to print a version, and none of them through tsx", () => {
+  it("loads under 40 modules to print a version, and none of them through tsx", () => {
     const loaded = modulesLoadedBy(bundle, ["--version"]);
     const ours = loaded.filter((url) => url.endsWith(".ts"));
     const tsx = loaded.filter((url) => url.includes("/tsx/"));
 
     expect(tsx, "the bundle must not need a transpiler").toEqual([]);
     expect(ours, "the bundle must not reach back to the sources").toEqual([]);
-    // 456 when this project started, 437 measured here the same day. Phase 3
-    // takes this under 40 by moving the server, the MCP layer and the design
-    // stack behind `import()`; until then the ceiling stops it climbing.
-    expect(loaded.length, `${loaded.length} modules for --version`).toBeLessThan(150);
+    // 456 when this project started and 437 measured here the same day; 35
+    // now, half of them node's own builtins. A chunk is only loaded when
+    // something reaches it, so this counts what the command actually needed.
+    expect(loaded.length, `${loaded.length} modules for --version`).toBeLessThan(40);
+  }, 120_000);
+
+  it("reads under 5 MB of JavaScript to print a version", () => {
+    /**
+     * **The budget that still moves** (`docs/projects/first-minute/design.md`,
+     * change 6). Once the dependencies are inside the bundle the module count
+     * stops being the interesting number — everything is chunks, and a chunk
+     * is one file however much is in it. Bytes are what a sandbox pays for,
+     * in reads and in parse time.
+     *
+     * 5.8 MB before phase 3, because `@isocan/server`'s index re-exported the
+     * daemon and therefore fastify, and sixteen files import that index for
+     * `paths`. 4.5 MB after. The ceiling is here so the next person to add a
+     * static import to a barrel finds out on their own machine, where the
+     * whole command is a tenth of a second and nothing else would tell them.
+     */
+    const startup = modulesLoadedBy(bundle, ["--version"])
+      .filter((url) => url.startsWith("file:") && url.includes("/dist/"))
+      .reduce((bytes, url) => bytes + statSync(fileURLToPath(url)).size, 0);
+    const mb = startup / 1024 / 1024;
+    expect(mb, `${mb.toFixed(1)} MB read to print a version`).toBeLessThan(5);
   }, 120_000);
 
   it("declares nothing an install has to resolve, and drops what an install never runs", () => {

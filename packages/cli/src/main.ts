@@ -1358,13 +1358,13 @@ program
         throw refuseDaemonVerb("serve", declared.at ?? "its home");
       }
       if (opts.foreground) {
-        const { runDaemon } = await import("@isocan/server");
+        const { runDaemon } = await import("@isocan/server/daemon");
         await runDaemon({ port, home, ...(opts.force ? { takeover: true } : {}) });
         return new Promise<void>(() => {}); // runs until signaled
       }
       const client = new DaemonClient(`http://127.0.0.1:${port}`, home);
       if (opts.force) {
-        const { stopDaemons } = await import("@isocan/server");
+        const { stopDaemons } = await import("@isocan/server/daemon");
         const stopped = await stopDaemons(port, home);
         if (stopped.length > 0) console.log(`stopped daemon ${stopped.join(", ")}`);
       } else if (await client.health()) {
@@ -1738,7 +1738,7 @@ async function restartDaemon(
   home: string,
   port: number,
 ): Promise<{ stopped: number[]; health: Health | null; client: DaemonClient }> {
-  const { stopDaemons } = await import("@isocan/server");
+  const { stopDaemons } = await import("@isocan/server/daemon");
   const stopped = await stopDaemons(port, home);
   const client = new DaemonClient(`http://127.0.0.1:${port}`, home);
   await client.ensureDaemon();
@@ -2621,7 +2621,7 @@ program
   .description("Stop the daemon — asks the port who it is, so a stale one can't hide")
   .action(
     run(async (_opts: unknown, cmd: Command) => {
-      const { stopDaemons } = await import("@isocan/server");
+      const { stopDaemons } = await import("@isocan/server/daemon");
       const declared = await resolveDeclared(paths.isocanHome());
       if (declared?.mode === "direct") {
         throw refuseDaemonVerb("stop", declared.at ?? "its home");
@@ -5216,7 +5216,7 @@ program
               }
             }
           } else if (before && stalenessOf(before).stale) {
-            const { stopDaemons } = await import("@isocan/server");
+            const { stopDaemons } = await import("@isocan/server/daemon");
             await stopDaemons(port, home);
             await fs.rm(path.join(home, ".stale-warned"), { force: true });
             report.restarted = `${stalenessOf(before).why} — restarted on this build`;

@@ -12,7 +12,8 @@ import {
   type KillBadgeResponse,
 } from "@isocan/core";
 import { harnessVars, HOME_CLAIM_KEY } from "@isocan/api";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 
 /**
  * **`isocan wait` exits when its badge is ended** — operator phase 4's

@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CLIENT_FEATURES_HEADER, type PresenceSession } from "@isocan/core";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 
 /**

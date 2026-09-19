@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { newCanvasId, type DesignBrief, type DesignQuestionSet } from "@isocan/core";
-import { startDaemon, stopDaemons } from "@isocan/server";
+import { startDaemon, stopDaemons } from "@isocan/server/daemon";
 import { CanvasHandle, DaemonClient, type Ctx } from "@isocan/api";
 
 /** A real home with a known person and two separate agents; all content is synthetic. */

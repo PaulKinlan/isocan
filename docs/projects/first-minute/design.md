@@ -24,12 +24,13 @@ installs today's `release` into a container with four cores, Node 22, a cold
 disk and no tsx cache, and takes three numbers. Run 18 Sep 2026 against
 `release` built from 61f7616a:
 
-| | before (61f7616a) | after phase 1 | after phase 2 |
-| --- | --- | --- | --- |
-| `npm install -g …#release` | 14.2 s, 227 packages, 115 MB | 10.3 s, 227 packages, 118 MB | **3.9 s, 3 packages, 22 MB** |
-| `isocan --version` | 1.12 s cold, 1.07 s warm | 0.14 s | **0.12 s cold, 0.11 s warm** |
-| `node -e ''` in the same container | 0.04 s | 0.05 s | 0.03 s |
-| files `isocan --version` opens | 4397 `openat`, 1396 found | 474 `openat`, 429 found | **49 `openat`, 44 found** |
+| | before (61f7616a) | phase 1 | phase 2 | phase 3 |
+| --- | --- | --- | --- | --- |
+| `npm install -g …#release` | 14.2 s, 227 packages, 115 MB | 10.3 s, 227 pkgs | **3.9 s, 3 pkgs, 22 MB** | 4.1 s |
+| `isocan --version` | 1.12 s cold, 1.07 s warm | 0.14 s | 0.12 s | **0.10 s cold, 0.09 s warm** |
+| `node -e ''` in the same container | 0.04 s | 0.05 s | 0.03 s | 0.03 s |
+| files `--version` opens | 4397 `openat`, 1396 found | 474 | **49 `openat`, 44 found** | 49 |
+| JavaScript `--version` reads | 4.7 MB of `.ts` through tsx | — | 5.8 MB | **4.5 MB** |
 
 A plain container reproduces seconds-per-command — 1.1 s against the laptop's
 0.29 s — so the script did not need gVisor, which is as well: `runsc` is not
@@ -176,6 +177,16 @@ After 1, about 0.13 s of the 0.17 s is evaluating modules a command does not
 use. `@isocan/server`, `@isocan/mcp`, the design stack and module CLIs move
 behind `import()` in the actions that need them; module guides are read only
 by `--agent-help`. This matters less than 1 and 2 and comes after them.
+
+**Built, phase 3, and smaller than this paragraph expected.** Splitting the
+bundle already deferred most of it: each dynamic import is its own chunk, and
+a chunk is read only when something reaches it. What splitting could not fix
+was a barrel — `@isocan/server`'s index re-exported `startDaemon`, so the
+sixteen files that import it for `paths` were importing fastify, and
+`--version` read 2.1 MB of it. `@isocan/server/daemon` is now its own entry.
+The guides need no laziness at all: they are build-time constants since phase
+1. The rest of the list was left where it is, with a startup-bytes budget in
+the suite to re-open the question if it ever matters again — see phases.md.
 
 ### 4. The guide in tiers, the summons with its context
 

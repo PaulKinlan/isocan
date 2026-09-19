@@ -7069,7 +7069,10 @@ function canvasIdIn(pathname: string): string | null {
 /** The header a replica names its home in — a machine-readable copy of what
  * the body says, for a `curl` or a script that would rather not scrape prose.
  * Deliberately NOT `Location`, and deliberately not a 3xx: see below. */
-export const HOME_HEADER = "X-Isocan-Home";
+// Un-exported when the index stopped re-exporting it (first-minute phase 3):
+// nothing outside this file ever read it, and the re-export was one constant
+// that dragged fastify into every command.
+const HOME_HEADER = "X-Isocan-Home";
 
 /**
  * What this origin answers a person with, when the canvas they asked for is

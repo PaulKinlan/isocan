@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Canvas } from "@isocan/core";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { markerFile } from "@isocan/server";
 import { harnessVars } from "@isocan/api";
 

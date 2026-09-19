@@ -5,7 +5,8 @@ Each phase ends with **Trajectory**: only what the phase discovered
 that changes the project's course. A phase that went as planned leaves
 it empty.
 
-**Where we are: phases 0 to 2 are done; phase 3 is next.** Seven phases. Phases 0 to 3
+**Where we are: phases 0 to 3 are done; phase 4 is next, and it opens with a
+decision that is Dimitri's.** Seven phases. Phases 0 to 3
 need no person. Phases 4 and 5 each open with a decision that is Dimitri's
 (design.md, "Open doors") and stop there until it is made. Phase 6 is the
 walk in the sandbox #332 was measured in, which lives in
@@ -125,7 +126,10 @@ package's `src` and would be broken files on a branch that ships none.
 
 ## Phase 3 — Lazy loading
 
-**Status: NOT STARTED.**
+**Status: DONE, 18 Sep 2026.** `@isocan/server/daemon` is its own entry and the
+barrel no longer re-exports it. In phase 0's sandbox: `--version` **0.10 s
+cold, 0.09 s warm**, 35 modules, 4.5 MB of JavaScript read. Budgets in
+`test/cli-bundle.test.ts`.
 
 **Outcome:** `@isocan/server`, `@isocan/mcp`, the design stack and module
 CLIs' action bodies load through `import()` from the commands that use them.
@@ -135,11 +139,35 @@ Module guides are read only by `--agent-help`.
 and a second budget covers `isocan get` in direct mode. Phase 0's script:
 `--version` under 0.5 s.
 
-**Trajectory:**
+**Trajectory: both proofs were already green when the phase opened, and the
+work that mattered was not on the list.** Splitting the bundle (phase 1) and
+inlining the dependencies (phase 2) had taken `--version` to 33 modules and
+0.12 s — under the "40 modules" and "0.5 s" bars this phase was to clear. The
+module count had also stopped meaning much: once every dependency is inside
+the bundle, a chunk is one module however much is in it. So the phase was
+re-aimed at the number that still moves, **bytes read at startup**, and the
+first look at those found something the design had not: `@isocan/server`'s
+index re-exported `startDaemon`, and sixteen files in the CLI and the API
+import that index for `paths` or `readConfigFile`. Printing a version string
+therefore read a 2.1 MB chunk of fastify. The daemon is now
+`@isocan/server/daemon`, reached with `await import()` by the one verb that
+serves; its types stay in the index, since a type import is erased. 5.8 MB
+became 4.5, and `--version` 0.12 s became 0.10.
+
+**What was deliberately not done, and why.** The rest of the phase's list —
+the MCP layer, the design stack, module CLIs' action bodies — would move
+zod, `ws` and undici out of startup for perhaps another 2 MB. It was left,
+because the targets are met with five times the margin and the change is a
+large one through the CLI's import graph. The startup-bytes budget is in the
+suite so the question can be re-opened by a number rather than by a hunch.
+The module guides are no longer read from disk at all: phase 1 made them
+build-time text constants, which is the same end by a different means.
 
 ## Phase 4 — The guide in tiers, the summons with its context
 
-**Status: NOT STARTED.**
+**Status: OPEN — waiting on Dimitri.** The proposed cut is
+[guide-cut.md](guide-cut.md): a core of about 6,600 tokens against today's
+46,700, 46 topics, and three judgements named. Nothing is built.
 
 **Outcome:** opens with a proposed cut of `agent-guide.md` into a core and
 topics, as a list of headings with token counts, and stops for Dimitri.
@@ -158,7 +186,10 @@ item's title.
 
 ## Phase 5 — An agent that holds no secret
 
-**Status: NOT STARTED.**
+**Status: OPEN — waiting on Dimitri.** The three shapes are
+[no-secret-identity.md](no-secret-identity.md), with environment variables
+recommended and the proxy half noted as having no decision in it. Nothing is
+built.
 
 **Outcome:** opens with the three shapes design.md names, one recommended,
 and stops for Dimitri. After the decision: the chosen mode is documented in
