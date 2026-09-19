@@ -567,7 +567,12 @@ export interface HomeLinkOptions {
   /** The daemon's rc hold registry (agent-custody): local holds relay up
    * beside the faces, and the home's `rc-ask` lands back in it. */
   rc?: RcHolds;
+  /** Whether this home URL resolves back to the local daemon itself (isocan-vab). */
+  isSelf?: boolean;
 }
+
+/** Maximum number of concurrent in-flight dials allowed across one home link (isocan-vab). */
+export const MAX_CONCURRENT_DIALS = 8;
 
 interface CanvasLink {
   canvasId: string;
@@ -660,6 +665,8 @@ interface CanvasHealth {
 export class HomeLink implements HomeConnection {
   readonly homeUrl: string;
   private readonly home: string;
+  private readonly isSelf: boolean;
+  private inFlightDials = 0;
   private readonly engine: Engine;
   private readonly presence: PresenceHub;
   private readonly registry: HomeRegistry;
@@ -747,6 +754,7 @@ export class HomeLink implements HomeConnection {
     this.presence = options.presence;
     this.registry = options.registry;
     this.rc = options.rc ?? null;
+    this.isSelf = options.isSelf ?? false;
     this.pollMs = options.pollMs ?? DEFAULT_POLL_MS;
     this.probeMs = options.probeMs ?? BUILD_PROBE_MS;
     // Local faces going up. Coalesced per canvas; see `scheduleRelay`.
@@ -799,6 +807,7 @@ export class HomeLink implements HomeConnection {
    * inherited the same doubling; `upgrade-probe.test.ts` counts it now.
    */
   start(): Promise<void> {
+    if (this.isSelf) return Promise.resolve();
     return (this.starting ??= this.boot());
   }
 
@@ -873,7 +882,7 @@ export class HomeLink implements HomeConnection {
    * had one member.
    */
   private sync(): Promise<void> {
-    if (this.stopped) return Promise.resolve();
+    if (this.stopped || this.isSelf) return Promise.resolve();
     // One sweep at a time: two concurrent sweeps would race to open two
     // sockets for one canvas.
     if (this.syncing) return this.syncing;
@@ -1032,6 +1041,7 @@ export class HomeLink implements HomeConnection {
   // ---- one canvas, one socket ----
 
   private openCanvas(canvasId: string): void {
+    if (this.isSelf) return;
     const link: CanvasLink = {
       canvasId,
       socket: null,
@@ -1083,6 +1093,20 @@ export class HomeLink implements HomeConnection {
    * nothing to ride.
    */
   private async dial(link: CanvasLink): Promise<void> {
+    if (this.stopped || link.closed || this.isSelf) return;
+    if (this.inFlightDials >= MAX_CONCURRENT_DIALS) {
+      this.reconnect(link);
+      return;
+    }
+    this.inFlightDials++;
+    try {
+      await this.dialAttempt(link);
+    } finally {
+      this.inFlightDials--;
+    }
+  }
+
+  private async dialAttempt(link: CanvasLink): Promise<void> {
     if (this.stopped || link.closed) return;
     // Whose attempt this is. Everything below checks it before touching the
     // link, because the sweep may have given up on a dial that hung and

@@ -24,6 +24,7 @@ import { resolveOperators } from "./operator.ts";
 import { startBlobKeeper } from "./blobkeeper.ts";
 import { gcIntervalFromEnv, startGcSweeper } from "./gc.ts";
 import { HomeLinks } from "./home-links.ts";
+import { isSelfAddress } from "./self-address.ts";
 import { contentPorts, registerContentRoutes } from "./content.ts";
 import { contentTtl } from "./content-auth.ts";
 import { adoptIdentity } from "./badge-store.ts";
@@ -364,8 +365,12 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
   // Undefined means "nobody has said" — go and look. An explicit `null` is a
   // caller saying "this one is a home", which a test needs to be able to say
   // on a machine whose config.json names one.
-  const birthHome =
+  let birthHome =
     options.birthHome !== undefined ? options.birthHome : await resolveHomeUrl(home);
+  // If birthHome points to this daemon's own listen address, birth locally (isocan-vab)
+  if (port !== 0 && birthHome && isSelfAddress(birthHome, port, host)) {
+    birthHome = null;
+  }
   // The attester, resolved the same way and at the same moment as the home:
   // both are innkeeper configuration that decides what kind of daemon this is,
   // and an explicit value is a caller (a test) saying so on a machine whose
@@ -459,6 +464,8 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
     presence,
     birthHome,
     rc,
+    port,
+    host,
     ...(options.homePollMs !== undefined ? { pollMs: options.homePollMs } : {}),
     ...(options.homeProbeMs !== undefined ? { probeMs: options.homeProbeMs } : {}),
   });
@@ -552,6 +559,12 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<Daemon> 
    */
   await homes.load();
   await app.listen({ port, host });
+  const actualAddress = app.server.address();
+  const actualPort = typeof actualAddress === "object" && actualAddress ? actualAddress.port : port;
+  homes.setListenAddress(actualPort, host);
+  if (birthHome && isSelfAddress(birthHome, actualPort, host)) {
+    birthHome = null;
+  }
 
   /**
    * **The content origin's local half** (content-origin plan, stage 2): a

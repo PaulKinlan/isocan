@@ -10,6 +10,7 @@ import {
 } from "./home-link.ts";
 import { readHomes, writeHomes, type HomeAssignments } from "./homes.ts";
 import type { RcHolds } from "./rc-holds.ts";
+import { isSelfAddress } from "./self-address.ts";
 
 /**
  * **Every home this daemon dials, and which canvas belongs to which** — phase
@@ -70,13 +71,21 @@ export interface HomeLinksOptions {
   /** The daemon's rc hold registry, whose local holds each link relays up as
    * `rc-relay` and whose asks arrive back down as `rc-ask` (agent-custody). */
   rc?: RcHolds;
+  /** Port this daemon listens on, for self-address detection (isocan-vab). */
+  port?: number | undefined;
+  /** Host interface this daemon binds to. */
+  host?: string | undefined;
+  /** Optional custom predicate to identify self addresses. */
+  isSelf?: ((url: string) => boolean) | undefined;
 }
 
 export class HomeLinks implements HomeDirectory, HomeRegistry {
   /** The birth default, normalized. Null when a canvas born here stays here. */
-  readonly birthHome: string | null;
+  birthHome: string | null;
 
   private readonly options: HomeLinksOptions;
+  private listenPort: number | null = null;
+  private listenHost: string | null = null;
   private rows: HomeAssignments = {};
   private readonly open = new Map<string, HomeLink>();
   /** Writes to `homes.json`, serialized. Two concurrent births would otherwise
@@ -92,7 +101,31 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
 
   constructor(options: HomeLinksOptions) {
     this.options = options;
-    this.birthHome = options.birthHome === null ? null : normalizeHomeUrl(options.birthHome);
+    this.listenPort = options.port ?? null;
+    this.listenHost = options.host ?? null;
+    const initialBirth = options.birthHome === null ? null : normalizeHomeUrl(options.birthHome);
+    this.birthHome = initialBirth && this.isSelf(initialBirth) ? null : initialBirth;
+  }
+
+  /**
+   * Configure the actual listen port/host once bound (e.g. after ephemeral port 0 bind).
+   */
+  setListenAddress(port: number, host?: string | null): void {
+    this.listenPort = port;
+    this.listenHost = host ?? null;
+    if (this.birthHome && this.isSelf(this.birthHome)) {
+      this.birthHome = null;
+    }
+  }
+
+  /**
+   * Does this URL point to this daemon itself? (isocan-vab)
+   */
+  isSelf(url: string | null | undefined): boolean {
+    if (!url) return false;
+    if (this.listenPort && isSelfAddress(url, this.listenPort, this.listenHost)) return true;
+    if (this.options.isSelf) return this.options.isSelf(url);
+    return false;
   }
 
   /**
@@ -140,8 +173,8 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
     // on its own.
     await this.load();
     const addresses = new Set<string>();
-    for (const value of Object.values(this.rows)) if (value !== null) addresses.add(value);
-    if (this.birthHome !== null) addresses.add(this.birthHome);
+    for (const value of Object.values(this.rows)) if (value !== null && !this.isSelf(value)) addresses.add(value);
+    if (this.birthHome !== null && !this.isSelf(this.birthHome)) addresses.add(this.birthHome);
     // Started in parallel: each `start()` takes a sweep's round trip, and a
     // machine with three homes must not spend three timeouts booting when one
     // of them is down.
@@ -253,7 +286,8 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
 
   for(canvasId: string): HomeConnection | null {
     const address = this.homeOf(canvasId);
-    return address === null ? null : this.linkFor(address);
+    if (address === null || this.isSelf(address)) return null;
+    return this.linkFor(address);
   }
 
   all(): readonly HomeConnection[] {
@@ -261,7 +295,8 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
   }
 
   birth(): HomeConnection | null {
-    return this.birthHome === null ? null : this.linkFor(this.birthHome);
+    if (this.birthHome === null || this.isSelf(this.birthHome)) return null;
+    return this.linkFor(this.birthHome);
   }
 
   /**
@@ -293,12 +328,16 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
 
   async bind(canvasId: string, homeUrl: string | null): Promise<HomeConnection | null> {
     const target = homeUrl !== null ? normalizeHomeUrl(homeUrl) : this.birthHome;
+    if (target === null || this.isSelf(target)) {
+      await this.record(canvasId, null);
+      return null;
+    }
     // Written BEFORE the write is forwarded, not after: the answer landing
     // locally fires the engine's op-applied event, and a link deciding whether
     // to open a socket for this canvas reads exactly this row. A row written
     // after the round trip would be read a moment too late.
     await this.record(canvasId, target);
-    return target === null ? null : this.linkFor(target);
+    return this.linkFor(target);
   }
 
   /**
@@ -357,12 +396,14 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
     const key = normalizeHomeUrl(homeUrl);
     const existing = this.open.get(key);
     if (existing) return existing;
+    const isSelf = this.isSelf(key);
     const link = new HomeLink({
       homeUrl: key,
       home: this.options.home,
       engine: this.options.engine,
       presence: this.options.presence,
       registry: this,
+      isSelf,
       ...(this.options.pollMs !== undefined ? { pollMs: this.options.pollMs } : {}),
       ...(this.options.probeMs !== undefined ? { probeMs: this.options.probeMs } : {}),
       ...(this.options.rc !== undefined ? { rc: this.options.rc } : {}),
@@ -372,7 +413,7 @@ export class HomeLinks implements HomeDirectory, HomeRegistry {
     // a person's write waiting on a birth. `boot` awaits its own; everybody
     // else gets a link that works immediately (the badge is fetched on the
     // first call) and a poll that begins a moment later.
-    if (!this.stopped) void link.start().catch(() => {});
+    if (!this.stopped && !isSelf) void link.start().catch(() => {});
     return link;
   }
 
