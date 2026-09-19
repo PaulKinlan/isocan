@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import type { CanvasContents, Item } from "@isocan/core";
 import { groupAncestors, isArea, isGroupItem, isCanvasItem, automaticCanvasTarget, sourceOf, itemKind } from "@isocan/core";
 import { authoritativeHome, sourceSnapshot, sourcePresence, sourcePicture } from "../lib/personal.ts";
+import { canDeepen, MAX_MINIATURE_DEPTH, NESTED_MOST_ITEMS, nestedTarget } from "../lib/canvasdepth.ts";
 import { CanvasPreviewBoundary } from "./CanvasPreviewBoundary.tsx";
+import { useOnScreen } from "../lib/onscreen.ts";
 import { everyWhileVisible } from "../lib/whilevisible.ts";
 
 /**
@@ -16,10 +18,15 @@ import { everyWhileVisible } from "../lib/whilevisible.ts";
  * pile at a glance, and a rename on the other canvas reaches the strip
  * within one pull.
  *
- * **One level deep.** A canvas item found inside the other canvas is drawn
- * as a plain block with its title, never as a further picture: a canvas that
- * contains itself, or two that contain each other, is a card and not a
- * recursion.
+ * **Exactly one extra level** (`docs/research/2026-09-07-semantic-zoom.md`,
+ * upstream #203 / isocan-wq6.5). Inside the picture, a nested canvas block
+ * deepens into the referenced canvas's OWN picture at a fixed budget (<= 40
+ * items, only while on screen, only when the drawn box is big enough to
+ * read) — so a wall of canvases shows places inside places instead of forty
+ * grey marks. Past that one level, or when the box is small, or when the
+ * target would close a cycle, a canvas inside the picture is a plain block
+ * with its title: a canvas that contains itself, or two that contain each
+ * other, is a card and not a recursion.
  *
  * **Never a blank rectangle.** A pull that the door refuses — somebody not
  * admitted to the other canvas — or that fails offline says so in words on
@@ -142,17 +149,20 @@ function OrdinaryCanvasCard({
  * text and everything else as a block in the kind's colour with its title
  * when there is room to read it.
  */
-function Miniature({ canvasId, home, canvas, items, width, height }: { home: string; canvasId: string; canvas: CanvasContents; items: Item[]; width: number; height: number }) {
+function Miniature({ canvasId, home, canvas, items, width, height, depth = 1, ancestors = new Set([canvasId]) }: { home: string; canvasId: string; canvas: CanvasContents; items: Item[]; width: number; height: number; depth?: number; ancestors?: Set<string> }) {
   if (items.length === 0) return <div className="canvas-embed-note">Nothing on it yet.</div>;
   const minX = Math.min(...items.map((one) => one.x));
   const minY = Math.min(...items.map((one) => one.y));
   const maxX = Math.max(...items.map((one) => one.x + one.width));
   const maxY = Math.max(...items.map((one) => one.y + one.height));
-  const pad = 16;
+  // A depth-2 picture lives inside a block a fraction of the card's size, so
+  // the level-1 margin would eat the picture; a sliver is enough there.
+  const pad = depth >= MAX_MINIATURE_DEPTH ? 4 : 16;
   const scale = Math.min((width - pad * 2) / Math.max(1, maxX - minX), (height - pad * 2) / Math.max(1, maxY - minY));
   const offsetX = pad + ((width - pad * 2) - (maxX - minX) * scale) / 2;
   const offsetY = pad + ((height - pad * 2) - (maxY - minY) * scale) / 2;
-  const ordered = [...items].sort((a, b) => Number(isArea(b) || isGroupItem(b)) - Number(isArea(a) || isGroupItem(a)) || (isGroupItem(a) && isGroupItem(b) ? groupAncestors(canvas, a.id).length - groupAncestors(canvas, b.id).length : 0)).slice(0, MOST_ITEMS);
+  const limit = depth >= MAX_MINIATURE_DEPTH ? NESTED_MOST_ITEMS : MOST_ITEMS;
+  const ordered = [...items].sort((a, b) => Number(isArea(b) || isGroupItem(b)) - Number(isArea(a) || isGroupItem(a)) || (isGroupItem(a) && isGroupItem(b) ? groupAncestors(canvas, a.id).length - groupAncestors(canvas, b.id).length : 0)).slice(0, limit);
   return (
     <div className="canvas-mini" style={{ width, height }} aria-hidden>
       {ordered.map((one) => {
@@ -165,7 +175,14 @@ function Miniature({ canvasId, home, canvas, items, width, height }: { home: str
         };
         const current = one.versions.find((v) => v.id === one.currentVersionId) ?? one.versions[0];
         const picture = automaticCanvasTarget(one.properties.canvas ?? null, sourceOf(one)).kind === "none" && kind === "image" && current ? current.blobHash : null;
-        // One level deep: a canvas inside the picture is a block, not a picture.
+        // Exactly one extra level: the decision is the pure function's, the
+        // pull and the on-screen gate are the block's.
+        const targetCanvasId = nestedTarget(one, window.location.origin);
+        if (targetCanvasId !== null && canDeepen(depth, targetCanvasId, ancestors, box.width, box.height)) {
+          return <NestedCanvasBlock key={one.id} targetCanvasId={targetCanvasId} home={home} item={one} box={box} depth={depth} ancestors={ancestors} />;
+        }
+        // Past depth 2, or small, or a cycle: a canvas inside the picture is
+        // a block, not a picture.
         const label = box.width > 60 && box.height > 14 ? one.title : "";
         return (
           <span
@@ -180,6 +197,90 @@ function Miniature({ canvasId, home, canvas, items, width, height }: { home: str
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A canvas block inside a depth-1 picture that deepened (isocan-wq6.5): the
+ * referenced canvas's OWN picture at depth 2, pulled through the same
+ * source-snapshot path as the direct card — `sourceSnapshot` with the
+ * automatic-exclusion policy, never a raw `getSnapshot` bypass — and only
+ * while on screen. Held state is dropped when the block leaves the screen,
+ * the same bound `useOnScreen` puts on live thumbnails: the ceiling is what
+ * is on screen, not everything ever scrolled past. Refusal, offline, or a
+ * target that stops answering leaves the plain titled block, never a blank
+ * rectangle.
+ */
+function NestedCanvasBlock({
+  targetCanvasId,
+  home,
+  item,
+  box,
+  depth,
+  ancestors,
+}: {
+  targetCanvasId: string;
+  home: string;
+  item: Item;
+  box: { left: number; top: number; width: number; height: number };
+  depth: number;
+  ancestors: Set<string>;
+}) {
+  const { ref, onScreen } = useOnScreen<HTMLSpanElement>();
+  const [nested, setNested] = useState<CanvasContents | null>(null);
+
+  useEffect(() => {
+    if (!onScreen || home !== window.location.origin) return;
+    let live = true;
+    const controller = new AbortController();
+    sourceSnapshot({ canvasId: targetCanvasId, expectedHome: home }, controller.signal)
+      .then((snapshot) => {
+        if (live) setNested(snapshot.canvas);
+      })
+      .catch(() => {
+        // The door refused, the home is away, or the target is gone: the
+        // titled block is the honest fallback.
+        if (live) setNested(null);
+      });
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [onScreen, targetCanvasId, home]);
+  useEffect(() => {
+    // Off screen (past the grace window): release the held picture.
+    if (!onScreen) setNested(null);
+  }, [onScreen]);
+
+  const label = box.width > 60 && box.height > 14 ? item.title : "";
+  const nestedItems = nested ? Object.values(nested.items) : [];
+  // The double border eats a couple of pixels; the inner picture fits what
+  // is left rather than overflowing the block.
+  const innerWidth = Math.max(0, box.width - 4);
+  const innerHeight = Math.max(0, box.height - 4);
+
+  return (
+    <span
+      ref={ref}
+      className={`canvas-mini-item kind-canvas nested${nestedItems.length > 0 ? " has-nested-mini" : ""}`}
+      style={box}
+      title={item.title}
+    >
+      {nested && nestedItems.length > 0 && innerWidth > 0 && innerHeight > 0 ? (
+        <Miniature
+          home={home}
+          canvasId={targetCanvasId}
+          canvas={nested}
+          items={nestedItems}
+          width={innerWidth}
+          height={innerHeight}
+          depth={depth + 1}
+          ancestors={new Set([...ancestors, targetCanvasId])}
+        />
+      ) : (
+        label
+      )}
+    </span>
   );
 }
 

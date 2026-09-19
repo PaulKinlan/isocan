@@ -5273,6 +5273,8 @@ button.mt-card:hover { border-color: var(--accent); }
 .canvas-mini-item.kind-text { border-color: transparent; background: transparent; color: var(--ink); }
 .canvas-mini-item.kind-drawing { border-color: transparent; background: transparent; }
 .canvas-mini-item.nested { border-style: double; }
+/* A deepened nested picture fills its block; the label padding would inset it. */
+.canvas-mini-item.has-nested-mini { padding: 0; }
 /* The ↗ on the strip of anything with a `source`: a place you can open. */
 .item-open-source {
   display: inline-flex; align-items: center; justify-content: center;
