@@ -24,12 +24,12 @@ installs today's `release` into a container with four cores, Node 22, a cold
 disk and no tsx cache, and takes three numbers. Run 18 Sep 2026 against
 `release` built from 61f7616a:
 
-| | today's `release` |
-| --- | --- |
-| `npm install -g github:dglazkov/isocan#release` | 14.2 s, 227 packages, 115 MB on disk, `docs/` included |
-| `isocan --version` | 1.12 s cold, 1.07 s warm |
-| `node -e ''` in the same container | 0.04 s |
-| files `isocan --version` opens | 4397 `openat` calls, 1396 of them found a file |
+| | before (61f7616a) | after phase 1 (328197a) |
+| --- | --- | --- |
+| `npm install -g …#release` | 14.2 s, 227 packages, 115 MB | 10.3 s, 227 packages, 118 MB |
+| `isocan --version` | 1.12 s cold, 1.07 s warm | **0.14 s cold and warm** |
+| `node -e ''` in the same container | 0.04 s | 0.05 s |
+| files `isocan --version` opens | 4397 `openat`, 1396 found | **474 `openat`, 429 found** |
 
 A plain container reproduces seconds-per-command — 1.1 s against the laptop's
 0.29 s — so the script did not need gVisor, which is as well: `runsc` is not
@@ -45,6 +45,13 @@ module loads, 4397 opens, on any disk.
 The install is 14.2 s here against #332's 35 s, for the same 227 packages; the
 difference is a laptop's network and CPU. 115 MB is what those packages plus
 the 40 MB tree cost once unpacked.
+
+**The "after" column is phase 1, measured the same way** (`--local`, which
+installs this machine's `release` through a temporary bare clone). A command
+went from 1.12 s to 0.14 s in the sandbox and from 4397 file opens to 474 —
+past the journeys' 0.5 s target for `--version` before phase 3 has begun. The
+install did not move, and will not until phase 2: it is the same 227 packages
+and the same 40 MB tree, one of which is now a bundle.
 
 **Every command loads everything.** Counted with a `load` hook,
 `isocan --version` loads 456 modules:

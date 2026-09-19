@@ -48,7 +48,10 @@ charges for those too.
 `packageRoot()` / `packagePath()` / `packageBin()` in
 `@isocan/core/packageroot`; guides imported as text, with the rule spelled
 once in `md.d.ts` and adapted in four places. Proof in
-`test/cli-bundle.test.ts`.
+`test/cli-bundle.test.ts`. In phase 0's sandbox, against a `release` built
+from 328197a: **`isocan --version` 0.14 s against 1.12 s, and 474 file opens
+against 4397** — past journey 1's 0.5 s target before phase 3 has begun. The
+install is untouched at 227 packages, which is phase 2's.
 
 **Outcome:** `scripts/release.mjs` builds a node ESM bundle of
 `packages/cli/src/main.ts` with dependencies external, and the release
