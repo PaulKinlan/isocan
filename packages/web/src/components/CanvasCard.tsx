@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { CanvasContents, Item } from "@isocan/core";
 import { groupAncestors, isArea, isGroupItem, isCanvasItem, automaticCanvasTarget, sourceOf, itemKind } from "@isocan/core";
 import { authoritativeHome, sourceSnapshot, sourcePresence, sourcePicture } from "../lib/personal.ts";
+import { useCanvasTail } from "../lib/canvastail.ts";
 import { canDeepen, MAX_MINIATURE_DEPTH, NESTED_MOST_ITEMS, nestedTarget } from "../lib/canvasdepth.ts";
 import { CanvasPreviewBoundary } from "./CanvasPreviewBoundary.tsx";
 import { useOnScreen } from "../lib/onscreen.ts";
@@ -10,13 +11,20 @@ import { everyWhileVisible } from "../lib/whilevisible.ts";
 /**
  * **A canvas, drawn small and live** (`docs/projects/inception/design.md`).
  *
- * The other canvas's snapshot, pulled on mount and every half minute while
- * this card is on screen, laid out as a picture of a place: every item as a
- * block at its position, images as themselves, text as its words, sheets as
- * their washes — scaled to fit, the way the minimap fits a canvas into its
- * corner. You can tell a busy canvas from an empty one and a board from a
- * pile at a glance, and a rename on the other canvas reaches the strip
- * within one pull.
+ * The other canvas's picture, laid out as a place: every item as a block at
+ * its position, images as themselves, text as its words, sheets as their
+ * washes — scaled to fit, the way the minimap fits a canvas into its corner.
+ * You can tell a busy canvas from an empty one and a board from a pile at a
+ * glance.
+ *
+ * **A room member, not a poller** (isocan-wq6.6). When the canvas's home is
+ * this origin, the card dials the canvas's room (`useCanvasTail`) and every
+ * mutation arrives as it lands — a rename on the other canvas reaches the
+ * strip in one broadcast, not on the next half-minute pull, and N cards on
+ * a wall cost N sockets rather than N pollers reading snapshots forever.
+ * The socket follows the tab: hidden means closed, visible again means a
+ * fresh dial. A card whose home is elsewhere keeps the thirty-second pull —
+ * its room is not here to dial.
  *
  * **Exactly one extra level** (`docs/research/2026-09-07-semantic-zoom.md`,
  * upstream #203 / isocan-wq6.5). Inside the picture, a nested canvas block
@@ -28,10 +36,11 @@ import { everyWhileVisible } from "../lib/whilevisible.ts";
  * with its title: a canvas that contains itself, or two that contain each
  * other, is a card and not a recursion.
  *
- * **Never a blank rectangle.** A pull that the door refuses — somebody not
- * admitted to the other canvas — or that fails offline says so in words on
- * the card, with the ↗ still there; the site item's first lesson was that a
- * blank frame with no explanation reads as a bug.
+ * **Never a blank rectangle.** A door that refuses — somebody not admitted
+ * to the other canvas — or a home that cannot be read right now says so in
+ * words on the card, with the ↗ still there; the site item's first lesson
+ * was that a blank frame with no explanation reads as a bug. And while the
+ * home is merely away, the last picture stays on screen under the redial.
  */
 const PULL_MS = 30_000;
 /** How many items the picture draws before it stops: enough for any real
@@ -79,8 +88,19 @@ function OrdinaryCanvasCard({
     | { kind: "refused"; why: string }
   >(elsewhere ? { kind: "refused", why: `Lives at ${elsewhere.replace(/^https?:\/\//, "")} — open it there.` } : { kind: "loading" });
 
+  // The first pull discovers the canvas's home (and paints the picture
+  // before the room's hello lands). Once the home turns out to be HERE, the
+  // tail takes over and the poll stops; a canvas housed elsewhere keeps the
+  // pull, because its room is not this daemon's to dial.
+  const homeIsLocal = state.kind === "ready" && state.home === window.location.origin;
+  const tail = useCanvasTail(canvasId, homeIsLocal);
+  const [polling, setPolling] = useState(true);
   useEffect(() => {
-    if (elsewhere) return;
+    if (homeIsLocal) setPolling(false);
+  }, [homeIsLocal]);
+
+  useEffect(() => {
+    if (elsewhere || !polling) return;
     let live = true;
     const controller = new AbortController();
     const pull = async () => {
@@ -113,32 +133,41 @@ function OrdinaryCanvasCard({
       controller.abort();
       stop();
     };
-  }, [canvasId, destinationCanvasId, elsewhere]);
+  }, [canvasId, destinationCanvasId, elsewhere, polling]);
 
-  if (state.kind === "loading") return <div className="canvas-embed canvas-embed-note">Looking…</div>;
-  if (state.kind === "refused") {
-    // The screenshot, when there is one, with the reason under it; the words
-    // alone otherwise. Never a blank rectangle.
+  // Refused at the door, by the room (the tail) or by the pull — the same
+  // two sentences either way, and the screenshot when there is one. Never a
+  // blank rectangle.
+  const refusedWhy = tail.kind === "refused" ? tail.why : state.kind === "refused" ? state.why : null;
+  if (refusedWhy !== null) {
     return (
       <div className="canvas-embed">
         {picture && <img className="canvas-embed-picture" src={picture} alt="" />}
-        <div className="canvas-embed-note">{state.why}</div>
+        <div className="canvas-embed-note">{refusedWhy}</div>
       </div>
     );
   }
+  const ready =
+    tail.kind === "live"
+      ? { title: tail.state.project.title, canvas: tail.state.canvas, here: tail.here }
+      : state.kind === "ready"
+        ? { title: state.title, canvas: state.canvas, here: state.here }
+        : null;
+  if (ready === null) return <div className="canvas-embed canvas-embed-note">Looking…</div>;
 
-  const items = Object.values(state.canvas.items);
+  const home = homeIsLocal ? window.location.origin : state.kind === "ready" ? state.home : window.location.origin;
+  const items = Object.values(ready.canvas.items);
   const count = items.filter((one) => !isArea(one) && !isGroupItem(one)).length;
   return (
     <div className="canvas-embed">
       <div className="canvas-embed-head">
-        <span className="canvas-embed-title">{state.title}</span>
+        <span className="canvas-embed-title">{ready.title}</span>
         <span className="canvas-embed-meta">
           {count} item{count === 1 ? "" : "s"}
-          {state.here > 0 ? ` · ${state.here} here` : ""}
+          {ready.here > 0 ? ` · ${ready.here} here` : ""}
         </span>
       </div>
-      <Miniature home={state.home} canvasId={canvasId} canvas={state.canvas} items={items} width={width} height={Math.max(0, height - 40)} />
+      <Miniature home={home} canvasId={canvasId} canvas={ready.canvas} items={items} width={width} height={Math.max(0, height - 40)} />
     </div>
   );
 }

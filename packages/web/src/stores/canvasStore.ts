@@ -937,7 +937,11 @@ export function disconnect(): void {
   doomed?.close();
 }
 
-function wsUrl(canvasId: string, since: number): string {
+/** The cursor to reconnect with: the last seq this tab actually holds, or 0
+ *  when it holds nothing for this canvas. Exported for the card's tail — the
+ *  store is where the dev-port and cookie-scoping rules live, and a second
+ *  spelling of the URL would age apart from them. */
+export function wsUrl(canvasId: string, since: number): string {
   // In dev the page is served by Vite but the daemon owns /ws — connect
   // straight to the daemon. Proxying WebSockets through Vite added a flaky
   // hop that spammed "ws proxy error: write EPIPE" whenever either end tore

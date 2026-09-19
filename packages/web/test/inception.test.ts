@@ -81,7 +81,8 @@ describe("the popup has two doors and one dialog", () => {
 describe("the picture that survives, and a canvas at another home", () => {
   it("shows the screenshot version under the words when the pull is refused, never instead of live", () => {
     expect(view).toContain('picture={mimeType.startsWith("image/") ? url : null}');
-    const refused = card.slice(card.indexOf('if (state.kind === "refused")'), card.indexOf("const items = Object.values"));
+    // The refusal block: tail or pull, the words and the surviving screenshot.
+    const refused = card.slice(card.indexOf("const refusedWhy ="), card.indexOf("const items = Object.values"));
     expect(refused).toContain('{picture && <img className="canvas-embed-picture"');
     // Live wins: the picture is only in the refused branch.
     expect(card.slice(card.indexOf("const items = Object.values"))).not.toContain("canvas-embed-picture");
@@ -89,7 +90,9 @@ describe("the picture that survives, and a canvas at another home", () => {
 
   it("says a canvas at another home lives there rather than asking a door that will not answer", () => {
     expect(card).toContain("origin === window.location.origin ? null : origin");
-    expect(card).toContain("if (elsewhere) return;");
+    // The poll is skipped for an elsewhere card — and the tail is never
+    // enabled for one, because its room is not this daemon's to dial.
+    expect(card).toContain("if (elsewhere || !polling) return;");
     expect(card).toContain("Lives at ${elsewhere");
   });
 
