@@ -1,8 +1,7 @@
+import guideText from "../agent-guide.md";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { actorNameIn } from "@isocan/core";
 import type { CliHost, CliModule } from "@isocan/cli/modulehost";
@@ -241,7 +240,7 @@ function register(host: CliHost): void {
 export const sandboxCli: CliModule = {
   core: sandboxModule,
   register,
-  guide: readFileSync(fileURLToPath(new URL("../agent-guide.md", import.meta.url)), "utf8"),
+  guide: guideText,
 };
 
 export default sandboxCli;

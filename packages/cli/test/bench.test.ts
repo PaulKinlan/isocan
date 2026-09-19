@@ -125,7 +125,7 @@ describe("isocan bench", () => {
     const guessed = await isocan("bench", "add", "Wooly");
     expect(guessed.code).not.toBe(0);
     expect(guessed.stderr).toContain("--actor");
-    expect((await isocan("bench", "add", "Wooly", "--actor", "usr_wooly", "--harness", "sheep")).code).toBe(0);
+    expect((await isocan("bench", "add", "Wooly", "--actor", "usr_wooly", "--harness", "pi")).code).toBe(0);
 
     // Nothing is parked yet, so nothing is ready — and the two agents that
     // stand somewhere are told apart from the one that does not.
@@ -150,7 +150,7 @@ describe("isocan bench", () => {
       // The record half is the item's, and it says only what it was told.
       expect(rows[0]).toMatchObject({ actorId: percy.id, harness: "claude-code" });
       expect(rows.find((row) => row.name === "Wooly")).toMatchObject({
-        harness: "sheep",
+        harness: "pi",
         runsAt: null,
         standing: [],
       });
@@ -417,12 +417,12 @@ describe("enrolment writes its own bench row", () => {
 
 /**
  * **Journey 4: The agent that answers at three in the morning**
- * (`docs/projects/bench/journey.md`, journey 4; `sheep-as-standing-agents` phase 3).
+ * (`docs/projects/bench/journey.md`, journey 4).
  *
  * The laptop's `isocan rc` is NOT running, and this machine has no running row
- * for Percy (`runsHere` is empty). A cell (`collie`, or another machine's rc)
+ * for Percy (`runsHere` is empty). A hosted rc (or another machine's rc)
  * holds `/api/rc/hold` at the home. Percy's bench row must read **ready**, and
- * `benchWords` must include where it runs (`ready (sheep-2)`), because
+ * `benchWords` must include where it runs (`ready (cell-2)`), because
  * reachability is measured from the canvas's home and not from whether this
  * machine has a process open. When the cell releases its hold via
  * `POST /api/rc/release` (#308), the bench row immediately drops back to
@@ -434,8 +434,8 @@ describe("journey 4: the agent that answers at three in the morning", () => {
     expect((await isocan("--canvas", "prj_1", "rc", "add", "Percy", ...TEAM)).code).toBe(0);
     const percy = Object.values(await snapshotAgents()).find((a) => a.actor.name === "Percy")!.actor;
 
-    // Benched with `--runs-at sheep-2` (the cell where it runs).
-    expect((await isocan("bench", "add", "Percy", "--runs-at", "sheep-2")).code).toBe(0);
+    // Benched with `--runs-at cell-2` (the cell where it runs).
+    expect((await isocan("bench", "add", "Percy", "--runs-at", "cell-2")).code).toBe(0);
 
     // Simulate the laptop being shut / having no local running row for Percy.
     await removeRcAgent(home, "prj_1", percy.id);
@@ -443,10 +443,10 @@ describe("journey 4: the agent that answers at three in the morning", () => {
 
     // With no hold open anywhere, Percy stands on prj_1 and reads `elsewhere`.
     expect((await bench()).map((r) => [r.name, r.reach, r.runsAt])).toEqual([
-      ["Percy", "elsewhere", "sheep-2"],
+      ["Percy", "elsewhere", "cell-2"],
     ]);
 
-    // A hosted cell (collie) holds `/api/rc/hold` for Percy at the home.
+    // A hosted rc holds `/api/rc/hold` for Percy at the home.
     const cellClient = new DaemonClient(base, home);
     const controller = new AbortController();
     const holdPromise = cellClient
@@ -456,15 +456,15 @@ describe("journey 4: the agent that answers at three in the morning", () => {
     try {
       await until(() => answeringFor("prj_1"), (ids) => ids.includes(percy.id), "the cell hold to register");
 
-      // With NO local rc running and NO local rc row, the bench reads `ready (sheep-2)`.
+      // With NO local rc running and NO local rc row, the bench reads `ready (cell-2)`.
       const readyRows = await bench();
       expect(readyRows.map((r) => [r.name, r.reach, r.runsAt])).toEqual([
-        ["Percy", "ready", "sheep-2"],
+        ["Percy", "ready", "cell-2"],
       ]);
       const printed = await isocan("bench");
-      expect(printed.stdout).toContain("ready (sheep-2)");
+      expect(printed.stdout).toContain("ready (cell-2)");
 
-      // When the cell stops (`collie off`), `POST /api/rc/release` releases the hold immediately (#308).
+      // When the hosted rc stops, `POST /api/rc/release` releases the hold immediately (#308).
       const rel = await cellClient.rcRelease({ canvasId: "prj_1" });
       expect(rel.ok).toBe(true);
 

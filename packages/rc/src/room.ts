@@ -46,8 +46,7 @@ import {
 } from "@isocan/core";
 import { gateTurn, type GuardLimits, type GuardState } from "./guards.ts";
 import { itemCenter, nameResolver, summonsPrompt, threadLocus } from "./helpers.ts";
-import type { RcAgentRow, SheepPlace } from "./rows.ts";
-import { SHEEP_HARNESS } from "./sheep.ts";
+import type { RcAgentRow } from "./rows.ts";
 
 /**
  * **The rc's room, over what a host hands it** (docs/projects/room/design.md,
@@ -116,16 +115,9 @@ export interface RoomRows {
    * wrote. */
   adopt(row: RcAgentRow): Promise<boolean>;
   remove(canvasId: string, actorId: string): Promise<void>;
-  /** Record the session a turn ran in — with, for a session that outlives the
-   * process, where it lives and the pass its birth minted. Whether the row was
-   * still there to write. */
-  setSessionId(
-    canvasId: string,
-    actorId: string,
-    sessionId: string,
-    place?: SheepPlace,
-    cellPass?: RcAgentRow["cellPass"],
-  ): Promise<boolean>;
+  /** Record the session a turn ran in. Whether the row was still there to
+   * write. */
+  setSessionId(canvasId: string, actorId: string, sessionId: string): Promise<boolean>;
 }
 
 /** One beat of a running turn, as the adapter streams it. */
@@ -135,20 +127,12 @@ export interface RoomTurnEvent {
   detail?: string;
 }
 
-/** What runs one turn: the shape `AcpAgentProcess` and `SheepAgent` share. */
+/** What runs one turn: the shape `AcpAgentProcess` has. */
 export interface RoomAdapter {
   ensureSession(cwd: string, stored: string | null): Promise<{ sessionId: string; resumed: boolean }>;
   prompt(sessionId: string, text: string, onEvent: (event: RoomTurnEvent) => void): Promise<{ stopReason: string }>;
   /** The turn is over, whichever way; awaited before the face comes off. */
   close(): void | Promise<void>;
-  /** For a session that outlives this process (a sheep): where it lives. Read
-   * after `ensureSession`. Absent for an adapter that lives and dies with the
-   * turn. */
-  readonly place?: SheepPlace | undefined;
-  /** How the place is said in `session started at …`; `in <cwd>` without it. */
-  readonly where?: string | undefined;
-  /** The id of the pass a birth minted in `ensureSession`, if one did. */
-  readonly bornPass?: string | null | undefined;
 }
 
 /** A row's harness, resolved: the name the face carries, and how to start it. */
@@ -159,12 +143,39 @@ export interface RoomHarness {
 }
 
 export interface RoomTurn {
+  /** Who this turn is for, by id (#333): the canvas, the agent summoned, and
+   * the person the room answers to. The laptop reads these from `cwd`, the
+   * environment and `isocan whoami`; a host that serves many people has none
+   * of the three, and files its records and counts its quota by these. */
+  canvasId: string;
+  agent: Actor;
+  owner: Actor;
   /** The face this turn's presence runs under, or null when none was made. */
   face: string | null;
   /** The thread the summons came from, when it came from one. */
   threadId: string | null;
   /** A line of this agent's narration: the room prefixes the agent's name. */
   narrate(line: string): void;
+}
+
+/**
+ * **A turn the host holds, in the host's own words** (#333). Thrown from
+ * `adapterFor` or `open` when the turn is not to start yet and nothing is
+ * broken: an allowance spent, a quota reached. The room says `line` in the
+ * thread in the system voice, as it says the guard's ceiling, keeps the
+ * summons pending and asks again at `retryAfter` (the host's clock, ms).
+ * Anything else thrown is a failed turn: "couldn't answer", and a retry in a
+ * minute.
+ */
+export class RoomHold extends Error {
+  constructor(
+    /** The whole sentence the person reads; the room adds nothing to it. */
+    readonly line: string,
+    readonly retryAfter: number,
+  ) {
+    super(line);
+    this.name = "RoomHold";
+  }
 }
 
 /** A key-value for what the room would like to survive a restart. String
@@ -192,12 +203,6 @@ export interface RoomDeps {
   /** The harness a row runs on. Throws, in the words of what is missing, when
    * there is none. The row carries the name the roster gives the agent now. */
   adapterFor(row: RcAgentRow): Promise<RoomHarness>;
-  /** Withdrawal's half for a session that outlives the process. Nothing, for
-   * an adapter that does not. */
-  endSession(row: RcAgentRow, narrate: (line: string) => void): Promise<void>;
-  /** Where a row's sessions run, said once at start — or null when there is
-   * nothing to say, as for an adapter that runs beside the room. */
-  whereOf(row: RcAgentRow): Promise<string | null>;
   /** The last hop of the web's "add an agent", on this machine: prepare the
    * directory an ask names, claim the actor, write its row, enroll it. */
   enrol(ask: RcAsk): Promise<void>;
@@ -307,17 +312,9 @@ async function room(
   // rc half — the web's adds, and any it missed while down. Quiet: this is
   // record housekeeping, not an event. The home half stays authoritative:
   // rc rows for this canvas with no standing enrolment are dead, reaped.
-  const reap = async (roster: Record<string, EnrolledAgent>, when: string) => {
+  const reap = async (roster: Record<string, EnrolledAgent>) => {
     for (const row of await rows.list()) {
-      if (row.canvasId === p.id && !roster[row.actorId]) {
-        await rows.remove(p.id, row.actorId);
-        // A sheep the withdrawn agent left is ended now, and that is not
-        // housekeeping, so it is said.
-        if (row.harness === SHEEP_HARNESS && row.sessionId) {
-          narrate(`${row.name} was withdrawn ${when} — ending what it left`);
-          await deps.endSession(row, (line) => narrate(`${row.name} · ${line}`));
-        }
-      }
+      if (row.canvasId === p.id && !roster[row.actorId]) await rows.remove(p.id, row.actorId);
     }
   };
   const reconcile = async (roster: Record<string, EnrolledAgent>) => {
@@ -332,7 +329,7 @@ async function room(
         sessionId: null,
       });
     }
-    await reap(roster, "while no rc ran here");
+    await reap(roster);
   };
   // Names for the withdraw narration: state drops the row before the op is
   // read here, so remember every name this process has seen.
@@ -592,14 +589,6 @@ async function room(
       );
     }
   }
-  // An agent whose sessions run somewhere else is somewhere the person cannot
-  // see from here: said once, at start, in the words the host has for it.
-  for (const row of await rows.list()) {
-    if (row.canvasId !== p.id || !opening[row.actorId]) continue;
-    const where = await deps.whereOf(row);
-    if (where !== null) narrate(where);
-  }
-
   for (const say of openingSays) await say();
 
   /** The ceiling's memory and the cycle guard's count — per AGENT, not per
@@ -883,42 +872,24 @@ async function room(
     })();
     // The host starts the adapter: on the laptop, the session pointer loaned
     // to the agent's own CLI, the fence, and the spawn.
-    const agent = await harness.open({ face: face?.sessionId ?? null, threadId, narrate: say });
+    let agent: RoomAdapter | null = null;
     try {
+      agent = await harness.open({
+        canvasId: p.id,
+        agent: record.actor,
+        owner,
+        face: face?.sessionId ?? null,
+        threadId,
+        narrate: say,
+      });
       // One session handle per AGENT (standing agents phase 2): a summons on
       // any canvas resumes the same conversation — this row's handle, else the
       // one another room minted for the same actor.
       const storedSession = (await state.get(keys.session(record.actor.id))) as string | undefined;
       const session = await agent.ensureSession(row.cwd, row.sessionId ?? storedSession ?? null);
       await state.set(keys.session(record.actor.id), session.sessionId);
-      const bornPass = agent.bornPass ? { canvasId: p.id, passId: agent.bornPass } : undefined;
-      const recorded = await rows.setSessionId(p.id, record.actor.id, session.sessionId, agent.place, bornPass);
-      /**
-       * **Withdrawn while its session was being found or born** (sheep-harness
-       * phase 2). The row is gone, so whoever reaped it ended the session the
-       * row named — if it named one. A session this summons birthed, or found
-       * under another id, is known only here, and ending it is this summons's
-       * job; then there is no turn to run.
-       */
-      if (!recorded && agent.place && (await withdrawnHere(record.actor.id))) {
-        await state.delete(keys.session(record.actor.id));
-        say("withdrawn before its turn — no turn runs");
-        if (session.sessionId !== row.sessionId) {
-          const { cellPass: _stale, ...rest } = row;
-          await deps.endSession(
-            {
-              ...rest,
-              harness: harness.harness,
-              sessionId: session.sessionId,
-              sheep: agent.place,
-              ...(bornPass ? { cellPass: bornPass } : {}),
-            },
-            say,
-          );
-        }
-        return;
-      }
-      say(`session ${session.resumed ? "resumed" : "started"} ${agent.where ?? `in ${row.cwd}`}`);
+      await rows.setSessionId(p.id, record.actor.id, session.sessionId);
+      say(`session ${session.resumed ? "resumed" : "started"} in ${row.cwd}`);
       // The event stream the adapter is already sending, spent on the face:
       // each tool call becomes an inferred status (so it never displaces
       // anything the agent said with `--say`) and re-asserts `working`.
@@ -942,13 +913,11 @@ async function room(
         },
       );
       /**
-       * **A turn stopped by withdrawal is not a failed turn** (sheep-harness
-       * phase 2). Ending a sheep aborts its running turn, so its turn exits
-       * non-zero under a summons whose agent is already gone. An ACP turn runs
-       * on to its own end when its agent is withdrawn; a sheep's is stopped,
-       * and it is said as that: no failure, no system voice in the thread,
-       * nothing held for a retry. A dispatch the withdraw branch already
-       * dropped says the same, whatever the stop reason.
+       * **A turn stopped by withdrawal is not a failed turn.** A turn that
+       * ends some other way than `end_turn` under a summons whose agent is
+       * already gone is said as that: no failure, no system voice in the
+       * thread, nothing held for a retry. A dispatch the withdraw branch
+       * already dropped says the same, whatever the stop reason.
        */
       if (!dispatches.has(record.actor.id) || (turn.stopReason !== "end_turn" && (await withdrawnHere(record.actor.id)))) {
         say(`turn stopped — ${record.actor.name} was withdrawn`);
@@ -966,7 +935,7 @@ async function room(
     } finally {
       endHeartbeat();
       life.removeEventListener("abort", endHeartbeat);
-      await agent.close();
+      if (agent) await agent.close();
       if (face) await routes.endSession(p.id, face.sessionId).catch(() => {});
     }
   };
@@ -1019,11 +988,11 @@ async function room(
   };
   const startTip = (await routes.watchLog({ only: [p.id] })).cursors[p.id] ?? 0;
   /**
-   * **The startup window, closed from both sides** (sheep-harness phase 2).
+   * **The startup window, closed from both sides.**
    * `opening` was read before this tip, and the enrol and withdraw branches
    * below only read ops above it, so an enrolment or a withdrawal landing
-   * between the two was seen by neither. A withdrawal left its row, and
-   * for an agent on the sheep harness its sheep. An enrolment waited for
+   * between the two was seen by neither. A withdrawal left its row. An
+   * enrolment waited for
    * the first lap that read a roster, which on a quiet canvas is the end
    * of a thirty-second poll: `rc.test.ts`'s "a web add gets its rc half"
    * failed on CI twice in three runs of phase 2's commit on exactly that.
@@ -1032,7 +1001,7 @@ async function room(
   const settled = await rosterOf();
   policyState.roster = settled;
   for (const [id, row] of Object.entries(settled)) known.set(id, row.actor.name);
-  await reap(settled, "as this rc started");
+  await reap(settled);
   for (const actorId of [...dispatches.keys()]) if (!settled[actorId]) dispatches.delete(actorId);
   for (const actorId of [...notHeld]) if (!settled[actorId]) notHeld.delete(actorId);
   await takeUp(settled);
@@ -1161,14 +1130,9 @@ async function room(
       if (op.type === "agent.withdraw" && entry.seq > startTip) {
         const name = known.get(op.actorId) ?? op.actorId;
         narrate(`${by.name} dismissed ${name} — no longer answering here`);
-        // Read before it is reaped: the row names the session to end. A verb
-        // on this machine may have reaped it first and ended the session
-        // itself; then there is nothing here to do.
-        const row = (await rows.list()).find((r) => r.canvasId === p.id && r.actorId === op.actorId);
         await rows.remove(p.id, op.actorId);
         dispatches.delete(op.actorId);
         await state.delete(keys.session(op.actorId));
-        if (row) await deps.endSession(row, (line) => narrate(`${name} · ${line}`));
         continue;
       }
       // Route to every enrolled agent whose composition matches — the
@@ -1291,11 +1255,19 @@ async function room(
       dispatch.busy = true;
       void runSummons(record, dispatch)
         .catch(async (err) => {
-          // Withdrawn under the turn (ending a sheep stops its turn): not a
-          // failure, and nothing is held for a retry.
+          // Withdrawn under the turn: not a failure, and nothing is held for
+          // a retry.
           if (await withdrawnHere(actorId)) {
             dispatch.pending.length = 0;
             narrate(`${record.actor.name} · turn stopped — ${record.actor.name} was withdrawn`);
+            return;
+          }
+          // Held by the host, not failed: its sentence, and its time to ask
+          // again. The batch is not advanced, as under the guard's ceiling.
+          if (err instanceof RoomHold) {
+            narrate(`${record.actor.name} · turn held — ${err.line}`);
+            await sayInThread(failedThread, err.line);
+            dispatch.retryAfter = err.retryAfter;
             return;
           }
           // Silence surfaced (journey 5): the failure reaches the thread

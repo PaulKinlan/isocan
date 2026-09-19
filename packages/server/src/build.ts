@@ -1,6 +1,6 @@
 import { statSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packageRoot } from "@isocan/core/packageroot";
 import type { BuildStamp, UpgradeVerdict } from "@isocan/core";
 
 /** Which copy of isocan is this, and how old is it? The type lives in
@@ -20,7 +20,7 @@ interface ManifestStamp {
   builtAt?: string;
 }
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const root = packageRoot();
 
 /** The package root, for anything else that has to find a file this build
  *  shipped with — `docs/changelog` is one. */

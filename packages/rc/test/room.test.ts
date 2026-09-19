@@ -11,6 +11,7 @@ import type {
 import { ApiError } from "@isocan/core";
 import {
   mapState,
+  RoomHold,
   runRoom,
   type RcAgentRow,
   type RoomAdapter,
@@ -348,7 +349,6 @@ function roomOver(
 ) {
   const lines: string[] = [];
   const turns: Turn[] = [];
-  const ended: RcAgentRow[] = [];
   const routes = home.routes();
   const rows: RcAgentRow[] = options.rows ?? [
     { canvasId: CANVAS.id, actorId: PERCY.id, name: PERCY.name, harness: "claude-code", cwd: "/acme/percy", sessionId: null },
@@ -378,10 +378,6 @@ function roomOver(
         close: () => {},
       }),
     }),
-    endSession: async (row) => {
-      ended.push(row);
-    },
-    whereOf: async () => null,
     enrol: async () => {},
     agentKey: options.agentKey ?? (async (name) => machineKey(name)),
     narrate: (line) => lines.push(line),
@@ -390,7 +386,7 @@ function roomOver(
     clock: { now: () => clock.now },
     sleep: clock.sleep,
   };
-  return { deps, lines, turns, rows, ended };
+  return { deps, lines, turns, rows };
 }
 
 describe("the room over in-memory deps", () => {
@@ -431,7 +427,7 @@ describe("the room over in-memory deps", () => {
   });
 
   /**
-   * **The startup window, from both sides** (sheep-harness phase 2). The room
+   * **The startup window, from both sides.** The room
    * reads its opening roster, then its start tip; an enrolment or a
    * withdrawal landing between the two is absent from the opening roster and
    * at or below the tip, so neither the reconcile nor the lap's enrol and
@@ -464,26 +460,23 @@ describe("the room over in-memory deps", () => {
     await room.done;
   });
 
-  it("a withdrawal landing between the opening roster and the start tip is reaped, and its session ended", async () => {
+  it("a withdrawal landing between the opening roster and the start tip is reaped", async () => {
     const clock = new HandClock();
     const home = new AcmeHome(clock);
     home.enrol(PERCY);
     home.beforeStartTip = () => home.withdraw(PERCY);
-    const sheepRow: RcAgentRow = {
+    const percyRow: RcAgentRow = {
       canvasId: CANVAS.id,
       actorId: PERCY.id,
       name: PERCY.name,
-      harness: "sheep",
+      harness: "claude-code",
       cwd: "/acme/percy",
-      sessionId: "sheep_percy",
-      sheep: { kennel: "/acme/.sheep", home: "https://sheep.acme.invalid" },
+      sessionId: "ses_percy",
     };
-    const { deps, lines, rows, ended } = roomOver(home, clock, { rows: [sheepRow] });
+    const { deps, rows } = roomOver(home, clock, { rows: [percyRow] });
     const room = runRoom(deps);
     await clock.advance(60_000);
     expect(rows).toEqual([]);
-    expect(ended.map((r) => r.sessionId)).toEqual(["sheep_percy"]);
-    expect(lines).toContain("Percy was withdrawn as this rc started — ending what it left");
     await room.stop();
     await room.done;
   });
@@ -976,5 +969,110 @@ describe("the room over in-memory deps", () => {
     await room.stop();
     await room.done;
     expect(home.calls).toContain(`release:${CANVAS.id}`);
+  });
+
+  it("ends the presence session face and stops heartbeat when adapter.open throws (#298)", async () => {
+    const clock = new HandClock();
+    const home = new AcmeHome(clock);
+    home.enrol(PERCY);
+    const { deps, lines } = roomOver(home, clock);
+    deps.adapterFor = async (row) => ({
+      harness: row.harness ?? "claude-code",
+      open: async () => {
+        throw new Error("bwrap refused namespace");
+      },
+    });
+    const room = runRoom(deps);
+    await clock.advance(0);
+
+    home.mention(OWNER, PERCY, "@Percy please check");
+    await clock.advance(0);
+
+    expect(lines.some((l) => l.includes("turn FAILED — bwrap refused namespace"))).toBe(true);
+    const liveFaces = [...home.sessions.values()].filter((s) => s.kind !== "rc");
+    expect(liveFaces).toEqual([]);
+    expect(home.ended.length).toBeGreaterThanOrEqual(1);
+
+    await room.stop();
+    await room.done;
+  });
+
+  it("hands the adapter who the turn is for, by id: the canvas, the agent and the owner (#333)", async () => {
+    const clock = new HandClock();
+    const home = new AcmeHome(clock);
+    home.enrol(PERCY);
+    const { deps } = roomOver(home, clock);
+    const seen: { canvasId: string; agent: Actor; owner: Actor }[] = [];
+    const adapterFor = deps.adapterFor;
+    deps.adapterFor = async (row) => {
+      const harness = await adapterFor(row);
+      return {
+        harness: harness.harness,
+        open: (turn) => {
+          seen.push({ canvasId: turn.canvasId, agent: turn.agent, owner: turn.owner });
+          return harness.open(turn);
+        },
+      };
+    };
+    const room = runRoom(deps);
+    await clock.advance(0);
+
+    home.mention(OWNER, PERCY, "@Percy please check");
+    await clock.advance(0);
+
+    expect(seen).toEqual([{ canvasId: CANVAS.id, agent: PERCY, owner: OWNER }]);
+    await room.stop();
+    await room.done;
+  });
+
+  /**
+   * **A turn the host holds is not a failed turn** (#333). A spent allowance
+   * thrown as an ordinary error read "couldn't answer … `isocan rc`'s log has
+   * the detail" and was retried every minute until the reset. Thrown as a
+   * `RoomHold` it is the host's sentence, once, and the summons waits for the
+   * host's time.
+   */
+  it("a RoomHold from the host is said in the thread in the host's words, once, and the summons waits for its retryAfter", async () => {
+    const clock = new HandClock();
+    const home = new AcmeHome(clock);
+    home.enrol(PERCY);
+    const { deps, lines, turns } = roomOver(home, clock);
+    const line = "Ada's agents have used today's allowance (200k tokens). It resets in 3 hours.";
+    const resetsAt = clock.now + 3 * 60 * 60_000;
+    const adapterFor = deps.adapterFor;
+    let asked = 0;
+    deps.adapterFor = async (row) => {
+      asked++;
+      if (clock.now < resetsAt) throw new RoomHold(line, resetsAt);
+      return adapterFor(row);
+    };
+    const room = runRoom(deps);
+    await clock.advance(0);
+
+    const threadId = home.mention(OWNER, PERCY, "@Percy please check");
+    await clock.advance(0);
+
+    expect(asked).toBe(1);
+    expect(turns).toHaveLength(0);
+    expect(lines).toContain(`Percy · turn held — ${line}`);
+    expect(lines.some((l) => l.includes("FAILED"))).toBe(false);
+    const bodies = () => home.threads[threadId]!.comments.map((c) => c.body);
+    expect(bodies()).toEqual(["@Percy please check", line]);
+    // No face was put up for a turn that did not start.
+    expect([...home.sessions.values()].filter((s) => s.kind !== "rc")).toEqual([]);
+
+    // Not the failed turn's minute: an hour on, the host has not been asked
+    // again and nothing more was said.
+    await clock.advance(60 * 60_000);
+    expect(asked).toBe(1);
+    expect(bodies()).toEqual(["@Percy please check", line]);
+
+    // At the host's time the same summons starts, and is answered.
+    await clock.advance(2 * 60 * 60_000 + 60_000);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.prompt).toContain("@Percy please check");
+    expect(bodies()).toEqual(["@Percy please check", line, "The empty state now says what to do."]);
+    await room.stop();
+    await room.done;
   });
 });

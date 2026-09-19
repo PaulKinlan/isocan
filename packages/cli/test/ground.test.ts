@@ -6,7 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Canvas } from "@isocan/core";
 import { GROUND_MAX_BYTES, GROUND_PROP, THEME_ANCHOR_PROP, THEME_PROP } from "@isocan/core";
-import { startDaemon, stopDaemons, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon, stopDaemons } from "@isocan/server/daemon";
 import { mintTestBadge } from "./badge.ts";
 import { reservePort } from "../../../test/ports.ts";
 

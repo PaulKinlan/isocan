@@ -15,7 +15,8 @@ import {
   type OperatorRevokeResponse,
 } from "@isocan/core";
 import { harnessVars } from "@isocan/api";
-import { markerFile, startDaemon, type Daemon } from "@isocan/server";
+import { markerFile, type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 
 /**
  * **`isocan share` reads a grant the operator turned off, and the owner

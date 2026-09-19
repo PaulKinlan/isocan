@@ -40,10 +40,8 @@ describe("the room module's boundary", () => {
     // The room is reached: the routes it speaks to the daemon through are its
     // own interface over core's types.
     expect(reachedPaths).toContain("packages/rc/src/room.ts");
-    // And the sheep's policy, which a host speaks to a sheep home through.
-    expect(reachedPaths).toContain("packages/rc/src/sheep.ts");
     // Of `@isocan/api`, exactly the route surface and nothing it could grow
-    // into (sheep's collie, phase 1): `DaemonRoutes` is the client a host
+    // into: `DaemonRoutes` is the client a host
     // constructs, re-exported rather than written again. A second api file in
     // this list is a new reach to argue for, not a line to update — and
     // `routes.ts` itself is swept for `node:` below like every reached file.

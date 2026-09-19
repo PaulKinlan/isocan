@@ -47,8 +47,7 @@ import {
  *   inside a harness session, and `isocan agent add` refuses --canvas —
  *   the syntax is the containment
  *
- * The sheep harness's half of the same machinery is `rc-sheep.test.ts`, and
- * `rc-fixture.ts` holds the home, the daemon and the helpers they share.
+ * `rc-fixture.ts` holds the home, the daemon and the helpers.
  */
 
 useRcHome();

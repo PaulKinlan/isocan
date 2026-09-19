@@ -16,7 +16,8 @@ import {
   type DoorResponse,
 } from "@isocan/core";
 import { harnessVars } from "@isocan/api";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { proveInBrowser, summonedRefusal } from "../src/operator.ts";
 
 /**

@@ -14,7 +14,7 @@
  * No links to declare, nothing for npm to rebuild, and `--ignore-scripts`
  * changes nothing.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const sources = new Map([
@@ -38,10 +38,12 @@ const sources = new Map([
   ["@isocan/core/design-partner", new URL("../../core/src/design-partner.ts", import.meta.url).href],
   ["@isocan/core/design-audit", new URL("../../core/src/designaudit.ts", import.meta.url).href],
   ["@isocan/api/routes", new URL("../../api/src/routes.ts", import.meta.url).href],
+  ["@isocan/core/packageroot", new URL("../../core/src/packageroot.ts", import.meta.url).href],
   ["@isocan/api", new URL("../../api/src/index.ts", import.meta.url).href],
   ["@isocan/core", new URL("../../core/src/index.ts", import.meta.url).href],
   ["@isocan/mcp", new URL("../../mcp/src/index.ts", import.meta.url).href],
   ["@isocan/rc", new URL("../../rc/src/index.ts", import.meta.url).href],
+  ["@isocan/server/daemon", new URL("../../server/src/daemon.ts", import.meta.url).href],
   ["@isocan/server", new URL("../../server/src/index.ts", import.meta.url).href],
 ]);
 
@@ -73,4 +75,31 @@ function moduleSource(specifier) {
 export function resolve(specifier, context, next) {
   const url = sources.get(specifier) ?? moduleSource(specifier);
   return url ? next(url, context) : next(specifier, context);
+}
+
+/**
+ * **A `.md` import is its text** (`docs/projects/first-minute/design.md`,
+ * change 1).
+ *
+ * The guides an agent reads used to be `readFileSync(new URL("./agent-guide.md",
+ * import.meta.url))`. In the bundled release CLI every module shares one
+ * `import.meta.url` — the bundle's — so a path relative to a source file is a
+ * path to nothing. Writing `import guide from "./agent-guide.md"` instead
+ * makes the guide a build-time constant that esbuild's `text` loader inlines,
+ * and this hook is the same rule for source mode, where there is no build.
+ * The third copy is `scripts/module-build.mjs`, whose runtime modules carry
+ * their guide the same way, and the fourth is `vitest.config.ts`.
+ *
+ * Node has no loader for `.md` and would refuse the extension, so this
+ * short-circuits: one JSON-encoded string, no parser, no dependency.
+ */
+export async function load(url, context, next) {
+  if (url.startsWith("file:") && url.endsWith(".md")) {
+    return {
+      format: "module",
+      shortCircuit: true,
+      source: `export default ${JSON.stringify(readFileSync(fileURLToPath(url), "utf8"))};\n`,
+    };
+  }
+  return next(url, context);
 }

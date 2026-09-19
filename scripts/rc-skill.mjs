@@ -3,8 +3,8 @@
  * **The collab skill as a constant in the room module**
  * (docs/projects/room/design.md, "skill: not a dep").
  *
- * A sheep is born with `.agents/skills/isocan-collab/SKILL.md` in its pasture.
- * A host with no filesystem cannot read that file at run time, so
+ * A host with no filesystem cannot read
+ * `.agents/skills/isocan-collab/SKILL.md` at run time, so
  * `@isocan/rc` carries its text as `COLLAB_SKILL`, generated here:
  *
  *   node scripts/rc-skill.mjs          # rewrite packages/rc/src/skill.ts

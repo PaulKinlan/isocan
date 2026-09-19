@@ -122,6 +122,11 @@ if (hasCli) {
     platform: "node",
     target: "node20",
     outdir: path.join(out, "dist"),
+    // A `.md` import is its text. A module's CLI half carries its guide that
+    // way (`packages/cli/bin/workspace-loader.mjs` says why: a bundle has no
+    // stable `import.meta.url` to read a sibling file from), and the copy
+    // below keeps the guide on disk too, for `manifest.guide`.
+    loader: { ".md": "text" },
     plugins: [hostPlugin],
     logLevel: "warning",
   });

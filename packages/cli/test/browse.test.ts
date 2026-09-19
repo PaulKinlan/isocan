@@ -7,7 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CanvasSnapshotResponse } from "@isocan/core";
 import { BROWSER_MIME } from "@isocan/core";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 
 /**

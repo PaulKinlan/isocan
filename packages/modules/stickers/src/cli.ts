@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import guideText from "../agent-guide.md";
 import type { CliModule, CliHost } from "@isocan/cli/modulehost";
 import { STICKERS, STICKER_MIME, STICKER_SIZE, findSticker, stickerFile, stickersCore } from "./core.ts";
 
@@ -73,7 +72,7 @@ export const stickersCli: CliModule = {
         }),
       );
   },
-  guide: readFileSync(fileURLToPath(new URL("../agent-guide.md", import.meta.url)), "utf8"),
+  guide: guideText,
 };
 
 export default stickersCli;

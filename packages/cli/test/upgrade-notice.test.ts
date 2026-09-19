@@ -6,7 +6,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildStamp, startDaemon, stopDaemons, type Daemon } from "@isocan/server";
+import { buildStamp, type Daemon } from "@isocan/server";
+import { startDaemon, stopDaemons } from "@isocan/server/daemon";
 import { reservePort } from "../../../test/ports.ts";
 import { harnessVars } from "@isocan/api";
 

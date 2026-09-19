@@ -91,7 +91,6 @@ export const DEEP: readonly DeepFile[] = [
   { file: "packages/cli/test/prune.test.ts", secs: 63 },
   { file: "packages/cli/test/session-identity.test.ts", secs: 64 },
   { file: "packages/cli/test/shelf.test.ts", secs: 59 },
-  { file: "packages/cli/test/rc-sheep-withdrawal.test.ts", secs: 57 },
   { file: "packages/cli/test/pass.test.ts", secs: 56 },
   { file: "packages/cli/test/share.test.ts", secs: 55 },
   { file: "packages/cli/test/space.test.ts", secs: 51 },
@@ -102,7 +101,6 @@ export const DEEP: readonly DeepFile[] = [
   { file: "packages/cli/test/park.test.ts", secs: 31 },
   { file: "packages/modules/design-competition/test/bout.test.ts", secs: 24 },
   { file: "packages/cli/test/acp.test.ts", secs: 25 },
-  { file: "packages/cli/test/rc-sheep.test.ts", secs: 25 },
   { file: "packages/cli/test/setup-npx.test.ts", secs: 39 },
   { file: "packages/cli/test/binding.test.ts", secs: 24 },
   { file: "packages/cli/test/restart.test.ts", secs: 31 },
@@ -132,6 +130,7 @@ export const DEEP: readonly DeepFile[] = [
   // personal canvas, two verbs enrolling, and a withdrawal from two canvases
   // that must leave the row standing.
   { file: "packages/cli/test/bench.test.ts", secs: 22.3 },
+  { file: "packages/cli/test/board.test.ts", secs: 42.6 },
   { file: "packages/voice-agent/test/voice-harness.test.ts", secs: 61 },
 ];
 
@@ -169,7 +168,6 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
   { file: "packages/cli/test/grid.test.ts", secs: 9.4, why: "a single case that walks once" },
   { file: "packages/cli/test/tools.test.ts", secs: 7.7, why: "three cases sharing one daemon" },
   { file: "test/ratchetroot.test.ts", secs: 1.5, why: "spawns the binary four times over temp directories — no daemon, no canvas, just files on disk" },
-  { file: "packages/cli/test/board.test.ts", secs: 7.9, why: "one case; the file the first version of this list mistook for `test/canvas-board.test.ts`" },
   { file: "packages/cli/test/setup.test.ts", secs: 7.8, why: "five cases, and the first thing a new person runs — worth keeping in the ordinary run" },
   { file: "packages/cli/test/rehome.test.ts", secs: 7.3, why: "eight cases, one command each" },
   { file: "packages/cli/test/runtimemodules.test.ts", secs: 6.0, why: "three cases" },
@@ -185,6 +183,7 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
   { file: "test/deeplist.test.ts", secs: 0.2, why: "the guard itself: it spawns `git ls-files` to enumerate, and its own cases quote the strings it looks for — it caught itself on the first run, which is how sheep's `rings.test.ts` announced itself too" },
   { file: "packages/cli/test/harnesses.test.ts", secs: 0.3, why: "does not walk at all: it asserts an adapter's command IS the string \"npx\", and the reading below sees the word" },
   { file: "packages/voice-agent/test/voice-model.test.ts", secs: 9.8, why: "nineteen cases over one daemon, and the closest file to the line: only the model verbs it cannot drive from the page walk the CLI at all" },
+  { file: "test/cli-bundle.test.ts", secs: 4.4, why: "one esbuild build shared by both cases, then five spawns of the bundle that touch no daemon and no canvas — measured 18 September" },
 ];
 
 /**
@@ -192,8 +191,7 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
  * not read as taking one. Block comments go whole; of line comments only
  * those that are the whole line, so a `https://…` inside a string survives.
  *
- * Borrowed from sheep's `scripts/rings.mjs`, which learned it the way this
- * file did: its guard caught itself on the first run, because its own header
+ * Learned the way guards usually learn it: this file's guard caught itself on the first run, because its own header
  * named the function it was looking for. Three files here name the binary
  * only in their comments — `packages/server/test/build.test.ts`,
  * `packages/web/test/shot.test.ts` and `test/skills.test.ts` — and stripping
@@ -229,7 +227,12 @@ export function siblingsOf(source: string): string[] {
  */
 export function walksBinary(source: string, siblings: readonly string[] = []): boolean {
   const code = [withoutProse(source), ...siblings.map(withoutProse)].join("\n");
-  const target = /bin\/isocan\.js|canvas-board\.mjs|\bnpx\b/.test(code);
+  // `CLI_BUNDLE` joins the binary and the board script on 18 Sep: the release
+  // CLI is `packages/cli/dist/isocan.mjs` now, so a file that spawns THAT is
+  // a walker exactly as much as one spawning `bin/isocan.js`, and naming only
+  // the old path would have left `test/cli-bundle.test.ts` invisible
+  // to this reading — the silence the lists exist to remove.
+  const target = /bin\/isocan\.js|CLI_BUNDLE|dist\/isocan\.mjs|canvas-board\.mjs|\bnpx\b/.test(code);
   const spawns = /\b(spawn|spawnSync|execFile|execFileSync|execSync|fork)\s*\(/.test(code);
   // The native study exposes the real CLI through its explicit stdio MCP
   // process. All three facts are needed; generic SDK clients are not CLI walkers.

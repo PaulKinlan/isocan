@@ -630,7 +630,7 @@ export function reduceOperation(state: CanvasState | null, envelope: OpEnvelope)
       // Re-enrolling updates the record in place: the standing was already
       // there, the rules (or the name) changed. `rules` is stored verbatim;
       // omitting it on re-enrolment leaves whatever rules stood untouched,
-      // so `rc add <name> --harness sheep` (or any other re-enrolment that
+      // so `rc add <name> --harness pi` (or any other re-enrolment that
       // names no rules) never silently wipes an existing `listen` grant.
       // `writtenBy` is the envelope's author, so the rc can tell its owner's
       // gate from anybody else's (`EnrolledAgent.writtenBy`).

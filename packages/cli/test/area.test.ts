@@ -4,7 +4,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fileBadgeStore, startDaemon, type Daemon } from "@isocan/server";
+import { fileBadgeStore, type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { DaemonRoutes, harnessVars } from "@isocan/api";
 import { AREA_HEAD, AREA_INSET } from "@isocan/core";
 

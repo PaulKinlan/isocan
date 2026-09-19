@@ -956,7 +956,14 @@ its narrow eligibility rules are part of the evaluation plan.
 ## Architecture
 
 npm-workspaces monorepo, source-mode TypeScript (tsx + Vite consume `.ts`
-directly; the only build is the web bundle):
+directly). A checkout builds two things and an install runs a third: the web
+bundle, the API's declarations, and — since 18 Sep 2026 — the CLI itself.
+**What you install is a bundle.** `npm i -g github:dglazkov/isocan#release`
+links `packages/cli/dist/isocan.mjs`, built by `scripts/release.mjs`, so a
+command starts without tsx and without opening 297 source files; a checkout
+still runs `packages/cli/bin/isocan.js` through tsx and is unchanged. The
+argument, and what it cost an agent in a small sandbox, is
+`docs/projects/first-minute/`.
 
 | Package | Role |
 |---|---|

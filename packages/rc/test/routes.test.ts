@@ -3,8 +3,8 @@ import { DOOR_ROUTE, passesRoute } from "@isocan/core";
 import { ApiError, DaemonRoutes, type BadgeStore, type RoomRoutes, type StoredBadge } from "../src/index.ts";
 
 /**
- * **The client a host constructs, from `isocan/rc` alone** (sheep's collie,
- * phase 1). A host with no Node — a Worker holding the room — speaks to the
+ * **The client a host constructs, from `isocan/rc` alone.**
+ * A host with no Node — a Worker holding the room — speaks to the
  * daemon with the same `DaemonRoutes` the CLI's `DaemonClient` extends, not a
  * second client written from the wire. The boundary test holds that it
  * reaches nothing Node-only; this holds that what it hands a host is usable as

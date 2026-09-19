@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { expect, it, vi } from "vitest";
 import { CanvasHandle, DaemonClient, harnessVars, type Ctx } from "@isocan/api";
 import { canvasItemOf, designSystemProperties, newCanvasId, type Actor, type ContextLayer, type PersonalReadResponse } from "@isocan/core";
-import { startDaemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 

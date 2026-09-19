@@ -48,7 +48,7 @@ export const AGENT_KIND = "agent";
  * title is what a person calls it and can be renamed, the actor is what a
  * summons, an enrolment and a parked rc all name. */
 const AGENT_ACTOR_PROP = "actorId";
-/** `harness=<name>` — `claude-code`, `codex`, `sheep`, … so a reader knows
+/** `harness=<name>` — `claude-code`, `codex`, `pi`, … so a reader knows
  * WHAT Percy is without being told where it runs. */
 const AGENT_HARNESS_PROP = "harness";
 /**
@@ -326,7 +326,7 @@ export function benchRows(
  * Said plainly rather than left for a reader to infer from a missing ring:
  * journey 1's complaint is that today a summons into silence is
  * indistinguishable from an agent that is thinking. `runsAt` rides the ready
- * line because "ready (sheep-2)" is the answer to the question a person
+ * line because "ready (cell-2)" is the answer to the question a person
  * actually has next, and it says nothing about a machine being *yours*.
  */
 export function benchWords(row: BenchRow): string {

@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import guideText from "../agent-guide.md";
 import type { CliModule, CliHost } from "@isocan/cli/modulehost";
 import { canvasUrl } from "@isocan/core";
 import { voiceCore } from "./core.ts";
@@ -16,7 +15,7 @@ import { voiceCore } from "./core.ts";
  */
 export const talkCli: CliModule = {
   core: voiceCore,
-  guide: readFileSync(fileURLToPath(new URL("../agent-guide.md", import.meta.url)), "utf8"),
+  guide: guideText,
   register: (host: CliHost) => {
     host.program
       .command("voice")

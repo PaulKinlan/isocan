@@ -1,9 +1,10 @@
 ---
-status: partial
+status: superseded
 since: 2026-09-08
 issue: 210
 see: standing-agents, on-demand, personas, agent-custody
-note: phases 2 and 3 DONE (15–16 Sep 2026) — phase 2 (the badge) via sheep-harness, and phase 3 (a parked rc in a cell, with the bill measured) via @sheep/collie running runRoom in a Durable Object rather than a container cell (~$0.13/night list price or $0 incremental under Workers Paid plan included 400k GB-s duration; 0 container minutes idle), with replica liveness (#306) and immediate hold release on stop (#308). Phase 4 (the roster across enrolments) is now the first unbuilt phase.
+supersededBy: nothing yet — removed 18 Sep 2026; running an agent off the laptop is expected back in another form
+note: removed from isocan 18 Sep 2026: the hosted-rc experiment was shut down and the sheep harness was taken out of the CLI and the rc with it. Phases 2 and 3 were built and measured (15–16 Sep 2026) before the removal; kept as the record of the options weighed and the bill measured. Phase 4 is not planned.
 ---
 
 # Sheep as standing agents

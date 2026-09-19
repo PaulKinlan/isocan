@@ -13,8 +13,7 @@ import { mintTestBadge, type TestBadge } from "./badge.ts";
  * POST's IncomingMessage closes as soon as its body has been read — before
  * the handler's first await returns — so the listener never heard the
  * socket's later close and a dead rc stayed answerable for the rest of its
- * `waitMs`. Found by sheep's collie walk (9 s from abort to nobody listening,
- * 14 Sep 2026). What a hold is held by is the response, which closes with the
+ * `waitMs`. Measured at 9 s from abort to nobody listening (14 Sep 2026). What a hold is held by is the response, which closes with the
  * socket.
  *
  * The client here is plain `node:http`, destroyed mid-hold: the same close a

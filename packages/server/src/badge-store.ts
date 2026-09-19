@@ -57,9 +57,14 @@ export async function readBadge(home: string, base: string): Promise<StoredBadge
   }
 }
 
-/** Keep local callers ordered as well as serializing other processes. The lock
- * covers only the physical home's read/choice/atomic replacement, never a door
- * request. An abandoned lock requires explicit inspection, not PID guessing. */
+/**
+ * Keep local callers ordered as well as serializing other processes (#284).
+ * During `isocan setup`, the CLI and the local/away daemon can write to the
+ * same `identity.json` simultaneously (e.g. `adoptIdentity` vs `writeBadge`).
+ * The lock covers only the physical home's read/choice/atomic replacement,
+ * never a door request. An abandoned lock requires explicit inspection, not
+ * PID guessing.
+ */
 let identityWrites: Promise<unknown> = Promise.resolve();
 
 function hasCode(error: unknown, code: string): boolean {

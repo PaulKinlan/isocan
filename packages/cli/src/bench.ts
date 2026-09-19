@@ -20,7 +20,6 @@ import type { Ctx } from "./ctx.ts";
 import { printJson, printTable, truncate } from "./output.ts";
 import { scanHarnesses } from "./harnesses.ts";
 import { readRcAgents } from "./rc.ts";
-import { SHEEP_HARNESS, sheepPlaceFor, type SheepPlace } from "./sheep.ts";
 
 /**
  * **`isocan bench` — the agents you have, and whether anything could answer
@@ -42,19 +41,6 @@ import { SHEEP_HARNESS, sheepPlaceFor, type SheepPlace } from "./sheep.ts";
  * machine id (journey 4's value is a cell), so this is only ever a default a
  * person can override with `--runs-at`. */
 const thisMachine = (): string => os.hostname();
-
-/** Where an agent runs: for a sheep at a remote station, the station's host
- * (journey 4 — "ready (sheep-2)"); otherwise this machine's hostname. */
-function runsAtFor(harness: string | null, place: SheepPlace | null | undefined): string {
-  if (harness === SHEEP_HARNESS && place && place.home !== "local") {
-    try {
-      return new URL(place.home).host;
-    } catch {
-      return place.home;
-    }
-  }
-  return thisMachine();
-}
 
 /** The bench's canvas, or null when this person has never made one. Reading
  * must not create: `isocan bench` on a machine with no personal canvas should
@@ -179,13 +165,12 @@ async function knownAgent(ctx: Ctx, name: string): Promise<BenchAgent | null> {
   }
   const row = matches[0]!;
   const harness = await recordedHarness(ctx, row.harness);
-  const place = row.sheep ?? (harness === SHEEP_HARNESS ? sheepPlaceFor(row.cwd) : null);
   return {
     itemId: "",
     name: row.name,
     actorId: row.actorId,
     harness,
-    runsAt: runsAtFor(harness, place),
+    runsAt: thisMachine(),
   };
 }
 
@@ -264,7 +249,7 @@ async function writeBenchRow(
 export async function noteOnBench(
   ctx: Ctx,
   name: string,
-  agent: { actorId: string; harness?: string | null; cwd?: string },
+  agent: { actorId: string; harness?: string | null },
   say: (line: string) => void,
 ): Promise<void> {
   let canvasId: string | null;
@@ -282,14 +267,12 @@ export async function noteOnBench(
   }
   try {
     // Where it runs, as far as anybody can honestly say at this moment: this
-    // machine holds the rc row and will dispatch for it — unless the harness
-    // is sheep at a remote station (journey 4), where the cell runs there.
+    // machine holds the rc row and will dispatch for it.
     const harness = await recordedHarness(ctx, agent.harness);
-    const place = harness === SHEEP_HARNESS ? sheepPlaceFor(agent.cwd ?? process.cwd()) : null;
     await writeBenchRow(ctx, canvasId, name, {
       actorId: agent.actorId,
       harness,
-      runsAt: runsAtFor(harness, place),
+      runsAt: thisMachine(),
     });
   } catch (error) {
     say(
@@ -354,7 +337,7 @@ agents you HAVE, so a row that stands nowhere stays, reading unreachable.
     .command("add <name>")
     .description("Put an agent on your bench, from what this machine already knows")
     .option("--actor <id>", "the actor it speaks as — required for an agent this machine has no rc row for")
-    .option("--harness <name>", "which agent it is: claude-code, codex, sheep, …")
+    .option("--harness <name>", "which agent it is: claude-code, codex, pi, …")
     .option("--runs-at <label>", "an opaque label for where it runs (default: this machine)")
     .action(
       act(async (ctx, args) => {

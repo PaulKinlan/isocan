@@ -4,7 +4,7 @@ import path from "node:path";
 import { expect, it, vi } from "vitest";
 import { CanvasHandle, DaemonClient, Home, type Ctx, type ExplicitIdentity } from "@isocan/api";
 import { canvasItemOf, designSystemProperties, newCanvasId, type Actor, type ContextLayer } from "@isocan/core";
-import { startDaemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.ts";

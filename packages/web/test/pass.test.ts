@@ -16,7 +16,8 @@ import {
   localAgentInstructions,
   type MintPassResponse,
 } from "@isocan/core";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { mintTestBadge, type TestBadge } from "./badge.ts";
 import { beginArrival, reloadOnLatePass } from "../src/lib/arrival.ts";
 import { ApiError, mintPass } from "../src/lib/api.ts";

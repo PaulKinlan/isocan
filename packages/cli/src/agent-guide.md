@@ -531,12 +531,9 @@ conversation per agent that carries on wherever it is summoned, and
 
 Which harness a summoned agent runs in is the enrolment's `--harness`
 (claude-code, pi, codex and antigravity are known; `~/.isocan/config.json`'s `acpAdapters`
-declares others; `sheep` runs the agent in a cell at a sheep home instead of on
-this machine, and `isocan harness` says which home), and an agent enrolled with none named runs on the
+declares others), and an agent enrolled with none named runs on the
 machine's default: the only runnable harness, or the one picked with
-`isocan rc --default-harness <name>`. Withdrawing an agent on the sheep
-harness also ends its sheep (a running turn is aborted first) and the badge
-its cell holds, and says each; its pasture stays. `isocan harness` lists what this
+`isocan rc --default-harness <name>`. `isocan harness` lists what this
 machine can run and which is the default (`--json` adds a `runnable`
 field) — the thing to read before presenting the choice to a person, and
 the thing to tell them when a summons fails for want of one.
@@ -1864,10 +1861,6 @@ one — an agent has no inbox and no browser, so signing in is a person's
 gesture — but reading which of these surfaces has proved what is often the
 answer to "why does that machine get into this canvas".
 
-A row whose `what` is `cell (<agent>'s sheep)` is the badge an agent on the
-sheep harness holds in its cell, named on the machine whose rc made it.
-Withdrawing that agent ends it; it needs no `--kill` of its own.
-
 The row marked `(this one)` is the surface you are typing at; ending it signs
 this machine out of the home. On a machine with a home configured the list is
 the HOME's, which is the one that matters — a laptop that was lost is stopped
@@ -1893,7 +1886,7 @@ this canvas. It is not the address, and the difference is the whole point:
 
 - `isocan pass --agent <name>` prints an **address carrying a credential for an
   agent** this machine's `isocan rc` answers for — its badge holds the claim.
-  Whoever redeems it (a hosted rc: `collie new --pass`) arrives as that agent,
+  Whoever redeems it (a hosted rc, say) arrives as that agent,
   not as the person, and this machine's rc stands down for it. An agent this
   badge does not hold is refused with `not-your-actor`. Handing an agent over
   is the person's decision, like every pass.

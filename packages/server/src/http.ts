@@ -20,7 +20,7 @@ import { createReadStream, existsSync, statSync, promises as fs } from "node:fs"
 import os from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packagePath } from "@isocan/core/packageroot";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   Actor,
@@ -5036,11 +5036,10 @@ export function registerRoutes(
   });
 
   /**
-   * Read one back — **for the badge that minted it, and nobody else**
-   * (sheep-harness phase 2). The row without its secret, so the minter learns
+   * Read one back — **for the badge that minted it, and nobody else.**
+   * The row without its secret, so the minter learns
    * whether its pass was spent and by which badge (`redeemedBy`): the exact
-   * surface the pass made. An rc that minted a pass for a sheep's cell uses
-   * it to end that cell's badge when the agent is withdrawn.
+   * surface the pass made, which is what ending that badge needs.
    *
    * Another badge's pass, a pass for another canvas, and no pass at all
    * answer the same `unknown-pass`, so this is no oracle over passes the
@@ -5624,7 +5623,7 @@ export function registerRoutes(
     });
     // The response, not the request: a POST's IncomingMessage has already
     // closed once its body was read, so a listener there never hears the
-    // socket go (collie's walk, 14 Sep 2026: a dead rc stayed answerable for
+    // socket go (measured 14 Sep 2026: a dead rc stayed answerable for
     // its whole waitMs). The response closes with the socket, and one whose
     // client left during the awaits above is already destroyed.
     if (reply.raw.destroyed) hold.release();
@@ -6787,8 +6786,7 @@ function registerPages(
     refusedNet: (req: FastifyRequest) => HomeRefusal | null;
   },
 ): void {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const dist = path.resolve(here, "../../web/dist");
+  const dist = packagePath("packages/web/dist");
   const built = existsSync(path.join(dist, "index.html"));
 
   /**
@@ -7071,7 +7069,10 @@ function canvasIdIn(pathname: string): string | null {
 /** The header a replica names its home in — a machine-readable copy of what
  * the body says, for a `curl` or a script that would rather not scrape prose.
  * Deliberately NOT `Location`, and deliberately not a 3xx: see below. */
-export const HOME_HEADER = "X-Isocan-Home";
+// Un-exported when the index stopped re-exporting it (first-minute phase 3):
+// nothing outside this file ever read it, and the re-export was one constant
+// that dragged fastify into every command.
+const HOME_HEADER = "X-Isocan-Home";
 
 /**
  * What this origin answers a person with, when the canvas they asked for is

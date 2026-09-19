@@ -133,8 +133,8 @@ cost is stated before it is spent: *three agents, twenty minutes, on
 claude-code — about N turns each*, from the rc's own `rcLimits`
 (`turnsPerHour` defaults to 12; a bout that would exceed it says so).
 
-The sheep harness is where this goes next — a fighter per cell, nothing on
-the laptop — and nothing here depends on it.
+Fighters that run somewhere other than the laptop are where this goes
+next, and nothing here depends on it.
 
 ### The first turn is a message, on the canvas
 
@@ -348,8 +348,8 @@ hosted home works today:
   `test/bundle-budget.test.ts` holds everybody else's first visit where it is.
 - **Fighters still run on the person's own rc**, parked against isocan.io —
   the hosted home spawns nothing, and the picker's Fight button reads the
-  parked-rc fact exactly as `AddAgent` does there today. The sheep harness is
-  how a person with no laptop open gets fighters anyway.
+  parked-rc fact exactly as `AddAgent` does there today. A person with no
+  laptop open gets no fighters yet.
 - **Bring-your-own on the hosted home waits** for the question every module
   there shares: who may add one. A **data-only** module (gap 2) is the first
   thing a hosted home could reasonably accept — it runs no code — so it is the

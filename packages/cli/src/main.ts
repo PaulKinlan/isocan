@@ -17,7 +17,7 @@ import { existsSync, promises as fs } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packageBin, packagePath, packageRoot } from "@isocan/core/packageroot";
 import { Command, Option } from "commander";
 import type {
   AgentRules,
@@ -47,7 +47,6 @@ import type {
   Grant,
   GrantResponse,
   GroupView,
-  Pass,
   Space,
   SweepReport,
   UpgradeVerdict,
@@ -73,7 +72,6 @@ import {
   INSTALL_SPEC,
   LINK,
   NOT_ADMITTED,
-  NOT_YOUR_BADGE,
   WITHDRAWN,
   // operator phase 2: the look, the takedown, and the sentence every surface
   // shows — rendered in core so the tab, the terminal and the list say one
@@ -100,7 +98,6 @@ import {
   type PurgeCounts,
   type EndedSurface,
   type OperatorEndReach,
-  passExpired,
   grantSubjectOf,
   atLeast,
   capabilityOf,
@@ -499,14 +496,13 @@ import { CLI_MODULES } from "./modules.ts";
 import { loadRuntimeModules } from "./runtime-modules.ts";
 import type { CliHost, EnrolTemplate } from "./modulehost.ts";
 import { harnessSessions } from "@isocan/api";
-import { fileRcRows, readRcAgents, removeRcAgent, setRcCellPass, setRcSessionId, upsertRcAgent, withPreparedRcAgent, type RcAgentRow } from "./rc.ts";
-import { SheepAgent, actorNamesOn, endSheep, itemCenter, mapState, nameResolver, runRoom, threadLocus, type RoomAdapter, type RoomState, type RoomTurn } from "@isocan/rc";
+import { fileRcRows, readRcAgents, removeRcAgent, setRcSessionId, upsertRcAgent, withPreparedRcAgent, type RcAgentRow } from "./rc.ts";
+import { actorNamesOn, itemCenter, mapState, nameResolver, runRoom, threadLocus, type RoomAdapter, type RoomState, type RoomTurn } from "@isocan/rc";
 import { AcpAgentProcess, adapterEnv } from "./acp.ts";
 import { agentSessionOf, keysMovedLines, machineAgentKey, moveToMachineKeys } from "./agent-key.ts";
 import { openInBrowser } from "./browser.ts";
 import { proveInBrowser, summonedRefusal } from "./operator.ts";
-import { SHEEP_HARNESS, describePlace, homeAddressForCell, loopbackFromCell, noSheepLine, openSheep, placeLine, sheepCommands, sheepPlaceFor, type CellBirth } from "./sheep.ts";
-import { adapterFor, defaultLine, noDefaultLine, noNeedLine, onPath, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
+import { adapterFor, defaultLine, noDefaultLine, noNeedLine, passedEnv, scanHarnesses, setDefaultHarness, type AdapterSpec } from "./harnesses.ts";
 import {
   noSandboxLine,
   policyFor,
@@ -1362,13 +1358,13 @@ program
         throw refuseDaemonVerb("serve", declared.at ?? "its home");
       }
       if (opts.foreground) {
-        const { runDaemon } = await import("@isocan/server");
+        const { runDaemon } = await import("@isocan/server/daemon");
         await runDaemon({ port, home, ...(opts.force ? { takeover: true } : {}) });
         return new Promise<void>(() => {}); // runs until signaled
       }
       const client = new DaemonClient(`http://127.0.0.1:${port}`, home);
       if (opts.force) {
-        const { stopDaemons } = await import("@isocan/server");
+        const { stopDaemons } = await import("@isocan/server/daemon");
         const stopped = await stopDaemons(port, home);
         if (stopped.length > 0) console.log(`stopped daemon ${stopped.join(", ")}`);
       } else if (await client.health()) {
@@ -1742,7 +1738,7 @@ async function restartDaemon(
   home: string,
   port: number,
 ): Promise<{ stopped: number[]; health: Health | null; client: DaemonClient }> {
-  const { stopDaemons } = await import("@isocan/server");
+  const { stopDaemons } = await import("@isocan/server/daemon");
   const stopped = await stopDaemons(port, home);
   const client = new DaemonClient(`http://127.0.0.1:${port}`, home);
   await client.ensureDaemon();
@@ -2513,7 +2509,7 @@ program
       // shadows it and the daemon would come back on the wrong one.
       spawnSync(
         process.execPath,
-        [path.join(install.root, "packages/cli/bin/isocan.js"), "--port", String(port), "restart"],
+        [packageBin(install.root), "--port", String(port), "restart"],
         { stdio: "inherit" },
       );
     }),
@@ -2625,7 +2621,7 @@ program
   .description("Stop the daemon — asks the port who it is, so a stale one can't hide")
   .action(
     run(async (_opts: unknown, cmd: Command) => {
-      const { stopDaemons } = await import("@isocan/server");
+      const { stopDaemons } = await import("@isocan/server/daemon");
       const declared = await resolveDeclared(paths.isocanHome());
       if (declared?.mode === "direct") {
         throw refuseDaemonVerb("stop", declared.at ?? "its home");
@@ -3687,7 +3683,7 @@ program
   )
   .option(
     "--agent <name>",
-    "mint for an agent this machine answers for, not for you — whoever redeems it answers for that agent (e.g. `collie new --pass`)",
+    "mint for an agent this machine answers for, not for you — whoever redeems it answers for that agent",
   )
   .action(
     run(async (opts: { admitOnly?: boolean; agent?: string }, cmd: Command) => {
@@ -3760,13 +3756,13 @@ program
 
 /**
  * **`isocan pass --agent <name>` — handing an agent's answering to another
- * host** (sheep's collie, phase 3: an agent moves in).
+ * host.**
  *
  * An agent this machine enrolled is claimed on this machine's badge, under
  * the key `mintAndEnrol` derives — which is the whole of what "this machine
  * answers for it" means at the desk. A pass minted for that actor carries the
- * claim to whoever redeems it: a hosted rc (the collie's badge, pasted into
- * `collie new --pass`) arrives BEING the agent, and once it takes up the
+ * claim to whoever redeems it: a hosted rc arrives BEING the agent, and
+ * once it takes up the
  * agent's cursor this machine's `isocan rc` says *"another park adopted …'s
  * cursor — standing down for it"* and keeps answering for everyone else.
  *
@@ -3828,7 +3824,7 @@ async function passForAgent(ctx: Ctx, canvas: Canvas, origin: string, name: stri
     identity: `${agent.name} (${agent.id}) — an agent: whoever redeems this arrives as ${agent.name}, not as you`,
     expires: `in ${minutes} minutes (${pass.expiresAt})`,
   });
-  console.log(`\nPaste this where ${agent.name}'s new host asks for a pass (\`collie new --pass\` takes it at a hidden prompt):\n`);
+  console.log(`\nPaste this where ${agent.name}'s new host asks for a pass:\n`);
   console.log(`  ${address}\n`);
   console.log(
     `Whoever redeems it answers for ${agent.name} from then on; once it takes up ${agent.name}'s cursor,\n` +
@@ -3961,27 +3957,14 @@ program
   .command("badges")
   .description("Every surface that carries your identity — and end one that should not")
   .option("--kill <badgeId>", "end that surface's recognition: it can no longer speak as you")
-  .addHelpText(
-    "after",
-    `
-An agent on the sheep harness answers from a cell, and the cell holds a
-badge of its own: the one it redeemed the pass the rc minted at the sheep's
-birth. On the rc's machine that badge is listed as "cell (<agent>'s sheep)",
-and withdrawing the agent (\`isocan rc remove\`) ends it with the sheep.`,
-  )
   .action(
     run(async (opts: { kill?: string }, cmd: Command) => {
       const ctx = await ctxOf(cmd);
-      const cells = await cellBadges(ctx);
-      const what = (badge: BadgeSummary) => {
-        const cell = cells.get(badge.badgeId);
-        return cell ? `cell (${cell.agent}'s sheep)` : surfaceKind(badge);
-      };
       if (opts.kill !== undefined) {
         const { killed, swept, reached } = await ctx.client.killBadge(opts.kill);
         if (ctx.json) return printJson({ killed, swept, ...(reached ? { reached } : {}) });
         printKeyValues({
-          ended: `${killed.badgeId} (${what(killed)})`,
+          ended: `${killed.badgeId} (${surfaceKind(killed)})`,
           identity:
             killed.actors.map((a) => a.name || a.id).join(", ") ||
             "none — it spoke as nobody",
@@ -4004,16 +3987,12 @@ and withdrawing the agent (\`isocan rc remove\`) ends it with the sheep.`,
         return;
       }
       const { badges } = await ctx.client.badges();
-      if (ctx.json) {
-        return printJson({
-          badges: badges.map((badge) => (cells.has(badge.badgeId) ? { ...badge, cell: cells.get(badge.badgeId) } : badge)),
-        });
-      }
+      if (ctx.json) return printJson({ badges });
       const now = new Date().toISOString();
       printTable(
         badges.map((badge) => ({
           badge: badge.badgeId,
-          what: what(badge),
+          what: surfaceKind(badge),
           identity: badge.actors.map((a) => a.name || a.id).join(", ") || "—",
           // What this surface has PROVED (phase 9 stage 2). An agent has no
           // inbox and cannot sign in — but "which of my surfaces has proved
@@ -4684,26 +4663,6 @@ operatorCommand
     }),
   );
 
-/**
- * Which surfaces are sheep cells this machine's rc made (sheep-harness phase
- * 2): each sheep's birth pass, kept on its rc row, asked which badge redeemed
- * it. Exact rather than inferred from actors, because a person may hand any
- * machine a pass for the same agent. A pass the home cannot answer for
- * (an older home, a canvas since gone) names nothing, and the row reads as
- * the machine it is.
- */
-async function cellBadges(ctx: Ctx): Promise<Map<string, { agent: string; sheep: string | null }>> {
-  const cells = new Map<string, { agent: string; sheep: string | null }>();
-  const asked = new Set<string>();
-  for (const row of await readRcAgents(ctx.home)) {
-    if (!row.cellPass || asked.has(row.cellPass.passId)) continue;
-    asked.add(row.cellPass.passId);
-    const answer = await ctx.client.pass(row.cellPass.canvasId, row.cellPass.passId).catch(() => null);
-    if (answer?.pass.redeemedBy) cells.set(answer.pass.redeemedBy, { agent: row.name, sheep: row.sessionId });
-  }
-  return cells;
-}
-
 /** A browser tab or a machine, in one word. The carrier IS the answer — a
  * cookie badge is a browser by construction, because nothing else has a
  * cookie jar at the home's origin. */
@@ -4883,8 +4842,7 @@ program
 /** The skill this build ships, in the same relative place in a checkout and
  * in an `npm i -g github:…` install. */
 const SKILL_NAME = "isocan-collab";
-const skillSource = () =>
-  fileURLToPath(new URL(`../../../.agents/skills/${SKILL_NAME}`, import.meta.url));
+const skillSource = () => packagePath(".agents/skills", SKILL_NAME);
 async function exists(target: string): Promise<boolean> {
   return fs.stat(target).then(() => true, () => false);
 }
@@ -4932,7 +4890,7 @@ async function installSkill(
 
 /** Is this build a git checkout of isocan itself, rather than an install? */
 async function runningFromCheckout(): Promise<boolean> {
-  return exists(fileURLToPath(new URL("../../../.git", import.meta.url)));
+  return exists(packagePath(".git"));
 }
 
 /**
@@ -4994,7 +4952,7 @@ async function neverHeldACanvas(isocanHome: string): Promise<boolean> {
 }
 
 /** This copy's package root — the thing a daemon's `root` is compared against. */
-const myRoot = () => fileURLToPath(new URL("../../..", import.meta.url));
+const myRoot = () => packageRoot();
 
 /**
  * **Is this argument a directory, or the address of a canvas to join?**
@@ -5258,7 +5216,7 @@ program
               }
             }
           } else if (before && stalenessOf(before).stale) {
-            const { stopDaemons } = await import("@isocan/server");
+            const { stopDaemons } = await import("@isocan/server/daemon");
             await stopDaemons(port, home);
             await fs.rm(path.join(home, ".stale-warned"), { force: true });
             report.restarted = `${stalenessOf(before).why} — restarted on this build`;
@@ -5477,7 +5435,10 @@ program
         if (arrival?.pass && daemonUp) {
           const answer = await client.redeemPass(arrival.pass, arrival.origin, !direct);
           if (!answer.actor) {
-            report.identity = "admitted — this pass carried no identity, so name yourself here";
+            report.identity =
+              "admitted — this pass carried no identity, so this machine has no person yet: " +
+              "`isocan identity --home --name \"You\"` names one here, or redeem a pass minted as you " +
+              "(the app's \"Bring your own agent\" line, or `isocan pass` on a machine that already is you)";
           } else {
             // The daemon owns replica setup's identity write alongside its
             // home badges. Direct setup's badge writer is this process.
@@ -5834,7 +5795,7 @@ canvas
     run(async (ref: string, opts: { out?: string; into?: string; size?: string }, cmd: Command) => {
       const ctx = await ctxOf(cmd);
       const target = matchRef(await ctx.client.listCanvases(), ref);
-      const script = fileURLToPath(new URL("../../../scripts/canvas-shot.mjs", import.meta.url));
+      const script = packagePath("scripts/canvas-shot.mjs");
       if (!existsSync(script)) {
         throw new Error("canvas shot needs the repository checkout (scripts/canvas-shot.mjs) and Chrome — run it from a clone of isocan");
       }
@@ -7222,10 +7183,8 @@ const moduleHost: CliHost = {
   },
   /** `rc remove`, promoted: the standing goes, the history and the directory stay. */
   withdraw: async (ctx, canvasId, actorId) => {
-    const rcRow = (await readRcAgents(ctx.home)).find((r) => r.canvasId === canvasId && r.actorId === actorId);
     await ctx.client.sendOp(canvasId, ctx.actor, { type: "agent.withdraw", actorId });
     await removeRcAgent(ctx.home, canvasId, actorId);
-    await withdrawSheep(ctx, rcRow, (line) => console.error(line));
   },
 };
 
@@ -9790,7 +9749,7 @@ slidesCmd
         throw new Error(`export writes deck.pdf, deck.html or notes.md — not ${ext || "a file with no extension"}`);
       }
       if (ext === ".pdf" || opts.png) {
-        const script = fileURLToPath(new URL("../../../scripts/deck-export.mjs", import.meta.url));
+        const script = packagePath("scripts/deck-export.mjs");
         if (!existsSync(script)) {
           throw new Error("PDF and PNG export need the repository checkout (scripts/deck-export.mjs) and Chrome — run it from a clone of isocan, or export deck.html");
         }
@@ -11811,6 +11770,7 @@ program
         .filter((a) => !liveActorIds.has(a.actor.id))
         .map((a) => {
           const row = rcRows.find((r) => r.canvasId === p.id && r.actorId === a.actor.id);
+          const harness = row ? (row.harness ?? machineDefault) : null;
           // The gate, in the roster — because the roster is where somebody
           // looks after a mention went unanswered, and a gate nobody can read
           // is the silent gate the sheepdog design refuses. Since owner-only
@@ -11829,7 +11789,7 @@ program
           return {
             actor: a.actor,
             state,
-            harness: row ? (row.harness ?? machineDefault) : null,
+            harness,
             ...(listens ? { listens } : {}),
             ...(policy && state === "answerable" ? { policy } : {}),
           };
@@ -12726,7 +12686,7 @@ async function mintAndEnrol(
   // `noteOnBench` cannot throw, never retries, and never creates the personal
   // canvas it would write to. A person who has never made one enrols exactly
   // as they did before phase 3.
-  await noteOnBench(ctx, agent.name, { actorId: agent.id, harness: opts.harness, cwd: opts.cwd }, say);
+  await noteOnBench(ctx, agent.name, { actorId: agent.id, harness: opts.harness }, say);
   return agent;
 }
 
@@ -12748,7 +12708,7 @@ async function enrolAgent(
   // — an agent enrolls an agent like itself — else null, "not yet said".
   const harness = opts.harness ?? ctx.harness ?? null;
   // Re-enrolling an agent that already stands here (for instance to set
-  // `--harness sheep` or `--dir` via `rc add <name>`) must preserve its
+  // `--harness` or `--dir` via `rc add <name>`) must preserve its
   // existing routing rules and `listen` grant unless `--rules` or `--listen`
   // explicitly changes them.
   const snap = await ctx.client.snapshot(p.id);
@@ -12786,16 +12746,6 @@ async function enrolAgent(
   );
 }
 
-/** What withdrawal does beyond the standing, for the one harness where
- * something of the agent's lives elsewhere — said on both remove verbs. */
-const SHEEP_WITHDRAWAL_HELP = `
-For an agent on the sheep harness, withdrawal also ends its sheep at the
-sheep home (a running turn is aborted first) and the badge its cell
-redeemed, and says each. The pasture isocan-<name> stays: it is yours, and
-re-enrolling the agent births a new sheep into it, which does not remember
-the old one. A home too old to end a sheep gets \`sheep abort\` instead, and
-the rc says what is left there.`;
-
 /** Both remove verbs land here — the standing goes, the history stays. */
 async function withdrawAgent(cmd: Command, name: string, contained: boolean): Promise<void> {
   const ctx = await ctxOf(cmd);
@@ -12817,20 +12767,12 @@ async function withdrawAgent(cmd: Command, name: string, contained: boolean): Pr
         (standing.length > 0 ? ` — standing here: ${standing.join(", ")}` : " — nobody is enrolled here"),
     );
   }
-  // The rc half is read before it is reaped: an agent on the sheep harness
-  // has a sheep and a cell's badge to end, and the row is what names them.
-  const rcRow = (await readRcAgents(ctx.home)).find((r) => r.canvasId === p.id && r.actorId === row.actor.id);
   await ctx.client.sendOp(p.id, ctx.actor, { type: "agent.withdraw", actorId: row.actor.id });
   await removeRcAgent(ctx.home, p.id, row.actor.id);
-  if (!ctx.json) {
-    console.log(
-      `dismissed ${row.actor.name} — the standing is withdrawn, the history untouched.`,
-    );
-  }
-  // Narration on stderr under --json, so stdout stays one JSON document.
-  const say = (line: string) => (ctx.json ? console.error : console.log)(`${row.actor.name} · ${line}`);
-  await withdrawSheep(ctx, rcRow, say);
   if (ctx.json) return printJson({ withdrawn: row.actor, canvasId: p.id });
+  console.log(
+    `dismissed ${row.actor.name} — the standing is withdrawn, the history untouched.`,
+  );
 }
 
 const agentCommand = program
@@ -12859,7 +12801,6 @@ agentCommand
 agentCommand
   .command("remove <name>")
   .description("Withdraw an agent's standing here — on a person's word")
-  .addHelpText("after", SHEEP_WITHDRAWAL_HELP)
   .action(run(async (name: string, _opts: unknown, cmd: Command) => withdrawAgent(cmd, name, true)));
 
 agentCommand
@@ -12930,12 +12871,7 @@ knows — builtin, or declared in ~/.isocan/config.json under acpAdapters or
 harnessVars — with whether its executable is on the PATH, where the rc
 would get its ACP bridge, whether it could run here, and which one an
 agent enrolled with no harness named runs on. --json adds a \`runnable\`
-field so an agent presenting the choice need not derive it.
-
-sheep is the one harness whose sessions run elsewhere: in cells at a sheep
-home. It is runnable when \`sheep\` is on the PATH and the kennel for this
-directory (.sheep/ at or above it, else ~/.sheep) names a home, and its
-row says which.`,
+field so an agent presenting the choice need not derive it.`,
   )
   .action(
     run(async (_opts: unknown, cmd: Command) => {
@@ -12954,7 +12890,6 @@ row says which.`,
           sandbox: { can: sandbox.can, engine: sandbox.engine, ...(sandbox.why ? { why: sandbox.why } : {}) },
         });
       }
-      const where = scan.rows.some((r) => r.home);
       printTable(
         scan.rows.map((r) => ({
           harness: r.name,
@@ -12962,7 +12897,6 @@ row says which.`,
           adapter: r.adapter ?? "none",
           runnable: r.runnable ? "yes" : "no",
           default: r.default ? "yes" : "",
-          ...(where ? { home: r.home ?? "" } : {}),
         })),
       );
       console.log(scan.default ? defaultLine(scan) : noDefaultLine(scan));
@@ -13028,7 +12962,7 @@ rcCommand
   .command("add <name>")
   .description("Enrol an agent — the person's point-anywhere form")
   .option("--dir <path>", "the agent's working directory (default: here)")
-  .option("--harness <name>", "how its sessions start: claude-code, pi, codex, antigravity, or sheep for a cell at a sheep home (default: yours, else unsaid)")
+  .option("--harness <name>", "how its sessions start: claude-code, pi, codex, antigravity (default: yours, else unsaid)")
   .option("--rules <json>", "routing rules, stored as handed over (interpreted from phase 4)")
   .option("--listen <who>", "whose word wakes it besides its owner: names/ids comma-separated, or everyone (default: its owner alone — the person whose rc answers)")
   .action(
@@ -13214,7 +13148,6 @@ it.
 rcCommand
   .command("remove <name>")
   .description("Withdraw an agent's standing on this canvas")
-  .addHelpText("after", SHEEP_WITHDRAWAL_HELP)
   .action(run(async (name: string, _opts: unknown, cmd: Command) => withdrawAgent(cmd, name, false)));
 
 rcCommand
@@ -13232,8 +13165,6 @@ an error. Adapters: claude-code, pi, codex and antigravity ship known — each
 the ACP registry's current bridge, fetched on first use (Antigravity's is a
 300 MB binary and wants GEMINI_API_KEY); others are declared in
 ~/.isocan/config.json as {"acpAdapters": {"<harness>": ["cmd", "arg"]}}.
-An agent on the sheep harness runs in a cell at a sheep home instead: the
-turn is \`sheep attach\`, and the first one births the agent's sheep.
 
 --sandbox fences the adapter the way a fenced rc does, which is the way to
 try a policy against one agent before starting an rc with it.`,
@@ -13280,9 +13211,7 @@ try a policy against one agent before starting an rc with it.`,
         throw new Error(
           row.harness === null
             ? `${record.actor.name} named no harness, and ${noDefaultLine(await scanHarnesses(ctx.home))}`
-            : row.harness === SHEEP_HARNESS
-              ? noSheepLine(record.actor.name)
-              : `no ACP adapter is known for harness "${row.harness}" — declare one in ~/.isocan/config.json: ` +
+            : `no ACP adapter is known for harness "${row.harness}" — declare one in ~/.isocan/config.json: ` +
                 `{"acpAdapters": {"${row.harness}": ["command", "arg"]}}`,
         );
       }
@@ -13317,19 +13246,10 @@ try a policy against one agent before starting an rc with it.`,
           `${record.actor.name} · starting ${spec.harness} (${spec.command})${fenceNote(fence)} in ${row.cwd}`,
         ),
       );
-      const agent =
-        spec.harness === SHEEP_HARNESS
-          ? await openSheep(spec, {
-              name: record.actor.name,
-              cwd: row.cwd,
-              stored: row.sheep ?? null,
-              narrate: (line) => console.error(rcLine("", `${record.actor.name} · ${line}`)),
-              birth: await sheepBirth(ctx, p, record.actor.id),
-            })
-          : await AcpAgentProcess.spawn(fence.spec, {
-              cwd: row.cwd,
-              env: adapterEnv(p.id, agentSessionOf(agentKey), { pass: await passedEnv(ctx.home) }),
-            });
+      const agent = await AcpAgentProcess.spawn(fence.spec, {
+        cwd: row.cwd,
+        env: adapterEnv(p.id, agentSessionOf(agentKey), { pass: await passedEnv(ctx.home) }),
+      });
       try {
         const session = await agent.ensureSession(row.cwd, row.sessionId);
         console.error(
@@ -13340,14 +13260,7 @@ try a policy against one agent before starting an rc with it.`,
               : `${record.actor.name} · session ${session.sessionId} started${row.sessionId ? " (the stored one would not load — rebuilt)" : ""}`,
           ),
         );
-        await setRcSessionId(
-          ctx.home,
-          p.id,
-          record.actor.id,
-          session.sessionId,
-          agent instanceof SheepAgent ? agent.place : undefined,
-          bornPassOf(agent, p.id),
-        );
+        await setRcSessionId(ctx.home, p.id, record.actor.id, session.sessionId);
         const turn = await agent.prompt(session.sessionId, promptWords.join(" "), (event) => {
           if (event.kind === "chunk" && event.text) process.stdout.write(event.text);
           else if (event.kind === "tool") console.error(rcLine("", `${record.actor.name} · tool ${event.detail}`));
@@ -13375,10 +13288,9 @@ try a policy against one agent before starting an rc with it.`,
  */
 interface Fence {
   spec: AdapterSpec;
-  /** What holds this agent in: srt around a local adapter, the sheep's own
-   * cell, or nothing. Three states rather than a boolean, because "not
-   * fenced by srt" and "not fenced" are different facts about a turn. */
-  holding: "srt" | "cell" | "codex" | null;
+  /** What holds this agent in: srt around a local adapter, Codex's own
+   * sandbox, or nothing. */
+  holding: "srt" | "codex" | null;
 }
 
 /**
@@ -13394,17 +13306,6 @@ async function fenceSpec(
   asked: boolean,
   nativeCodex = false,
 ): Promise<Fence> {
-  /**
-   * **A sheep is already fenced, and not by us.** Its turn does not run on
-   * this filesystem at all: `sheep.ts` starts a pi session in a cell at a
-   * sheep home, which reaches the home over the network. srt around the
-   * `sheep` command would fence the CLIENT — and cut it off from the sheep
-   * home, since the policy's allow-list names this daemon and the vendor,
-   * not a kennel — while the agent it starts sits in a container either
-   * way. The cell is the boundary, and a stronger one than srt: it is the
-   * research note's "a stronger box" row, arriving from another project.
-   */
-  if (spec.harness === SHEEP_HARNESS) return { spec, holding: "cell" };
   if (asked && nativeCodex) throw new Error("Choose --sandbox or --codex-sandbox; nested fences are not supported");
   if (nativeCodex && spec.harness === "codex") return { spec: await codexSandboxSpec(spec, ctx.home, ctx.client.base), holding: "codex" };
   if (!asked) return { spec, holding: null };
@@ -13425,7 +13326,7 @@ async function fenceSpec(
 /** The spawn line's fence marker, so a person never has to infer which
  * boundary a turn is running behind. */
 function fenceNote(fence: Fence): string {
-  return fence.holding === "codex" ? ", Codex workspace sandbox (escalation refused)" : fence.holding === "srt" ? ", fenced" : fence.holding === "cell" ? ", in a cell" : "";
+  return fence.holding === "codex" ? ", Codex workspace sandbox (escalation refused)" : fence.holding === "srt" ? ", fenced" : "";
 }
 
 interface RcShared {
@@ -13445,105 +13346,6 @@ interface RcShared {
   state: RoomState;
   upgrade: { upgrading: boolean; upgraded: string | null };
   standDowns: (() => Promise<void>)[];
-}
-
-/**
- * What a sheep needs to be born as this agent (the sheep spike, 10 Sep
- * 2026): a pass minted for the agent's own actor — the rc's badge holds the
- * claim, so the home allows it — at the address the cell can reach. The
- * collab skill for its pasture is the room module's own text. The pass is
- * minted lazily, only when a sheep is actually born, because it is
- * single-use and short-lived.
- */
-async function sheepBirth(ctx: Ctx, p: Canvas, actorId: string): Promise<CellBirth> {
-  const origin = (await ctx.homeOf(p.id).catch(() => null)) ?? ctx.client.base;
-  return {
-    canvasTitle: p.title,
-    canvasOrigin: origin,
-    pass: async () => {
-      const { pass, token } = await ctx.client.mintPass(p.id, actorId);
-      return {
-        address: canvasUrlWithPass(homeAddressForCell(origin, await loopbackFromCell(ctx.home)), p.id, token),
-        passId: pass.id,
-      };
-    },
-  };
-}
-
-/** The pass a sheep's birth just minted, as the row keeps it — or nothing,
- * for a resumed sheep or another harness. */
-function bornPassOf(agent: unknown, canvasId: string): RcAgentRow["cellPass"] {
-  return agent instanceof SheepAgent && agent.bornPass ? { canvasId, passId: agent.bornPass } : undefined;
-}
-
-/**
- * **Withdrawal, for an agent whose sessions are sheep** (sheep-harness
- * phase 2). Every path that withdraws an agent comes here with the rc row it
- * read before reaping it: `rc remove` and `agent remove`, a parked rc seeing
- * the withdraw op, an rc starting after a withdrawal it missed, and a summons
- * whose agent was withdrawn while its sheep was being born. The sheep is
- * ended at its home (`endSheep`), then the badge its cell redeemed is ended
- * at the isocan home. Two paths racing on one withdrawal both arrive here;
- * the second finds the sheep already gone at its home and says so.
- *
- * One sheep can stand behind rows on several canvases (the rc keeps one
- * session per agent), so while another row on this machine names the same
- * sheep, nothing is ended and that row takes the pass.
- */
-async function withdrawSheep(ctx: Ctx, row: RcAgentRow | undefined, narrate: (line: string) => void): Promise<void> {
-  if (!row || row.harness !== SHEEP_HARNESS || !row.sessionId || !row.sheep) return;
-  const others = (await readRcAgents(ctx.home)).filter(
-    (r) => r.actorId === row.actorId && r.canvasId !== row.canvasId && r.sessionId === row.sessionId,
-  );
-  if (others.length > 0) {
-    const canvases = await ctx.client.listCanvases().catch(() => [] as Canvas[]);
-    const on = others.map((r) => `"${canvases.find((c) => c.id === r.canvasId)?.title ?? r.canvasId}"`).join(", ");
-    narrate(`sheep ${row.sessionId} stays — ${row.name} still answers from it on ${on}`);
-    if (row.cellPass && !others.some((r) => r.cellPass)) {
-      await setRcCellPass(ctx.home, others[0]!.canvasId, row.actorId, row.cellPass);
-    }
-    return;
-  }
-  await endSheep(sheepCommands(row.sheep), { name: row.name, sessionId: row.sessionId, where: describePlace(row.sheep) }, narrate);
-  await endCellBadge(ctx, row, narrate);
-}
-
-/**
- * The badge a sheep's cell made by redeeming its pass, ended. Named exactly:
- * the desk tells the badge that minted a pass which badge redeemed it
- * (`redeemedBy`), and the row kept the pass's id from the birth. What cannot
- * be named that way is said, with the verb that ends it by hand.
- */
-async function endCellBadge(ctx: Ctx, row: RcAgentRow, narrate: (line: string) => void): Promise<void> {
-  const byHand = "`isocan badges` lists it, and `isocan badges --kill <badge>` ends it";
-  if (!row.cellPass) {
-    narrate(`no pass is recorded for sheep ${row.sessionId}, so the badge ${row.name}'s cell holds is not known here — ${byHand}`);
-    return;
-  }
-  let pass: Pass;
-  try {
-    ({ pass } = await ctx.client.pass(row.cellPass.canvasId, row.cellPass.passId));
-  } catch (err) {
-    narrate(`could not ask the home which badge redeemed pass ${row.cellPass.passId} — ${(err as Error).message}; ${byHand}`);
-    return;
-  }
-  if (!pass.redeemedBy) {
-    const expiry = passExpired(pass, new Date().toISOString()) ? "" : `, and it expires by itself at ${pass.expiresAt}`;
-    narrate(`pass ${pass.id} was never redeemed, so ${row.name}'s cell holds no badge${expiry}`);
-    return;
-  }
-  try {
-    await ctx.client.killBadge(pass.redeemedBy);
-    narrate(`ended badge ${pass.redeemedBy} — ${row.name}'s cell can no longer speak as ${row.name}`);
-  } catch (err) {
-    // A killed badge drops out of every surface listing, so a second ending
-    // is refused as not-yours rather than answered as already-ended.
-    if (err instanceof ApiError && (err.code === NOT_YOUR_BADGE || err.code === "unknown-badge")) {
-      narrate(`badge ${pass.redeemedBy} is no longer among this machine's surfaces at the home — already ended`);
-      return;
-    }
-    narrate(`could not end badge ${pass.redeemedBy} — ${(err as Error).message}; ${byHand}`);
-  }
 }
 
 /**
@@ -13801,7 +13603,6 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
     },
   });
 
-  let sheepOnPath: boolean | undefined;
   const room = runRoom({
     routes,
     canvas: p,
@@ -13815,26 +13616,10 @@ async function runRcRoom(ctx: Ctx, p: Canvas, shared: RcShared): Promise<never> 
         throw new Error(
           row.harness === null
             ? `${row.name} named no harness, and ${noDefaultLine(await scanHarnesses(ctx.home))}`
-            : row.harness === SHEEP_HARNESS
-              ? noSheepLine(row.name)
-              : `no ACP adapter for harness "${row.harness}" — config.json's acpAdapters hook declares one`,
+            : `no ACP adapter for harness "${row.harness}" — config.json's acpAdapters hook declares one`,
         );
       }
       return { harness: spec.harness, open: (turn) => openAdapter(ctx, p, shared, spec, row, turn) };
-    },
-    endSession: (row, narrate) => withdrawSheep(ctx, row, narrate),
-    // An agent on the sheep harness runs somewhere else, and where is the
-    // one thing the person cannot see from here: said once, at start, as
-    // the home the row carries or the kennel would name — or why it can't.
-    whereOf: async (row) => {
-      if (row.harness !== SHEEP_HARNESS) return null;
-      sheepOnPath ??= await onPath("sheep", process.env);
-      const place = row.sheep ?? sheepPlaceFor(row.cwd);
-      return !sheepOnPath
-        ? `${noSheepLine(row.name)} — answering for everyone else`
-        : place
-          ? `${row.name}'s sheep ${row.sheep ? "live" : "will live"} at ${placeLine(place)}`
-          : `${row.name} names sheep, and the kennel for ${row.cwd} names no home — \`sheep home local\` or \`sheep home join <address>\` there`;
     },
     enrol: async (ask) => {
       // A template ask (proposed: `templates`) prepares the agent's
@@ -13883,6 +13668,15 @@ async function openAdapter(
   turn: RoomTurn,
 ): Promise<RoomAdapter> {
   const actorId = row.actorId;
+  const reclaimLoan = async () => {
+    const left = await readSessionFile(ctx.home, actorId);
+    if (left && left.canvasId === p.id) {
+      if (turn.face && left.sessionId !== turn.face) {
+        await ctx.client.endSession(p.id, left.sessionId).catch(() => {});
+      }
+      await writeSessionFile(ctx.home, actorId, null).catch(() => {});
+    }
+  };
   if (turn.face) {
     // The face's id goes into the actor's session pointer file — the
     // loan that makes the agent's OWN CLI commands presence-visible
@@ -13902,50 +13696,32 @@ async function openAdapter(
       ...(turn.threadId ? { onThread: turn.threadId, onThreadAt: new Date().toISOString() } : {}),
     }).catch(() => {});
   }
-  // The fence, if the rc was started with one (`sandbox.ts`). The start
-  // was already refused if it could not be built here, so this cannot
-  // fail for want of `bwrap` at the doorbell.
-  const fence = await fenceSpec(ctx, spec, row, shared.sandbox, shared.codexSandbox);
-  turn.narrate(`${spec.harness}${fenceNote(fence)}`);
-  const agent =
-    spec.harness === SHEEP_HARNESS
-      ? await openSheep(spec, {
-          name: row.name,
-          cwd: row.cwd,
-          stored: row.sheep ?? null,
-          narrate: turn.narrate,
-          birth: await sheepBirth(ctx, p, actorId),
-        })
-      : await AcpAgentProcess.spawn(fence.spec, {
-          cwd: row.cwd,
-          env: adapterEnv(p.id, agentSessionOf(await machineAgentKey(ctx.home, row.name)), { pass: await passedEnv(ctx.home) }),
-          narrate: turn.narrate,
-        });
+  let agent: AcpAgentProcess;
+  try {
+    // The fence, if the rc was started with one (`sandbox.ts`). The start
+    // was already refused if it could not be built here, so this cannot
+    // fail for want of `bwrap` at the doorbell.
+    const fence = await fenceSpec(ctx, spec, row, shared.sandbox, shared.codexSandbox);
+    turn.narrate(`${spec.harness}${fenceNote(fence)}`);
+    agent = await AcpAgentProcess.spawn(fence.spec, {
+      cwd: row.cwd,
+      env: adapterEnv(p.id, agentSessionOf(await machineAgentKey(ctx.home, row.name)), { pass: await passedEnv(ctx.home) }),
+      narrate: turn.narrate,
+    });
+  } catch (err) {
+    await reclaimLoan();
+    throw err;
+  }
   return {
     ensureSession: (cwd, stored) => agent.ensureSession(cwd, stored),
     prompt: (sessionId, text, onEvent) => agent.prompt(sessionId, text, onEvent),
-    get place() {
-      return agent instanceof SheepAgent ? agent.place : undefined;
-    },
-    get where() {
-      return agent instanceof SheepAgent ? `at ${agent.where}` : undefined;
-    },
-    get bornPass() {
-      return agent instanceof SheepAgent ? agent.bornPass : undefined;
-    },
     close: async () => {
       agent.close();
       // The loan comes back: whatever session the pointer names on this
       // canvas ends with the turn (the CLI inside may have revived an
       // expired face under a NEW id — end that one too, not just ours),
       // and the pointer itself is removed so nothing dangles.
-      const left = await readSessionFile(ctx.home, actorId);
-      if (left && left.canvasId === p.id) {
-        if (turn.face && left.sessionId !== turn.face) {
-          await ctx.client.endSession(p.id, left.sessionId).catch(() => {});
-        }
-        await writeSessionFile(ctx.home, actorId, null).catch(() => {});
-      }
+      await reclaimLoan();
     },
   };
 }

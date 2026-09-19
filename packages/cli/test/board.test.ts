@@ -4,7 +4,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startDaemon, type Daemon } from "@isocan/server";
+import { type Daemon } from "@isocan/server";
+import { startDaemon } from "@isocan/server/daemon";
 import { harnessVars } from "@isocan/api";
 import { SPRINT_BOARD } from "@isocan/core";
 
@@ -102,5 +103,5 @@ describe("the board, laid and read back", () => {
     const stillOne = await json("ls", "--in", "Brief");
     expect(stillOne.length).toBe(1);
     expect(stillOne[0].versions.length).toBe(2);
-  });
+  }, 60_000);
 });

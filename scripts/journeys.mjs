@@ -837,7 +837,7 @@ export const JOURNEYS = [
 
       // Percy is a RECORD: an actor this machine has never run, benched by
       // name. Nothing is enrolled and nothing is parked.
-      runCli("bench", "add", "Percy", "--actor", "usr_journey_percy", "--harness", "sheep");
+      runCli("bench", "add", "Percy", "--actor", "usr_journey_percy", "--harness", "pi");
       const id = JSON.parse(runCli("--json", "canvas", "create", "Bench journey")).canvasId;
       const { address } = JSON.parse(runCli("--json", "--canvas", id, "pass"));
 

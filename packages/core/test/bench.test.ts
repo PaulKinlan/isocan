@@ -91,7 +91,7 @@ function bench(): CanvasContents {
   for (const [id, who, harness] of [
     ["itm_percy", percy, "claude-code"],
     ["itm_sian", sian, "codex"],
-    ["itm_wooly", wooly, "sheep"],
+    ["itm_wooly", wooly, "pi"],
   ] as const) {
     canvas.items[id] = agentItem(id, who.name, { actorId: who.id, harness, runsAt: "laptop" });
   }
@@ -314,7 +314,7 @@ describe("benchWriteFor", () => {
     // answer: the bench is a person's own record, and a `runsAt` rewritten by
     // whichever machine enrolled last would flip between two machines'
     // opinions, one op per enrolment, forever.
-    expect(benchWriteFor(bench(), { actorId: percy.id, harness: "codex", runsAt: "sheep-2" })).toEqual({
+    expect(benchWriteFor(bench(), { actorId: percy.id, harness: "codex", runsAt: "cell-2" })).toEqual({
       kind: "already",
       itemId: "itm_percy",
     });
