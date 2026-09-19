@@ -21,18 +21,30 @@ function unmapIpv6(host: string): string {
   return host;
 }
 
-const resolveCache = new Map<string, string[]>();
+export const MAX_RESOLVE_CACHE_ENTRIES = 256;
+const GETENT_TIMEOUT_MS = 200;
+
+/** Exposed for tests to verify cache behavior and negative-cache absence (F7). */
+export const resolveCache = new Map<string, string[]>();
 
 /**
  * Resolves a hostname synchronously to its IP addresses via getent hosts.
- * Caches results so repeated lookups cost 0ms.
- * If resolution fails or the host is unresolvable, returns [] (treated as remote/unbound).
+ * Caches positive results so repeated lookups cost 0ms.
+ *
+ * F7: Never cache a negative / failure! "A positive result is safe to cache;
+ * a negative is a bet on the network that the next boot can lose."
+ *
+ * Bounded LRU-style cache size (MAX_RESOLVE_CACHE_ENTRIES = 256) and tight
+ * timeout (200ms) prevent unbounded map growth and event loop stalls on
+ * client-supplied hostnames.
  */
 function resolveHostSync(host: string): string[] {
-  if (resolveCache.has(host)) return resolveCache.get(host)!;
+  const cached = resolveCache.get(host);
+  if (cached) return cached;
+
   const addrs: string[] = [];
   try {
-    const out = execFileSync("getent", ["hosts", host], { encoding: "utf8", timeout: 1000 });
+    const out = execFileSync("getent", ["hosts", host], { encoding: "utf8", timeout: GETENT_TIMEOUT_MS });
     for (const line of out.split("\n")) {
       const parts = line.trim().split(/\s+/);
       if (parts[0]) {
@@ -43,8 +55,19 @@ function resolveHostSync(host: string): string[] {
   } catch {
     // Unresolvable host: cannot reach this daemon. Treated as remote so
     // dials fail harmlessly without refusing legitimate remote homes.
+    // F7: Do NOT cache failure / empty result!
+    return [];
   }
-  resolveCache.set(host, addrs);
+
+  // F7: Only cache positive results, with bounded size
+  if (addrs.length > 0) {
+    if (resolveCache.size >= MAX_RESOLVE_CACHE_ENTRIES) {
+      const firstKey = resolveCache.keys().next().value;
+      if (firstKey !== undefined) resolveCache.delete(firstKey);
+    }
+    resolveCache.set(host, addrs);
+  }
+
   return addrs;
 }
 

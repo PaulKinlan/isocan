@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { startDaemon, type Daemon } from "../src/daemon.ts";
 import { mintTestBadge } from "./badge.ts";
-import { isSelfAddress } from "../src/self-address.ts";
+import { isSelfAddress, resolveCache, MAX_RESOLVE_CACHE_ENTRIES } from "../src/self-address.ts";
 import { HomeLink, MAX_CONCURRENT_DIALS } from "../src/home-link.ts";
 
 describe("isocan-vab: self-dial prevention and socket leak containment", () => {
@@ -190,5 +190,26 @@ describe("isocan-vab: self-dial prevention and socket leak containment", () => {
     expect(retrying.length).toBeGreaterThanOrEqual(16 - MAX_CONCURRENT_DIALS);
 
     await link.close();
+  });
+
+  it("never caches a resolution failure (F7: negative caching trap) and bounds cache size", () => {
+    resolveCache.clear();
+    const port = 4465;
+
+    // 1. Unresolvable host: evaluated as remote
+    const unresolvable = "http://unresolvable-boot-time-host.invalid:4465";
+    expect(isSelfAddress(unresolvable, port)).toBe(false);
+
+    // F7 assertion: Unresolvable host must NOT be cached!
+    expect(resolveCache.has("unresolvable-boot-time-host.invalid"), "negative resolution must never be cached").toBe(false);
+
+    // 2. Resolvable local name requiring DNS/getent (Tailscale MagicDNS alias): positive result IS cached for 0ms future lookups
+    const tailHost = "omarchy.tail9d22b9.ts.net";
+    expect(isSelfAddress(`http://${tailHost}:${port}`, port)).toBe(true);
+    expect(resolveCache.has(tailHost), "positive resolution must be cached").toBe(true);
+    expect(resolveCache.get(tailHost)!.length).toBeGreaterThan(0);
+
+    // 3. Cache size is bounded
+    expect(MAX_RESOLVE_CACHE_ENTRIES).toBe(256);
   });
 });
