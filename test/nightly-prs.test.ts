@@ -486,6 +486,34 @@ describe("the grades queue", () => {
  * doc has to name the file that does the work, and the gate it describes has
  * to be the gate that runs.
  */
+describe("AGENTS.md tells the truth about the machinery", () => {
+  const agents = readFileSync(path.join(repo, "AGENTS.md"), "utf8");
+  // Scoped to the section, not the file: "`npm run typecheck`" appears in the
+  // house rules too, and a file-wide search would pass on a nightly section
+  // that described a gate nobody runs.
+  const section = agents.slice(
+    agents.indexOf("## The night shift's pull requests"),
+    agents.indexOf("## Research"),
+  );
+
+  it("names the file that does the work", () => {
+    expect(section).toContain("scripts/nightly-prs.mjs");
+  });
+
+  it("describes the checks that are actually run", () => {
+    const source = readFileSync(script, "utf8");
+    for (const command of ["npm run typecheck", "npm test"]) {
+      expect(source, `the gate should run ${command}`).toContain(command);
+      // The whole span, backticks included: "`npm run typecheck`" is a
+      // substring of a longer command AND appears in the house rules, so a
+      // loose `toContain` passed on a doc describing a gate nobody runs —
+      // which is the bug, not a near miss. Scoped to the section, since the
+      // house rules carry the same words.
+      expect(section, `the doc must name the check the code runs (\`${command}\`)`).toContain(`\`${command}\``);
+    }
+  });
+});
+
 describe("every workflow that runs the nightly machinery", () => {
   const dir = path.join(repo, ".github/workflows");
   const read = (file: string) => readFileSync(path.join(dir, file), "utf8");

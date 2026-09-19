@@ -82,61 +82,94 @@ open machine PRs at once on 9 Sep 2026 (three grades, two changelogs), each
 waiting on a person remembering — the same failure as the hand-kept review
 index, which produced daily and drained never.
 
-The rule is one line: **a workflow's queue never holds more than one open PR,
-the newest run's, and machinery enforces that — not a person remembering.**
-What "enforces" means is per-workflow, because the three PRs are different
-kinds of thing.
+**The bound is per workflow, because the three PRs are different kinds of
+thing.** Grades and personas hold at most one open PR: each run merges its own
+and drains its predecessors oldest first, so the next night starts from an
+empty queue. Changelogs hold at most one per day inside a writer's window of
+**three days** — so up to three at once after three quiet days — because a day
+is not made stale by a later day: Tuesday's entry is not superseded on
+Wednesday. The invariant the single number was always for is that **nothing
+sits undecided**: what machinery will not land, it comments on once, with the
+reason, and leaves.
 
-**Persona runs merge themselves, and only themselves.** Settled already, and
-the template for the rest: the run merges its own PR when the diff is entirely
-`docs/reviews/` and leaves anything wider for a person. The half that forces a
+The machinery is [`scripts/nightly-prs.mjs`](scripts/nightly-prs.mjs), called
+by the workflows; read the paragraphs below against that file rather than on
+faith. Until 18 Sep 2026 the changelog half of this section was prose only —
+`git log -S` over every ref finds no changelog drain ever, just the two
+hand-drains of 7 and 8 September — which is the failure this section is now
+written to make checkable.
+
+**Persona runs merge themselves, and only themselves.** The run merges its own
+PR when the diff is entirely `docs/reviews/` and the gate below is green, and
+leaves anything wider for a person (`persona.yml`). The half that forces a
 person exists too, elsewhere: a finding left `unanswered` for three days
 reddens the suite (`test/review-queue.test.ts`).
 
 **Grades are the easy case.** The graders are deterministic — "nothing here is
 a judgement", says the PR body — and each night adds one dated page under
-`docs/grades/`, so nights never touch the same bytes and any drain is a clean
-merge. The run merges its own PR and then drains its predecessors oldest
-first: merging each that still merges, closing as *superseded* any that no
-longer does, with a comment naming the run that closed it. Merging is the
-default because the pages are a time series — yesterday's readings are
-yesterday's, not stale — and a conflict can only mean somebody hand-edited a
-generated page, which is what supersede is for.
+`docs/grades/`, so nights never touch the same bytes and a drain is a clean
+merge. The run merges its own PR and drains its predecessors oldest first.
+Merging is the default because the pages are a time series — yesterday's
+readings are yesterday's, not stale. **A conflict is not a supersession:** when
+a merge fails the run looks again, closes only if that day's page has landed on
+`main` anyway, and names the commit that carries it; otherwise it says so on
+the PR and leaves it open, because a conflict on a unique day is a hand edit
+for a person to reconcile.
 
-**Changelogs are the exception, and the reason the rule is per-workflow.** The
-entry is a judgement — "read it before merging", says the PR body — and a day
-is not made stale by a later day: Tuesday's entry is not superseded on
-Wednesday. So a changelog PR is the one machine PR that waits for a writer.
-The PR is the drafting surface; whoever writes the entry — person or agent —
-deletes the draft marker, adds the index row, and merges. Machinery owns the
-floor and the door: a draft still unmerged after three days is merged *as a
-draft*, marker intact and index row saying so — the workflow's founding
-argument is that a draft nobody has written up beats a missing day, and a
-merged draft on `main` stays editable where a closed PR does not. And the one
-supersede-close: when the day's page already exists on `main`, written by a
-person, the run closes its own PR and says so.
+**Changelogs are the exception, and the reason the bound is per-workflow.**
+The entry is a judgement — "read it before merging", says the PR body — so a
+changelog PR is the one machine PR that waits for a writer. The PR is the
+drafting surface; whoever writes the entry — person or agent — deletes the
+draft marker, adds the index row, and merges. Machinery owns the floor and the
+door, on two conditions and no others:
+
+- **Three days, and still a draft.** A draft still unwritten when it turns
+  three days old is landed *as a draft* — marker intact, and an index row
+  saying `Draft` with the reason, in the same words the hand-drains used. The
+  workflow's founding argument is that a draft nobody has written up beats a
+  missing day, and a merged draft on `main` stays editable where a closed PR
+  does not. An entry already written on the branch (marker gone) lands too,
+  indexed under the writer's own first headline — never one the machinery made
+  up; an entry with no headline to quote is left for a person instead.
+- **The day is already on `main`.** Then the run closes its own PR as
+  superseded, and the comment names the commit on `main` that replaced it.
+  Nothing else closes a changelog PR.
+
+**A same-day retry reuses its branch, and nothing is force-pushed over a
+writer.** A second run on the same day finds `changelog/<day>` already pushed
+and leaves it, and any edits to it, alone (`changelog.yml`); a rejected push is
+how the machinery learns somebody else got there first. The generated branches
+(`grades/`, `personas/`) are force-pushed on a same-day retry, which is safe
+because a generated page can be rebuilt and a writer's sentence cannot.
 
 Three bounds hold all of them:
 
 - **A workflow touches only its own branches** (`changelog/`, `grades/`,
-  `personas/`) — never another workflow's PRs, never a person's.
+  `personas/`) — never another workflow's PRs, never a person's. A machine PR
+  that has grown a file outside its own directory is left for a person, with
+  the file named in a comment.
 - **A merge is checked, not trusted — and the check has to be run, not
   awaited.** A PR opened with `GITHUB_TOKEN` *does* fire `pull_request` for the
   `opened`, `synchronize` and `reopened` activity types — but GitHub puts those
   runs in an **approval-required** state, where they sit until someone with
-  write access selects *Approve workflows to run*. So nothing checks a machine PR
-  at three in the morning, and no machine PR has ever carried a suite check on
-  its own, including the persona PRs that merge themselves. This sentence used
-  to say the blunter and wrong thing — that such PRs "fire no `pull_request`
-  workflows" — and the difference matters, because the runs exist and could be
-  approved. GitHub's own words, read 18 Sep 2026: "the resulting `pull_request`
+  write access selects *Approve workflows to run*. So nothing has checked a
+  machine PR by the time its merge step runs, and the merge step runs the check
+  itself: a scratch worktree of the branch, installed with its own `npm ci`,
+  then `npm run typecheck` and `npm test` — the fast lane, not `test:ci`, which
+  is CI's own on the branch's PR and wants a JRE and a built web bundle.
+  **A red suite leaves the PR for a person — unless `main` is red the same
+  way**, because `test/review-queue.test.ts` reddens on purpose when a finding
+  goes unanswered for three days, and a gate that demanded green would never
+  pass on a base like that. So the run compares: a branch lands only when it
+  adds no failure `main` does not already have, and the comment says which
+  failures were whose. A gate that cannot run at all — no install, no report —
+  is not a pass. That is the blocked path: it is why the open count may exceed
+  the bound, and it is commented on rather than hidden. GitHub's own words, read 18 Sep 2026: "the resulting `pull_request`
   event creates workflow runs in an approval-required state"
   ([`GITHUB_TOKEN` → When `GITHUB_TOKEN` triggers workflow runs](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs)).
-  The same page names the way out — a GitHub App installation token or a personal
-  access token instead of `GITHUB_TOKEN` — which this repo has not adopted, so
-  the approval gate stands and the explicit check is not optional. The merge step
-  runs the suite against the branch itself; a red suite leaves the PR for a
-  person.
+  The way out that page names — a GitHub App installation token or a personal
+  access token instead of `GITHUB_TOKEN` — is not adopted here, so the explicit
+  check is not optional.
 - **Closing is reversible.** Supersede closes the PR, keeps the branch, and
   the closing comment says how to recover it.
 
