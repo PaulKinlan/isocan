@@ -10952,6 +10952,14 @@ function describeManifest(m: ModuleManifest, dir: string): string {
     lines.push(`  kind ${k.id}: ${k.mimes.join(", ")}${k.extensions?.length ? ` (.${k.extensions.join(", .")})` : ""} — ${k.label}`);
   }
   if (m.propertyKeys?.length) lines.push(`  property keys: ${m.propertyKeys.join(", ")}`);
+  if (m.tools?.length) {
+    // The shelf (isocan-svm): what this module carries, named and digested.
+    // Available wherever the module is installed; runnable where a project
+    // pins it — the listing says which, and never implies admitted.
+    for (const t of m.tools) {
+      lines.push(`  tool ${t.id}: ${t.wasm} — ${t.digest.slice(0, 16)}… (${t.bytes} bytes) — ${t.description ?? ""}`);
+    }
+  }
   for (const [point, values] of Object.entries(m.contributes ?? {})) {
     lines.push(`  adds ${values.length} to ${point}`);
   }

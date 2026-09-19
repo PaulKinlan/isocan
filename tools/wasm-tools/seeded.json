@@ -1,6 +1,6 @@
 {
   "base": "http://127.0.0.1:4441",
   "canvasId": "prj_wasm_surface",
-  "pin": "d7ab0d7431ad76c6ec2025051cf5d8086760f2939b1ea7e5f3f63a37660be4aa",
-  "bytes": 1944
+  "pin": "5d728a291ce545dafdc5d39348068ef2380bc8083a200274b9c8797ef6787f29",
+  "bytes": 1670
 }
