@@ -23,7 +23,7 @@ describe("isocan-vab: self-dial prevention and socket leak containment", () => {
     await fs.rm(homeDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it("isSelfAddress identifies all loopback, local IPs, IPv4-mapped IPv6, and machine hostname variants on matching port", () => {
+  it("isSelfAddress identifies all loopback, local IPs, IPv4-mapped IPv6, machine hostname variants, and trailing dot FQDNs", () => {
     const port = 4465;
     expect(isSelfAddress(`http://127.0.0.1:${port}`, port)).toBe(true);
     expect(isSelfAddress(`http://localhost:${port}`, port)).toBe(true);
@@ -31,13 +31,18 @@ describe("isocan-vab: self-dial prevention and socket leak containment", () => {
     expect(isSelfAddress(`http://[::1]:${port}`, port)).toBe(true);
     expect(isSelfAddress(`http://[::]:${port}`, port)).toBe(true);
 
+    // F6: Trailing dot in FQDN
+    expect(isSelfAddress(`http://localhost.:${port}`, port)).toBe(true);
+
     // F1: Machine hostname and .local FQDN
     const myHost = os.hostname().toLowerCase();
     expect(isSelfAddress(`http://${myHost}:${port}`, port)).toBe(true);
     expect(isSelfAddress(`http://${myHost}.local:${port}`, port)).toBe(true);
+    expect(isSelfAddress(`http://${myHost}.:${port}`, port)).toBe(true);
 
-    // F2: IPv4-mapped IPv6 loopbacks (e.g. [::ffff:127.0.0.1] or [::ffff:7f00:1])
+    // F2: IPv4-mapped IPv6 loopbacks (both dotted-decimal and hex)
     expect(isSelfAddress(`http://[::ffff:127.0.0.1]:${port}`, port)).toBe(true);
+    expect(isSelfAddress(`http://[::ffff:7f00:1]:${port}`, port)).toBe(true);
 
     // Local interfaces (LAN, Tailscale)
     const ifaces = os.networkInterfaces();
@@ -47,11 +52,15 @@ describe("isocan-vab: self-dial prevention and socket leak containment", () => {
       }
     }
 
+    // F5: Positive control — remote home starting with machine hostname must NOT be self
+    expect(isSelfAddress(`http://${myHost}.evil.com:${port}`, port)).toBe(false);
+    expect(isSelfAddress(`http://${myHost}.example.com:${port}`, port)).toBe(false);
+
     // Different port is not self
     expect(isSelfAddress(`http://127.0.0.1:${port + 1}`, port)).toBe(false);
     expect(isSelfAddress(`http://${myHost}:${port + 1}`, port)).toBe(false);
 
-    // Different host is not self
+    // External domain is not self
     expect(isSelfAddress("https://isocan.io", port)).toBe(false);
     expect(isSelfAddress("http://unrelated-remote-host.invalid:4465", port)).toBe(false);
 
@@ -61,7 +70,7 @@ describe("isocan-vab: self-dial prevention and socket leak containment", () => {
     expect(isSelfAddress("not-a-url", port)).toBe(false);
   });
 
-  it("a self-home daemon bound to host '::' with machine hostname creates canvases locally with 0 sockets to self (F1)", async () => {
+  it("a self-home daemon bound to host '::' with machine hostname creates canvases locally with 0 sockets to self (F1 & F6)", async () => {
     // 1. Probe a free ephemeral port on dual-stack host '::'
     const probe = await startDaemon({ port: 0, host: "::", home: homeDir, birthHome: null });
     const port = (probe.app.server.address() as any).port;
@@ -109,6 +118,7 @@ describe("isocan-vab: self-dial prevention and socket leak containment", () => {
     expect(connectionsToSelf, "hostname self-home daemon must open 0 sockets to itself").toBe(0);
     expect(daemon.homes.for("prj_hostname_dial_test")).toBeNull();
     expect(daemon.homes.isSelf(hostnameSelfUrl)).toBe(true);
+    expect(daemon.homes.isSelf(`http://localhost.:${port}`)).toBe(true);
   }, 10_000);
 
   it("homes.bind short-circuits self URLs to null without dialling", async () => {
