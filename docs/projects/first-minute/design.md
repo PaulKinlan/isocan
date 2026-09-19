@@ -19,6 +19,33 @@ On a laptop, 18 Sep 2026, at 61f7616a, `isocan --version`:
 
 The same command in the #332 sandbox takes 3.3 s.
 
+**And in a sandbox on the laptop.** `node scripts/first-minute.mjs` (phase 0)
+installs today's `release` into a container with four cores, Node 22, a cold
+disk and no tsx cache, and takes three numbers. Run 18 Sep 2026 against
+`release` built from 61f7616a:
+
+| | today's `release` |
+| --- | --- |
+| `npm install -g github:dglazkov/isocan#release` | 14.2 s, 227 packages, 115 MB on disk, `docs/` included |
+| `isocan --version` | 1.12 s cold, 1.07 s warm |
+| `node -e ''` in the same container | 0.04 s |
+| files `isocan --version` opens | 4397 `openat` calls, 1396 of them found a file |
+
+A plain container reproduces seconds-per-command — 1.1 s against the laptop's
+0.29 s — so the script did not need gVisor, which is as well: `runsc` is not
+installed on this machine and `docker info` lists `runc` alone. It does not
+reach #332's 3.3 s, and it was never going to: Docker on a laptop is not a
+hosted sandbox. **The file count is the number to hold the later phases to.**
+3001 of the 4397 opens found nothing — a resolver walking directories that do
+not exist — and every one of them is a syscall a sandbox that intercepts the
+file system charges full price for. That is the most likely reason 0.3 s
+becomes 3.3 s there, and it is measured here rather than argued: the same 456
+module loads, 4397 opens, on any disk.
+
+The install is 14.2 s here against #332's 35 s, for the same 227 packages; the
+difference is a laptop's network and CPU. 115 MB is what those packages plus
+the 40 MB tree cost once unpacked.
+
 **Every command loads everything.** Counted with a `load` hook,
 `isocan --version` loads 456 modules:
 

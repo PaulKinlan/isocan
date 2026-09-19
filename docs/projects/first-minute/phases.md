@@ -5,7 +5,7 @@ Each phase ends with **Trajectory**: only what the phase discovered
 that changes the project's course. A phase that went as planned leaves
 it empty.
 
-**Where we are: nothing built; phase 0 is next.** Seven phases. Phases 0 to 3
+**Where we are: phase 0 is done; phase 1 is next.** Seven phases. Phases 0 to 3
 need no person. Phases 4 and 5 each open with a decision that is Dimitri's
 (design.md, "Open doors") and stop there until it is made. Phase 6 is the
 walk in the sandbox #332 was measured in, which lives in
@@ -15,7 +15,11 @@ push.
 
 ## Phase 0 — A sandbox on the laptop, and the numbers
 
-**Status: NOT STARTED.**
+**Status: DONE, 18 Sep 2026.** `scripts/first-minute.mjs` with
+`scripts/lib/first-minute-sandbox.sh`. Today's `release`: install 14.2 s / 227
+packages / 115 MB, `isocan --version` 1.12 s cold and 1.07 s warm against a
+0.04 s node floor, 4397 `openat` calls of which 1396 found a file. Recorded in
+design.md.
 
 **Outcome:** a script under `scripts/` that runs the installed release CLI
 in a container close to #332's (Linux, Node 22, 4 cores, a cold disk, no tsx
@@ -31,7 +35,12 @@ with `isocan --version` over 1 s. If no local runtime reproduces it, that is
 the phase's finding and the later proofs use file-open counts instead of
 seconds.
 
-**Trajectory:**
+**Trajectory:** the container reproduces 1.1 s, not #332's 3.3 s, and gVisor
+was not there to close the gap — `docker info` on this machine lists `runc`
+alone. So the later phases' second-targets are read against 1.1 s, and the
+file-open count is the gate that means the same thing in both sandboxes: 3001
+of the 4397 opens found nothing, and a sandbox that intercepts the file system
+charges for those too.
 
 ## Phase 1 — The release CLI is a bundle
 
