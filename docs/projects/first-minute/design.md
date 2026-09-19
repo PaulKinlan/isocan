@@ -113,6 +113,23 @@ both a source file and the bundle. Runtime modules under `~/.isocan/modules/`
 are already built JavaScript reaching core through `globalThis.isocan`, so
 they need nothing.
 
+**Built, phase 1, and three things the list above had wrong.**
+`@isocan/core/packageroot` walks up to the `package.json` named `isocan`
+rather than counting directories, which is the only form that answers the same
+from a checkout, the bundle, `npm i -g`'s tree and
+`~/.isocan/current/node_modules/isocan`. It is a subpath and not part of
+core's index because the index is bundled for browsers, where a `node:fs`
+import fails the build. `import guide from "./agent-guide.md"` is the guide's
+text, one rule with four adapters — `bin/workspace-loader.mjs` for source
+mode, `release.mjs` and `module-build.mjs` for the two bundles,
+`vitest.config.ts` for the suite — declared once in `md.d.ts`. And
+`daemonBin()` was not on the list: it spawns `packages/cli/bin/isocan.js`,
+which a bundled install does not have, so `packageBin()` reads the target
+tree's own manifest.
+
+The bundle is split into 35 chunks rather than one file, because one file was
+slower — see phases.md, phase 1's trajectory, for the measurement.
+
 ### 2. The install resolves nothing
 
 Inline the dependencies into the bundle and the release manifest declares

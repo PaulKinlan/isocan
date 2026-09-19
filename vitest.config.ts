@@ -1,7 +1,26 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 import { DEEP, runningDeep } from "./test/deep.ts";
 
+/**
+ * **A `.md` import is its text**, here as everywhere else: source mode gets
+ * the rule from `packages/cli/bin/workspace-loader.mjs`, the release bundle
+ * from esbuild's text loader in `scripts/release.mjs`, runtime modules from
+ * `scripts/module-build.mjs`, and the suite from this. Four adapters, one
+ * rule, because the guides an agent reads have to survive being folded into a
+ * bundle that sits nowhere near them
+ * (`docs/projects/first-minute/design.md`).
+ */
+const markdownAsText = {
+  name: "isocan-md-text",
+  transform(_code: string, id: string) {
+    if (!id.endsWith(".md")) return null;
+    return { code: `export default ${JSON.stringify(readFileSync(id.split("?")[0]!, "utf8"))};`, map: null };
+  },
+};
+
 export default defineConfig({
+  plugins: [markdownAsText],
   test: {
     include: ["packages/*/test/**/*.test.ts", "packages/modules/*/test/**/*.test.ts", "test/**/*.test.ts"],
     /**

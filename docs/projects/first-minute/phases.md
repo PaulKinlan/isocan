@@ -5,7 +5,7 @@ Each phase ends with **Trajectory**: only what the phase discovered
 that changes the project's course. A phase that went as planned leaves
 it empty.
 
-**Where we are: phase 0 is done; phase 1 is next.** Seven phases. Phases 0 to 3
+**Where we are: phases 0 and 1 are done; phase 2 is next.** Seven phases. Phases 0 to 3
 need no person. Phases 4 and 5 each open with a decision that is Dimitri's
 (design.md, "Open doors") and stop there until it is made. Phase 6 is the
 walk in the sandbox #332 was measured in, which lives in
@@ -44,7 +44,11 @@ charges for those too.
 
 ## Phase 1 — The release CLI is a bundle
 
-**Status: NOT STARTED.**
+**Status: DONE, 18 Sep 2026.** `buildCliBundle()` in `scripts/release.mjs`;
+`packageRoot()` / `packagePath()` / `packageBin()` in
+`@isocan/core/packageroot`; guides imported as text, with the rule spelled
+once in `md.d.ts` and adapted in four places. Proof in
+`test/cli-bundle.test.ts`.
 
 **Outcome:** `scripts/release.mjs` builds a node ESM bundle of
 `packages/cli/src/main.ts` with dependencies external, and the release
@@ -60,7 +64,23 @@ installed copy with no tsx on the path it resolves. A budget test: the
 bundled `--version` loads fewer than 150 modules (456 today). Phase 0's
 script over the new release, recorded.
 
-**Trajectory:**
+**Trajectory:** the bundle is SPLIT, not one file, and the number forced it.
+Bundled into a single output `--version` loaded 538 modules — more than source
+mode's 437 — because esbuild hoists an inlined module's external imports to
+the top of the file it lands in, so every `await import("./design-system.ts")`
+dragged fastify, the MCP SDK, ajv and the remark stack into startup. With
+`splitting` each dynamic import keeps its own chunk: 142 modules, 0.20 s
+against source mode's 0.38 s. Phase 3's work now counts instead of being
+cancelled. The consequence for design.md's open door 1 (a thin artifact
+fetchable with `curl`) is that the release CLI is 35 files, not one — the door
+is still open, but it is a second build and not a flag on this one.
+
+Two things the design did not name. `@isocan/cloudstore` has to be declared
+external: it is reached by a static `import()` specifier precisely so its 156
+packages never touch a CLI install, and esbuild followed it — the first bundle
+built here carried @google-cloud/firestore. And `daemonBin()` in the API
+cannot name `packages/cli/bin/isocan.js`, because a bundled install has no
+such file; `packageBin()` reads the tree's own manifest instead.
 
 ## Phase 2 — The install resolves nothing
 

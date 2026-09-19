@@ -2,7 +2,7 @@ import { promises as fs, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { existsSync, openSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packageBin, packageRoot } from "@isocan/core/packageroot";
 import { Agent, fetch as undiciFetch } from "undici";
 import { isLoopbackBase } from "@isocan/core";
 import type { SourceRequestContext } from "@isocan/core";
@@ -181,15 +181,11 @@ export class DaemonClient extends DaemonRoutes {
    * argument).
    */
   private daemonBin(): string {
-    const own = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../cli/bin/isocan.js",
-    );
-    if (shaOfRoot(this.home, path.resolve(own, "../../../..")) === null) return own;
-    const current = path.join(
-      paths.currentLink(this.home),
-      "node_modules/isocan/packages/cli/bin/isocan.js",
-    );
+    const root = packageRoot();
+    const own = packageBin(root);
+    if (shaOfRoot(this.home, root) === null) return own;
+    const installed = path.join(paths.currentLink(this.home), "node_modules/isocan");
+    const current = packageBin(installed);
     return existsSync(current) ? current : own;
   }
 

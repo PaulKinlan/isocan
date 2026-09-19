@@ -45,6 +45,14 @@ beforeEach(async () => {
     });
   }
   await fs.cp(path.join(repo, ".agents"), path.join(npxRoot, ".agents"), { recursive: true });
+  // The manifest, which npm always puts at the root of what it unpacks and
+  // this fixture used to leave out. It matters since `packageRoot()`
+  // (`@isocan/core/packageroot`) finds a copy of isocan by walking up to the
+  // `package.json` that names it, rather than counting directories — the only
+  // form that answers the same from the bundled release CLI, where every
+  // folded-in file shares one `import.meta.url`
+  // (`docs/projects/first-minute/design.md`).
+  await fs.cp(path.join(repo, "package.json"), path.join(npxRoot, "package.json"));
   // Resolved, not constructed: a worktree keeps its dependencies in the main
   // checkout, and the symlink that assumed otherwise produced a timeout
   // message about a process that had already exited. See `nodeModulesDir`.

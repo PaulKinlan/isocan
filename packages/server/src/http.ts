@@ -20,7 +20,7 @@ import { createReadStream, existsSync, statSync, promises as fs } from "node:fs"
 import os from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packagePath } from "@isocan/core/packageroot";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   Actor,
@@ -6786,8 +6786,7 @@ function registerPages(
     refusedNet: (req: FastifyRequest) => HomeRefusal | null;
   },
 ): void {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const dist = path.resolve(here, "../../web/dist");
+  const dist = packagePath("packages/web/dist");
   const built = existsSync(path.join(dist, "index.html"));
 
   /**

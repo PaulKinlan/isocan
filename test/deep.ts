@@ -183,6 +183,7 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
   { file: "test/deeplist.test.ts", secs: 0.2, why: "the guard itself: it spawns `git ls-files` to enumerate, and its own cases quote the strings it looks for — it caught itself on the first run, which is how sheep's `rings.test.ts` announced itself too" },
   { file: "packages/cli/test/harnesses.test.ts", secs: 0.3, why: "does not walk at all: it asserts an adapter's command IS the string \"npx\", and the reading below sees the word" },
   { file: "packages/voice-agent/test/voice-model.test.ts", secs: 9.8, why: "nineteen cases over one daemon, and the closest file to the line: only the model verbs it cannot drive from the page walk the CLI at all" },
+  { file: "test/cli-bundle.test.ts", secs: 4.4, why: "one esbuild build shared by both cases, then five spawns of the bundle that touch no daemon and no canvas — measured 18 September" },
 ];
 
 /**
@@ -226,7 +227,12 @@ export function siblingsOf(source: string): string[] {
  */
 export function walksBinary(source: string, siblings: readonly string[] = []): boolean {
   const code = [withoutProse(source), ...siblings.map(withoutProse)].join("\n");
-  const target = /bin\/isocan\.js|canvas-board\.mjs|\bnpx\b/.test(code);
+  // `CLI_BUNDLE` joins the binary and the board script on 18 Sep: the release
+  // CLI is `packages/cli/dist/isocan.mjs` now, so a file that spawns THAT is
+  // a walker exactly as much as one spawning `bin/isocan.js`, and naming only
+  // the old path would have left `test/cli-bundle.test.ts` invisible
+  // to this reading — the silence the lists exist to remove.
+  const target = /bin\/isocan\.js|CLI_BUNDLE|dist\/isocan\.mjs|canvas-board\.mjs|\bnpx\b/.test(code);
   const spawns = /\b(spawn|spawnSync|execFile|execFileSync|execSync|fork)\s*\(/.test(code);
   // The native study exposes the real CLI through its explicit stdio MCP
   // process. All three facts are needed; generic SDK clients are not CLI walkers.

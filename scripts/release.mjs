@@ -97,9 +97,24 @@ export function releaseManifest(pkg, sourceCommit = "", builtAt = "") {
         ),
       )
     : rest.exports;
+  /**
+   * **The release's `bin` is the bundle** (`docs/projects/first-minute`,
+   * change 1). On main it is `packages/cli/bin/isocan.js`, which registers tsx
+   * and imports 297 `.ts` files through it — 0.38 s on a laptop and seconds in
+   * a hosted sandbox, on a command as small as `--version`. The release ships
+   * `packages/cli/dist/isocan.mjs` instead, built by `buildCliBundle` and
+   * committed here like the web app.
+   *
+   * Nothing else in the tree has to change place: `dist/` sits at the same
+   * depth `bin/` did, which is what `rootOfBin()` counts, and `packageBin()`
+   * in `@isocan/core/packageroot` reads THIS key rather than assuming either
+   * layout, so a daemon spawned from an install starts the file that install
+   * actually has.
+   */
   return {
     ...rest,
     ...(exportsMap ? { exports: exportsMap } : {}),
+    bin: { isocan: CLI_BUNDLE },
     /**
      * **What an installed copy knows about itself.** The tree npm hands out has
      * no `.git`, so without this a daemon on somebody's laptop cannot say which
@@ -184,6 +199,106 @@ export async function buildBrowserBundles(out = root) {
     written.push(outfile);
   }
   return written;
+}
+
+/**
+ * **The release CLI is one bundled file** (`docs/projects/first-minute`,
+ * change 1), and this is where it is built and where it lands.
+ *
+ * `packages/cli/dist/isocan.mjs`, and the directory depth is not an accident:
+ * `rootOfBin()` in `packages/cli/src/onpath.ts` finds a copy's root by going
+ * three up from its bin, and `dist/` sits exactly where `bin/` did.
+ */
+export const CLI_BUNDLE = "./packages/cli/dist/isocan.mjs";
+
+/** The directory the bundle and its chunks live in; emptied before each build. */
+export const CLI_BUNDLE_DIR = "./packages/cli/dist";
+
+/**
+ * **What a bundle must not swallow.** `@isocan/cloudstore` is reached by
+ * `import("@isocan/cloudstore")` inside `daemon.ts` precisely so that its 156
+ * packages and 43 MiB never touch a CLI install (`test/packaging.test.ts`
+ * guards both directions). esbuild follows a static `import()` specifier, so
+ * without this line the first bundle built here pulled in
+ * @google-cloud/firestore and @google-cloud/storage — 1.7 MB of generated
+ * protobuf in the largest single input — and quietly undid that.
+ */
+export const CLI_BUNDLE_EXTERNAL = ["@isocan/cloudstore"];
+
+/**
+ * **Build the release CLI bundle** into `out` (the repo root by default).
+ *
+ * node platform, ESM, not minified: these files are read by people debugging
+ * an install, and the win being chased is file opens, not bytes. npm
+ * dependencies stay external here — the install still resolves them, which is
+ * phase 2's job — so what this removes is the 297 `.ts` files tsx transpiled
+ * or cache-checked on every single command.
+ *
+ * **Split, not one file, and the number says why.** Bundled into a single
+ * output `isocan --version` loaded 538 modules — MORE than source mode's 437.
+ * esbuild hoists an inlined module's external imports to the top of the file
+ * it lands in, so every `await import("./design-system.ts")` in the CLI
+ * dragged fastify, the MCP SDK, ajv and the remark stack into startup. The
+ * laziness the source already has is worth keeping, so `splitting` keeps each
+ * dynamic import its own chunk: 142 modules and 0.20 s against source mode's
+ * 437 and 0.38 s. Phase 3 moves more behind `import()`; this makes that
+ * effort count instead of cancelling it.
+ *
+ * `@isocan/*` resolves through `bin/workspace-loader.mjs`'s own map, called
+ * here rather than copied: there is one answer to "where does `@isocan/core`
+ * live", and a second copy of it would drift. A `.md` import is its text,
+ * which is how the guides survive being folded into files nowhere near them.
+ */
+export async function buildCliBundle(out = root) {
+  const { build } = await import("esbuild");
+  const { resolve: resolveWorkspace } = await import(
+    pathToFileURL(path.join(root, "packages/cli/bin/workspace-loader.mjs")).href
+  );
+  const pkg = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  const outdir = path.join(out, CLI_BUNDLE_DIR);
+  const outfile = path.join(out, CLI_BUNDLE);
+  await fs.rm(outdir, { recursive: true, force: true });
+  const result = await build({
+    absWorkingDir: root,
+    // Named, so the entry is `isocan.mjs` and not `main.mjs` — the manifest's
+    // `bin` points at it and a person reading `ps` should see the CLI's name.
+    entryPoints: [{ in: path.join(root, "packages/cli/src/main.ts"), out: "isocan" }],
+    outdir,
+    outExtension: { ".js": ".mjs" },
+    bundle: true,
+    splitting: true,
+    platform: "node",
+    format: "esm",
+    target: "node22",
+    external: [
+      ...Object.keys(pkg.dependencies ?? {}).filter((name) => !name.startsWith("@types/")),
+      ...CLI_BUNDLE_EXTERNAL,
+    ],
+    loader: { ".md": "text" },
+    minify: false,
+    sourcemap: false,
+    legalComments: "inline",
+    logLevel: "warning",
+    metafile: true,
+    plugins: [
+      {
+        name: "isocan-workspaces",
+        setup(build) {
+          build.onResolve({ filter: /^@isocan\// }, (args) => {
+            if (CLI_BUNDLE_EXTERNAL.includes(args.path)) return { external: true };
+            const { url } = resolveWorkspace(args.path, {}, (u) => ({ url: u }));
+            return url.startsWith("file:") ? { path: fileURLToPath(url) } : null;
+          });
+        },
+      },
+    ],
+  });
+  // The shebang goes on the entry alone; esbuild's `banner` would put one at
+  // the top of all thirty-five chunks, where it means nothing.
+  const entry = await fs.readFile(outfile, "utf8");
+  await fs.writeFile(outfile, `#!/usr/bin/env node\n${entry}`);
+  await fs.chmod(outfile, 0o755);
+  return { outfile, outdir, metafile: result.metafile };
 }
 
 /**
@@ -361,6 +476,10 @@ async function main() {
   // the manifest's `browser` conditions (room phase 4).
   const bundles = (await buildBrowserBundles()).map((file) => path.relative(root, file));
 
+  // The fourth, and the one an agent waits on: the CLI itself, bundled, so an
+  // installed copy starts without tsx and without 297 source files.
+  await buildCliBundle();
+
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "isocan-release-"));
   try {
     // A temporary index: HEAD's tree, plus dist (gitignored, hence -f), plus
@@ -369,6 +488,7 @@ async function main() {
     git("read-tree", head, { env });
     git("add", "-f", "packages/web/dist", { env });
     git("add", "-f", "types", { env });
+    git("add", "-f", CLI_BUNDLE_DIR, { env });
     for (const bundle of bundles) git("add", "-f", bundle, { env });
     /**
      * **`.github/` does not ship.**
@@ -429,6 +549,10 @@ async function main() {
       await fs.rm(path.join(root, bundle), { force: true });
       await fs.rmdir(path.dirname(path.join(root, bundle))).catch(() => {});
     }
+    // Same argument for the CLI bundle, and more force behind it: main's `bin`
+    // is the tsx launcher, so a stale `dist/isocan.mjs` left in a checkout is
+    // a copy of the CLI that no longer matches the sources beside it.
+    await fs.rm(path.join(root, CLI_BUNDLE_DIR), { recursive: true, force: true });
   }
 }
 

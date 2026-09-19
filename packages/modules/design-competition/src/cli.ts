@@ -1,6 +1,7 @@
+import guideText from "../agent-guide.md";
 import { existsSync, promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packagePath } from "@isocan/core/packageroot";
 import type { Command } from "commander";
 import type { CliHost, CliModule, Ctx } from "@isocan/cli/modulehost";
 import {
@@ -51,13 +52,29 @@ import { competitionTally, standings } from "./tally.ts";
 
 const OWN = competitionCore.name;
 
+/**
+ * Where this module's own files sit inside a copy of isocan. Written out
+ * rather than derived from `OWN`, which is the scoped package name
+ * `@isocan/design-competition` and not a path — deriving one from the other
+ * produced `packages/modules/@isocan/design-competition` and a bout that
+ * could not find its first fighter's avatar.
+ */
+const OWN_DIR = "packages/modules/design-competition";
+
 /** A pack's file as text — the module's own from its `assets/`, another
- *  module's from wherever that module was installed (proposed: `assets`). */
+ *  module's from wherever that module was installed (proposed: `assets`).
+ *
+ *  The own-pack side asks `moduleAsset` first and falls back to this copy's
+ *  own tree: installed as a runtime module the base is registered and answers,
+ *  and built in (which is how this module ships) nothing registers one. It
+ *  used to count directories up from `import.meta.url`, which the bundled
+ *  release CLI makes meaningless — every folded-in file shares the bundle's
+ *  URL (`docs/projects/first-minute/design.md`). */
 function packText(fighter: Fighter, file: PackFile): string {
   const rel = packPath(fighter.pack, file);
   const where =
     fighter.module === OWN
-      ? fileURLToPath(new URL(`../${rel}`, import.meta.url))
+      ? (moduleAsset(OWN, rel) ?? packagePath(OWN_DIR, rel))
       : moduleAsset(fighter.module, rel);
   if (!where || !existsSync(where)) throw new Error(`${fighter.pack.id}: ${rel} is not there`);
   return readFileSync(where, "utf8");
@@ -765,7 +782,7 @@ async function prepareFighter(args: Readonly<Record<string, string>>, into: stri
 export const competitionCli: CliModule = {
   core: competitionCore,
   register,
-  guide: readFileSync(fileURLToPath(new URL("../agent-guide.md", import.meta.url)), "utf8"),
+  guide: guideText,
   templates: [
     {
       id: "design-competition.fighter",

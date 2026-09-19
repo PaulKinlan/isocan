@@ -1,9 +1,9 @@
+import guideText from "../agent-guide.md";
 import { recoverFile } from "./recovery.ts";
 import { dispatchRun, listRuns, readRun, retryRun, updateRun } from "./runs.ts";
 import { inspectProject } from "./diagnostics.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 import type { CliHost, CliModule } from "@isocan/cli/modulehost";
 import { newId } from "@isocan/core";
@@ -502,9 +502,6 @@ function register(host: CliHost): void {
 export const anatomyCli: CliModule = {
   core: anatomyModule,
   register,
-  guide: readFileSync(
-    fileURLToPath(new URL("../agent-guide.md", import.meta.url)),
-    "utf8",
-  ),
+  guide: guideText,
 };
 export default anatomyCli;

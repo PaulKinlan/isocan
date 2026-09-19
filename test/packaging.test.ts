@@ -175,7 +175,16 @@ describe("installable straight from git", () => {
       expect(value, `${key} survived into the release manifest`).toBeUndefined();
     }
     // What an install DOES need: the bin it links, and the deps it resolves.
-    expect(released.bin).toEqual(pkg.bin);
+    //
+    // The bin is NOT main's. main's is `packages/cli/bin/isocan.js`, which
+    // registers tsx and imports 297 `.ts` files through it on every command —
+    // seconds, in the hosted sandbox of #332. The release's is the bundle
+    // `buildCliBundle` writes, and this asserts the two halves of that are
+    // one: the manifest names the file the builder produces
+    // (`docs/projects/first-minute/design.md`).
+    const { CLI_BUNDLE } = await import("../scripts/release.mjs");
+    expect(released.bin).toEqual({ isocan: CLI_BUNDLE });
+    expect(pkg.bin.isocan).toBe("packages/cli/bin/isocan.js");
     expect(released.dependencies).toEqual(pkg.dependencies);
     expect(released["//"]).toContain("abc1234");
   });

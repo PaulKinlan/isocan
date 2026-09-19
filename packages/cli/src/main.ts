@@ -17,7 +17,7 @@ import { existsSync, promises as fs } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { packageBin, packagePath, packageRoot } from "@isocan/core/packageroot";
 import { Command, Option } from "commander";
 import type {
   AgentRules,
@@ -2509,7 +2509,7 @@ program
       // shadows it and the daemon would come back on the wrong one.
       spawnSync(
         process.execPath,
-        [path.join(install.root, "packages/cli/bin/isocan.js"), "--port", String(port), "restart"],
+        [packageBin(install.root), "--port", String(port), "restart"],
         { stdio: "inherit" },
       );
     }),
@@ -4842,8 +4842,7 @@ program
 /** The skill this build ships, in the same relative place in a checkout and
  * in an `npm i -g github:…` install. */
 const SKILL_NAME = "isocan-collab";
-const skillSource = () =>
-  fileURLToPath(new URL(`../../../.agents/skills/${SKILL_NAME}`, import.meta.url));
+const skillSource = () => packagePath(".agents/skills", SKILL_NAME);
 async function exists(target: string): Promise<boolean> {
   return fs.stat(target).then(() => true, () => false);
 }
@@ -4891,7 +4890,7 @@ async function installSkill(
 
 /** Is this build a git checkout of isocan itself, rather than an install? */
 async function runningFromCheckout(): Promise<boolean> {
-  return exists(fileURLToPath(new URL("../../../.git", import.meta.url)));
+  return exists(packagePath(".git"));
 }
 
 /**
@@ -4953,7 +4952,7 @@ async function neverHeldACanvas(isocanHome: string): Promise<boolean> {
 }
 
 /** This copy's package root — the thing a daemon's `root` is compared against. */
-const myRoot = () => fileURLToPath(new URL("../../..", import.meta.url));
+const myRoot = () => packageRoot();
 
 /**
  * **Is this argument a directory, or the address of a canvas to join?**
@@ -5796,7 +5795,7 @@ canvas
     run(async (ref: string, opts: { out?: string; into?: string; size?: string }, cmd: Command) => {
       const ctx = await ctxOf(cmd);
       const target = matchRef(await ctx.client.listCanvases(), ref);
-      const script = fileURLToPath(new URL("../../../scripts/canvas-shot.mjs", import.meta.url));
+      const script = packagePath("scripts/canvas-shot.mjs");
       if (!existsSync(script)) {
         throw new Error("canvas shot needs the repository checkout (scripts/canvas-shot.mjs) and Chrome — run it from a clone of isocan");
       }
@@ -9750,7 +9749,7 @@ slidesCmd
         throw new Error(`export writes deck.pdf, deck.html or notes.md — not ${ext || "a file with no extension"}`);
       }
       if (ext === ".pdf" || opts.png) {
-        const script = fileURLToPath(new URL("../../../scripts/deck-export.mjs", import.meta.url));
+        const script = packagePath("scripts/deck-export.mjs");
         if (!existsSync(script)) {
           throw new Error("PDF and PNG export need the repository checkout (scripts/deck-export.mjs) and Chrome — run it from a clone of isocan, or export deck.html");
         }

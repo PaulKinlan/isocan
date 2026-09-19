@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import guideText from "../agent-guide.md";
 import type { Command } from "commander";
 import type { CanvasSnapshotResponse } from "@isocan/core";
 import type { CliHost, CliModule } from "@isocan/cli/modulehost";
@@ -283,7 +282,7 @@ function register(host: CliHost): void {
 export const mindmapCli: CliModule = {
   core: mindmap,
   register,
-  guide: readFileSync(fileURLToPath(new URL("../agent-guide.md", import.meta.url)), "utf8"),
+  guide: guideText,
 };
 
 export default mindmapCli;
