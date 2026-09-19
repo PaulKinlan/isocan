@@ -13,6 +13,8 @@ export const MAX_MINIATURE_DEPTH = 2;
  *  Below this the picture inside would be unreadable marks, and the titled
  *  block is the honest rendering. */
 export const MIN_NESTED_WIDTH = 60;
+/** The height half of the same bound: a wide, one-block-tall picture inside
+ *  is no more readable than a tall, narrow one. */
 export const MIN_NESTED_HEIGHT = 40;
 
 /**

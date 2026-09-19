@@ -97,7 +97,7 @@ function useDocumentVisible(): boolean {
   return visible;
 }
 
-export type TailState =
+type TailState =
   | { kind: "idle" }
   | { kind: "connecting" }
   | { kind: "live"; state: CanvasState; here: number }
