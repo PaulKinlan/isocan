@@ -40,7 +40,12 @@ export const resolveCache = new Map<string, string[]>();
  */
 function resolveHostSync(host: string): string[] {
   const cached = resolveCache.get(host);
-  if (cached) return cached;
+  if (cached) {
+    // Move to end on hit to enforce true LRU recency
+    resolveCache.delete(host);
+    resolveCache.set(host, cached);
+    return cached;
+  }
 
   const addrs: string[] = [];
   try {
