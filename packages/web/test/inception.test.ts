@@ -27,7 +27,7 @@ describe("a canvas on a canvas is a picture of a place", () => {
     expect(view).toContain("const isBrowser = current.mimeType === BROWSER_MIME && !isCanvas;");
   });
 
-  it("is one level deep — a canvas inside the picture is a block, not a picture", () => {
+  it("never mounts a second card inside the picture — deepening is the Miniature's, budgeted", () => {
     expect(card).toContain('isCanvasItem(one) ? " nested" : ""');
     expect(card).not.toContain("<CanvasCard");
   });
