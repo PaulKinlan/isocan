@@ -150,8 +150,34 @@ $("run").addEventListener("click", async () => {
     `browser built-in: <span class="digest dim">${browserDigest}</span><br>` +
     (match ? `<span class="ok">the tool and the browser agree — ${input.length} bytes in</span>`
            : `<span class="bad">DISAGREEMENT — do not trust this module</span>`);
+  writeReceipt({ kind: "hash-run", title: `hash ${input.length}B (wasm)`, tool: "hash", toolDigest: pin,
+    inputDigest: hex(await crypto.subtle.digest("SHA-256", input)), status: match ? "ok" : "mismatch", resultDigest: wasmDigest });
 });
 $("input").addEventListener("input", () => { $("file").value = ""; $("run").disabled = !pin; });
+
+// The receipt is ADDRESSABLE: one canvas item per run, its JSON naming the
+// tool by digest, the input by digest, and the result by digest — so another
+// tool or an agent can consume it through the ordinary canvas API instead of
+// reading the screen. A receipt only a human can read is a dead end.
+async function writeReceipt(run) {
+  try {
+    const body = JSON.stringify(run);
+    const up = await fetch(`/api/projects/${canvasId}/blobs`, {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json", "x-isocan-filename": `${run.kind}.json` },
+      body,
+    });
+    if (!up.ok) return;
+    const { blobHash } = await up.json();
+    await fetch("/api/ops", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ canvasId, actor: { id: "usr_verifier", name: "Verifier" },
+        op: { type: "item.add", itemId: "itm_" + hex(crypto.getRandomValues(new Uint8Array(6))).slice(0, 12),
+          version: { id: "ver_" + hex(crypto.getRandomValues(new Uint8Array(6))).slice(0, 12), blobHash, mimeType: "application/json", filename: `${run.kind}.json`, size: body.length },
+          title: run.title, width: 240, height: 120,
+          placement: { x: 64, y: 64 },
+          properties: { role: "tool-run", tool: run.kind } } }) });
+  } catch { /* a receipt that cannot be written must not break the run */ }
+}
 $("file").addEventListener("change", () => { $("run").disabled = !pin; });
 if (pin) $("run").disabled = false;
 
@@ -164,6 +190,8 @@ $("flip").addEventListener("click", async () => {
   $("flipresult").innerHTML = r.ok
     ? `<span class="bad">LOADED — that should be impossible</span>`
     : `<span class="bad">REFUSED before instantiate:</span> ${r.refused}<br><span class="dim">byte ${i}: 0x${goodBytes[i].toString(16)} → 0x${tampered[i].toString(16)}. The pinned bytes were never touched — the tamper is in the copy, and the pin caught it.</span>`;
+  writeReceipt({ kind: "hash-load", title: `load attempt, byte ${i} flipped`, tool: "hash", toolDigest: pin,
+    inputDigest: hex(tampered.buffer.slice(0)), status: r.ok ? "loaded" : "refused", refusedReason: r.ok ? null : r.refused });
 });
 $("restore").addEventListener("click", async () => {
   good = await loadGood("flipresult");

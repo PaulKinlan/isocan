@@ -761,10 +761,18 @@ export interface ModuleManifest {
   proposed?: readonly string[];
   /**
    * **What else lands on disk** (proposed: `assets`): every file under the
-   * module's `assets/`, with its size, so `module add` can print what arrives
-   * as well as what runs. Paths are relative to the module's directory.
+   *   module's `assets/`, with its size, so `module add` can print what
+   *   arrives as well as what runs. Paths are relative to the module's directory.
    */
   assets?: readonly { path: string; size: number }[];
+  /**
+   * **The shelf** (2026-09-19: wasm tools, docs/projects/modules/design.md
+   * transportable compute + the isocan-svm stale-ceilings review's plan §Q3):
+   *   tools this module carries, each with its digest — what `module ls` lists
+   * as available, and what a project's pin names when admitted. Available
+   * everywhere the module is installed; runnable where a project pins it.
+   */
+  tools?: readonly { id: string; wasm: string; digest: string; bytes: number; capability?: string; description?: string; source?: string }[];
   /** The module's contributions to other modules' points — data, read before
    *  any code runs. A manifest with these and no `web` or `cli` is a
    *  data-only module. */
