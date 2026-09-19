@@ -37,6 +37,7 @@ export const {
   threadLocus,
   // room.ts — the room itself, over what a host hands it
   mapState,
+  RoomHold,
   runRoom,
   // skill.ts — the collab skill's text, generated
   COLLAB_SKILL,

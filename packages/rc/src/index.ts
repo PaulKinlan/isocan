@@ -30,6 +30,7 @@ export type { RcAgentRow } from "./rows.ts";
 export { actorNamesOn, itemCenter, nameResolver, summonsPrompt, threadLocus } from "./helpers.ts";
 export {
   mapState,
+  RoomHold,
   runRoom,
   type Room,
   type RoomAdapter,

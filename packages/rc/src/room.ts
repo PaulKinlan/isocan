@@ -143,12 +143,39 @@ export interface RoomHarness {
 }
 
 export interface RoomTurn {
+  /** Who this turn is for, by id (#333): the canvas, the agent summoned, and
+   * the person the room answers to. The laptop reads these from `cwd`, the
+   * environment and `isocan whoami`; a host that serves many people has none
+   * of the three, and files its records and counts its quota by these. */
+  canvasId: string;
+  agent: Actor;
+  owner: Actor;
   /** The face this turn's presence runs under, or null when none was made. */
   face: string | null;
   /** The thread the summons came from, when it came from one. */
   threadId: string | null;
   /** A line of this agent's narration: the room prefixes the agent's name. */
   narrate(line: string): void;
+}
+
+/**
+ * **A turn the host holds, in the host's own words** (#333). Thrown from
+ * `adapterFor` or `open` when the turn is not to start yet and nothing is
+ * broken: an allowance spent, a quota reached. The room says `line` in the
+ * thread in the system voice, as it says the guard's ceiling, keeps the
+ * summons pending and asks again at `retryAfter` (the host's clock, ms).
+ * Anything else thrown is a failed turn: "couldn't answer", and a retry in a
+ * minute.
+ */
+export class RoomHold extends Error {
+  constructor(
+    /** The whole sentence the person reads; the room adds nothing to it. */
+    readonly line: string,
+    readonly retryAfter: number,
+  ) {
+    super(line);
+    this.name = "RoomHold";
+  }
 }
 
 /** A key-value for what the room would like to survive a restart. String
@@ -847,7 +874,14 @@ async function room(
     // to the agent's own CLI, the fence, and the spawn.
     let agent: RoomAdapter | null = null;
     try {
-      agent = await harness.open({ face: face?.sessionId ?? null, threadId, narrate: say });
+      agent = await harness.open({
+        canvasId: p.id,
+        agent: record.actor,
+        owner,
+        face: face?.sessionId ?? null,
+        threadId,
+        narrate: say,
+      });
       // One session handle per AGENT (standing agents phase 2): a summons on
       // any canvas resumes the same conversation — this row's handle, else the
       // one another room minted for the same actor.
@@ -1226,6 +1260,14 @@ async function room(
           if (await withdrawnHere(actorId)) {
             dispatch.pending.length = 0;
             narrate(`${record.actor.name} · turn stopped — ${record.actor.name} was withdrawn`);
+            return;
+          }
+          // Held by the host, not failed: its sentence, and its time to ask
+          // again. The batch is not advanced, as under the guard's ceiling.
+          if (err instanceof RoomHold) {
+            narrate(`${record.actor.name} · turn held — ${err.line}`);
+            await sayInThread(failedThread, err.line);
+            dispatch.retryAfter = err.retryAfter;
             return;
           }
           // Silence surfaced (journey 5): the failure reaches the thread

@@ -11,6 +11,7 @@ import type {
 import { ApiError } from "@isocan/core";
 import {
   mapState,
+  RoomHold,
   runRoom,
   type RcAgentRow,
   type RoomAdapter,
@@ -992,6 +993,85 @@ describe("the room over in-memory deps", () => {
     expect(liveFaces).toEqual([]);
     expect(home.ended.length).toBeGreaterThanOrEqual(1);
 
+    await room.stop();
+    await room.done;
+  });
+
+  it("hands the adapter who the turn is for, by id: the canvas, the agent and the owner (#333)", async () => {
+    const clock = new HandClock();
+    const home = new AcmeHome(clock);
+    home.enrol(PERCY);
+    const { deps } = roomOver(home, clock);
+    const seen: { canvasId: string; agent: Actor; owner: Actor }[] = [];
+    const adapterFor = deps.adapterFor;
+    deps.adapterFor = async (row) => {
+      const harness = await adapterFor(row);
+      return {
+        harness: harness.harness,
+        open: (turn) => {
+          seen.push({ canvasId: turn.canvasId, agent: turn.agent, owner: turn.owner });
+          return harness.open(turn);
+        },
+      };
+    };
+    const room = runRoom(deps);
+    await clock.advance(0);
+
+    home.mention(OWNER, PERCY, "@Percy please check");
+    await clock.advance(0);
+
+    expect(seen).toEqual([{ canvasId: CANVAS.id, agent: PERCY, owner: OWNER }]);
+    await room.stop();
+    await room.done;
+  });
+
+  /**
+   * **A turn the host holds is not a failed turn** (#333). A spent allowance
+   * thrown as an ordinary error read "couldn't answer … `isocan rc`'s log has
+   * the detail" and was retried every minute until the reset. Thrown as a
+   * `RoomHold` it is the host's sentence, once, and the summons waits for the
+   * host's time.
+   */
+  it("a RoomHold from the host is said in the thread in the host's words, once, and the summons waits for its retryAfter", async () => {
+    const clock = new HandClock();
+    const home = new AcmeHome(clock);
+    home.enrol(PERCY);
+    const { deps, lines, turns } = roomOver(home, clock);
+    const line = "Ada's agents have used today's allowance (200k tokens). It resets in 3 hours.";
+    const resetsAt = clock.now + 3 * 60 * 60_000;
+    const adapterFor = deps.adapterFor;
+    let asked = 0;
+    deps.adapterFor = async (row) => {
+      asked++;
+      if (clock.now < resetsAt) throw new RoomHold(line, resetsAt);
+      return adapterFor(row);
+    };
+    const room = runRoom(deps);
+    await clock.advance(0);
+
+    const threadId = home.mention(OWNER, PERCY, "@Percy please check");
+    await clock.advance(0);
+
+    expect(asked).toBe(1);
+    expect(turns).toHaveLength(0);
+    expect(lines).toContain(`Percy · turn held — ${line}`);
+    expect(lines.some((l) => l.includes("FAILED"))).toBe(false);
+    const bodies = () => home.threads[threadId]!.comments.map((c) => c.body);
+    expect(bodies()).toEqual(["@Percy please check", line]);
+    // No face was put up for a turn that did not start.
+    expect([...home.sessions.values()].filter((s) => s.kind !== "rc")).toEqual([]);
+
+    // Not the failed turn's minute: an hour on, the host has not been asked
+    // again and nothing more was said.
+    await clock.advance(60 * 60_000);
+    expect(asked).toBe(1);
+    expect(bodies()).toEqual(["@Percy please check", line]);
+
+    // At the host's time the same summons starts, and is answered.
+    await clock.advance(2 * 60 * 60_000 + 60_000);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.prompt).toContain("@Percy please check");
+    expect(bodies()).toEqual(["@Percy please check", line, "The empty state now says what to do."]);
     await room.stop();
     await room.done;
   });
