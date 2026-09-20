@@ -41,6 +41,15 @@ writeFileSync("diff.wasm", diff);
 // Behavioural selftests: a binary that fails its own behaviour is not built.
 execSync("node --test tools-selftest.mjs", { cwd: here, stdio: "inherit" });
 
+// ── compress: NOT ON THE SHELF YET (2026-09-20). Fixed-Huffman DEFLATE in
+// compress.c passes half the cross-check (zlib validates its streams) but the
+// decompressor misdecodes the compressor's own output on non-trivial inputs
+// and the LZ77 barely matches — the reference caught it, which is what the
+// reference is for. Kept as source + compress-check.mjs (the failing
+// cross-check) so the next lane inherits the state, not a silent gap.
+const compress = build("compress.c", "compress,decompress,layoutIn,layoutCmp,layoutDec");
+writeFileSync("compress.wasm", compress);
+
 const tools = [
   { id: "hash", source: "sha256.c", bytes: hash, capability: "crypto", description: "SHA-256 over an 8 KiB input buffer" },
   { id: "diff", source: "diff.c", bytes: diff, capability: "text.transform", description: "line-level edit script between two texts (Hirschberg LCS)" },
