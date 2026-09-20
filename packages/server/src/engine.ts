@@ -2103,6 +2103,7 @@ export class Engine {
       // — and passing it through is what lets a CLI's retry mean the same
       // thing at the home as a tab's does.
       ...(request.opId !== undefined ? { opId: request.opId } : {}),
+      ...(request.group !== undefined ? { group: request.group } : {}),
       // A birth in a space names the space to the home that holds it (roles
       // phase 4); the home checks `own` there and writes no link grant.
       ...(request.spaceId !== undefined ? { spaceId: request.spaceId } : {}),
