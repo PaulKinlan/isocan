@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import { startDaemon } from '../packages/server/src/daemon.ts';
@@ -31,7 +32,7 @@ const proof = { tree: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, en
 async function drive(route) {
   const state = await fs.mkdtemp(path.join(tmpdir(), 'isocan-roadmap-forward-drive-'));
   const owned = [];
-  let b, web;
+  let b, web, listener;
   async function boot(name, birthHome) {
     const home = path.join(state, name);
     const daemon = await startDaemon({ host: '127.0.0.1', port: 0, contentPort: 0, home, birthHome, auth: null, operators: [], homePollMs: 50 });
@@ -44,12 +45,15 @@ async function drive(route) {
     const endpoint = route === 'forwarded' ? await boot('replica', writer.base) : writer;
     const clientHome = route === 'forwarded' ? endpoint.home : path.join(state, 'direct-client');
     await fs.mkdir(clientHome, { recursive: true });
+    // Vite's listen() treats port 0 as its 5173 default. Let Node own the
+    // ephemeral listener instead; Vite supplies middleware and HMR only.
+    listener = createHttpServer((request, response) => web.middlewares(request, response));
     web = await createServer({ configFile: false, root: path.join(repo, 'packages/web'), plugins: [react()],
       define: { 'import.meta.env.VITE_ISOCAN_PORT': JSON.stringify(String(endpoint.port)) },
-      server: { host: '127.0.0.1', port: 0, strictPort: true, proxy: { '/api': endpoint.base } },
+      server: { middlewareMode: true, hmr: { server: listener }, proxy: { '/api': endpoint.base } },
     });
-    await web.listen();
-    const origin = `http://127.0.0.1:${web.httpServer.address().port}`;
+    await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve); });
+    const origin = `http://127.0.0.1:${listener.address().port}`;
     b = await browser();
     await b.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await navigate(b, origin + '/');
@@ -133,6 +137,7 @@ async function drive(route) {
   } finally {
     if (b) await b.close();
     if (web) await web.close();
+    if (listener?.listening) { listener.closeAllConnections(); await new Promise(resolve => listener.close(resolve)); }
     for (const daemon of owned.reverse()) { daemon.app.server.closeAllConnections(); await daemon.close(); }
     await fs.rm(state, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
