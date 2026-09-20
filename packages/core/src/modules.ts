@@ -772,12 +772,79 @@ export interface ModuleManifest {
    * as available, and what a project's pin names when admitted. Available
    * everywhere the module is installed; runnable where a project pins it.
    */
-  tools?: readonly { id: string; wasm: string; digest: string; bytes: number; capability?: string; description?: string; source?: string }[];
+  tools?: readonly {
+    id: string;
+    wasm: string;
+    digest: string;
+    bytes: number;
+    capability?: string;
+    description?: string;
+    source?: string;
+    /**
+     * **The calling convention, named** (2026-09-20, the shelf hookup). The
+     * host reads this instead of guessing from the bytes: `digest-1` is one
+     * input buffer and a `addresses()`/`sha256(len)` pair; `diff-1` is two
+     * buffers and `layoutA()/layoutB()/layoutOut()`/`diff(aLen,bLen)`. An abi
+     * the host does not know is refused by name (`tool-abi-unsupported`), not
+     * guessed at.
+     */
+    abi?: string;
+    /**
+     * **What this tool's own C refuses**, declared so the host can refuse
+     * first, in words, with the limit in the sentence. Same numbers as the
+     * module's `#define`s — a limit here that the C does not enforce, or one
+     * the C enforces but this does not declare, is a limit that does not
+     * bind.
+     */
+    limits?: { inputMaxBytes: number; outputMaxBytes: number };
+  }[];
   /** The module's contributions to other modules' points — data, read before
    *  any code runs. A manifest with these and no `web` or `cli` is a
    *  data-only module. */
   contributes?: Readonly<Record<string, readonly unknown[]>>;
 }
+
+/**
+ * **What running a shelf tool answers** (2026-09-20, `voicebox-beads-4eh`).
+ *
+ * The daemon mints the result as a content-addressed blob and hands back its
+ * hash AND its bytes: the caller posts the addressable receipt item, and the
+ * digest beside the hash is what another tool names when it consumes this
+ * one's output.
+ */
+export interface WasmToolRun {
+  ok: true;
+  tool: string;
+  abi?: string;
+  toolDigest: string;
+  inputDigest: string;
+  resultDigest: string;
+  blobHash: string;
+  size: number;
+  mimeType: string;
+  resultB64: string;
+}
+
+/**
+ * **Every way running a tool can be refused, by name.** The order they are
+ * checked in is the design (`packages/server/src/http.ts`, the
+ * `/api/projects/:id/tools/:tool` route): each one names itself before a byte
+ * of the module executes, so a refusal is never mistakable for a tool that
+ * quietly did nothing.
+ */
+export const WASM_TOOL_REFUSALS = [
+  "tool-unknown",
+  "tool-refused",
+  "tool-input-missing",
+  "tool-bytes-missing",
+  "capability-exceeded",
+  "digest-mismatch",
+  "tool-abi-unsupported",
+  "tool-failed",
+] as const;
+/** One of those names, as a type — what a caller narrows `ApiError.code` to
+ *  when it wants to branch on the gate rather than print the sentence. */
+export type WasmToolRefusal = (typeof WASM_TOOL_REFUSALS)[number];
 
 /** A manifest that runs nothing: no web half, no CLI half. */
 export function isDataOnly(manifest: ModuleManifest): boolean {

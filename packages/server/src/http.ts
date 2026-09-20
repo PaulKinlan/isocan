@@ -235,9 +235,11 @@ import {
   type RefusalKind,
   type RefusalReach,
 } from "@isocan/core";
+import { moduleSlug, type ModuleManifest, type SlashCommand } from "@isocan/core";
 import { Engine, NothingToUndoError, CanvasNotFoundError } from "./engine.ts";
 import { isocanHome } from "./paths.ts";
 import { moduleFile, readRuntimeModules } from "./modules.ts";
+import { wasm, type WasmMemory } from "./wasm.ts";
 import { boundDirs, hashBound, pickList, readBound, readTree, writeBound } from "./tree.ts";
 import {
   attestersOf,
@@ -2103,8 +2105,211 @@ export function registerRoutes(
 
   // ---- slash commands: the work a message can ask for ----
 
-  /** Every command available here — built-ins under this home's own. */
-  app.get("/api/commands", async () => engine.commands());
+  /**
+   * **The shelf, as the host sees it** (2026-09-20, `voicebox-beads-4eh`).
+   *
+   * Every installed module's declared tools — including the ones belonging to
+   * a module that was refused. A refused module's tool is listed WITH its
+   * refusal rather than skipped: "this exists and cannot run" is a fact
+   * somebody should be able to read, and a silent skip makes a refusal
+   * indistinguishable from a tool that was never installed.
+   *
+   * Read per request, the same way `module ls` and the `/modules/:slug/*`
+   * route read: installing a module needs no restart, and there is no second
+   * list to keep in step with the directory.
+   */
+  const shelfTools = (): { module: string; slug: string; refused: string | null; tool: NonNullable<ModuleManifest["tools"]>[number] }[] =>
+    options.modulesHome
+      ? readRuntimeModules(options.modulesHome).flatMap((m) =>
+          (m.manifest.tools ?? []).map((tool) => ({ module: m.manifest.name, slug: moduleSlug(m.manifest.name), refused: m.refused, tool })),
+        )
+      : [];
+
+  /**
+   * Every command available here — built-ins under this home's own, and the
+   * wasm shelf's tools GENERATED from the installed manifests on every read.
+   *
+   * Generated, never hand-listed: the menu, the agent guide, the CLI and the
+   * voice brief all read this one route, so a tool that appears here is a tool
+   * an agent can actually be told to run, and a module added or removed
+   * changes the list with no fourth list to maintain. This is where the shelf
+   * stops being a directory and becomes part of what can be done.
+   */
+  app.get("/api/commands", async () => {
+    const base = await engine.commands();
+    const toolCommands: SlashCommand[] = shelfTools().map(({ tool: t, refused }) => ({
+      name: `wasm-${t.id}`,
+      description:
+        `wasm tool: ${t.description ?? t.id} — ${t.capability ?? "unstated"}, inputs ≤ ${t.limits?.inputMaxBytes ?? "?"} bytes ` +
+        `[${t.digest.slice(0, 12)}…]${refused ? ` REFUSED: ${refused}` : ""}`,
+      usage: t.abi === "diff-1" ? "<text> <against>" : "<text>",
+      source: "module",
+      body:
+        `Run the pinned wasm tool \`${t.id}\` (digest ${t.digest}) on the given text: ` +
+        `\`isocan wasm run ${t.id} ${t.abi === "diff-1" ? "<text> <against>" : "<text>"}\`. ` +
+        `The result lands as an addressable receipt item on this canvas.`,
+    }));
+    return [...base, ...toolCommands];
+  });
+
+  /**
+   * **Run a pinned wasm tool — the one door to the shelf.**
+   *
+   * The tools were built, digested, installed and listed, and nothing could
+   * call them (Paul, 2026-09-20: "I see tools as wasm etc, but don't see them
+   * hooked up either"). This route is the hookup, and the refusal order below
+   * IS the design: every one is named, in words, with its number, and every
+   * one happens BEFORE a byte of the module is executed.
+   *
+   *   1. `tool-unknown`          — no installed module declares this id
+   *   2. `tool-input-missing`    — a two-buffer tool was given one buffer
+   *   3. `capability-exceeded`   — over the manifest's DECLARED limit, which
+   *                                is the same number the C enforces; the host
+   *                                refuses first, in words, rather than letting
+   *                                the module's own bound be the first no
+   *   4. `digest-mismatch`       — the bytes on disk are not the pinned bytes:
+   *                                fail closed, never instantiate unverified
+   *   5. `tool-abi-unsupported`  — a calling convention this host does not know
+   *   6. `tool-failed`           — the module itself said no (its own bound)
+   *
+   * A refused module's tool keeps its own name: `tool-refused`, carrying the
+   * module's reason. Not folded into `tool-unknown` — the tool is declared,
+   * and saying "unknown" about something on the shelf would be a lie.
+   *
+   * The route does NOT post the receipt. It mints the result as a content-
+   * addressed blob and hands back its hash; the caller (CLI or page) posts the
+   * addressable item, because the receipt is the client's record of what it
+   * asked for, not the daemon's.
+   */
+  app.post("/api/projects/:id/tools/:tool", async (req, reply) => {
+    const { id, tool: toolId } = req.params as { id: string; tool: string };
+    await engine.getSnapshot(id); // 404 for unknown canvases
+    const body = (req.body ?? {}) as { input?: unknown; against?: unknown };
+    const input = typeof body.input === "string" ? body.input : null;
+    const against = typeof body.against === "string" ? body.against : null;
+
+    const declared = shelfTools().filter((s) => s.tool.id === toolId);
+    if (declared.length === 0) {
+      return reply.status(404).send({ ok: false, refusedReason: "tool-unknown", code: "tool-unknown", error: `no installed module declares a tool called ${toolId}` });
+    }
+    const refusedModule = declared.find((s) => s.refused !== null);
+    if (refusedModule) {
+      return reply.status(409).send({ ok: false, refusedReason: "tool-refused", code: "tool-refused", error: `the module carrying ${toolId} is refused: ${refusedModule.refused}` });
+    }
+    const found = declared[0]!;
+    const { tool: t } = found;
+    if (!options.modulesHome) {
+      return reply.status(409).send({ ok: false, refusedReason: "tool-unknown", code: "tool-unknown", error: "this home has no modules directory" });
+    }
+
+    const needsTwo = t.abi === "diff-1";
+    if (input === null || (needsTwo && against === null)) {
+      return reply.status(400).send({
+        ok: false,
+        refusedReason: "tool-input-missing",
+        code: "tool-input-missing",
+        error: needsTwo ? `wasm tool ${t.id} (${t.abi}) needs two texts: input and against` : `wasm tool ${t.id} needs an input string`,
+      });
+    }
+    const limit = t.limits?.inputMaxBytes;
+    const given = [input, against].filter((text): text is string => text !== null);
+    const over = given.find((text) => typeof limit === "number" && text.length > limit);
+    if (over !== undefined) {
+      return reply.status(413).send({
+        ok: false,
+        refusedReason: "capability-exceeded",
+        code: "capability-exceeded",
+        error: `wasm tool ${t.id} declares inputMaxBytes ${limit} (${t.capability ?? "unstated"}); it was given ${given.map((text) => text.length).join(" and ")} bytes`,
+      });
+    }
+
+    const file = moduleFile(options.modulesHome, found.slug, t.wasm);
+    if (!file) {
+      return reply.status(409).send({ ok: false, refusedReason: "tool-bytes-missing", code: "tool-bytes-missing", error: `module ${found.module} declares ${t.wasm}, which is not on the shelf` });
+    }
+    const bytes = new Uint8Array(await fs.readFile(file));
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== t.digest) {
+      return reply.status(409).send({
+        ok: false,
+        refusedReason: "digest-mismatch",
+        code: "digest-mismatch",
+        error: `wasm tool ${t.id} is pinned ${t.digest.slice(0, 12)}…, the bytes on disk hash ${digest.slice(0, 12)}… — refused before instantiation`,
+      });
+    }
+    if (t.abi !== "digest-1" && t.abi !== "diff-1") {
+      return reply.status(409).send({
+        ok: false,
+        refusedReason: "tool-abi-unsupported",
+        code: "tool-abi-unsupported",
+        error: `wasm tool ${t.id} declares abi ${t.abi ?? "(none — its manifest does not say)"}; this host knows digest-1 and diff-1`,
+      });
+    }
+
+    // Past this line the bytes are the pinned bytes and the convention is one
+    // this host knows. The module hands over its own addresses; nothing here
+    // hardcodes an offset.
+    const { instance } = await wasm.instantiate(bytes, {});
+    const memory = instance.exports.memory as unknown as WasmMemory;
+    let output: Uint8Array;
+    try {
+      if (t.abi === "digest-1") {
+        // sha256.c packs both addresses into one int to keep the host honest:
+        // `(INPUT_ADDR << 16) | (OUT_ADDR & 0xffff) | ((OUT_ADDR & 0xf0000) << 4)`.
+        const addr = (instance.exports.addresses as () => number)();
+        const inputAt = addr >>> 16;
+        const outputAt = (addr & 0xffff) | (((addr >>> 20) & 0xf) << 16);
+        const encoded = new TextEncoder().encode(input);
+        new Uint8Array(memory.buffer).set(encoded, inputAt);
+        // The C answers with the number of bytes it wrote, and a NEGATIVE
+        // number when its own bound says no (`if (len < 0 || len > MAX_INPUT)
+        // return -1`). Zero is a failure too — a digest tool that wrote nothing
+        // has not succeeded — so the check is "positive", not "not negative".
+        const wrote = (instance.exports.sha256 as (len: number) => number)(encoded.length);
+        if (wrote <= 0) throw new Error(`the module refused its own bound: sha256 returned ${wrote} for ${encoded.length} bytes`);
+        output = new Uint8Array(memory.buffer).slice(outputAt, outputAt + wrote);
+      } else {
+        const aAt = (instance.exports.layoutA as () => number)();
+        const bAt = (instance.exports.layoutB as () => number)();
+        const outAt = (instance.exports.layoutOut as () => number)();
+        const a = new TextEncoder().encode(input);
+        const b = new TextEncoder().encode(against as string);
+        const view = new Uint8Array(memory.buffer);
+        view.set(a, aAt);
+        view.set(b, bAt);
+        const produced = (instance.exports.diff as (aLen: number, bLen: number) => number)(a.length, b.length);
+        if (produced < 0) throw new Error(`the module refused its own bound: diff returned ${produced}`);
+        output = new Uint8Array(memory.buffer).slice(outAt, outAt + produced);
+      }
+    } catch (error) {
+      return reply.status(500).send({ ok: false, refusedReason: "tool-failed", code: "tool-failed", error: `wasm tool ${t.id} failed: ${error instanceof Error ? error.message : String(error)}` });
+    }
+
+    const outputLimit = t.limits?.outputMaxBytes;
+    if (typeof outputLimit === "number" && output.length > outputLimit) {
+      return reply.status(413).send({
+        ok: false,
+        refusedReason: "capability-exceeded",
+        code: "capability-exceeded",
+        error: `wasm tool ${t.id} declares outputMaxBytes ${outputLimit} and produced ${output.length}`,
+      });
+    }
+
+    const mimeType = "application/octet-stream";
+    const uploaded = await engine.putBlob(id, Buffer.from(output), { mimeType, filename: `wasm-${t.id}-result.bin` }, sourceContexts.get(req), req.badge?.badgeId);
+    return {
+      ok: true,
+      tool: t.id,
+      abi: t.abi,
+      toolDigest: t.digest,
+      inputDigest: createHash("sha256").update(input).digest("hex"),
+      resultDigest: createHash("sha256").update(output).digest("hex"),
+      blobHash: uploaded.blobHash,
+      size: uploaded.size,
+      mimeType,
+      resultB64: Buffer.from(output).toString("base64"),
+    };
+  });
 
   /** Write one. The body IS the file, so what you PUT is what a text editor
    * would have written, and `isocan command show` hands it straight back. */

@@ -171,6 +171,7 @@ export const FAST_SPAWNERS: readonly FastSpawner[] = [
   { file: "packages/cli/test/setup.test.ts", secs: 7.8, why: "five cases, and the first thing a new person runs — worth keeping in the ordinary run" },
   { file: "packages/cli/test/rehome.test.ts", secs: 7.3, why: "eight cases, one command each" },
   { file: "packages/cli/test/runtimemodules.test.ts", secs: 6.0, why: "three cases" },
+  { file: "packages/cli/test/wasm.test.ts", secs: 4.4, why: "three cases on one home — the generated list, one run whose receipt is read back, and one refusal that must post nothing; the shelf is built on disk once, not per case" },
   { file: "packages/cli/test/heatmap.test.ts", secs: 5.9, why: "a single case" },
   { file: "packages/cli/test/ended.test.ts", secs: 5.3, why: "a single case" },
   { file: "packages/cli/test/operator-revoke.test.ts", secs: 4.0, why: "two cases" },

@@ -9,6 +9,7 @@ import { reachableHashes } from "../src/gc.ts";
 import * as p from "../src/paths.ts";
 import { readFileSync } from "node:fs";
 import type { CanvasState } from "@isocan/core";
+import { wasm, type WasmInstance } from "../src/wasm.ts";
 
 /**
  * **The pin seam, proven — not shipped** (isocan-54k follow-on, 19 Sep 2026).
@@ -125,7 +126,7 @@ async function atRestBlobFile(hash: string): Promise<string | null> {
  * reason; nothing here can be mistaken for a success.
  */
 type PinnedLoad =
-  | { ok: true; bytes: Uint8Array; instance: WebAssembly.Instance }
+  | { ok: true; bytes: Uint8Array; instance: WasmInstance }
   | { ok: false; refused: string };
 
 async function loadPinnedTool(fetchBytes: () => Promise<Uint8Array>, pin: unknown): Promise<PinnedLoad> {
@@ -136,7 +137,7 @@ async function loadPinnedTool(fetchBytes: () => Promise<Uint8Array>, pin: unknow
   if (digest !== pin) {
     return { ok: false, refused: `digest mismatch: pinned ${pin.slice(0, 12)}…, bytes hash ${digest.slice(0, 12)}…` };
   }
-  const { instance } = await WebAssembly.instantiate(bytes, {});
+  const { instance } = await wasm.instantiate(bytes, {});
   return { ok: true, bytes, instance };
 }
 
@@ -204,10 +205,12 @@ describe("wasm tool pin seam — option A, proven against the real daemon", () =
     // the refusal below comes from the DIGEST CHECK and not from wasm
     // validation refusing a broken module.
     const corrupted = Uint8Array.from(WASM_ADD);
-    corrupted[ADD_BYTE_INDEX] ^= 0x01;
+    const before = corrupted[ADD_BYTE_INDEX];
+    expect(before).toBe(0x6a); // i32.add — the premise, asserted rather than assumed
+    corrupted[ADD_BYTE_INDEX] = (before as number) ^ 0x01;
     expect(corrupted[ADD_BYTE_INDEX]).toBe(0x6b); // i32.sub
-    const stillValid = await WebAssembly.instantiate(corrupted, {});
-    expect((stillValid.instance.exports.add as (a: number, b: number) => number)(2, 3)).toBe(-1);
+    const stillValid = await wasm.instantiate(corrupted, {});
+    expect((stillValid.instance.exports as { add: (a: number, b: number) => number }).add(2, 3)).toBe(-1);
 
     // The store gives the corrupted bytes their OWN hash — the mint never
     // conflates them with the pinned bytes.
