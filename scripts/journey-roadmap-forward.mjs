@@ -17,7 +17,7 @@ import { startDaemon } from '../packages/server/src/daemon.ts';
 import { writeBadge, adoptIdentity } from '../packages/server/src/badge-store.ts';
 import { DaemonClient } from '../packages/api/src/client.ts';
 import { harnessVars } from '../packages/api/src/harness.ts';
-import { BADGE_COOKIE, parseBadgeToken, CLIENT_FEATURES_HEADER, CANVAS_GROUPS_FEATURE } from '../packages/core/src/index.ts';
+import { BADGE_COOKIE, parseBadgeToken } from '../packages/core/src/index.ts';
 import { browser, until, throughTheDoor } from './lib/browser.mjs';
 import { navigate, screenshot } from './lib/personal-journey-fixture.mjs';
 
@@ -121,20 +121,18 @@ async function drive(route) {
     const undos = [];
     await b.send('Network.enable');
     b.on('Network.requestWillBeSent', ({ request }) => {
-      if (new URL(request.url).pathname === `/api/projects/${canvasId}/undo` && request.method === 'POST') undos.push(request.url);
+      // Observe the app's request; do not construct another daemon endpoint.
+      const segments = new URL(request.url).pathname.split('/');
+      if (segments.at(-2) === canvasId && segments.at(-1) === 'undo' && request.method === 'POST') undos.push(request.url);
     });
     for (const type of ['rawKeyDown', 'keyUp']) await b.send('Input.dispatchKeyEvent', {
       type, key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 2,
     });
     await until(b, 'document.querySelectorAll(".canvas-page [data-item-id]").length === 0', `${route} empty canvas is rendered`);
-    // An independent read is still a groups-capable client, like the app.
-    // Never poll a refused legacy-client read and call its refusal a stale UI.
-    const observed = await b.ev(`(async () => {
-      const response = await fetch('/api/projects/${canvasId}/canvas', { headers: ${JSON.stringify({ [CLIENT_FEATURES_HEADER]: CANVAS_GROUPS_FEATURE })} });
-      return { status: response.status, body: await response.json() };
-    })()`);
-    assert.equal(observed.status, 200, JSON.stringify(observed.body));
-    assert.equal(Object.keys(observed.body.canvas.items).length, 0);
+    // Use the existing HTTP client and the browser owner's badge, including
+    // its canonical routes and groups capability header, rather than a second
+    // handwritten transport. The undo itself was the real browser gesture.
+    assert.equal(Object.keys((await owner.snapshot(canvasId)).canvas.items).length, 0);
     assert.equal(undos.length, 1, 'one real keyboard gesture sent exactly one undo request');
     assert.equal(Object.keys((await writer.daemon.engine.getSnapshot(canvasId)).canvas.items).length, 0);
     await screenshot(b, path.join(output, `${route}-after.png`));
