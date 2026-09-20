@@ -67,9 +67,24 @@ type Kind = "changelog" | "grades";
  * of the comparison, and not something a fixed exit code could express.
  */
 const SUITE = `#!/bin/sh
-NAME="a finding nobody answered"
-if [ -f .nightly-fails ]; then
-  printf '{"testResults":[{"name":"%s/test/x.test.ts","assertionResults":[{"fullName":"%s","status":"failed"}]}]}' "$PWD" "$NAME" > "$NIGHTLY_PR_REPORT"
+if [ -n "\${FAKE_EMPTY_FAIL:-}" ]; then
+    printf '{"testResults":[]}' > "$NIGHTLY_PR_REPORT"
+    exit 1
+  fi
+  if [ -n "\${FAKE_LOAD_FAILURE:-}" ]; then
+    printf '{"success":false,"numFailedTests":0,"testResults":[{"name":"%s/test/load.test.ts","status":"failed","message":"Transform failed with 1 error: /x.ts:1:1: Expected identifier","assertionResults":[]}]}' "$PWD" > "$NIGHTLY_PR_REPORT"
+    exit 1
+  fi
+  if [ -f .nightly-fails ]; then
+  COUNT="\${FAKE_FAILURES:-1}"
+  printf '{"testResults":[{"name":"%s/test/x.test.ts","assertionResults":[' "$PWD" > "$NIGHTLY_PR_REPORT"
+  i=1
+  while [ "$i" -le "$COUNT" ]; do
+    [ "$i" -gt 1 ] && printf ',' >> "$NIGHTLY_PR_REPORT"
+    printf '{"fullName":"a finding nobody answered %s","status":"failed"}' "$i" >> "$NIGHTLY_PR_REPORT"
+    i=$((i + 1))
+  done
+  printf ']}]}' >> "$NIGHTLY_PR_REPORT"
   exit 1
 fi
 printf '{"testResults":[]}' > "$NIGHTLY_PR_REPORT"
@@ -86,7 +101,12 @@ interface Fixture {
     numbers?: number[];
     dryRun?: boolean;
     suite?: string;
+    view?: string;
+    loadFailure?: boolean;
+    emptyFail?: boolean;
+    failures?: number;
   }): { calls: string[]; log: string; said: string };
+  gate(branch?: string): string;
   indexOnBranch(branch?: string): string;
   tipMoved(branch?: string): boolean;
 }
@@ -204,9 +224,12 @@ function fixture(options: {
           FAKE_LOG: logPath,
           FAKE_PRS: prs,
           FAKE_DIFF: diff,
-          FAKE_VIEW: "",
+          FAKE_VIEW: run.view ?? "",
+          FAKE_LOAD_FAILURE: run.loadFailure ? "1" : "",
+          FAKE_EMPTY_FAIL: run.emptyFail ? "1" : "",
           FAKE_MERGE: run.mergeFails ? "1" : "0",
           FAKE_MERGE_BEFORE: run.mergeBefore ?? "",
+          FAKE_FAILURES: String(run.failures ?? 1),
           // The gate's three commands, two of them stubbed: the fixture's tree
           // is not a TypeScript workspace, and its "suite" is the marker script.
           NIGHTLY_PR_TYPECHECK: "true",
@@ -221,6 +244,28 @@ function fixture(options: {
       // quietly assert only its first sentence.
       const log = readFileSync(logPath, "utf8");
       return { calls: log.split("\n").filter(Boolean), log, said };
+    },
+    /** The bare check, as `persona.yml` calls it. */
+    gate(branch = `${kind}/${DAY}`) {
+      const options = {
+        cwd: work,
+        encoding: "utf8" as const,
+        stdio: ["ignore", "pipe", "pipe"] as const,
+        timeout: 60_000,
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          NIGHTLY_PR_INSTALL: "true",
+          NIGHTLY_PR_TYPECHECK: "true",
+          NIGHTLY_PR_SUITE: path.join(bin, "suite"),
+        },
+      };
+      try {
+        return execFileSync("node", [script, "--gate", branch], options);
+      } catch (err) {
+        // A red verdict is an exit code, not an exception: read what it said.
+        return String((err as { stdout?: string }).stdout ?? "");
+      }
     },
     indexOnBranch: (branch = `${kind}/${DAY}`) => git(["--git-dir", origin, "show", `${branch}:${dir}/README.md`], root),
     tipMoved: (branch = `${kind}/${DAY}`) => git(["--git-dir", origin, "rev-parse", branch], root) !== tipped[branch],
@@ -339,6 +384,52 @@ describe("nothing is landed on a check that did not run or did not pass", () => 
     expect(did(calls, "pr merge"), "a failure main also has is not this branch's").toBe(true);
   });
 
+  it("lists the first failures and counts the rest, so a bad night cannot post hundreds of lines", () => {
+    const fx = fixture({ variant: "draft", failsOn: "branch" });
+    const { log, said } = fx.run({ failures: 30 });
+
+    expect(said, "the log says how many, without the wall of names").toContain("30 failure(s) this branch adds");
+    // The raw log, not `calls`: a comment body is multi-line and one line of
+    // it would assert only its first sentence.
+    const comment = log.slice(log.indexOf("pr comment 42"));
+    expect(comment, "the list is capped").toContain("… and 10 more");
+    expect((comment.match(/a finding nobody answered /g) ?? []).length, "20 names, not 30").toBe(20);
+  });
+
+  it("treats a test file that failed to LOAD as a failure, by name", () => {
+    // qwen2's F-1: real vitest JSON for a transform error is `success: false`,
+    // `numFailedTests: 0`, and an EMPTY assertionResults on a file marked failed.
+    const fx = fixture({ variant: "draft" });
+    const { calls, log, said } = fx.run({ loadFailure: true });
+
+    expect(said, "the comparison counts it").toContain("1 failure(s) this branch adds");
+    const comment = log.slice(log.indexOf("pr comment 42"));
+    expect(comment, "the load failure has to be named, by file").toContain("load.test.ts");
+    expect(comment).toContain("did not run");
+    expect(did(calls, "pr merge"), "a file that never ran is not a green suite").toBe(false);
+    expect(did(calls, "pr comment 42")).toBe(true);
+  });
+
+  it("does not land a non-zero suite that names nothing", () => {
+    const fx = fixture({ variant: "draft", failsOn: "branch" });
+    const { calls, said } = fx.run({ emptyFail: true });
+
+    expect(said).toContain("exited non-zero and named no failing test");
+    expect(did(calls, "pr merge")).toBe(false);
+  });
+
+  it("writes the marker it searches for, so a comment is left once", () => {
+    // qwen2's F-2, driven the way it was found: the first night's comment body
+    // is handed back as the PR's existing comments on the second night.
+    const fx = fixture({ variant: "draft", failsOn: "branch" });
+    const first = fx.run();
+    const posted = first.log.slice(first.log.indexOf("pr comment 42"));
+    expect(posted, "the posted body must carry the marker").toContain("<!-- nightly-machinery: red-gate -->");
+
+    const second = fx.run({ view: posted });
+    expect(did(second.calls, "pr comment 42"), "night two must not repeat the comment").toBe(false);
+  });
+
   it("does not land a failure the branch adds", () => {
     const fx = fixture({ variant: "draft", failsOn: "branch" });
     const { calls, said } = fx.run();
@@ -406,6 +497,26 @@ describe("the grade drain moved without going missing", () => {
       { cwd: repo, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] },
     );
     expect(said.trim()).toBe("function");
+  });
+});
+
+describe("the bare check", () => {
+  it("says why it passed, not just that it did", () => {
+    // persona.yml calls this, and "green" on a merge target that is itself red
+    // is a different fact from a green suite.
+    const fx = fixture({ variant: "draft", failsOn: "both" });
+    const said = fx.gate();
+
+    expect(said).toContain("green:");
+    expect(said, "the tolerated failure has to be visible").toContain("red the same way on");
+  });
+
+  it("says why it failed when the branch adds a failure", () => {
+    const fx = fixture({ variant: "draft", failsOn: "branch" });
+    const said = fx.gate();
+
+    expect(said).toContain("red:");
+    expect(said).toContain("failure(s) this branch adds");
   });
 });
 

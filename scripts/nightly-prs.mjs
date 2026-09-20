@@ -101,6 +101,17 @@ function tryRun(file, args, options) {
 const gitTry = (args, options) => tryRun("git", args, options);
 const ghTry = (args, options) => tryRun("gh", args, options);
 
+/** How many failure names a message lists before it says "and N more": on a
+ *  socket-starved night the added list ran to 880 names, and a comment nobody
+ *  can read is a comment nobody reads. The full list is in the run log; this is
+ *  the part a person decides with. */
+const MAX_LISTED_FAILURES = 20;
+
+const listed = (names) =>
+  names.length <= MAX_LISTED_FAILURES
+    ? names.map((name) => `- ${name}`).join("\n")
+    : `${names.slice(0, MAX_LISTED_FAILURES).map((name) => `- ${name}`).join("\n")}\n- … and ${names.length - MAX_LISTED_FAILURES} more, which the run log has in full`;
+
 /** The run that did this, for a comment a reader can follow back. */
 function runUrl() {
   const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env;
@@ -167,9 +178,27 @@ function suiteReport(dir) {
   }
   const failed = [];
   for (const file of parsed.testResults ?? []) {
+    const before = failed.length;
     for (const assertion of file.assertionResults ?? []) {
       if (assertion.status === "failed") failed.push(assertion.fullName ?? assertion.title ?? file.name);
     }
+    // **A file that failed to LOAD names no failing assertion.** Vitest reports
+    // `status: "failed"` on the FILE with the transform/import error in `message`
+    // and an EMPTY `assertionResults`, so counting assertions alone reads "the
+    // suite is green" and the pull request merges (qwen2's F-1, driven: a real
+    // report with `success: false, numFailedTests: 0, assertionResults: []`).
+    // Naming it as a failure keeps the comparison honest too: a load failure the
+    // merge target already has still compares by name.
+    if (file.status === "failed" && failed.length === before) {
+      const said0 = String(file.message ?? "").split("\n").map((line) => line.trim()).find(Boolean);
+      failed.push(`${file.name}: did not run — ${said0 ?? "the file reported failure with no message"}`);
+    }
+  }
+  // **Fail closed.** A non-zero exit with nothing named is not a green suite: the
+  // report is the gate's evidence, and an absence of failures is not an absence
+  // of trouble — the mirror of the night the environment made the gate pass.
+  if (!said.ok && failed.length === 0) {
+    return { broken: `the suite exited non-zero and named no failing test, so nothing can be said about the branch: ${said.out}` };
   }
   return { failed, said: said.out };
 }
@@ -236,7 +265,7 @@ export function gateIn(dir) {
         said: `the suite is red, and red the same way on ${MAIN}: ${onBase.failed.length} failure(s), none of them this branch's`,
       };
     }
-    return { ok: false, said: `${added.length} failure(s) this branch adds:\n${added.map((name) => `- ${name}`).join("\n")}` };
+    return { ok: false, said: `${added.length} failure(s) this branch adds:\n${listed(added)}` };
   });
 }
 
@@ -319,7 +348,10 @@ function commentOnce(number, marker, body) {
     would(`comment on #${number}: ${body.split("\n")[0]}`);
     return false;
   }
-  const said = ghTry(["pr", "comment", String(number), "--body", body]);
+  // **The marker is WRITTEN, not only searched for.** A marker that is only ever
+  // searched for is a marker no comment carries, so `pr view` never matches and
+  // "once" is really "every night" (qwen2's F-2, driven with a returned body).
+  const said = ghTry(["pr", "comment", String(number), "--body", `${body}\n\n<!-- ${marker} -->`]);
   if (!said.ok) log(`could not comment on #${number}: ${said.out}`);
   return said.ok;
 }
@@ -684,7 +716,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       process.exit(2);
     }
     const gated = gate(branch);
-    console.log(gated.ok ? `green: ${branch}` : `red: ${branch} — ${gated.said}`);
+    // The reason on both verdicts: a green that had to tolerate a red on the
+    // merge target is a different fact from a green suite, and a workflow log
+    // that shows only "green" hides the difference (persona.yml's call site).
+    console.log(`${gated.ok ? "green" : "red"}: ${branch} — ${gated.said}`);
     process.exit(gated.ok ? 0 : 1);
   }
   console.error("usage: nightly-prs.mjs --drain changelog|grades [--dry-run] | --gate <branch>");
