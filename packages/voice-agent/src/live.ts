@@ -15,7 +15,6 @@
  */
 import {
   BROWSER_MIME,
-  DEFAULT_COMMAND_CATALOGUE,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
   drawingSvg,
@@ -734,15 +733,19 @@ export function liveSetup(
  * the titles are what a person reads.
  */
 /**
- * **The commands the canvas's agents execute, in the one catalogue the
- * app's own list reads** — names WITH their usage, so a planning voice can
- * compose the right command rather than describing one. A command posted as
- * a main-thread message is picked up by the agents there.
+ * **The commands the canvas's agents execute, rendered from the list it is
+ * HANDED** — names WITH their usage, so a planning voice can compose the right
+ * command rather than describing one.
+ *
+ * Kept in step with `packages/modules/talk/src/live.ts` deliberately: a module
+ * half is built standalone, so the two copies exist, and the rule that keeps
+ * them from drifting is that both take the list rather than a constant. The
+ * catalogue is GENERATED now (`/api/commands` — a home's own commands and the
+ * wasm shelf's tools included); a brief built from a compiled-in list silently
+ * omits what the daemon offers, which is exactly what happened on 2026-09-20.
  */
-export function commandsBrief(): string {
-  return DEFAULT_COMMAND_CATALOGUE.map(
-    (c) => `/${c.name}${c.usage ? ` ${c.usage}` : ""} — ${c.description}`,
-  ).join("\n");
+export function commandsBrief(commands: readonly { name: string; usage?: string; description: string }[]): string {
+  return commands.map((c) => `/${c.name}${c.usage ? ` ${c.usage}` : ""} — ${c.description}`).join("\n");
 }
 
 export function canvasSnapshotText(

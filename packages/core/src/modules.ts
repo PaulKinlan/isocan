@@ -649,6 +649,20 @@ export interface OverlayFacts {
    *  canvas requires named insertion; a legacy canvas refuses group fields).
    *  Added with the talk module, the first overlay that writes items. */
   groupMode: "groups" | "legacy";
+  /**
+   * **Every command this home can run, as the daemon answered it**
+   * (2026-09-20).
+   *
+   * The voice agent's prompt is built from THIS list, and this list is the one
+   * `/api/commands` generates — a home's own commands and the wasm shelf's
+   * tools included. It is handed in rather than fetched by the module because
+   * the SHELL already has it: `useCommands` is the same list the palette and
+   * `/help` render. A module fetching its own copy would be a second answer to
+   * "what can be done here" — which is exactly the drift this field removes:
+   * the menu showed the shelf's tools and the voice brief did not, because the
+   * brief was built from a compiled-in constant.
+   */
+  commands?: readonly CommandMetadata[];
 }
 
 /**

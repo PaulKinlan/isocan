@@ -21,7 +21,6 @@
  */
 import {
   BROWSER_MIME,
-  DEFAULT_COMMAND_CATALOGUE,
   DRAWING_MIME,
   DRAWING_PROPERTIES,
   drawingSvg,
@@ -740,15 +739,21 @@ export function liveSetup(
  * the titles are what a person reads.
  */
 /**
- * **The commands the canvas's agents execute, in the one catalogue the
- * app's own list reads** — names WITH their usage, so a planning voice can
- * compose the right command rather than describing one. A command posted as
- * a main-thread message is picked up by the agents there.
+ * **The commands the canvas's agents execute, rendered from the list it is
+ * HANDED** — names WITH their usage, so a planning voice can compose the right
+ * command rather than describing one. A command posted as a main-thread message
+ * is picked up by the agents there.
+ *
+ * It takes the list rather than reaching for a compiled-in catalogue, and that
+ * is the whole point: the catalogue is GENERATED now (`/api/commands` — a
+ * home's own commands and the wasm shelf's tools included), so a brief built
+ * from a constant silently omits everything the daemon actually offers. That
+ * was a real defect, found 2026-09-20: the palette showed the shelf's tools and
+ * the voice agent had never heard of them. The caller passes what the palette
+ * passes — one list, two readers.
  */
-export function commandsBrief(): string {
-  return DEFAULT_COMMAND_CATALOGUE.map(
-    (c) => `/${c.name}${c.usage ? ` ${c.usage}` : ""} — ${c.description}`,
-  ).join("\n");
+export function commandsBrief(commands: readonly { name: string; usage?: string; description: string }[]): string {
+  return commands.map((c) => `/${c.name}${c.usage ? ` ${c.usage}` : ""} — ${c.description}`).join("\n");
 }
 
 export function canvasSnapshotText(
