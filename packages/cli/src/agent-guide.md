@@ -1022,6 +1022,31 @@ A module is built from `packages/modules/<name>` with
 bounded by one rule: only what a person could already do with a file and a
 verb — never an operation, never a route.
 
+## Wasm tools: the shelf
+
+A module can also carry **wasm tools**: pinned binaries, each with a digest,
+declared alongside the module that installs them. They are not a second kind of
+command — they are GENERATED into the same command list the menu, the CLI and
+the voice brief read, one entry per tool, so a tool that exists is a tool an
+agent can be told to run:
+
+- `isocan wasm ls` — the shelf: each tool's id, capability, declared input
+  limit and digest, plus any refusal (a tool belonging to a refused module is
+  listed WITH its reason rather than skipped, so a refusal never looks like a
+  tool that was never installed).
+- `isocan wasm run <tool> <text>` — run one and post the result as a receipt
+  item on this canvas whose properties name the tool and both digests
+  (`role: tool-run`), so another tool consumes it by address, not by
+  conversation. A two-text tool takes both: `isocan wasm run diff <text>
+  <against>`.
+
+Running one goes through a single daemon route, and every refusal is NAMED
+before a byte of the module executes — `tool-unknown`, `tool-refused`,
+`capability-exceeded` (with the manifest's declared limit, which is the same
+number the C enforces, so the host refuses first in words), `digest-mismatch`
+(fail closed: unverified bytes are never instantiated),
+`tool-abi-unsupported`. A refusal exits non-zero and posts nothing.
+
 ## Tools: a canvas that carries its own buttons
 
 A **tool** is a button on the rail that a canvas brought with it. It is an

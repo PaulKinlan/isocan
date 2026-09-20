@@ -2,6 +2,7 @@ import { classifyAutomaticSource } from "@isocan/api/context";
 import { registerPersonalContext } from "./personal-context.ts";
 import { noteOnBench, registerBench } from "./bench.ts";
 import { makeTextAnchor, resolveTextAnchor, quoteRange, SOURCE_PATH_PROP } from "@isocan/core";
+import { WASM_TOOL_REFUSALS, type WasmToolRefusal } from "@isocan/core";
 import { CanvasGroups, insertedItemBox, resolveCanvasGroupRef } from "@isocan/api";
 import { registerAreaAliases, registerCanvasGroups, reportCanvasGroup } from "./canvas-groups.ts";
 import { registerContextReads, reportContext, contextReceipt } from "./context-reads.ts";
@@ -171,6 +172,7 @@ import {
   modulePageUrl,
   withModuleCommands,
   type ModuleManifest,
+  type WasmToolRun,
   alignMoves,
   annotationsOf,
   distributeMoves,
@@ -10938,6 +10940,117 @@ command
  * versions. Nothing here talks to a daemon: the daemon reads the same
  * directory per request, so what `add` lands is served on the next load.
  */
+/**
+ * **The wasm shelf, from the agent's side** (2026-09-20, `voicebox-beads-4eh`).
+ *
+ * The tools were built, digested, installed and listed, and nothing could call
+ * them: the shelf was a directory and the catalogue was a list, with no bridge.
+ * The bridge is one server route; these are its two doors.
+ *
+ * `ls` reads the GENERATED command list rather than the directory, so what it
+ * prints is what an agent can actually be told to run — one source of truth,
+ * refusing entries included (visible, never skipped). `run` posts a receipt
+ * item whose properties name the tool and both digests, so the next tool can
+ * consume what this one produced by naming an address, not a conversation.
+ */
+const wasmCmd = program
+  .command("wasm")
+  .description("The wasm shelf: the pinned tools installed on this machine, and running one");
+
+wasmCmd
+  .command("ls")
+  .description("List the wasm tools this home can run: id, capability, declared limit, digest, refusal")
+  .action(
+    run(async (_opts: unknown, cmd: Command) => {
+      const ctx = await ctxOf(cmd);
+      const commands = await ctx.client.commands();
+      const tools = commands.filter((command) => command.name.startsWith("wasm-"));
+      if (ctx.json) return printJson(tools);
+      if (tools.length === 0) {
+        return console.error("no wasm tools on this home's shelf — `isocan module add <dir>` installs one (the wasm-tools module carries hash and diff)");
+      }
+      for (const tool of tools) {
+        console.log(`${tool.name}  ${tool.description}`);
+        console.log(`    usage: isocan wasm run ${tool.name.slice("wasm-".length)} ${tool.usage}`);
+      }
+    }),
+  );
+
+wasmCmd
+  .command("run <tool> [text] [against]")
+  .description("Run a pinned wasm tool and post its result as an addressable receipt item on this canvas")
+  .addHelpText(
+    "after",
+    `
+The daemon refuses, BY NAME, before a byte of the module executes:
+${WASM_TOOL_REFUSALS.join(", ")}. A refusal exits non-zero and posts nothing — no receipt
+claims a run that did not happen.
+
+A two-text tool (diff) takes both: isocan wasm run diff <text> <against>.`,
+  )
+  .action(
+    run(async (tool: string, text: string | undefined, against: string | undefined, _opts: unknown, cmd: Command) => {
+      const ctx = await ctxOf(cmd);
+      if (text === undefined) throw new Error(`wasm run needs text: isocan wasm run ${tool} <text>`);
+      const { canvas: p, snapshot } = await canvasAndSnapshot(ctx, { create: true });
+      let result: WasmToolRun;
+      try {
+        result = await ctx.client.runWasmTool(p.id, tool, text, against);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          // The refusal NAME is the point: it says which gate said no, and the
+          // sentence carries the number that made it say no (the declared
+          // limit, the digest prefix). `WasmToolRefusal` is the closed set — a
+          // code outside it is a daemon newer than this CLI, and prints as-is.
+          // Nothing was posted; the canvas is untouched, which is what a
+          // refusal has to mean.
+          const refusal = error.code as WasmToolRefusal | undefined;
+          console.error(`refused (${refusal ?? error.code ?? "unknown"}): ${error.message}`);
+          process.exitCode = 1;
+          return;
+        }
+        throw error;
+      }
+      const { width, height } = sizeFor(undefined, { width: 360, height: 240 });
+      const itemId = newItemId();
+      await sendOp(ctx, p.id, {
+        type: "item.add",
+        itemId,
+        version: {
+          id: newVersionId(),
+          blobHash: result.blobHash,
+          mimeType: result.mimeType,
+          filename: `wasm-${result.tool}-result.bin`,
+          size: result.size,
+        },
+        width,
+        height,
+        placement: placementFor(snapshot, {}, { width, height }),
+        title: `wasm ${result.tool} run`,
+        // The addressable contract, in properties rather than prose: another
+        // tool names these digests, and `role: tool-run` is what a reader
+        // looks for to find what this canvas had a tool compute.
+        properties: {
+          role: "tool-run",
+          tool: result.tool,
+          ...(result.abi ? { abi: result.abi } : {}),
+          toolDigest: result.toolDigest,
+          inputDigest: result.inputDigest,
+          resultDigest: result.resultDigest,
+          status: "ok",
+        },
+      });
+      const hex = result.abi === "digest-1" ? Buffer.from(result.resultB64, "base64").toString("hex") : null;
+      if (ctx.json) return printJson({ itemId, canvasId: p.id, ...result, ...(hex ? { resultHex: hex } : {}) });
+      console.log(`ran ${result.tool} (${result.abi ?? "abi unstated"}) — ${result.size} bytes, posted ${itemId}`);
+      console.log(`  tool   ${result.toolDigest}`);
+      console.log(`  input  ${result.inputDigest}`);
+      console.log(`  result ${result.resultDigest}`);
+      if (hex) console.log(`  sha256 ${hex}`);
+      console.log(`  blob   ${result.blobHash} (role tool-run — another tool can name this address)`);
+    }),
+  );
+
 const moduleCmd = program
   .command("module")
   .description("Modules on this machine — kinds, renderers and verbs added outside core, and removed again");

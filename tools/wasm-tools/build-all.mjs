@@ -19,6 +19,17 @@ import { mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import path from "node:path";
 
 const here = path.dirname(new URL(import.meta.url).pathname);
+/**
+ * **Where the build writes.** The pipeline's own directory by default — a
+ * person running `node build-all.mjs` gets `hash.wasm`, `files/`, `dist/`
+ * beside the sources, which is where `seed.mjs` and the docs expect them.
+ *
+ * `WASM_TOOLS_OUT` exists for the tests: they must build the REAL current
+ * pipeline (a stale `dist/` would let them verify last week's abi) without
+ * rewriting tracked binaries in the checkout, `compress.wasm` among them —
+ * a WIP artifact that a test run has no business touching.
+ */
+const outRoot = process.env.WASM_TOOLS_OUT ? path.resolve(process.env.WASM_TOOLS_OUT) : here;
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const CC = "clang --target=wasm32 -O2 -nostdlib -Wl,--no-entry -Wl,--export-memory -Wl,--max-memory=33554432 -Wl,--strip-all";
 
@@ -32,14 +43,15 @@ const build = (source, exports) => {
 
 // ── hash: SHA-256 over an 8 KiB input buffer (already acceptance-tested) ──
 const hash = build("sha256.c", "sha256,addresses");
-writeFileSync("hash.wasm", hash);
+writeFileSync(path.join(outRoot, "hash.wasm"), hash);
 
 // ── diff: Hirschberg line diff, edit script out (reconstruction-tested) ──
 const diff = build("diff.c", "diff,layoutA,layoutB,layoutOut");
-writeFileSync("diff.wasm", diff);
+writeFileSync(path.join(outRoot, "diff.wasm"), diff);
 
 // Behavioural selftests: a binary that fails its own behaviour is not built.
-execSync("node --test tools-selftest.mjs", { cwd: here, stdio: "inherit" });
+// Run from the output root, because that is where the binaries it reads are.
+execSync(`node --test ${path.join(here, "tools-selftest.mjs")}`, { cwd: outRoot, stdio: "inherit" });
 
 // ── compress: NOT ON THE SHELF YET (2026-09-20). Fixed-Huffman DEFLATE in
 // compress.c passes half the cross-check (zlib validates its streams) but the
@@ -48,15 +60,22 @@ execSync("node --test tools-selftest.mjs", { cwd: here, stdio: "inherit" });
 // reference is for. Kept as source + compress-check.mjs (the failing
 // cross-check) so the next lane inherits the state, not a silent gap.
 const compress = build("compress.c", "compress,decompress,layoutIn,layoutCmp,layoutDec");
-writeFileSync("compress.wasm", compress);
+writeFileSync(path.join(outRoot, "compress.wasm"), compress);
 
+// The shelf's declared calling conventions (abi) and bounds (limits). An
+// abi names the convention so the host never guesses; the limits are the
+// SAME numbers the C enforces (sha256.c MAX_INPUT/OUT_ADDR, diff.c
+// MAX_TEXT/outRegion), declared here so the host can refuse FIRST, in words,
+// rather than letting the module's own bound be the first thing that says no.
 const tools = [
-  { id: "hash", source: "sha256.c", bytes: hash, capability: "crypto", description: "SHA-256 over an 8 KiB input buffer" },
-  { id: "diff", source: "diff.c", bytes: diff, capability: "text.transform", description: "line-level edit script between two texts (Hirschberg LCS)" },
+  { id: "hash", source: "sha256.c", bytes: hash, capability: "crypto", description: "SHA-256 over an 8 KiB input buffer",
+    abi: "digest-1", limits: { inputMaxBytes: 8192, outputMaxBytes: 32 } },
+  { id: "diff", source: "diff.c", bytes: diff, capability: "text.transform", description: "line-level edit script between two texts (Hirschberg LCS)",
+    abi: "diff-1", limits: { inputMaxBytes: 65536, outputMaxBytes: 262144 } },
 ];
 
 // ── the shelf: one installable runtime module carrying every tool ──
-const moduleDir = path.join(here, "dist/module/wasm-tools");
+const moduleDir = path.join(outRoot, "dist/module/wasm-tools");
 mkdirSync(path.join(moduleDir, "assets"), { recursive: true });
 const manifest = {
   name: "@isocan/wasm-tools",
@@ -70,6 +89,8 @@ const manifest = {
     bytes: t.bytes.length,
     capability: t.capability,
     description: t.description,
+    abi: t.abi,
+    limits: t.limits,
     source: `tools/wasm-tools/${t.source}`,
   })),
   assets: tools.map((t) => ({ path: `assets/${t.id}.wasm`, size: t.bytes.length })),
@@ -78,11 +99,11 @@ writeFileSync(path.join(moduleDir, "manifest.json"), JSON.stringify(manifest, nu
 for (const t of tools) {
   writeFileSync(path.join(moduleDir, `assets/${t.id}.wasm`), t.bytes);
   writeFileSync(path.join(moduleDir, `assets/${t.id}.sha256`), sha(t.bytes) + `  ${t.id}.wasm\n`);
-  mkdirSync(path.join(here, "files"), { recursive: true });
-  writeFileSync(path.join(here, `files/${t.id}.wasm`), t.bytes);
+  mkdirSync(path.join(outRoot, "files"), { recursive: true });
+  writeFileSync(path.join(outRoot, `files/${t.id}.wasm`), t.bytes);
 }
 
 console.log(JSON.stringify({
-  tools: manifest.tools.map((t) => ({ id: t.id, digest: t.digest, bytes: t.bytes })),
+  tools: manifest.tools.map((t) => ({ id: t.id, digest: t.digest, bytes: t.bytes, abi: t.abi, limits: t.limits })),
   module: moduleDir,
 }, null, 2));

@@ -125,7 +125,7 @@ import {
   passRoute,
   SERVING_ROUTE,
 } from "@isocan/core";
-import type { BadgeStore, BuildStamp, StoredBadge, UpgradeVerdict } from "@isocan/core";
+import type { BadgeStore, BuildStamp, StoredBadge, UpgradeVerdict, WasmToolRun } from "@isocan/core";
 import { ApiError, askTheDoor, bearerHeader } from "@isocan/core";
 
 /** Ordinary and typed operations share this actual writer endpoint across transports and fault probes. */
@@ -1098,9 +1098,26 @@ export class DaemonRoutes {
     return this.request("GET", NEWS_ROUTE);
   }
 
-  /** Every slash command available here: built-ins under this home's own. */
+  /** Every slash command available here: built-ins under this home's own.
+   *  The wasm shelf's tools are generated into this same list every read
+   *  (`/api/commands`), which is how a shelf tool becomes something an agent
+   *  can be told to run. */
   commands(): Promise<SlashCommand[]> {
     return this.request("GET", `/api/commands`);
+  }
+
+  /**
+   * **Run a pinned wasm tool** — the shelf's one door (2026-09-20).
+   *
+   * The daemon resolves the tool from the installed manifests, refuses by
+   * name before a byte executes (`tool-unknown`, `tool-refused`,
+   * `capability-exceeded`, `digest-mismatch`, `tool-abi-unsupported` — the
+   * name rides back as `ApiError.code`), and answers with the result as a
+   * content-addressed blob plus its bytes. Posting the receipt is the
+   * caller's job: `isocan wasm run` does exactly that.
+   */
+  runWasmTool(canvasId: string, tool: string, input: string, against?: string): Promise<WasmToolRun> {
+    return this.request("POST", `/api/projects/${canvasId}/tools/${encodeURIComponent(tool)}`, against === undefined ? { input } : { input, against });
   }
 
   /** Write one for this home. `text` is the file, frontmatter and all. */
