@@ -49,8 +49,8 @@ async function drive(route) {
     // ephemeral listener instead; Vite supplies middleware and HMR only.
     listener = createHttpServer((request, response) => web.middlewares(request, response));
     web = await createServer({ configFile: false, root: path.join(repo, 'packages/web'), plugins: [react()],
-      define: { 'import.meta.env.VITE_ISOCAN_PORT': JSON.stringify(String(endpoint.port)) },
-      server: { middlewareMode: true, hmr: { server: listener }, proxy: { '/api': endpoint.base } },
+      define: { 'import.meta.env.VITE_ISOCAN_PORT': JSON.stringify(String(writer.port)) },
+      server: { middlewareMode: true, hmr: { server: listener }, proxy: { '/api': writer.base } },
     });
     await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve); });
     const origin = `http://127.0.0.1:${listener.address().port}`;
@@ -62,11 +62,20 @@ async function drive(route) {
     const cookies = (await b.send('Network.getCookies', { urls: [origin] })).cookies;
     const badge = parseBadgeToken(cookies.find(cookie => cookie.name === BADGE_COOKIE)?.value ?? '');
     assert(badge, 'owned browser has its synthetic identity');
-    await writeBadge(clientHome, endpoint.base, { ...badge, at: new Date().toISOString() });
-    await adoptIdentity(clientHome, actor);
-    const client = new DaemonClient(endpoint.base, clientHome);
+    // A replica serves agents, not a second browser door. The browser stays
+    // at the authoritative home; the CLI receives its identity by a real pass.
+    const ownerHome = route === 'direct' ? clientHome : path.join(state, 'browser-owner');
+    await writeBadge(ownerHome, writer.base, { ...badge, at: new Date().toISOString() });
+    await adoptIdentity(ownerHome, actor);
+    const owner = new DaemonClient(writer.base, ownerHome);
     const canvasId = `prj_roadmap_${route}`;
-    await client.sendOp(null, actor, { type: 'project.create', canvasId, title: `Acme ${route} roadmap`, groupMode: 'groups' });
+    await owner.sendOp(null, actor, { type: 'project.create', canvasId, title: `Acme ${route} roadmap`, groupMode: 'groups' });
+    const client = route === 'direct' ? owner : new DaemonClient(endpoint.base, clientHome);
+    if (route === 'forwarded') {
+      const pass = await owner.mintPass(canvasId, actor.id);
+      await client.redeemPass(pass.token, writer.base, true);
+      await client.joinFromHome(canvasId, writer.base);
+    }
 
     // A call-through observer, not a replacement writer or forged response.
     // These are the requests received by the home after any forwarding hop.
@@ -104,6 +113,7 @@ async function drive(route) {
     const entries = (await writer.daemon.engine.getLog(canvasId)).filter(entry => entry.envelope.op.type !== 'project.create');
     assert.equal(entries.length, items.length);
     assert(entries.every(entry => entry.group === group));
+    assert(entries.every(entry => entry.envelope.actor.id === actor.id), 'CLI and browser really act as the same person');
 
     await navigate(b, `${origin}/p/${canvasId}`);
     await until(b, `!!document.querySelector('[data-item-id="${summary.id}"]')`, `${route} reading is rendered`);
