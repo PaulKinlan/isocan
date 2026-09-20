@@ -7,6 +7,7 @@ import {
   newVersionId,
   defaultSize,
   type CanvasContents,
+  type CommandMetadata,
   type DialogFacts,
   type Operation,
   type OverlayFacts,
@@ -85,6 +86,10 @@ export interface PanelFacts {
    *  insertion (`containerId` + `groupPlacement`), which a legacy canvas
    *  never sees. */
   groupMode: "groups" | "legacy";
+  /** The commands this home can run, from the daemon's one list — the shell
+   *  hands over what the palette shows, so the voice brief cannot be a
+   *  narrower catalogue than the menu (2026-09-20: it was). */
+  commands?: readonly CommandMetadata[];
 }
 
 /**
@@ -408,7 +413,7 @@ function useTalkSession(facts: PanelFacts, autoStart = false) {
         Object.values(factsRef.current.canvas.items ?? {}).map((i) => ({ id: i.id, title: i.title })),
         Object.values(factsRef.current.canvas.threads ?? {}).map((t) => ({ id: t.id, comments: t.comments })),
       );
-      const instructions = { source: "canvas", text: [commandsBrief(), snapshot].join("\n\n") };
+      const instructions = { source: "canvas", text: [commandsBrief(factsRef.current.commands ?? []), snapshot].join("\n\n") };
       socket.send(JSON.stringify(liveSetup(model.trim(), instructions)));
     };
     socket.onclose = (event: CloseEvent) => {
@@ -588,13 +593,17 @@ function CaptionToast({ lines }: { lines: Line[] }) {
  *  pulse, the bars, the last words — floats with it and is gone when the
  *  turn is. The config panel only opens when there is no key yet; with a
  *  key, a press is the whole gesture. */
-function MicOverlay({ canvasId, canvas, host, groupMode }: OverlayFacts) {
+function MicOverlay({ canvasId, canvas, host, groupMode, commands }: OverlayFacts) {
   const session = useTalkSession({
     canvasId,
     canvas,
     canEdit: true,
     groupMode,
     host,
+    // Spread rather than assigned: `exactOptionalPropertyTypes` is on, and a
+    // shell that hands no list is a shell with no commands, not a list of
+    // `undefined`.
+    ...(commands ? { commands } : {}),
   });
   const [configOpen, setConfigOpen] = useState(false);
 

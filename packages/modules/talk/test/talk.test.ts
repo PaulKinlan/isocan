@@ -243,11 +243,46 @@ describe("a spoken request becomes the same operations a click sends", () => {
     expect(op.placement).toEqual({ x: 160, y: 120 });
   });
 
-  it("names the commands the canvas's agents run, with their usage, from the one catalogue", () => {
-    const brief = commandsBrief();
+  it("names the commands it is HANDED, with their usage", () => {
+    const brief = commandsBrief([
+      { name: "accessibility-audit", description: "Audit the canvas for accessibility", usage: "" },
+      { name: "skill", description: "Load a skill from a repository", usage: "find <what you want> | add <owner/repo/path>" },
+    ]);
     expect(brief).toContain("/accessibility-audit");
-    expect(brief).toContain("/design-audit");
     expect(brief).toContain("/skill find <what you want> | add <owner/repo/path>");
+  });
+
+  it("carries a GENERATED command — a wasm tool from the shelf — with no second list to edit", () => {
+    /*
+     * The defect this pins (2026-09-20): the brief was built from a compiled-in
+     * catalogue, so the daemon's generated list could grow a tool and the voice
+     * agent would never hear about it. The palette showed the shelf; the voice
+     * agent did not. Anything the daemon generates is now in the brief because
+     * the brief renders whatever it is given.
+     */
+    const generated = [
+      {
+        name: "wasm-hash",
+        description: "wasm tool: SHA-256 over an 8 KiB input buffer — crypto, inputs ≤ 8192 bytes [5d728a291ce5…]",
+        usage: "<text>",
+      },
+    ];
+    const brief = commandsBrief(generated);
+    expect(brief).toContain("/wasm-hash <text>");
+    expect(brief, "the declared limit travels with it").toContain("8192");
+  });
+
+  it("is built from the list the SHELL hands over, never from a compiled-in catalogue", () => {
+    // The signature proves the renderer cannot reach for a constant; this pins
+    // the caller, which is the half a signature cannot see. The shell passes
+    // the same list the palette renders (`useCommands` → `/api/commands`), so
+    // the menu and the voice agent can no longer disagree about what exists.
+    const talk = readFileSync(fileURLToPath(new URL("../src/web.tsx", import.meta.url)), "utf8");
+    const overlays = readFileSync(fileURLToPath(new URL("../../../web/src/components/ModuleOverlays.tsx", import.meta.url)), "utf8");
+    expect(talk).toContain("commandsBrief(factsRef.current.commands");
+    expect(talk, "no compiled-in catalogue in the module's web half").not.toContain("DEFAULT_COMMAND_CATALOGUE");
+    expect(overlays, "the shell hands the module the generated list").toContain("commands={commands}");
+    expect(overlays, "and it is the daemon-backed list the palette uses").toContain("useCommands()");
   });
 
   it("a tool the dialog does not wire is said so, not faked", async () => {

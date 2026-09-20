@@ -3,6 +3,7 @@ import { modules } from "../modules.ts";
 import { useCanvasStore } from "../stores/canvasStore.ts";
 import { useUiStore } from "../stores/uiStore.ts";
 import { useWebHost } from "../lib/modulehost.ts";
+import { useCommands } from "../lib/commands.ts";
 
 /**
  * **Screen-space chrome a module contributes** (#156, 9 Sep 2026).
@@ -39,6 +40,11 @@ export function ModuleOverlays({ canvasId, actor }: { canvasId: string; actor: A
   useUiStore((s) => s.modulesGeneration);
   useUiStore((s) => s.experiments);
   const host = useWebHost(canvasId, actor);
+  // The SAME list the palette and `/help` render, handed to the modules that
+  // need to know what can be done here. The voice agent's brief is built from
+  // it (2026-09-20): it used to be built from a compiled-in catalogue, so the
+  // shelf's wasm tools appeared in the menu and never reached the voice agent.
+  const commands = useCommands();
   if (!canvas) return null;
 
   const regions: OverlayRegion[] = ["left", "right"];
@@ -65,7 +71,7 @@ export function ModuleOverlays({ canvasId, actor }: { canvasId: string; actor: A
                   className="module-overlay floats"
                   aria-label={overlay.label}
                 >
-                  <Body canvasId={canvasId} canvas={canvas} host={host} groupMode={project?.groupMode ?? "legacy"} />
+                  <Body canvasId={canvasId} canvas={canvas} host={host} groupMode={project?.groupMode ?? "legacy"} commands={commands} />
                 </div>
               );
             })}
