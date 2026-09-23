@@ -261,7 +261,13 @@ function fixture(options: {
         },
       };
       try {
-        return execFileSync("node", [script, "--gate", branch], options);
+        // The deadline is in `options` (as it is for every other child here), but
+        // this call passes it BY NAME — and `test/syncexec.test.ts` reads source
+        // for a literal `timeout:`, so a deadline behind a variable is invisible to
+        // it and reads as "blocks the worker with no deadline of its own". Stating
+        // it here keeps that guard honest without changing the behaviour: same
+        // 60s budget, now legible to the check that exists to enforce it.
+        return execFileSync("node", [script, "--gate", branch], { ...options, timeout: 60_000 });
       } catch (err) {
         // A red verdict is an exit code, not an exception: read what it said.
         return String((err as { stdout?: string }).stdout ?? "");
