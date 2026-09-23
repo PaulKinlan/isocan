@@ -99,7 +99,10 @@ function refuse(step, why) {
   $("canvas").textContent = `REFUSED at ${step}`;
   $("pin").textContent = why;
   $("verify-step").innerHTML = `<span class="bad">REFUSED: ${why}</span>`;
-  $("run").disabled = true;
+  // EVERY control goes with the load: a button that looks available and
+  // silently does nothing is the same shape as a fallback that silently
+  // picks something (isocan-9rv's follow-up).
+  for (const id of ["run", "flip", "restore", "file"]) $(id).disabled = true;
   throw new Error(why);
 }
 
@@ -142,6 +145,7 @@ async function loadGood(note) {
   const r = await verifyAndLoad(goodBytes, pin);
   if (!r.ok) { $(note).innerHTML = `<span class="bad">REFUSED: ${r.refused}</span>`; return null; }
   $(note).innerHTML = `<span class="ok">VERIFIED ✓</span> fetched ${goodBytes.length} bytes, sha256 == pin (${short(pin)}), module instantiated`;
+  for (const id of ["run", "flip", "restore", "file"]) { const el = $(id); if (el) el.disabled = false; }
   return r;
 }
 
