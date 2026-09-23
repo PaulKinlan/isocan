@@ -69,9 +69,11 @@ writeFileSync(path.join(outRoot, "compress.wasm"), compress);
 // rather than letting the module's own bound be the first thing that says no.
 const tools = [
   { id: "hash", source: "sha256.c", bytes: hash, capability: "crypto", description: "SHA-256 over an 8 KiB input buffer",
-    abi: "digest-1", limits: { inputMaxBytes: 8192, outputMaxBytes: 32 } },
+    abi: { family: "digest-1", input: { addr: 1024, maxBytes: 8192 }, output: { addr: 9216, bytes: 32 }, call: { export: "sha256" } },
+    limits: { inputMaxBytes: 8192, outputMaxBytes: 32 } },  // addresses: sha256.c's addresses() reports 1024/9216
   { id: "diff", source: "diff.c", bytes: diff, capability: "text.transform", description: "line-level edit script between two texts (Hirschberg LCS)",
-    abi: "diff-1", limits: { inputMaxBytes: 65536, outputMaxBytes: 262144 } },
+    abi: { family: "diff-1", input: { addr: 65536, maxBytes: 65536 }, output: { addr: 196608, bytes: 262144 }, call: { export: "diff" } },
+    limits: { inputMaxBytes: 65536, outputMaxBytes: 262144 } },  // addresses: diff.c's layoutA()/layoutOut(); the SECOND buffer (layoutB, 131072) is the family's, named not listed
 ];
 
 // ── the shelf: one installable runtime module carrying every tool ──

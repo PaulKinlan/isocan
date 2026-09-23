@@ -786,32 +786,6 @@ export interface ModuleManifest {
    * as available, and what a project's pin names when admitted. Available
    * everywhere the module is installed; runnable where a project pins it.
    */
-  tools?: readonly {
-    id: string;
-    wasm: string;
-    digest: string;
-    bytes: number;
-    capability?: string;
-    description?: string;
-    source?: string;
-    /**
-     * **The calling convention, named** (2026-09-20, the shelf hookup). The
-     * host reads this instead of guessing from the bytes: `digest-1` is one
-     * input buffer and a `addresses()`/`sha256(len)` pair; `diff-1` is two
-     * buffers and `layoutA()/layoutB()/layoutOut()`/`diff(aLen,bLen)`. An abi
-     * the host does not know is refused by name (`tool-abi-unsupported`), not
-     * guessed at.
-     */
-    abi?: string;
-    /**
-     * **What this tool's own C refuses**, declared so the host can refuse
-     * first, in words, with the limit in the sentence. Same numbers as the
-     * module's `#define`s — a limit here that the C does not enforce, or one
-     * the C enforces but this does not declare, is a limit that does not
-     * bind.
-     */
-    limits?: { inputMaxBytes: number; outputMaxBytes: number };
-  }[];
   /** The module's contributions to other modules' points — data, read before
    *  any code runs. A manifest with these and no `web` or `cli` is a
    *  data-only module. */
@@ -862,6 +836,19 @@ export interface ModuleTool {
   source?: string;
   /** The calling convention, declared only when it has been measured. */
   abi?: ModuleToolAbi;
+  /**
+   * **What this tool's own C refuses**, declared so the host can refuse first, in
+   * words, with the limit in the sentence. The same numbers as the module's
+   * `#define`s — a limit here the C does not enforce, or one the C enforces and
+   * this does not declare, is a limit that does not bind.
+   *
+   * `ModuleToolAbi` carries the calling convention; this carries the bound. The
+   * tool's own addresses stay where they were: it reports them (`sha256.c`'s
+   * `addresses()`, `diff.c`'s `layoutA()/layoutOut()` — "so the host never
+   * hardcodes"), so the `abi` block below MATERIALISES what the tool reports
+   * rather than replacing it, and a disagreement between the two is a finding.
+   */
+  limits?: { inputMaxBytes: number; outputMaxBytes: number };
 }
 
 /**

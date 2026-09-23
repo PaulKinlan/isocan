@@ -2142,11 +2142,11 @@ export function registerRoutes(
       description:
         `wasm tool: ${t.description ?? t.id} — ${t.capability ?? "unstated"}, inputs ≤ ${t.limits?.inputMaxBytes ?? "?"} bytes ` +
         `[${t.digest.slice(0, 12)}…]${refused ? ` REFUSED: ${refused}` : ""}`,
-      usage: t.abi === "diff-1" ? "<text> <against>" : "<text>",
+      usage: t.abi?.family === "diff-1" ? "<text> <against>" : "<text>",
       source: "module",
       body:
         `Run the pinned wasm tool \`${t.id}\` (digest ${t.digest}) on the given text: ` +
-        `\`isocan wasm run ${t.id} ${t.abi === "diff-1" ? "<text> <against>" : "<text>"}\`. ` +
+        `\`isocan wasm run ${t.id} ${t.abi?.family === "diff-1" ? "<text> <against>" : "<text>"}\`. ` +
         `The result lands as an addressable receipt item on this canvas.`,
     }));
     return [...base, ...toolCommands];
@@ -2202,7 +2202,7 @@ export function registerRoutes(
       return reply.status(409).send({ ok: false, refusedReason: "tool-unknown", code: "tool-unknown", error: "this home has no modules directory" });
     }
 
-    const needsTwo = t.abi === "diff-1";
+    const needsTwo = t.abi?.family === "diff-1";
     if (input === null || (needsTwo && against === null)) {
       return reply.status(400).send({
         ok: false,
@@ -2237,7 +2237,7 @@ export function registerRoutes(
         error: `wasm tool ${t.id} is pinned ${t.digest.slice(0, 12)}…, the bytes on disk hash ${digest.slice(0, 12)}… — refused before instantiation`,
       });
     }
-    if (t.abi !== "digest-1" && t.abi !== "diff-1") {
+    if (t.abi?.family !== "digest-1" && t.abi?.family !== "diff-1") {
       return reply.status(409).send({
         ok: false,
         refusedReason: "tool-abi-unsupported",
@@ -2253,7 +2253,7 @@ export function registerRoutes(
     const memory = instance.exports.memory as unknown as WasmMemory;
     let output: Uint8Array;
     try {
-      if (t.abi === "digest-1") {
+      if (t.abi?.family === "digest-1") {
         // sha256.c packs both addresses into one int to keep the host honest:
         // `(INPUT_ADDR << 16) | (OUT_ADDR & 0xffff) | ((OUT_ADDR & 0xf0000) << 4)`.
         const addr = (instance.exports.addresses as () => number)();

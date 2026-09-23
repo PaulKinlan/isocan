@@ -39,7 +39,7 @@ const canvasId = "prj_wasm_shelf";
 interface ShelfTool {
   id: string;
   digest: string;
-  abi?: string;
+  abi?: { family: string };
   limits?: { inputMaxBytes: number; outputMaxBytes: number };
 }
 interface ShelfManifest {
@@ -259,7 +259,7 @@ describe("the wasm shelf, hooked to the one command list", () => {
 
     await installShelf();
     const unsupported = readManifest();
-    (unsupported.tools.find((t) => t.id === "hash") as ShelfTool).abi = "guessing-9";
+    (unsupported.tools.find((t) => t.id === "hash") as ShelfTool).abi = { family: "guessing-9" };
     writeManifest(unsupported);
     const wrongAbi = await runTool("hash", { input: "abc" });
     expect(wrongAbi.status).toBe(409);
