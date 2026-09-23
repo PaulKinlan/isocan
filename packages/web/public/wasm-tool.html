@@ -88,16 +88,36 @@ await fetch("/api/ops", { method: "POST", headers: { "Content-Type": "applicatio
     op: { type: "actor.claim", sessionKey: "wasm-surface:verifier", as: "usr_verifier", name: "Verifier" } }) });
 
 // 2. find the canvas (default: the seeded one; override with ?canvas=)
+const expected = qs.get("canvas") ?? "prj_wasm_surface";
+
+// A MISSING CANVAS IS A NAMED REFUSAL, never a fallback to a stranger's
+// project: the fallback silently adopted whatever was first on another
+// daemon (isocan-9rv) and the page showed "not loaded yet" for three days
+// with nothing able to say so. Same for a non-2xx state read: an error body
+// is not state.
+function refuse(step, why) {
+  $("canvas").textContent = `REFUSED at ${step}`;
+  $("pin").textContent = why;
+  $("verify-step").innerHTML = `<span class="bad">REFUSED: ${why}</span>`;
+  $("run").disabled = true;
+  throw new Error(why);
+}
+
 const projects = await (await fetch("/api/projects", { credentials: "include" })).json();
 const list = projects.canvases ?? projects.projects ?? projects ?? [];
-const mine = list.find((p) => p.id === (qs.get("canvas") ?? "prj_wasm_surface")) ?? list[0];
-const canvasId = mine?.id;
-$("canvas").textContent = canvasId ? `${canvasId} — ${mine.title ?? ""}` : "NOT FOUND";
+const mine = list.find((p) => p.id === expected);
+if (!mine) refuse("canvas-lookup",
+  `canvas '${expected}' is not on this daemon — run tools/wasm-tools/seed.mjs (idempotent) and reload. Never falling back to another project's canvas.`);
+const canvasId = mine.id;
+$("canvas").textContent = `${canvasId} — ${mine.title ?? ""}`;
 
 // 3. the pin, read from the project property (option A stand-in)
-const state = await (await fetch(`/api/projects/${canvasId}/canvas`, { credentials: "include" })).json();
+const stateRes = await fetch(`/api/projects/${canvasId}/canvas`, { credentials: "include" });
+if (!stateRes.ok) refuse("state", `the canvas state could not be read (HTTP ${stateRes.status}) — declare/seed before loading`);
+const state = await stateRes.json();
 const pin = state.project.properties["tools.pins.hash"];
-$("pin").textContent = pin ?? "(no pin — the seed has not run)";
+if (typeof pin !== "string" || !/^[0-9a-f]{64}$/.test(pin)) refuse("pin", "no readable pin property (tools.pins.hash) — the seed has not run for this canvas");
+$("pin").textContent = pin;
 
 // 4. the bytes, by hash, through the content route
 let goodBytes = null;
