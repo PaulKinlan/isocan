@@ -163,6 +163,7 @@ import {
   unknownProposals,
   isDataOnly,
   assetProblems,
+  toolProblems,
   refusedContributions,
   type RefusedContribution,
   enginesSatisfied,
@@ -11049,11 +11050,13 @@ async function addModuleFrom(dir: string, dirArg: string, opts: { yes?: boolean;
             `a module built on it will break. Add it with --proposed if you want it anyway.`,
         );
       }
-      for (const half of [manifest.web, manifest.cli, manifest.guide, ...(manifest.assets ?? []).map((a) => a.path)]) {
+      for (const half of [manifest.web, manifest.cli, manifest.guide, ...(manifest.assets ?? []).map((a) => a.path), ...(manifest.tools ?? []).map((t) => t.wasm)]) {
         if (half && !existsSync(path.join(dir, half))) throw new Error(`${manifest.name} declares ${half} and the file is not there`);
       }
       const tooBig = assetProblems(manifest.assets);
       if (tooBig.length > 0) throw new Error(`${manifest.name} refused: ${tooBig.join("; ")}`);
+      const badTools = toolProblems(manifest.tools);
+      if (badTools.length > 0) throw new Error(`${manifest.name} refused: ${badTools.join("; ")}`);
       const slug = moduleSlug(manifest.name);
       const target = path.join(modulesDir(paths.isocanHome()), slug);
       if (!opts.yes) {

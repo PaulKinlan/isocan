@@ -53,7 +53,10 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
  * **Lower it when you win**, and the honest way to win is to decide core's
  * public surface rather than to delete whatever the scan happens to name.
  */
-const CEILING = 39;
+// 40 on 2026-09-23: `ModuleToolAbi` (isocan-ttd) is deliberately public — the manifest's
+// `tools` field is the contract, and a caller writing or validating a manifest needs the
+// ABI's shape as much as the tool's; exporting `ModuleTool` without it would be the half.
+const CEILING = 40;
 
 describe("exports that promise something to nobody", () => {
   it("is no more than the last number somebody agreed to", () => {

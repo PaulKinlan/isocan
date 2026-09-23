@@ -522,6 +522,15 @@ writes `<dir>/manifest.json`, `agent-guide.md`, declared `assets/`,
 default export (`kinds`, `propertyKeys`); the code halves are esbuild
 bundles in which the four platform imports — `react`, `react/jsx-runtime`,
 `react-dom`, `@isocan/core` — are rewritten to reads of `globalThis.isocan`.
+A module may also declare digest-pinned **wasm tools** (`tools` in the manifest):
+each tool names its module file under `assets/`, the 64-hex sha256 an admission
+pinned, and — only when the convention has been measured — an `abi` block
+(`family`, `input` `{addr, maxBytes}`, `output` `{addr, bytes}`, `call`
+`{export}`). Shape problems refuse the add and the load (`toolProblems`);
+a tool without `abi` is well-declared but not yet callable, and a caller
+refuses an undeclared ABI by name rather than probing one (isocan-ttd,
+`docs/projects/modules/design.md` — the manifest declares the calling
+convention).
 Everything else you import is bundled in. The web half is code-split, so a
 `React.lazy` boundary in your source stays lazy on the wire.
 

@@ -769,6 +769,52 @@ export interface ModuleManifest {
    *  any code runs. A manifest with these and no `web` or `cli` is a
    *  data-only module. */
   contributes?: Readonly<Record<string, readonly unknown[]>>;
+  /**
+   * **Digest-pinned wasm tools the module offers** (isocan-ttd,
+   *  `docs/projects/modules/design.md` — transportable compute). A tool is a
+   *  pure function of caller-supplied bytes whose module file is verified
+   *  against `digest` before it is loaded — and the manifest also declares
+   *  the CALLING CONVENTION, because a shelf whose contract lives in a drive
+   *  transcript is a shelf nothing else can safely call. The `abi` block is
+   *  what was MEASURED, never what was assumed; a tool without it is a tool
+   *  nobody can call yet, and a caller refuses an undeclared ABI by name
+   *  rather than probing one.
+   */
+  tools?: readonly ModuleTool[];
+}
+
+/** A wasm tool's calling convention, as data (isocan-ttd). */
+export interface ModuleToolAbi {
+  /** The family name — e.g. `buffer-abi/1` (fixed input buffer, the export
+   *  called with the input length, output at a fixed address). The manifest
+   *  declares the family; the CALLER's driven set decides it — a family
+   *  nobody drives is not a mechanism. */
+  family: string;
+  /** Where the caller writes the input, and the input's bound. */
+  input: { addr: number; maxBytes: number };
+  /** Where the result appears, and its bound. */
+  output: { addr: number; bytes: number };
+  /** The export to call. */
+  call: { export: string };
+}
+
+/** One digest-pinned wasm tool (isocan-ttd). */
+export interface ModuleTool {
+  /** Bare, lower-case: `hash`, `diff`. */
+  id: string;
+  /** The module file, inside the module's `assets/`. */
+  wasm: string;
+  /** The sha256 the admission pinned — 64 lowercase hex. */
+  digest: string;
+  /** The file's size at pin time. */
+  bytes?: number;
+  /** What the tool IS, in one word of the caller's vocabulary (`crypto`, `text.transform`). */
+  capability?: string;
+  description?: string;
+  /** The source the bytes were built from, for review. */
+  source?: string;
+  /** The calling convention, declared only when it has been measured. */
+  abi?: ModuleToolAbi;
 }
 
 /** A manifest that runs nothing: no web half, no CLI half. */

@@ -3,6 +3,7 @@ import {
   ASSET_MAX_BYTES,
   askTemplate,
   assetProblems,
+  toolProblems,
   contributions,
   designStanding,
   designSystem,
@@ -200,6 +201,31 @@ describe("module assets (gap 1)", () => {
     expect(assetProblems([{ path: "assets/big.png", size: ASSET_MAX_BYTES + 1 }])[0]).toMatch(/over the/);
     expect(assetProblems([{ path: "dist/web.js", size: 10 }])[0]).toMatch(/not inside assets/);
     expect(assetProblems([{ path: "assets/../manifest.json", size: 10 }])[0]).toMatch(/not inside assets/);
+  });
+  it("judges a wasm tool's declaration: digest, path, and the ABI as data — only the shape, never the family's meaning (isocan-ttd)", () => {
+    const good = {
+      id: "hash",
+      wasm: "assets/hash.wasm",
+      digest: "5d728a291ce545dafdc5d39348068ef2380bc8083a200274b9c8797ef6787f29",
+      bytes: 1670,
+      capability: "crypto",
+      abi: { family: "buffer-abi/1", input: { addr: 0x400, maxBytes: 8192 }, output: { addr: 0x2400, bytes: 32 }, call: { export: "sha256" } },
+    };
+    expect(toolProblems([good])).toEqual([]);
+    // A tool WITHOUT an abi is well-declared — its convention is simply not written down yet,
+    // and a caller refuses an undeclared ABI by name rather than probing one.
+    const { abi, ...noAbi } = good;
+    expect(toolProblems([noAbi])).toEqual([]);
+    expect(toolProblems([{ ...good, id: "Hash" }])[0]).toMatch(/has an id that is not/);
+    expect(toolProblems([good, good])[0]).toMatch(/declared twice/);
+    expect(toolProblems([{ ...good, wasm: "dist/hash.wasm" }])[0]).toMatch(/not inside assets/);
+    expect(toolProblems([{ ...good, wasm: "assets/../hash.wasm" }])[0]).toMatch(/not inside assets/);
+    expect(toolProblems([{ ...good, digest: "abc123" }])[0]).toMatch(/no 64-hex digest/);
+    expect(toolProblems([{ ...good, bytes: -1 }])[0]).toMatch(/non-negative integer/);
+    expect(toolProblems([{ ...good, abi: { ...good.abi, family: "" } }])[0]).toMatch(/no family name/);
+    expect(toolProblems([{ ...good, abi: { ...good.abi, input: { addr: -1, maxBytes: 8192 } } }])[0]).toMatch(/input\.addr is -1/);
+    expect(toolProblems([{ ...good, abi: { ...good.abi, call: { export: "" } } }])[0]).toMatch(/names no export/);
+    expect(toolProblems(undefined)).toEqual([]);
   });
   it("resolves another module's relative path against where that module lives, and never upward", () => {
     registerModuleBase("@acme/pack", "/modules/pack");

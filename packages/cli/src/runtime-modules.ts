@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import * as core from "@isocan/core";
-import { assetProblems, manifestRecord, registerModule, registerModuleBase } from "@isocan/core";
+import { assetProblems, manifestRecord, registerModule, registerModuleBase, toolProblems } from "@isocan/core";
 import { readRuntimeModules } from "@isocan/server";
 import type { CliHost, CliModule } from "./modulehost.ts";
 
@@ -48,6 +48,11 @@ export async function loadRuntimeModules(home: string, host: CliHost): Promise<L
     const tooBig = assetProblems(manifest.assets);
     if (tooBig.length > 0) {
       loaded.push({ ...row, guide: null, refused: tooBig.join("; ") });
+      continue;
+    }
+    const badTools = toolProblems(manifest.tools);
+    if (badTools.length > 0) {
+      loaded.push({ ...row, guide: null, refused: badTools.join("; ") });
       continue;
     }
     registerModule(manifestRecord(manifest));

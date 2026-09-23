@@ -295,6 +295,28 @@ UNVERIFIED**. This is not a proven no-egress sandbox or an Isocan cross-host
 implementation. Admission, host capability boundaries and the parity fixtures
 are the next design work; this registration activates nothing.
 
+### The manifest declares the calling convention (isocan-ttd, 23 Sep 2026)
+
+A shelf whose contract lives in a drive transcript is a shelf nothing else can
+safely call. The gap was found from the outside: voicebox's provider read this
+shelf's manifest to call `hash`, and the calling convention existed only in the
+transcript of the lane that had measured it. So a tool's manifest entry now
+carries `abi` as data — `family` (the convention's name; the driven family is
+`buffer-abi/1`: input at a fixed address, the export called with the input
+length, output at a fixed address), `input` `{addr, maxBytes}`, `output`
+`{addr, bytes}`, `call` `{export}` — and the manifest's `tools` field is typed
+in `ModuleManifest` and refused for shape at `module add` and at load
+(`toolProblems`, beside `assetProblems`).
+
+Two rules keep the field honest. **Only what was measured is written down:**
+`hash`'s declaration is measured and known-answer-tested; `diff`'s output
+format is measured-but-undecoded, so it declares no `abi` — a caller refuses an
+undeclared ABI by name rather than probing one, and a family nobody drives is
+not a mechanism. **The manifest declares; the caller's driven set decides:**
+shape validation checks that the ABI is exactly declared, never that the family
+is understood — understanding is the caller's admission, per the scene's own
+rule that a digest proves byte integrity, not safety.
+
 ## Transportable compute — usage examples and the exec question (11 Sep 2026)
 
 *Follow-up exploration for bead `isocan-54k.2`. Builds upon the 11 Sep registration
