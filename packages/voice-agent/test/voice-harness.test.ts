@@ -47,6 +47,7 @@ import {
   MAX_FILE_CHARS,
   type FsAnswer,
   type Memory,
+  AUDIO_PAUSE_FLUSH_MS,
 } from "../src/voice-harness.ts";
 import type { ListedItem } from "@isocan/api";
 
@@ -308,6 +309,7 @@ async function liveServer() {
     server,
     providerSocket,
     toPage,
+    clientWs,
     close: async () => {
       clientWs.close();
       await server.close();
@@ -3858,4 +3860,63 @@ describe("the harness session & tool-call log API", () => {
     const voiceSession2 = sessions2.find((s) => s.harness === "voice");
     expect(voiceSession2!.status).toBe("enrolled — nobody is listening right now");
   });
+});
+
+/**
+ * **A paused stream is a stream the provider is holding** (isocan-xsh.8.6).
+ *
+ * Measured on a real page: Mute stopped PCM for 1.5s while the Live session
+ * stayed open, and no `realtimeInput.audioStreamEnd` was ever sent. Under
+ * automatic VAD — the default here, and this harness never disables it, so
+ * manual `activityStart`/`activityEnd` are not the mechanism — the Live
+ * capabilities guide's answer is that frame: without it the provider keeps
+ * cached audio it has not decided about. This asserts the frame, its timing,
+ * its once-per-pause nature, and that capture carries on afterwards.
+ */
+describe("a muted pause flushes the stream (isocan-xsh.8.6)", () => {
+  it("ends the stream once per pause past a second, never for a short one, and resumes after", async () => {
+    const live = await liveServer();
+    const { server, providerSocket, clientWs } = live;
+    const frames = () => providerSocket.sent.map((f) => JSON.parse(f) as { realtimeInput?: Record<string, unknown> });
+    const audioFrames = () => frames().filter((f) => f.realtimeInput?.audio);
+    const ends = () => frames().filter((f) => f.realtimeInput?.audioStreamEnd === true);
+    const session = (where: string) => fetch(`${server.state.url}session/${where}`, { method: "POST" });
+
+    // A frame goes up, so a stream is open.
+    clientWs.send(Buffer.from([1, 2, 3, 4]));
+    await sleep(80);
+    expect(audioFrames().length, "a frame went up, so a stream is open").toBeGreaterThan(0);
+    expect(ends().length, "nothing has paused yet").toBe(0);
+
+    // A pause past the window flushes it — once.
+    await session("mute");
+    await sleep(AUDIO_PAUSE_FLUSH_MS + 250);
+    expect(ends().length, "one pause, one end").toBe(1);
+    expect(ends()[0]!.realtimeInput, "the frame is the provider's own shape").toEqual({ audioStreamEnd: true });
+
+    // A second pause, after the stream resumed, ends again — and only once.
+    await session("unmute");
+    clientWs.send(Buffer.from([5, 6, 7, 8]));
+    await sleep(80);
+    await session("mute");
+    await sleep(AUDIO_PAUSE_FLUSH_MS + 250);
+    expect(ends().length, "two pauses, two ends — not one, not three").toBe(2);
+
+    // A pause SHORTER than the window is a breath, not a pause: its timer is cancelled.
+    await session("unmute");
+    clientWs.send(Buffer.from([9, 10]));
+    await sleep(80);
+    await session("mute");
+    await sleep(200);
+    await session("unmute");
+    await sleep(AUDIO_PAUSE_FLUSH_MS + 250);
+    expect(ends().length, "the cancelled timer never fired").toBe(2);
+
+    // And capture carries on: the next frame is a new segment, no start needed.
+    clientWs.send(Buffer.from([11, 12]));
+    await sleep(80);
+    expect(audioFrames().length, "the stream resumes after a flush").toBeGreaterThan(2);
+
+    await live.close();
+  }, 30_000);
 });

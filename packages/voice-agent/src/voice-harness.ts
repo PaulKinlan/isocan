@@ -1637,6 +1637,17 @@ export interface LiveSession {
  * message is the message, and guessing at its cause on this side is how the
  * key panel came to refuse a real key.
  */
+/**
+ * **How long a pause becomes a "stream end"** (isocan-xsh.8.6). The Live
+ * capabilities guide's answer to a paused audio stream is
+ * `realtimeInput.audioStreamEnd`: under automatic VAD — the default this
+ * harness runs with, and it never disables it, so manual
+ * `activityStart`/`activityEnd` are not the mechanism here — a stream that
+ * simply stops leaves the provider holding audio it has not decided about.
+ * A mute shorter than this is a breath, not a pause.
+ */
+export const AUDIO_PAUSE_FLUSH_MS = 1000;
+
 export function startLiveSession(options: {
   key: VoiceKey;
   model?: string;
@@ -1778,6 +1789,11 @@ export function startLiveSession(options: {
     }
   }
 
+  /** Is a stream open? Set when a frame goes up, cleared when we end it. This
+   *  is what makes a repeated mute idempotent: the second mute of a paused
+   *  stream has nothing to flush. */
+  let streamOpen = false;
+
   function stats() {
     return { audioUpFrames, audioUpGatedFrames, audioUpLostFrames, audioDownFrames, messagesIn };
   }
@@ -1815,12 +1831,31 @@ export function startLiveSession(options: {
         return;
       }
       audioUpFrames++;
+      streamOpen = true;
+    },
+    /**
+     * **End the audio stream so the provider flushes what it is holding**
+     * (isocan-xsh.8.6). Sent once per pause — `streamOpen` is cleared here — and
+     * gated on the same two facts every frame is gated on: the provider has
+     * finished setting up, and the socket is open. The next frame after this
+     * begins a new stream segment, which is why unmute needs no matching
+     * "start": under automatic VAD the audio itself is the start.
+     */
+    endAudioStream() {
+      if (!setupDone || socket.readyState !== 1 || !streamOpen) return;
+      streamOpen = false;
+      try {
+        socket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+      } catch {
+        // A throw out of `send` must not travel up into the page's audio pump.
+      }
     },
     sendText(text) {
       if (socket.readyState !== 1 || !text.trim()) return;
       socket.send(JSON.stringify({ realtimeInput: { text } }));
     },
     close() {
+      streamOpen = false;
       try {
         socket.close();
       } catch {
@@ -2298,6 +2333,8 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
   }
   const lines: string[] = [];
   let sessionState: "idle" | "live" | "muted" | "ended" = "idle";
+  /** The pause that becomes a stream end; cleared by an unmute inside the window. */
+  let muteFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let activeLiveSession: LiveSession | null = null;
   let activeAudioPage: NodeSocket | null = null;
   /** The model the running session was opened with, or null when idle. */
@@ -3578,12 +3615,26 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
           sessionState = "muted";
           void announcePresence("muted");
           recordToolLog({ type: "session_event", event: "session muted" });
+          // **A pause past a second is the provider's cue to flush** (isocan-xsh.8.6).
+          // The page stops sending PCM while muted; without this the provider holds
+          // cached audio it has not decided about, and the guide's answer is
+          // `audioStreamEnd`. Unmuting inside the window cancels it — a breath is not
+          // a pause — and the next frame after a flush starts a new segment.
+          if (muteFlushTimer) clearTimeout(muteFlushTimer);
+          muteFlushTimer = setTimeout(() => {
+            muteFlushTimer = null;
+            activeLiveSession?.endAudioStream();
+          }, AUDIO_PAUSE_FLUSH_MS);
         }
         respond(200, { ok: true, state: sessionState });
         return;
       }
       if (req.method === "POST" && url.pathname === "/session/unmute") {
         if (sessionState === "muted") {
+          if (muteFlushTimer) {
+            clearTimeout(muteFlushTimer);
+            muteFlushTimer = null;
+          }
           sessionState = "live";
           void announcePresence("listening");
           recordToolLog({ type: "session_event", event: "session unmuted" });
@@ -3592,6 +3643,10 @@ export async function startVoiceServer(options: VoiceServerOptions): Promise<{
         return;
       }
       if (req.method === "POST" && url.pathname === "/session/end") {
+        if (muteFlushTimer) {
+          clearTimeout(muteFlushTimer);
+          muteFlushTimer = null;
+        }
         sessionState = "ended";
         void announcePresence("enrolled — nobody is listening right now");
         recordToolLog({ type: "session_event", event: "session ended", reason: "user ended" });
