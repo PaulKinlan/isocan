@@ -50,10 +50,23 @@ beforeEach(async () => {
     path.join(home, "identity.json"),
     JSON.stringify({ id: "usr_reviewer", name: "Reviewer", createdAt: new Date().toISOString() }),
   );
-  birth = `http://127.0.0.1:${await closedPort()}`;
-  daemon = await startDaemon({ port: 0, home, birthHome: birth });
-  const address = daemon.app.server.address();
-  port = typeof address === "object" && address ? address.port : 0;
+  /**
+   * **The closed port must not be the daemon's own.** Both are ephemeral, and under
+   * load the OS can hand the same number to each — at which point the daemon treats
+   * the canvas as born LOCALLY, the create succeeds, and the CLI exits 0. Measured:
+   * one `test:deep` run failed with `a refusal is not a success: expected +0 not to
+   * be +0` for exactly this, while passing alone. A flake that makes the wrong path
+   * look right is the one thing this test must never do, so the collision is retried
+   * rather than hoped against.
+   */
+  for (let attempt = 0; attempt < 5; attempt++) {
+    birth = `http://127.0.0.1:${await closedPort()}`;
+    daemon = await startDaemon({ port: 0, home, birthHome: birth });
+    const address = daemon.app.server.address();
+    port = typeof address === "object" && address ? address.port : 0;
+    if (!birth.endsWith(`:${port}`)) break;
+    await daemon.close();
+  }
 });
 
 afterEach(async () => {
