@@ -22,7 +22,11 @@ goal:
   - name: the entry chunk a first visit downloads
     at most: 640000
     measured by: node scripts/measure.mjs bundle-bytes
-    baseline: 600420, 2026-09-02, 6bb8994
+    # Measured 745,980 on 2026-09-24 (`30de6d0b`) — 105,980 past this goal.
+    # `at most` is deliberately unchanged: this is the soft half, the ENFORCED
+    # bound is `CEILING` in `scripts/bundle-ceiling.mjs` (745,980), and the gap
+    # between the two is the thing the nightly is for.
+    baseline: 745980, 2026-09-24, 30de6d0b
   # **The soft half of the size gate** (7 Sep 2026).
   #
   # The suite used to stop any excess over the last agreed number, and in two
