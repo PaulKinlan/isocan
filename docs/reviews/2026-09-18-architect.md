@@ -13,8 +13,8 @@ Run by `scripts/persona-run.mjs` at `da81ea1`. **Nothing was changed.**
 
 | Finding | Outcome |
 | --- | --- |
-| runtime dependencies of @isocan/core is 9, past 1 | unanswered |
-| lines in the files every feature must edit is 25300, past 24058 | unanswered |
+| runtime dependencies of @isocan/core is 9, past 1 | accepted — the same question as 2026-09-12, answered there: the entry's runtime closure reaches 1 of the 9, so what the bound protects is held and the instrument is measuring the package. The bound stays at 1. |
+| lines in the files every feature must edit is 25300, past 24058 | accepted — the bound was re-baselined to 25,178 on 2026-09-24 (3aa718e4) with the growth itemised by name (main.ts 14,787, styles.css 7,169, agent-guide.md 3,222). This row is the history of how it got there; the bound is the forward-looking instrument and today's measurement sits inside it. |
 
 `unanswered` until somebody writes `accepted` or `rejected`. **After 3 days
 an unanswered row fails `npm test`** — the queue can fail, so a correct report

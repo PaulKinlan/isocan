@@ -11,7 +11,7 @@ Run by `scripts/persona-run.mjs` at `9631383`. **Nothing was changed.**
 
 | Finding | Outcome |
 | --- | --- |
-| the entry chunk a first visit downloads is 740427, past 640000 | unanswered |
+| the entry chunk a first visit downloads is 740427, past 640000 | accepted — the enforced ceiling was re-baselined to 745,980 on 2026-09-24 (3aa718e4), and this measurement is inside it. The 640,000 goal is deliberately unchanged: its gap is printed rather than erased, so the debt stays visible while the ratchet does its job. |
 
 `unanswered` until somebody writes `accepted` or `rejected`. **After 3 days
 an unanswered row fails `npm test`** — the queue can fail, so a correct report
