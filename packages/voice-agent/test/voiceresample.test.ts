@@ -124,3 +124,93 @@ describe("a resampler keeps the signal at every context rate", () => {
     expect(Math.min(...pcm)).toBeGreaterThanOrEqual(-0x8000);
   });
 });
+
+/**
+ * **Whole versus chunked: strict where strictness is achievable, bounded where
+ * it is not** (isocan-xsh.10).
+ *
+ * A source probe found that a 44.1 kHz sine pushed whole and pushed in chunks
+ * `[128, 3, 77, 256, 1, 511]` emits the same 32,013 samples with exactly one
+ * differing by one PCM16 LSB. That difference is arithmetic, not a broken
+ * resampler: 44100/16000 = 2.75625 is not an integer, so a chunk boundary can
+ * leave a fraction of a window behind, and float→PCM16 rounding is not
+ * associative — the same sum can land either side of a .5 LSB step. So this
+ * asserts the exact equality where the ratio makes it achievable (48 kHz, ratio
+ * 3) and a measured, justified bound where it does not, with the length
+ * invariant checked at every chunk size — which is the part a dropout or an
+ * off-by-one in the carry would break.
+ */
+describe("whole versus chunked resampling (isocan-xsh.10)", () => {
+  /** A worklet block, a three, an odd one, a bigger one, a single sample, and a
+   *  large one: the carry is exercised at every kind of boundary, not one. */
+  const CHUNKS = [128, 3, 77, 256, 1, 511];
+
+  /** The probe's own signal: 997 Hz, −20 dBFS, phase .371. */
+  function tone(rate: number, n: number): Float32Array {
+    const amp = Math.SQRT2 * 0.1;
+    const signal = new Float32Array(n);
+    for (let i = 0; i < n; i++) signal[i] = amp * Math.sin((2 * Math.PI * 997 * i) / rate + 0.371);
+    return signal;
+  }
+
+  function bothOrders(rate: number, n: number): { whole: Int16Array; chunked: Int16Array } {
+    const signal = tone(rate, n);
+    const whole = new Resampler(rate / 16000).push(signal);
+    const resampler = new Resampler(rate / 16000);
+    const out: number[] = [];
+    let from = 0;
+    let k = 0;
+    while (from < n) {
+      const size = CHUNKS[k++ % CHUNKS.length]!;
+      const to = Math.min(n, from + size);
+      for (const sample of resampler.push(signal.subarray(from, to))) out.push(sample);
+      from = to;
+    }
+    return { whole, chunked: Int16Array.from(out) };
+  }
+
+  function difference(a: Int16Array, b: Int16Array): { differing: number; maxLsb: number } {
+    let differing = 0;
+    let maxLsb = 0;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      const delta = Math.abs(a[i]! - b[i]!);
+      if (delta !== 0) differing++;
+      maxLsb = Math.max(maxLsb, delta);
+    }
+    return { differing, maxLsb };
+  }
+
+  it("is bit-identical at 48 kHz, where every output window lands on an input sample", () => {
+    const { whole, chunked } = bothOrders(48000, 96037);
+    expect(chunked.length, "the same samples, whatever the chunking").toBe(whole.length);
+    expect(whole.length).toBe(32012);
+    expect(difference(whole, chunked), "ratio 3 leaves no fraction to round").toEqual({ differing: 0, maxLsb: 0 });
+  });
+
+  it("keeps the length exact at every chunk size, which is what a dropout would break", () => {
+    const signal = tone(44100, 88237);
+    const reference = bothOrders(44100, 88237).whole.length;
+    for (const size of [1, 7, 128, 1024, 88237]) {
+      const resampler = new Resampler(44100 / 16000);
+      let emitted = 0;
+      for (let from = 0; from < signal.length; from += size) {
+        emitted += resampler.push(signal.subarray(from, Math.min(signal.length, from + size))).length;
+      }
+      expect(emitted, `chunk size ${size} lost or gained a sample`).toBe(reference);
+    }
+  });
+
+  it("differs by at most one LSB at 44.1 kHz — a boundary rounding, never drift", () => {
+    // Measured on this signal and asserted here: 32,013 samples out, ONE
+    // differing, by exactly 1 LSB, at index 22,981 (2265 whole, 2266 chunked).
+    // The bound is a bound, not a licence: an off-by-one in the carry, a dropped
+    // window or a rescaled sample each exceed it, and the 48 kHz case above is
+    // held to exact equality.
+    const { whole, chunked } = bothOrders(44100, 88237);
+    expect(chunked.length).toBe(whole.length);
+    expect(whole.length).toBe(32013);
+    const { differing, maxLsb } = difference(whole, chunked);
+    expect(maxLsb, "one quantisation step, never two").toBeLessThanOrEqual(1);
+    expect(differing, "one sample in 32,013 — not a broken stream").toBeLessThanOrEqual(2);
+  });
+});
