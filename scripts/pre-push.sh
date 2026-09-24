@@ -59,7 +59,14 @@ fi
 # which is `test/nightly-prs.test.ts`'s fixture doing `git branch -M main` in a
 # temp directory that inherited this hook's `GIT_DIR`. Unsetting it is correct
 # here: by the time a pre-push hook runs, git has already decided the push.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+# **Every `GIT_*`, not the three that bit me first.** The bug above named
+# `GIT_DIR`; the second one was a test whose scan runs `git ls-files` and returned
+# NOTHING under the hook, failing as `has a list of exceptions that all still
+# exist` and `found files at all: expected 0 to be greater than 50` while passing
+# alone (packages/web/test/echoed.test.ts, measured). Which variable git adds this
+# time is not the point: a hook's git environment is not the environment a suite
+# should be judged in, so all of it goes.
+for _v in $(env | sed -n 's/^\(GIT_[A-Z_]*\)=.*/\1/p'); do unset "$_v"; done
 
 echo "[pre-push] typecheck"
 npm run typecheck || fail "typecheck is red"
