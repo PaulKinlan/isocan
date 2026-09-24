@@ -160,6 +160,7 @@ export interface FastSpawner {
 }
 
 export const FAST_SPAWNERS: readonly FastSpawner[] = [
+  { file: "packages/cli/test/refusal-message.test.ts", secs: 7.5, why: "one real CLI run against an in-process daemon whose canvas is born at a closed port — the refusal has to come back through the real binary to be the same sentence a person reads" },
   { file: "test/design-partner-tools.test.ts", secs: 2.118, why: "one actual stdio MCP child calls the CLI and owned Chrome; remaining boundary checks stay in process" },
   { file: "packages/cli/test/design-craft.test.ts", secs: 6.7, why: "one actual CLI packet/export/check/reconcile walk on a shared synthetic daemon; measured 15 September" },
   { file: "packages/cli/test/design-request.test.ts", secs: 9.8, why: "one real-home lifecycle and exact-reference walk; measured 14 September, near the ten-second line" },
