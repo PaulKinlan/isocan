@@ -1,0 +1,378 @@
+# What's new
+
+**Written for the people who use isocan, and this is the only thing in here.**
+
+`docs/changelog/` is the other record: one page per day for whoever maintains
+this, naming functions, keeping the arguments that were had and the roads not
+taken. Right for that reader and wrong for this one — and it is excluded from
+the production image on purpose, so nothing in it can be served by accident.
+
+That separation is the point of this file. It ships, so a home can say what it
+is running; nothing else about how the work was done ships with it.
+
+The [\[isocan\] History](https://isocan.io/p/prj_Gi8oGKNALt) canvas is the long version for
+a reader with time: every feature, capability and decision from the first
+commit on 15 August 2026, one screen per day, one row per week. Open to anyone
+with the address.
+
+**Days with nothing a person would notice are not here.** A day of
+refactoring, of tests, of chasing a flake is a real day's work and an empty
+notice. A what's-new with an entry every day is one nobody believes by the
+second week.
+
+
+## 18 September 2026
+
+- `--harness sheep` is gone. Agents whose sessions ran in a cell at a sheep home were an experiment, and it has ended: `isocan harness` no longer lists `sheep`, and an agent enrolled with `--harness sheep` has nothing to run on. One already enrolled that way stops answering — a summons fails saying no adapter is known for `sheep` — until you re-enrol it on another harness — `isocan rc add <name> --harness claude-code`, say — which keeps its name, its history and whom it listens to. Its sheep and the badge its cell held are not ended for you: `sheep` ends the one, `isocan badges --kill <badge>` the other.
+
+## 15 September 2026
+
+- Open **Optional craft guidance** on a design task for advice adapted from
+  Impeccable at the starting, critique or finishing stage. It keeps your saved
+  answers, design system and chosen direction. Agents can export that same
+  context and preserve their working edits when checking for changes. Guidance
+  uses the existing review and repair flow; opening it does not perform a review.
+
+- Open a design task's review to see source findings, task checks and craft
+  observations separately. Agents can make up to two repairs and recheck the
+  result, keeping each repair undoable and preserving teammates' newer edits.
+  Receipts show the exact screen checked and any remaining limits. If inspection
+  is unavailable, the task stays an unverified draft; an available agent can be
+  asked to check it.
+
+- Try an agent's working alternatives before choosing. Compare its recommendation
+  and tradeoffs, ask for more, combine specific ideas or delegate the choice.
+  Your decision and screen change undo together; earlier options and reasons
+  remain available to the next agent. Draft choices survive refresh and newer
+  proposals, and an uncertain save can be retried from the design task.
+
+- Open **Design system & references** to inspect the guidance for a group or
+  screen, record reusable choices, and continue them with another agent. Working
+  drafts survive source changes and can be preserved while you open a newer
+  document. Try complete receiving, reading and campaign references before
+  adapting them; agents can open the same examples and design documents.
+
+## 14 September 2026
+
+- Start a design task from a chat message and keep its brief beside the work.
+  Correct the audience or task, then continue with another agent using the same
+  answers and references. Receipts show what was tried and flag evidence that
+  needs refreshing. Agents can use the same flow through `design start` and
+  `design brief`; automatic starts remain opt-in.
+
+- Design questions keep your draft answers and uploaded references through
+  refresh and failed submissions. A teammate's message leaves your question
+  open. Agents can read the same saved answers and exact attached versions
+  through `design questions` and `design reference`.
+
+- `isocan who` and the canvas tray now agree about an agent whose rc is
+  parked directly at the home rather than on your machine. A laptop asks the
+  canvas's home who is answering, and **Add agent** from a laptop reaches an
+  rc parked at the home.
+
+- A DESIGN.md can now declare recipe-owned styling, caller controls, approved
+  treatments and exceptions with reasons. Design check and the CLI show the
+  effective policy for each screen. Edit the governing document and Undo as
+  usual; native and DTCG round trips preserve its contract and unknown metadata.
+
+- Open **Design check** beside an HTML screen to inspect findings and select
+  their source. **Save repair** keeps one undoable version and refuses a stale
+  edit while retaining your draft. Agents can check local files and submit
+  captured repairs through `isocan design audit` and `isocan design repair`.
+
+- `isocan design audit` points to the styling that needs attention: missing
+  CSS variables, off-scale spacing and type, and the existing tokens that may
+  repair them. Reports follow each screen's scoped or inherited design system
+  and say which styling could not be checked. Color strings in prose no longer
+  count as styling.
+
+## 13 September 2026
+
+- Write your own host for the rc. `import { runRoom } from "isocan/rc"`
+  is the loop `isocan rc` runs, with the machine handed in: routes, a
+  key-value store, a clock and a harness per agent. It bundles for the
+  browser platform from a `#release` install, with nothing from Node
+  inside, so a worker or an edge runtime can carry it.
+- Catch up on a shared source from Context. **Recent work** shows its latest
+  activity beside its design and pins, with the source and covered range.
+  Busy sources say what was left out; an unavailable history keeps the
+  readable pieces and explains why. `isocan context` and MCP summaries show
+  the same reading. Your personal history stays out of inherited Context.
+
+- Bring your own preferences into a project. Open **Your canvas** in Context
+  to create your private canvas at this home, pin what matters, then link it
+  here and allow the agents who may read it. Everyone sees the linked card;
+  permitted readers see your current pinned context. Unlinking and agent
+  revocation stop the next read. Phone users reach it through **More →
+  Context**; the terminal uses `isocan context personal`. MCP agents can call
+  `read_personal_context` with their claimed session and the linked card to
+  read the current permitted text with its source.
+
+- Make a canvas findable on its home. With a Canvas Viewer or Presentation
+  Viewer link, turn on **Public on this home** in Share. People can browse
+  **Public canvases** without signing in; opening one uses its existing
+  viewing access. Unlisting keeps the link working. Disabling or changing the
+  link requires an explicit publication again. From a terminal, use
+  `isocan share --public on|off` and `isocan canvas list --public --home <url>`.
+
+- Choose rival design approaches from Chat with `/design-competition`, or
+  from ⌘K. The picker lays their lanes together; your local rc runs the
+  fighters, people vote, and a winner can become the next version of your
+  screen. The default is an exhibition with named entries. Blind bouts are
+  not available yet.
+
+- An agent connected through MCP can now claim its own name, edit items,
+  discuss them and wait for replies addressed to it. It can also read the
+  same layered Context list as the CLI and attach the canvas as a resource.
+  Saved request content keeps the exact versions originally shared.
+
+- A phone opens in Chat, with Canvas and Agents beside it. Walk from one
+  item to its spatial neighbor, open its conversation, or pinch out to the
+  plan. A while-away list shows changes since your previous visit, and
+  switching tabs keeps your unsent draft. Touch menus open with a stationary
+  long press; moving or adding a second finger cancels the hold. The narrow
+  rail folds to Hand, Comment and More.
+
+- Present by touch in the viewer or fullscreen. Tap the outer thirds or
+  swipe left and right to step through the deck. Notes open as a sheet;
+  scrolling text and using controls inside a slide keep their own input.
+
+- Your Inbox is on the home screen and available while you look at another
+  canvas. It gathers addressed comments from their homes, links to the
+  conversation and says when a home cannot answer. Looking at the list
+  leaves your visit marks alone. The canvas switcher also works from home
+  and the activity lens, with Recent followed by your spaces.
+
+- New canvases use groups. Existing canvases can preview and convert areas through Groups → Preview group conversion, or `isocan canvas group migrate --dry-run`. The preview names members, overlapping-area choices, label repairs and the Undo boundary. Work prepared before conversion is preserved for review if it cannot be applied. The familiar `area` commands create and work with groups after conversion.
+
+- A message about a group keeps the exact items and versions you reviewed, with visible exclusions and a complete context list. Agents can read that saved context through the CLI and MCP. Copy/paste preserves nested membership; Trash shows what a group restore will return and which independently restored items it will leave alone.
+
+- Groups move and resize their contents together, including nested groups and attached ink. Fit frame preserves the arrangement; frame, grid and brief controls reserve space for labels. New text, files and canvas cards inherit the group you are working inside. Matching CLI commands support placement, sizing, layout and dry runs.
+
+## 12 September 2026
+
+
+- On canvases with groups enabled, Group selection puts cards together without moving them. Enter works inside the group; Remove lets a card leave, and Ungroup keeps the cards while removing the frame. The Groups menu, keyboard shortcuts and `isocan canvas group` commands work on the same membership, with undo. Titles and briefs have space above the cards. Existing canvases keep areas until conversion is available.
+
+- An agent in a cell shows its work as it happens. With `--harness sheep`, the rc reads the turn from the one `sheep attach` it holds: each tool call reaches the agent's face on the thread as it lands, and nothing else runs beside it. While a fresh container sets up, the rc says *setup running* with the time, from the sheep home itself, instead of guessing from the clock. The agent's sign-in now lives in a home directory the sheep home keeps across containers; a sheep home deployed before this week keeps the old arrangement, and the rc knows which it has.
+
+## 11 September 2026
+
+- Documents read like documents. A Markdown or plain-text item on the canvas has *Read / select text*: the type is set for reading, and selecting words selects words instead of dragging the card. *Done reading* puts it back.
+- See what somebody else is reading. Select a sentence in a document and everybody else on the canvas sees it lightly highlighted in your colour, with your name — while they keep their own selection, scroll and zoom. It is presence, not an edit: nothing is written to the canvas, and it clears when you let go. Read-only visitors can point too. From a terminal, after `isocan session start`, `isocan session select <item> --quote "the words"` points at a passage for fifteen seconds.
+- Comment on the words, not just the card. Select words in a document and choose *Comment on selection*: the thread is anchored to that passage, highlighted when you open it, and follows the words into later versions. When the words are gone, or appear twice with nothing to tell them apart, the pin stays on the item and says why. `isocan comment add --item <item> --quote "…"` does the same, and `comment list --json` says whether each quote still finds its words. Markdown and plain text for now.
+- Links between documents go somewhere. A relative link in a Markdown document — `[the plan](plan.md#risks)` — opens that file's item on the canvas, at the heading; a link to something that is not here is shown as unavailable rather than broken. `isocan add` of a Markdown file brings along the local images it names.
+- A fence around the agents you summon, if you want one. `isocan rc --sandbox` runs every session the rc starts inside a sandbox: the agent writes its own directory, `~/.isocan` and `/tmp`, reads nothing else of your home, and reaches this canvas's daemon and its own model's API and nothing else. Opt-in — not the default. If the fence cannot be built on this machine the rc refuses rather than running without it, and `sandboxRead`, `sandboxWrite` and `sandboxDomains` in `~/.isocan/config.json` widen it. Codex has its own, separate `--codex-sandbox`.
+- A summoned agent gets less of your machine, fenced or not. Its sessions no longer inherit your whole shell — only what a process needs, isocan's own settings and each harness's own (`ANTHROPIC_*`, `OPENAI_*` and the rest); name anything else once under `adapterEnv` in `~/.isocan/config.json`. And a permission an agent asks for is granted for that one call: a standing rule or a mode switch is refused, and the log says what was offered.
+- The switcher leaves archived canvases out until you ask. ⌘O lists and searches only the canvases you have not archived; tick *Include archived* under the field (or ⌥A while typing) to search them too, and when archived canvases match, a line under the results says how many. Every opening starts without them.
+- On a narrow window the minimap starts folded, so it no longer sits on the zoom buttons. Tap it open and it stays open for the visit, without changing what your desktop remembers.
+- Agents that run somewhere else. `--harness sheep` on `isocan rc add` runs an agent's sessions in a cell at a [sheep](https://github.com/dglazkov/sheep) home instead of on your laptop; the rc still parks where you started it, and the agent still answers to you. `isocan harness` finds `sheep` like any other harness, the first summons makes the agent's sheep without spending a model turn on it, and withdrawing the agent ends its sheep and the sign-in its cell held, keeping its pasture.
+- Your agents answer you. A standing agent runs on the machine of whoever runs its `isocan rc`, on their tokens — so from now on it wakes only for its owner (and for anything that machine speaks as), not for everyone on a shared canvas. To let others in, answer the refusal where it appears: under a message your agent turned away, you — and only you — get *Let \<them\> ask* and *Let anyone ask*, and the thread then says your agent listens to them now. *Who can ask* on the agent's row in the Agents tray opens everyone on the canvas as a list of checkboxes, and a grant can be given until tonight or for seven days, after which it lapses and the agent says so. `isocan rc listen <name> --to <names>` (with `--until 7d`, if you like) does the same from a terminal. Somebody else who mentions it is told in the thread whose word it takes and how that changes; nothing runs and nothing is spent. The tray says *listens only to you* (or whose) beside every agent that is answering, and the *Add an agent* button is offered to the rc's owner alone. If you ran an rc before today, its agents now answer only you — the rc says so when it starts.
+
+## 9 September 2026
+
+- isocan inside another app's window. A canvas opened in an agent manager's or an IDE's pane keeps its own sign-in now, instead of arriving as a stranger on every load: over https a framed canvas gets a badge of its own, kept apart from your ordinary tab. `isocan embed` prints the address to paste into such a pane — beside `share` for a person and `pass` for a machine. A local daemon over plain http behaves as before.
+- The canvas as tools any agent can call. `isocan mcp` is an MCP server a manager can start: six read tools — your canvases, a canvas, an item, its threads, what happened lately, and who is here — for an agent that has neither the isocan CLI nor its skill. Started in a project directory it answers about that canvas. It reads as whoever this machine already is — you, by default — and it does not write.
+- A page that shows its pictures and keeps its source. `isocan add` and `isocan edit` of an HTML or Markdown file pack the local images, stylesheets and scripts it references — image paths inside its JavaScript too — into what the canvas shows, so it looks the way it does on your disk; addresses on the web are left alone. The file as you wrote it stays the item's source: `isocan get` returns it and `isocan get --visual` returns what is drawn, and the workbench stage switches between the two. `isocan add --visual <file>` gives a source a face of your own making — a design.md shown by its visualizer, say. `isocan inline <file>` prints the bundle.
+
+## 8 September 2026
+
+- Painted grounds. Ocean and Mountains are painted pictures now, and Farmland and Desert join them under Background in the ··· menu. A painted ground is downloaded only by a canvas standing on it; Space Galaxy stays the generated starfield. Farmland's pointer is a sheep, Desert's a crescent.
+- A pointer for your own picture. A canvas standing on a picture of yours chooses its pointer from a small library — drop, heart, crescent, the grounds' own shapes — under Background ▸ Cursor, or `isocan canvas background --cursor <name>`. Chosen, not uploaded: every pointer is filled with its owner's colour, and a photograph cannot be.
+
+## 7 September 2026
+
+- Every ground has its own pointer. On Space Galaxy it is a sparkle, on Ocean a fish, on Mountains a flag — still in each person's colour, so you can still tell whose is whose.
+- Stand a canvas on a picture of your own. Background ▸ *A picture of yours…* in the ··· menu, or `isocan canvas background --picture <file>` (up to 2 MB): the picture sits behind the work, still while you pan, darkened just enough that cards on it read. Everybody on the canvas sees it.
+- A phone can move the canvas. One finger pans, two fingers pinch to zoom about the point between them, and a tap clears the selection; the mouse behaves exactly as it did. On a narrow screen the front page no longer scrolls sideways, and the minimap and the zoom buttons stack instead of drawing over each other.
+
+## 6 September 2026
+
+- Switch canvas without going home. ⌘O opens a list of the canvases you were on lately, most recent first, then the rest by activity; type a few letters — "lkh" is enough for "Lake House" — and press Enter. The same list is behind the "Switch canvas…" row in ⌘K and in the bar's ··· menu, and typing a canvas's name into ⌘K itself shows the matches under the commands. The canvas you leave recedes and the one you chose comes forward in its place; the bar and the panels stay where they were. The list works offline too, from what this browser remembers.
+- A canvas can stand on a ground. Background in the ··· menu lists the grounds by name — Space Galaxy, Ocean, Mountains — and Clear; a ground pans and zooms with the work, or, with *Sticky* ticked, stays put while the work moves across it. Everybody on the canvas sees the same ground; `isocan canvas background galaxy` sets it from a terminal. *Turn off cursor glow*, beside it, is only for you.
+- Archive a canvas. *Archive* on the home screen takes a canvas out of your list without deleting anything: it still opens at its address, still takes changes, and agents on it carry on. *Archived* shows them again, and *Unarchive* puts one back. `isocan canvas archive [canvas] [--undo]` and `isocan canvas list --archived` are the same from a terminal.
+- Tidy only the ones you picked. Select a few items, right-click, and *Tidy* (or *Tidy — smart*) arranges just those, in the space they already take up — nothing else on the canvas moves. `isocan tidy <items…>` does the same; `isocan format` still works.
+
+## 4 September 2026
+
+- Element properties on the stage. In *Edit text*, click any element of a screen and a strip shows its tag, its class, and the inline styles a person reaches for — colour, background, size, weight, padding, margin, radius. Each field changes the frozen page live; *Save version* splices exactly those attributes into the source by position, the way text edits already land — nothing else in the file is touched, and a file that changed under you is refused by name. WYSIWYG's second stage; the first was text.
+- The bridges agents run through now follow the ACP registry. `isocan rc` reads the registry's hosted index (cached in your isocan home, refreshed hourly at most) and runs the version it names, so a harness's bridge moving or renaming — Claude's just did — is picked up on the next summons rather than the next isocan release. Offline, the last index read still serves.
+- A note from the terminal is never a line short. `isocan text` — and every agent that writes words onto a canvas — sized the box by counting half an em per character and wrapping by character, and at the big steps that cropped titles: a word does not break, and *Onboarding* at the display size is wider than the count said. The box is now measured the way the browser will draw it — by word, with a width per kind of glyph, the face's own scale, the stylesheet's line-height, padding, list indent and paragraph margins, and a tenth on top — so a three-word title gets a three-word box and nothing is clipped. Checked against Chrome on two hundred random notes across every step and face. A word longer than the box now wraps inside it instead of running off the edge.
+- A site that will not frame says so. A projected site that has not loaded after eight seconds now says what may be happening — some sites refuse to be shown in a frame, and a browser does not say which — with *Open it in a tab ↗* under the frame. The note leaves the moment the frame loads. The daemon already warned before adding a site whose headers refuse; this covers the ones that start and stop, or whose headers lie.
+- Agents run on Google Antigravity, with a Gemini API key. `--harness antigravity` fetches Google's own ACP server the first time an agent is summoned (about 300 MB, once, into your isocan home) and logs it in with the `GEMINI_API_KEY` you export where `isocan rc` runs. A harness that wants a login and finds no key says which variable would satisfy it, on the thread, instead of hanging.
+- The design-system round-trip is real. `isocan design --tokens` now emits DTCG 2025.10 — colours as sRGB objects (rgb(), hsl() and eight-digit hex converted, alpha kept), dimensions as `{value, unit}`, typography with its type on the leaf and its line-height kept — and it validates against the official schema for every file in a slice of the seventy-four DESIGN.md files people publish. What the format cannot say rides in `$extensions` with the reason instead of being dropped. `isocan design import` reads the reference exporter's own files, objects and all. And the linter stopped failing valid input: references inside a value, block scalars and rgba() are read, so the corpus went from 42 failing files to 13, every one a true finding.
+- The way back is where the thing was. Right-click the zoom cluster's empty edge, or the rail's gap, and anything hidden from that area is offered back — *Show undo and redo*, *Show History* — the second of the three doors chrome you can turn off promised. When nothing there is hidden, the right-click is left alone.
+- The canvas coasts. A drag with the Hand tool or the middle button keeps going for a moment after you let go, the way every other canvas does — gently, ending within a few hundred milliseconds, and a press or a wheel stops it where it is. Trackpad users already had this from the OS; mouse users were paying for its absence. Off under reduced motion. And an item that appears from somebody else now comes in over a few frames rather than popping.
+- The Context sheet, and the memory mark. A canvas placed as a memory link, with nowhere else said, lands on a sheet named *Context* — laid at the canvas's origin the first time, or to the left of everything when the origin is busy — so every canvas has a corner where its inheritance sits. A canvas card's strip now wears *memory*, lit when the other canvas's context is read here, and clicking it turns the link on or off; `isocan canvas place --inherit` lays and uses the same sheet.
+- Agents run on codex too. `--harness codex` on `isocan rc add`, or a machine where codex is the only harness installed, runs an agent's sessions through OpenAI's codex with your ChatGPT login. Its sandbox is off for those sessions, since an agent that cannot reach the canvas is no agent.
+- Agents run on pi. If [pi](https://github.com/earendil-works/pi) is what you have installed, an agent you add — from the web app or with `isocan rc add <name>` — runs in pi, on your model, with your directory's pi skills and extensions, and each summons resumes the same conversation. `isocan rc` says which harness an unnamed agent runs on when it starts; with both pi and Claude Code installed it asks once and keeps your answer (or take `isocan rc --default-harness <name>`). Any agent can still name its own with `--harness`. `isocan harness` lists what your machine can run, and `isocan who` says which harness each standing agent would run on.
+- A judge, measured. `scripts/calibrate.mjs` shows a judge the choices people already made — every version stack where somebody kept an earlier take — with the order shuffled, asks it to argue against each before picking, and reports how often it agreed, with κ and the cost, on a page in `docs/calibration/`. The first run's number is a first reading (63% of 19, κ 0.26); what it found is that over half of the pairs at this home were an agent keeping its own earlier version, not a person's choice — so `isocan evals pairs` now says *(an agent)* and the harness reads people only unless asked.
+- A Google Doc, live. A document that came from a Google Doc has *Live* on its strip beside the ↗: click it and the item shows the doc as Google draws it right now, in place of the words; click *Words* to come back. The same item either way — the words stay what the canvas holds, searches, versions and syncs; live is a lens this browser remembers for you.
+- Chrome you can turn off, the first two. Right-click the undo/redo arrows in the zoom cluster, or the History glyph on the rail, and the menu offers to hide them — saying how to get the thing back before it goes (⌘Z still undoes; ⌘K "Open History" still opens it). A *Controls* list under your face, beside Theme, has a switch per control and *Show everything*; ⌘K has *Show hidden controls* and can never itself be hidden. Local to this browser, like the theme. Every hideable control has to name its other door, and a test refuses one that does not.
+- Memory, in layers you can see — the first two. The Context panel and `isocan context` now read in layers: *This canvas* first, then a heading for every canvas this one inherits from. A canvas placed on a canvas can be a memory link — tick *Inherit its memory here* in the Add popover, or `isocan canvas place <ref> --inherit`, or `isocan context inherit <item>` on a card already there — and the linked canvas's design system, pinned items and size join this canvas's context, read-only, every line wearing a *from* chip. When both canvases have a design system, this canvas's wins and the other is shown struck, saying so. `isocan design check` on a canvas with none of its own checks against the inherited one and says whose. A linked canvas you are not admitted to, or one at another home, keeps its heading with the reason. No new op: one property on the card.
+- An upload that fails says so, everywhere (#51). A file dropped onto an item as a new version, a link dragged in, and a drop of several files all end in a sentence in the bar rather than nothing. When the third of five fails, the bar says "2 of 5 added — third.png: <why>" and the two that landed are selected, not lost. A `mailto:` dragged onto the canvas is still not a failure and says nothing.
+- The `isocan rc` log has one shape (#82). Every line is a clock, the canvas when there is more than one, and `who · what` — `12:02:10  Bobert · summons from Dimitri, 1 entry — starting a session`, then its session, its permissions and its turn ended on lines that read as one story even when two agents interleave. The `rc:` prefix, which said nothing, is gone.
+- One Add. The rail's three add buttons — files, a live site, a canvas — and the Google Doc that hid inside the site one are one button now. Its popover has one field that reads what you give it: paste a doc's address and it becomes a document, a canvas's address or name and it becomes a card, any other address and it becomes a site, or type to search your canvases. A line under the field says what Enter will do; four rows — Files, Site, Google Doc, Canvas — narrow it when you would rather choose first. ⌘K's "Add…" opens the same popover. From a terminal, `isocan add <thing>` reads a path, an address, a doc or a canvas the same way, with `--as` to say which you meant; `browse`, `gdoc add` and `canvas place` still work.
+
+## 3 September 2026
+
+- The canvas knows who is an agent. Point at a face and the card says "agent" for one, even after it has left, instead of reading like a person who went quiet; `isocan evals corpus` no longer counts an agent's "Done —" in the Chat as somebody asking. The fact is recorded the moment an agent takes a name, so nobody has to enrol it by hand.
+- The repo board's commit-by-commit notices now live on its own panel, in one thread, instead of filling the Chat.
+- `isocan history <agent>` now leads with where the agent stands: every canvas it is enrolled on, acted on, or is on right now, with whether anything is listening there, how much it did and how much of that was talking. The lens page shows the same line under an agent's name.
+- An agent that could be woken shows in the facepile as standing by — dimmed, with a ring, and a card that says so — instead of not appearing at all until it speaks. The person running the rc no longer shows as standing by themselves.
+- One `isocan rc --all` answers for your agents on every canvas you have enrolled them on, from one terminal — one budget per agent across all of them, one conversation per agent that carries on wherever it is summoned, and the log says which canvas each line is about.
+- Google Docs that are not shared by link. `isocan gdoc auth --token <token>` saves a Drive access token on your machine — never on a canvas — and `gdoc add`, `gdoc sync` and the app's Add-site dialog use it only where the public export refused. With a token, sync asks Drive whether a doc moved before reading it again.
+
+## 2 September 2026
+
+- An emoji on your face is easier to see. A face wearing an emoji now shows it on a plain disc with your colour as a ring around it, instead of on a solid disc of your colour, where a mark on a dark blue or green was hard to make out. Initials are unchanged.
+- Google Docs on the canvas. Type a doc's address into Add site, or `isocan gdoc add <url>`, and the doc lands as a document you can read, search and version here, with a ↗ that opens the real thing. `isocan gdoc sync` refreshes every doc on the canvas, stacking a new version only where the document changed. Docs shared by link only, for now.
+- A canvas on a canvas. `isocan canvas place <name or address>` puts another canvas on this one as a card that draws it small and live — its items where they are, how many, who is there — and opens it in a new tab when you double-click it or its ↗. Shelve your canvases onto sheets; an agent can too. In the app, the rail's new button or *Place a canvas…* in ⌘K opens a popup: type to search your canvases, or paste a canvas address. `isocan canvas shot <name> --into <item>` keeps a real screenshot on the card for anyone who cannot see the live picture.
+- Pointing at a canvas on the home screen now shows what happened there, not just who did something: a thumbnail of each thing that was added, its name, and a link straight to it; a conversation shows its opening line, so a request to an agent reads as the request. `isocan timeline` names the thing too.
+
+- `/sprint` lays out the week before it starts. Ask for a sprint and the facilitator covers the canvas in a board: one sheet per stretch of the week — Brief, Map, Experts & HMW, Target, Demos, Sketches, Vote, Storyboard, Prototype, Test, Wrap — each saying what happens there. Calling a phase walks everyone to its sheet, and the clock chip offers the one thing to do: *New note* on the right paper, in the sheet; *Hand in*, which lands what you selected on the sheet. Nobody has to know the method. `isocan sprint board` and `isocan sprint brief` are the same from a terminal.
+- Sketch in private, hand in at the bell. The facilitator gives each sketcher a desk (`isocan sprint desk Theo`): a canvas of their own, link off, one pass in, that shows the sprint's clock. *Hand in* on the desk copies your selection onto the sprint's sheet for the running phase. From a terminal: `isocan copy … --to <sprint> --in Sketches --handin`.
+- The heat map is a picture. During a vote, *Place a 🔴* on the clock chip and click the part of a sketch you like; the dot lands there and stays there at every zoom. You see your own dots while the vote is open and everyone's at the bell. Counts and names hide on the Vote sheet only. `isocan react 🔴 <sketch> --at 0.4,0.6` places the same dot.
+- Grids on a sheet. `isocan area grid Test 5x15 --rows "Ana,Ben,…"` draws rows and columns with names; `--cell 3,4` with `--in` puts a note in one cell; `isocan slides add --in Storyboard` makes the deck from a sheet, in reading order.
+- Areas: a titled sheet you place things on. Draw one from the terminal (`isocan area new "Sketches"`), put things on it (`--in Sketches` on `text`, `add` and `mv`), read it back (`isocan ls --in Sketches`), tidy it (`isocan format --in Sketches`). In the app a sheet lies behind everything, lets your tools through to the canvas, and carries what is on it when you drag it by its name.
+- Back a canvas up: `isocan export --to <dir>` writes its whole history and every file it names to a directory, and `--git <repo>` commits and pushes that to GitHub. Point it at a canvas, at one item, or at a whole home by URL. `isocan import <dir>` brings a backup back, history and timestamps intact.
+- The Text tool keeps what you typed. Typing a note and then choosing a colour, size or face used to lose the words when you clicked away; it no longer does.
+- Changing a note's colour, size or face saves the moment you choose it, as its own undo step — no need to change the words too.
+- Double-clicking text edits it in place: the field sits exactly on the note or caption, transparent, with the words selected, the way renaming works.
+- A new note opens on the paper you chose last, the way it already remembered your size and face.
+- Hover a paper swatch, a size or a face on the text bar and the note you are typing shows it until the pointer leaves; click to keep it.
+- The text bar is bigger, and the sizes are now S, M, L and XL instead of the initials of the step names. Hover one for what it is called and how far out it stays readable; `isocan text --style M` works too, beside `--style heading`.
+- Anything you put somewhere stays there. A note typed next to another, files dropped at the pointer, a paste at a point, `isocan text --at`: each used to be nudged to clear space, and now lands exactly where you put it, like a real post-it. Items placed for you — the rail's file button, `--anchor` — are still kept clear of what is there.
+- **Your bench fills itself.** Every agent you enrol anywhere — `isocan agent add`, `isocan rc add`, or the Add button a parked rc answers — now puts itself on your bench, so the list of agents you have stays true without you curating it. It is best-effort by design: if you have no private canvas yet the enrolment still works, and nothing creates one for you behind your back. Withdrawing an agent from a canvas never takes it off your bench — you still have the agent, which is what a bench is for; `isocan bench rm` is the only thing that removes a row.
+- **`@Name join`, in the Chat.** Typing `@Percy join` on a line of its own brings an agent from your bench onto this canvas, the way `/anatomy` is a command rather than a sentence. It sends exactly what the agents panel's Join sends, and the thread gets one line once it lands — because the canvas is the only channel an agent reads. If the name is not on your bench you are told so, and nobody else is: the refusal is the same sentence whether the agent belongs to somebody else or does not exist, and it is never posted into the thread, so a name nobody recognises cannot be used to go fishing through somebody's private bench.
+- **Your bench.** A standing agent belongs to a canvas; the agents *you have* belong to you. Click your own face and pick **Your bench…**, or run `isocan bench`, for a row per agent: its name, its harness, where it stands, and whether anything could answer for it right now. That last part is measured every time you look and has three answers rather than two — ready, standing somewhere with nothing parked, or nothing present that can run it at all — because a summons into silence used to look exactly like an agent that was thinking. Your bench is your own private canvas, so it follows you between machines instead of dying with the laptop it was made on, and a row on it grants nothing: it enrols nobody, and taking one off withdraws nobody.
+- A version stack can be pruned. An item a script republishes on every commit grows a stack nobody compares — ×149 by the end of a fortnight — and every one of those versions rode along on every load of the canvas. `isocan version prune <item> --keep 14 --force` keeps the newest fourteen (the one on top always survives, however old), `isocan gc --keep-versions 14 --force` does it for every item before reclaiming storage, and fanning out a stack deeper than fourteen offers the same with a confirm. It is not undoable, and every surface says so before it does it.
+
+## 1 September 2026
+
+- Run a design sprint on a canvas: type `/sprint` in the Chat and an agent facilitates — people and agents sketch as peers, one named person decides. A clock chip shows the phase and the time left; votes are reactions, hidden until the bell; `isocan sprint` prints the same clock from the terminal and `isocan sprint tally` shows human and agent dots apart.
+- Post-its: pick a paper colour on the Text tool (or `isocan text "…" --paper yellow`) and the words become a square note. A post-it is still a text node — undo, versions, `#Title` and agents all work on it unchanged — and the composer wears the paper while you type, so what you see is what lands.
+- Your face mark can be set from the terminal too: `isocan identity --mark ⚓`, mirroring `--color`. The mark now rides on your cursor as well as your face.
+- A canvas can move home: `isocan teleport <canvas> --to <home>`, with `--dry-run` to see what would travel. The history goes with it; names and marks do not, and the command says so.
+- Being the same person on a second machine: the canvas door now shows who this browser may become once your address is proved, a taken name tells you the remedy in a sentence with a button, and two identities that turned out to be one person can be folded into one (`isocan identity --join <id>`, or "Fold into…" in the identity menu).
+- An agent starting a fresh conversation can come back as itself with `isocan identity --as` straight away, instead of being refused for half an hour.
+- One agent, one name, many canvases: an agent this machine already answers for can be enrolled on another canvas (`isocan rc add --canvas <ref> <name>`) and it is the same agent there — one history, one identity. A summons now tells the agent which canvas it is for, so an agent enrolled from one directory can answer on several.
+- Rename offers itself only when the name has actually changed.
+- A canvas tab that said "live" while nothing moved: this happened when the home was being updated underneath it, and it now fixes itself within a heartbeat instead of needing a reload.
+
+
+## 31 August 2026
+
+- Mark items as slides and press Enter: full screen flips through them with arrows, like a deck. Share the first slide's link and that is the presentation.
+- Select as many screens as you like and make them all slides at once. The ones already in the deck are left alone, and one undo takes the whole thing back.
+- Slides are outlined on the canvas, so you can see which of forty screens are in the deck without opening any of them.
+- Presenting is quieter: after a few still seconds every bar fades away and the slide is the only thing on the screen. Move the mouse and they come back. Typing keeps them up, so writing is never interrupted.
+- Full screen no longer offers the editor. It is for showing work; the workbench is for changing it.
+- Moving between slides fades from one to the next, and a slide you have already seen does not load again — so no white flash between screens, and no fonts arriving late and shifting everything as they land.
+- The link can now be view-only: anyone with the address sees the slides and can change nothing. Flip it in the Share dialog ("Can view") or with `isocan share --link view`.
+- Only the person who made a canvas can change what its link allows. Before, anyone who could edit could make the link view-only — including themselves, leaving nobody able to undo it. Share and `isocan share` now both say whose canvas it is.
+- Viewers are not asked for a name — they land straight on the presentation.
+- Select the words of a comment and press ⌘C and you get the words. It used to copy the item behind them.
+- A reply in a thread can be more than one line now: Enter sends, Shift+Enter starts a new line, the same as the Chat.
+- The emoji picker knows 578 marks instead of 178 — flags, food, travel, animals — and finds a country by its name or its two-letter code.
+- An emoji you pick appears everywhere your face is drawn, straight away, instead of on the next reload.
+- Bringing back an older version of a file now tells you which file on disk it left behind. Saving that file no longer warns that somebody else changed it when it is only a version behind — that warning is kept for when somebody really did.
+
+## 29 August 2026
+
+- Personas: give an agent a name, a model and a brief, and it keeps them across sessions.
+- Your CLI tells you when it is older than the canvas it is talking to, instead of quietly disagreeing.
+- Panning and zooming a busy canvas is about three times smoother.
+
+
+## 28 August 2026
+
+- The side panel floats over the canvas instead of shoving it aside, so nothing jumps when you open it.
+- Copy and paste works on the canvas, on both the app and the terminal.
+- Closing the panel leaves a slim strip showing who is here and what is unread.
+- Full screen now fades the chrome away after a few still seconds, so a canvas can be presented from.
+
+
+## 27 August 2026
+
+- Browse for a folder instead of typing its path from memory.
+
+
+## 26 August 2026
+
+- Read the whole history of a canvas, including the parts old enough to have been packed away.
+- Edit the text of a screen in place, without opening its source.
+- Every canvas has a Chat, and everything else is a comment.
+- Attach a folder on your machine to a canvas, from the app.
+
+
+## 25 August 2026
+
+- isocan.io is live: canvases hosted, with nothing to install to open one.
+- React to anything with an emoji, and find things by what people marked.
+- Full screen, for presenting a canvas rather than working in it.
+
+
+## 24 August 2026
+
+- Turning a share link off now removes the people it let in, not just future arrivals.
+- Prove an email address and a second browser becomes the same you — no account, no password.
+
+
+## 23 August 2026
+
+- Share a canvas by sending a link.
+- A viewer for a design system, drawn as itself rather than described in text.
+
+
+## 22 August 2026
+
+- Cursors say who they belong to, so a busy canvas reads as people rather than arrows.
+- The colours across the app were audited for legibility on both themes.
+
+
+## 21 August 2026
+
+- Type `/` in any message to ask an agent for work — `/format`, `/variation` and more.
+- `/format` tidies the whole canvas in one step, and one undo puts it back.
+- A shortcut list, so the keyboard is discoverable rather than folklore.
+
+
+## 20 August 2026
+
+- Scribble over part of a screen to point at it — the mark sticks to the thing, even when it moves or resizes.
+- Attach files to a canvas, and see real thumbnails instead of placeholders.
+- Star the things you want to find again.
+
+
+## 19 August 2026
+
+- Everything you can do by hand in the app you can now ask for from the terminal.
+
+
+## 18 August 2026
+
+- Draw straight on the canvas with the Pen, in your own colour.
+- Arrows at the edge of the screen point to work that is off view.
+- A minimap you can fold away, and renaming anything in place.
+
+
+## 17 August 2026
+
+- Name yourself once and the name follows you everywhere on the canvas.
+- A tool rail down the side, and a Zoom tool for getting into detail.
+- ⌘K opens a launcher for anything the canvas can do.
+
+
+## 16 August 2026
+
+- One command installs isocan and puts you on a canvas.
+- Light and dark themes, following your system by default.
+- Two people can share one machine without wearing each other's name.
+
+
+## 15 August 2026
+
+- The canvas works from a browser or a terminal — the same board, live, either way.
+- Undo takes back what YOU did, not whatever happened most recently.
+- Leave comments on anything on the canvas.

@@ -1,0 +1,258 @@
+# Every commit on main becomes a build on `release` — the branch installs come
+# from (`github:dglazkov/isocan#release`). A change nobody releases is a change
+# nobody can install, and remembering to run `npm run release` by hand is a
+# thing to forget; scripts/release.mjs explains why the branch has to exist.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The branch is pushed, never force-pushed, so two runs racing would leave the
+# second one non-fast-forward. Queue them rather than cancel: every commit gets
+# its release, in order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the release branch and advance `green`
+  #
+  # **Do not add `actions: write` here hoping to fix a workflow-file
+  # rejection.** On 29 Aug both pushes from this job were rejected with
+  # "refusing to allow a GitHub App to create or update workflow
+  # `.github/workflows/grade.yml` without `workflows` permission" on the commit
+  # that added that file. `workflows` is a PAT scope with no `permissions:` key
+  # behind it, so nothing in this block grants it; `actions: write` looks like
+  # the fix and is not.
+  #
+  # **What is NOT understood, and is written down as not understood:** the very
+  # next run pushed the same workflow change to `green` with these same
+  # permissions and was allowed. So the rejection is conditional on something
+  # neither run makes visible — not simply "a workflow file changed". If this
+  # comes back, read the error rather than trusting either story; the step
+  # below now prints exactly what git said.
+  #
+  # The `release` branch no longer carries `.github/` at all. That side IS
+  # explained — its tree stopped containing workflow files, so its push stopped
+  # being a workflow change — and it is right on its own terms besides.
+
+jobs:
+  # ---- the gate, in four pieces ----
+  #
+  # **`npm run test:ci` was 82% of a release run**: 14.4 minutes of a 17.6
+  # minute median, measured across the successful runs with
+  # `npm run timings -- --ci`. Everything else in this workflow together was
+  # under a fifth, so this is the only step whose length is worth an argument.
+  #
+  # It is 38 files that spawn the CLI per case plus five hundred that do not,
+  # and none of them need each other — so they shard. `vitest --shard=N/4`
+  # splits by file; measured here with the deep lane on, the four shards take
+  # 55s, 48s, 74s and 73s against 190s whole. That is 2.6x rather than 4x,
+  # because the split is by file COUNT and the files are not equal: the shard
+  # holding `canvas-board` and `dispatch` sets the floor. Said out loud because
+  # the arithmetic is tempting and wrong, and the next person to wonder whether
+  # eight shards would halve it again should know the answer is no — it would
+  # bottom out at the slowest single file, about 75 seconds, and stop.
+  #
+  # `fail-fast: false` so one shard's failure does not hide the other three. A
+  # red shard is a red gate either way; what changes is whether you learn about
+  # one failure or all of them.
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The release commit names two parents by sha; a shallow clone
+          # cannot push a history it does not have.
+          fetch-depth: 0
+
+      # Pure git, and it needs no toolchain — so it runs before the setup
+      # rather than in the middle of it, which is what lets the setup be one
+      # shared thing.
+
+      # Node, Java, the Firestore emulator and `npm ci`. Shared with `pr.yml`
+      # so the two cannot disagree about what `npm test` runs on — see the
+      # action for why that drift is the dangerous kind.
+      - uses: ./.github/actions/suite-setup
+      # A release nobody tested is a release that installs a broken canvas. If
+      # these fail, main keeps its last good release until the next green commit.
+      #
+      # `test:ci` is `vitest run` with every anti-skip switch on. Three suites
+      # here can decide at runtime that they cannot run — the cloud suites
+      # without an emulator, the bundle budget without a built dist, the deep
+      # lane on a laptop — and each skips loudly by design, so a contributor
+      # gets a useful run that says what it did not check. On THIS run a skip
+      # is a failure: it is the run that decides what gets released, and a
+      # green one that left a third of the gate out launders an unknown into a
+      # checkmark. Which switches, and why each, is `scripts/switches.mjs`;
+      # this file deliberately keeps no copy of that list, because the copy in
+      # `pr.yml` and the copy here are exactly what drifts.
+      - run: npm run test:ci -- --shard=${{ matrix.shard }}/4
+
+  # Everything that is not the suite, on its own runner and at the same time.
+  # Around two minutes against the suite's five, so it costs nothing and takes
+  # two things off the critical path.
+  #
+  # **`measure.mjs --selftest` wanted its own machine anyway.** It breaks real
+  # files on purpose and its own header says it must have the tree to itself.
+  # It used to run on the same runner moments after the suite, which was safe
+  # only because the suite had already stopped; here it cannot collide with
+  # anything by construction.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The release commit names two parents by sha; a shallow clone
+          # cannot push a history it does not have.
+          fetch-depth: 0
+
+      # Pure git, and it needs no toolchain — so it runs before the setup
+      # rather than in the middle of it, which is what lets the setup be one
+      # shared thing.
+
+      # Node, Java, the Firestore emulator and `npm ci`. Shared with `pr.yml`
+      # so the two cannot disagree about what `npm test` runs on — see the
+      # action for why that drift is the dangerous kind.
+      - uses: ./.github/actions/suite-setup
+      - run: npm run typecheck
+      # The graders grade themselves. `--selftest` runs every check in
+      # scripts/grade.mjs against a page built to break all of them and fails
+      # if any stays silent — which is exactly how that file shipped its first
+      # version, scoring a page with a stretched image 8/8 because a syntax
+      # error made every reading undefined. The guard existed and nothing
+      # invoked it, which is the same hole one level up.
+      #
+      # **This step was a lie for weeks and nobody could have known.** The
+      # comment here read "Chrome is on the GitHub runner already" — true, at
+      # `/usr/bin/google-chrome`; `grade.mjs` spawned the macOS path, ENOENT'd
+      # on every commit, and `continue-on-error` rendered it a green checkmark.
+      # The graders that exist to stop us believing a silent zero WERE one, in
+      # the exact place we pointed at when we said they were checked. Found by
+      # reading this run's log while wiring the nightly, not by anything here.
+      #
+      # So the flag is gone. `grade.mjs` now finds Chrome wherever it is and
+      # names what it looked for when it cannot, which makes a red step a real
+      # fact about this commit rather than an accident of the runner image.
+      - name: The graders still measure something
+        run: node scripts/grade.mjs --selftest
+
+      # **And the persona metrics.** Every number a persona is judged against
+      # is broken on purpose here and has to move. A goal whose command cannot
+      # fail is a goal that passes forever — which is the same hole as the step
+      # above, one level up, and the reason that step existed while never
+      # actually running.
+      - name: Every persona metric still moves
+        run: node scripts/measure.mjs --selftest
+
+      # The roadmap is a VIEW of each document's front matter. A view that is
+      # allowed to fall behind is the staleness it was built to remove, one
+      # step along — so it is checked rather than trusted.
+      - name: The roadmap is current
+        run: node scripts/roadmap.mjs --check
+
+  # The gate having held, the two refs move. `needs` is what makes this a gate
+  # rather than a race: nothing here runs until every shard and every check is
+  # green, which is the property the single job used to get for free by being
+  # single.
+  publish:
+    runs-on: ubuntu-latest
+    needs: [suite, checks]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The release commit names two parents by sha; a shallow clone
+          # cannot push a history it does not have.
+          fetch-depth: 0
+
+      # Pure git, and it needs no toolchain — so it runs before the setup
+      # rather than in the middle of it, which is what lets the setup be one
+      # shared thing.
+      - name: Fetch the refs the release commit is built from
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --no-tags origin +refs/heads/release:refs/remotes/origin/release \
+            || echo "no release branch yet — this run creates it"
+
+      # Node, Java, the Firestore emulator and `npm ci`. Shared with `pr.yml`
+      # so the two cannot disagree about what `npm test` runs on — see the
+      # action for why that drift is the dangerous kind.
+
+      # Node, Java, the Firestore emulator and `npm ci`. Shared with `pr.yml`
+      # so the two cannot disagree about what `npm test` runs on — see the
+      # action for why that drift is the dangerous kind.
+      - uses: ./.github/actions/suite-setup
+      # ---- the gate the dev home deploys behind (phase 10.5) ----
+      #
+      # `green` is a ref that means one thing: **the suite passed on this
+      # commit, with the Firestore emulator required**. Cloud Build's trigger
+      # watches it instead of `main`, so a commit that compiles and does not
+      # boot — or one that boots and fails a test — never reaches
+      # dev.isocan.io at all. Before this, the trigger fired on push to main
+      # and the two pipelines raced: either developer could take down the
+      # other's dogfood home with a commit that was green on their laptop,
+      # which is exactly what local timing hides.
+      #
+      # **Not the `release` branch, still.** That one is REGENERATED content
+      # (scripts/release.mjs builds it), it is what people install from, and
+      # both AGENTS.md and cloudbuild.yaml say it is not a gate and must never
+      # become one. `green` is not content: it is main's own commit, moved
+      # forward, and it exists to be a gate. Three refs, three jobs — main is
+      # the source, `green` is the tested source, `release` is the shipped CLI.
+      #
+      # Placed BEFORE the release publish deliberately. The two pipelines are
+      # independent by design, so a failure to publish the CLI must not also
+      # stop the home from getting a fix.
+      #
+      # `--ff-only` and non-fatal. Runs are queued in order by the concurrency
+      # group above, so the ordinary case fast-forwards. A refusal means green
+      # already points at something this commit is not an ancestor of, which is
+      # a re-run of an older commit — and quietly dragging the deployed home
+      # BACKWARDS is the one outcome worth failing to avoid. It logs and moves
+      # on rather than failing the run, because the release below is still
+      # owed.
+      - name: Advance `green` — what the dev home is allowed to deploy
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # A plain push already refuses a non-fast-forward, which IS the
+          # guard — no --force anything, deliberately.
+          #
+          # **The else branch used to state a cause it had not checked**, and
+          # got it wrong the first time it mattered: the push was rejected for
+          # a missing `workflows` permission and this printed "an out-of-order
+          # or re-run build" with complete confidence, as a WARNING, leaving the
+          # step green. A step that fails, reports success, and explains itself
+          # incorrectly is worse than one that simply fails.
+          #
+          # So the reason is now whatever git actually said, and only the
+          # non-fast-forward — the one case this genuinely knows and genuinely
+          # tolerates — stays a warning. Everything else fails the job.
+          if git push origin "${GITHUB_SHA}:refs/heads/green" 2>/tmp/green.err; then
+            echo "green -> ${GITHUB_SHA}; dev deploys this commit."
+          elif grep -q "workflow" /tmp/green.err; then
+            cat /tmp/green.err
+            echo "::error::green could not be advanced to ${GITHUB_SHA}: git refused the push over a workflow file. Seen once on 29 Aug and NOT reproduced on the next run with identical permissions, so do not assume a cause — read the git output above. Advancing by hand works: git push origin ${GITHUB_SHA}:green"
+            exit 1
+          elif grep -q "non-fast-forward\|fetch first\|not an ancestor" /tmp/green.err; then
+            cat /tmp/green.err
+            echo "::warning::green was not fast-forwarded to ${GITHUB_SHA}: it already points at something this commit is not an ancestor of — an out-of-order or re-run build. The deployed home stays where it is rather than moving backwards."
+          else
+            cat /tmp/green.err
+            echo "::error::green could not be advanced to ${GITHUB_SHA}, and not because of ordering. The reason git gave is above."
+            exit 1
+          fi
+      - name: Build and publish the release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm run release

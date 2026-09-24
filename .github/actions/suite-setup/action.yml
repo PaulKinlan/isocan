@@ -1,0 +1,54 @@
+name: suite setup
+description: >
+  Node, Java, the Firestore emulator and `npm ci` — everything `npm test` needs
+  before it can tell the truth, in one place so two workflows cannot disagree
+  about it.
+
+# **Why this exists, and why it is a composite action rather than a reusable
+# workflow.**
+#
+# `release.yml` (push to main) and `pr.yml` (pull requests) run the same suite
+# and must run it the same way. Duplicating the toolchain across both invites
+# the one drift that matters: `release.yml` changes something, `pr.yml` does
+# not follow, and PRs stay green while main goes red — a check that passes
+# without testing what it claims to, which is exactly the failure `pr.yml` was
+# added to prevent (lessons.md #30).
+#
+# A reusable workflow (`workflow_call`) is invoked at JOB level, and jobs get
+# separate runners and separate filesystems — so `release.yml` could not call
+# one for setup and then carry on with its own release steps in the same tree.
+# A composite action drops into the middle of an existing job, which is what
+# sharing STEPS requires.
+#
+# **Checkout is deliberately NOT here.** The two callers need different ones:
+# `release.yml` needs `fetch-depth: 0` because the release commit names two
+# parents by sha and a shallow clone cannot push a history it does not have,
+# while a PR run wants the cheap default. A shared step with a flag that only
+# one caller sets is not shared, it is two steps wearing one name.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 24
+        cache: npm
+
+    # The Firestore emulator is a JAR and it refuses anything below 21 — "The
+    # java executable on your PATH is not a Java 21+ JRE". The runner image
+    # ships a JDK, and which one is not ours to assume; pin it.
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: "21"
+
+    # `ubuntu-latest` MAY ship the Google Cloud CLI, and "may" is exactly the
+    # wrong foundation here: the failure mode is a silent skip of the cloud
+    # suites — on the branch everybody installs from, and on the check that
+    # decides whether a pull request looks safe.
+    - uses: google-github-actions/setup-gcloud@v3
+      with:
+        install_components: cloud-firestore-emulator
+
+    - run: npm ci
+      shell: bash

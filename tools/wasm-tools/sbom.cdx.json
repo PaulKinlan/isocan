@@ -1,0 +1,8 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "components": [
+    { "type": "file", "name": "tools/wasm-tools/sha256.c", "hashes": [{ "alg": "SHA-256", "content": "SEE-BUILD" }], "notes": "hand-written SHA-256, pure, no imports" },
+    { "type": "library", "name": "clang", "version": "22.1.8", "notes": "wasm32 freestanding codegen only; no runtime linked" }
+  ]
+}

@@ -1,0 +1,1 @@
+../../.agents/personas/market-researcher.md

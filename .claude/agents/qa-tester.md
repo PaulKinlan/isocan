@@ -1,0 +1,1 @@
+../../.agents/personas/qa-tester.md

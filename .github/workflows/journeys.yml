@@ -1,0 +1,118 @@
+# The journeys — the app, opened and used.
+#
+# **Nightly, not on every push, and that is a cost decision made on purpose.**
+# This boots a daemon and drives a headless browser through the real app: about
+# ninety seconds, against a suite that answers in one. The value is not in
+# catching a regression the minute it lands — `review.yml` does that for
+# everything mechanical — it is in catching the class of bug the whole suite is
+# blind to, which does not need to be caught within the minute.
+#
+# **It does not gate anything**, for the same reason `review.yml` does not: a
+# check that goes red on a push is a check somebody turns off, and a browser
+# walk has more ways to go red than a unit test. `release.yml` remains the gate;
+# this is the notice, and it says which journey and why.
+#
+# **But a failing journey turns THIS run red** (11 Sep 2026). The notice used to
+# be a commit comment under a green tick, and `text-tool` failed on 9, 10 and
+# 11 Sep that way: three comments on three commits, a run list of green, and
+# nobody looked. A run that measured a failure and reported success is the
+# failure mode `test/journeys.test.ts` opens by naming. A red scheduled run
+# still gates nothing (no branch requires it, and it never runs on a push), so
+# the reason above does not reach it; what it adds is the one notice GitHub
+# delivers on its own. The alternative — a goal for the journeys persona, so a
+# failure became a finding in the review queue — is refused by
+# `test/journeys.test.ts`, because `ratchet.mjs` measures every goal on every
+# push, and a ninety-second walk per commit is the cost this file exists to
+# avoid.
+name: journeys
+
+on:
+  schedule:
+    # 07:17 UTC nightly — an hour before the grades and ninety minutes before
+    # the personas, so a slow browser walk never races them.
+    #
+    # It was Mondays. Weekly was chosen when this was new and expensive, and
+    # the cost of that showed up in the note's own words: a weekly walk means
+    # up to SEVEN DAYS before a screen that stopped working is noticed, and
+    # `idle-at-rest` was already "no" for two days in September while 3,700
+    # tests stayed green. Nightly on 8 Sep 2026, at Dion's call.
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "One journey by name. Blank = all of them."
+        required: false
+
+concurrency:
+  group: journeys
+  cancel-in-progress: false
+
+permissions:
+  contents: write # to comment on the commit it walked
+
+jobs:
+  walk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # The journeys drive the BUILT app, which is the only version anybody
+      # ever uses. Walking a dev server would be walking something else.
+      - run: npm run build
+
+      # Proves the runner can report a failure before believing it when it
+      # reports none — the shape of every silent-zero this repo has had.
+      - name: The runner can fail
+        run: node scripts/journeys.mjs --selftest
+
+      - name: Walk them
+        id: walk
+        env:
+          JOURNEY_ONLY: ${{ inputs.only }}
+        run: |
+          args=()
+          if [ -n "$JOURNEY_ONLY" ]; then args+=(--only "$JOURNEY_ONLY"); fi
+          # Keep the exit status: boot/teardown errors need not print FAIL.
+          # The walk stays advisory, but a broken runner must still be reported.
+          status=0
+          OUT=$(node scripts/journeys.mjs "${args[@]}" 2>&1) || status=$?
+          echo "$OUT"
+          printf '%s\nRunner exit status: %s\n' "$OUT" "$status" > "$RUNNER_TEMP/journeys.txt"
+          if [ "$status" -ne 0 ] || grep -q "^FAIL" <<< "$OUT"; then
+            echo "failing=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "failing=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Say so, on the commit it walked
+        if: steps.walk.outputs.failing == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "**The journey run needs attention.**"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/journeys.txt"
+            echo '```'
+            echo
+            echo "---"
+            echo "Reproduce with \`node scripts/journeys.mjs --only <name>\`. Before reporting a bug, check whether the harness caused it: a headless page throttles rAF and timers, and synthetic pointer events are untrusted — see the rule in \`.agents/personas/journeys.md\`."
+            echo
+            echo "Nothing is blocked: \`release.yml\` is the gate, this is the notice."
+          } > /tmp/comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -f body="$(cat /tmp/comment.md)"
+
+      # Last, so the comment above is always written first. A failing journey
+      # is a red run, not a green one with a note attached — see the header.
+      - name: A failing journey fails the run
+        if: steps.walk.outputs.failing == 'yes'
+        run: |
+          cat "$RUNNER_TEMP/journeys.txt"
+          echo "::error title=journeys::a journey failed — the walk above says which, and the commit comment says how to reproduce it"
+          exit 1

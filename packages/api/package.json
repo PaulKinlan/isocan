@@ -1,0 +1,31 @@
+{
+  "name": "@isocan/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./context": "./src/context-reader.ts",
+    "./design-audit": "./src/design-audit-reader.ts",
+    "./questionnaire": "./src/questionnaire-reader.ts",
+    "./design-request": "./src/design-request-reader.ts",
+    "./routes": "./src/routes.ts",
+    "./design-system": "./src/design-system-reader.ts",
+    "./design-recipes": "./src/design-recipes.ts",
+    "./design-decision": "./src/design-decision-reader.ts",
+    "./design-review": "./src/design-review.ts",
+    "./design-repair": "./src/design-repair-reader.ts",
+    "./design-craft": "./src/design-craft-reader.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@isocan/core": "*",
+    "@isocan/server": "*",
+    "undici": "^7.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1"
+  }
+}
