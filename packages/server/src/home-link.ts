@@ -195,6 +195,12 @@ const DIAL_STUCK_MS = 30_000;
  */
 export class HomeUnreachableError extends Error {
   readonly code = "home-unreachable";
+  /** Which home was unreachable. Kept rather than only interpolated into the
+   *  message: the delivery ledger records it, and a reader of that ledger must
+   *  not have to parse prose to find out which machine this was about. */
+  readonly homeUrl: string;
+  /** Why it could not be reached, as the caller's error reported it. */
+  readonly cause: string;
   constructor(homeUrl: string, cause: string) {
     // **Which home**, since phase 10.3, and the wording changed with it: it
     // used to open "this daemon is a replica of X", which was true when a
@@ -208,6 +214,8 @@ export class HomeUnreachableError extends Error {
         "unaffected. Offline writes are queued in the browser (phase 10) and at " +
         "birth (phase 13); a replica's CLI writes are not.",
     );
+    this.homeUrl = homeUrl;
+    this.cause = cause;
     this.name = "HomeUnreachableError";
   }
 }

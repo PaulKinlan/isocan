@@ -293,6 +293,7 @@ import {
 import { PresenceHub, SESSION_TTL_MS } from "./presence.ts";
 import { buildRoot, buildStamp } from "./build.ts";
 import { HomeRefusedError, HomeUnreachableError } from "./home-link.ts";
+import { canvasIdFromUrl, recordDeliveryLoss } from "./delivery-ledger.ts";
 import type { HomeLinks } from "./home-links.ts";
 import type { ParkCursors } from "./park.ts";
 import { DocRefusal, fetchGoogleDoc, type GoogleToken } from "./google.ts";
@@ -948,6 +949,18 @@ export function registerRoutes(
     // because a queue with no durability and no ordering story is the half-
     // built machinery phases 10 and 13 exist to do properly.
     if (err instanceof HomeUnreachableError) {
+      /* The record, at the one place every attempt-and-loss passes through.
+         The answer is already in the message ("the write was NOT made"), and
+         it is transient — which is exactly why this exists: a person asking
+         tomorrow whether their edit landed needs something that outlives this
+         process. See delivery-ledger.ts for why this is not an oplog field. */
+      recordDeliveryLoss({
+        at: new Date().toISOString(),
+        canvasId: canvasIdFromUrl(_req.url),
+        homeUrl: err.homeUrl,
+        cause: err.cause,
+        outcome: "not-made",
+      });
       return reply.status(503).send({ error: err.message, code: err.code });
     }
     // Fastify's OWN refusals, restored to the 4xx they already are.
